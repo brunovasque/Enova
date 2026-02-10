@@ -8794,6 +8794,36 @@ case "aguardando_retorno_correspondente": {
 
   const txt = (userText || "").trim();
 
+  // ✅ Anti-loop: se o usuário mandar "oi" (ou reset) enquanto está aguardando status,
+  // volta pro início em vez de ficar pedindo *status* infinitamente.
+  const nt = normalizeText(txt);
+
+  const isResetCmd = /^(reset|reiniciar|recomecar|recomeçar|do zero|nova analise|nova análise)\b/i.test(nt);
+  const saudacao   = /^(oi|ola|olá|bom dia|boa tarde|boa noite)\b/i.test(nt);
+
+  if (isResetCmd || saudacao) {
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "inicio_programa",
+      severity: "info",
+      message: "Anti-loop: saudacao/reset em aguardando_retorno_correspondente → inicio_programa"
+    });
+
+    return step(
+      env,
+      st,
+      [
+        "Oi! Tudo bem? 😊",
+        "Vamos começar do início rapidinho:",
+        "Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique?",
+        "Responde com *sim* (já sei) ou *não* (quero que explique)."
+      ],
+      "inicio_programa"
+    );
+  }
+
   // ======================================================
   // 1 — Extrair possíveis nomes e status via regex
   // ======================================================

@@ -1,0 +1,6 @@
+name = "nv-enova"
+main = "Enova worker.js"
+compatibility_date = "2025-01-01"
+
+[env.test]
+name = "nv-enova-test"

@@ -2,7 +2,7 @@ name: Deploy nv-enova (Wrangler)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
   workflow_dispatch:
 
 concurrency:
@@ -33,7 +33,7 @@ jobs:
           test -f "Enova worker.js" || (echo "MISSING: Enova worker.js" && exit 1)
           test -f "Enova worker.txt" && (echo "ERROR: Enova worker.txt should not exist" && exit 1) || true
 
-          - name: Check CLOUDFLARE_API_TOKEN is injected (no leak)
+      - name: Check CLOUDFLARE_API_TOKEN is injected (no leak)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
@@ -71,6 +71,16 @@ jobs:
           ls -la
           test -f "Enova worker.js" || (echo "MISSING: Enova worker.js" && exit 1)
           test -f "Enova worker.txt" && (echo "ERROR: Enova worker.txt should not exist" && exit 1) || true
+
+      - name: Check CLOUDFLARE_API_TOKEN is injected (no leak)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "MISSING: CLOUDFLARE_API_TOKEN"
+            exit 1
+          fi
+          echo "OK: token present (len=${#CLOUDFLARE_API_TOKEN})"
 
       - name: Deploy TEST
         env:

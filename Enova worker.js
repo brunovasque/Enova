@@ -4847,7 +4847,7 @@ case "somar_renda_solteiro": {
     }
   });
 
-  const sozinho = /(s[oó] minha|s[oó] eu|apenas eu|s[oó] com a minha renda|somente eu|só eu)/i.test(t);
+  const sozinho = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas eu|somente eu|s[oó]\s+com\s+a\s+minha\s+renda)/i.test(t);
   const parceiro = /(parceir|namorad|companheir|meu boy|minha girl|minha esposa|minha mulher|meu marido)/i.test(t);
   const familiar = /(m[aã]e|pai|irm[aã]o|irm[aã]|tia|tio|primo|prima|av[oó]|sobrinh|fam[ií]li|parent)/i.test(t);
 
@@ -6777,7 +6777,7 @@ case "interpretar_composicao": {
 
   const parceiro = /(parceir|namorad|espos|marid|mulher|boy|girl)/i.test(t);
   const familia  = /(pai|m[aã]e|mae|irm[aã]|av[oó]|tia|tio|primo|prima|famil)/i.test(t);
-  const sozinho  = /(s[oó]\s?eu|solo|sozinh)/i.test(t);
+  const sozinho  = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas eu|somente eu|solo|sozinh)/i.test(t);
 
   // ============================================================
   // OPÇÃO 1 — COMPOR COM PARCEIRO(A)
@@ -6907,7 +6907,7 @@ case "quem_pode_somar": {
 
   const parceiro = /(parceir|namorad|espos|marid|mulher|boy|girl)/i.test(t);
   const familia  = /(pai|m[aã]e|mae|irm[aã]|av[oó]|tia|tio|primo|prima|famil)/i.test(t);
-  const sozinho  = /(sozinh|s[oó]\s?eu)/i.test(t);
+  const sozinho  = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas eu|somente eu|solo|sozinh)/i.test(t);
 
   // ============================================================
   // OPÇÃO — PARCEIRO(A)

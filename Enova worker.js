@@ -3413,7 +3413,13 @@ if (isReset) {
   }
 
   // 2) Loop por repetição de mensagem (cliente mandando igual na sequência)
-  if (st.last_user_text && st.last_user_text === userText) {
+  // ⚠️ Exceção: saudações e comandos de reset NÃO entram no bloqueio de repetição
+  const nt = normalizeText(userText || "");
+  const isGreeting = /^(oi|ola|olá|bom dia|boa tarde|boa noite)\b/i.test(nt);
+  const isResetCmd = /^(reset|reiniciar|recomecar|recomeçar|do zero|nova analise|nova análise)\b/i.test(nt);
+
+  // Usa last_processed_text (porque é o que o código já grava no DB)
+  if (!isGreeting && !isResetCmd && st.last_processed_text && st.last_processed_text === userText) {
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "loop_message_detected",

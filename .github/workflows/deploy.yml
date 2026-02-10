@@ -51,7 +51,7 @@ jobs:
 
       - name: Deploy PROD (verbose)
         run: |
-          WRANGLER_LOG=debug wrangler deploy --config wrangler.toml
+          WRANGLER_LOG=debug wrangler deploy --config wrangler.toml --keep-vars
 
   deploy-test:
     if: github.event_name == 'workflow_dispatch'
@@ -78,4 +78,4 @@ jobs:
 
       - name: Deploy TEST (verbose)
         run: |
-          WRANGLER_LOG=debug wrangler deploy --config wrangler.toml --env test
+          WRANGLER_LOG=debug wrangler deploy --config wrangler.toml --env test --keep-vars

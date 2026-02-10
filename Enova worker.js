@@ -4847,7 +4847,7 @@ case "somar_renda_solteiro": {
     }
   });
 
-  const sozinho = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas eu|somente eu|s[oó]\s+com\s+a\s+minha\s+renda)/i.test(t);
+  const sozinho = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas\s+eu|somente\s+eu|s[oó]\s+com\s+a\s+minha(\s+renda)?)/i.test(t);
   const parceiro = /(parceir|namorad|companheir|meu boy|minha girl|minha esposa|minha mulher|meu marido)/i.test(t);
   const familiar = /(m[aã]e|pai|irm[aã]o|irm[aã]|tia|tio|primo|prima|av[oó]|sobrinh|fam[ií]li|parent)/i.test(t);
 

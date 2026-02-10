@@ -1363,16 +1363,6 @@ if (msg && type !== "text" && type !== "interactive") {
     }
 
     // ============================================================
-    // 1.1) ATUALIZA last_user_text (base + memória)
-    //      → isso é o que alimenta o BLOCO D anti-loop
-    // ============================================================
-    await upsertState(env, waId, {
-      last_user_text: userText,
-      updated_at: new Date().toISOString()
-    });
-    st.last_user_text = userText;
-
-    // ============================================================
     // TELEMETRIA DE ENTRADA — AGORA COM STAGE REAL
     // ============================================================
     await telemetry(env, {
@@ -3393,51 +3383,53 @@ if (isReset) {
   // ============================================================
 
   // 1) Webhook duplicado (mesmo texto que já foi processado)
-  if (st.last_processed_text && st.last_processed_text === userText) {
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "duplicate_webhook",
-      stage,
-      severity: "warning",
-      message: "Webhook duplicado detectado — processamento BLOQUEADO",
-      details: {
-        last_processed_text: st.last_processed_text,
-        current_text: userText
-      }
-    });
-
-    // 🚫 CORTE CIRÚRGICO:
-    // Já processamos exatamente esse texto na última mensagem.
-    // Não vamos rodar o funil de novo nem responder outra vez.
-    return;
-  }
-
-  // 2) Loop por repetição de mensagem (cliente mandando igual na sequência)
-  // ⚠️ Exceção: saudações e comandos de reset NÃO entram no bloqueio de repetição
-  const nt = normalizeText(userText || "");
-  const isGreeting = /^(oi|ola|olá|bom dia|boa tarde|boa noite)\b/i.test(nt);
-  const isResetCmd = /^(reset|reiniciar|recomecar|recomeçar|do zero|nova analise|nova análise)\b/i.test(nt);
-
-  // Usa last_processed_text (porque é o que o código já grava no DB)
-  if (!isGreeting && !isResetCmd && st.last_processed_text && st.last_processed_text === userText) {
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "loop_message_detected",
-      stage,
-      severity: "warning",
-      message: "Cliente enviou a mesma mensagem repetida — bloqueio de loop"
-    });
-
-    return step(env, st, [
-      "Acho que essa mensagem veio igual à anterior 🤔",
-      "Pode me mandar de outro jeitinho? Só pra eu garantir que entendi certinho."
-    ], stage);
-  }
-
-  // 3) Registrar mensagem atual como a última processada
-  await upsertState(env, st.wa_id, {
-    last_processed_text: userText
+if (st.last_processed_text && st.last_processed_text === userText) {
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "duplicate_webhook",
+    stage,
+    severity: "warning",
+    message: "Webhook duplicado detectado — processamento BLOQUEADO",
+    details: {
+      last_processed_text: st.last_processed_text,
+      current_text: userText
+    }
   });
+
+  // corte: não reprocessa nem responde de novo
+  return;
+}
+
+// 2) Loop por repetição do cliente (comparar com a ÚLTIMA msg do cliente)
+const nt_blockd = normalizeText(userText || "");
+const prev_nt_blockd = normalizeText(st.last_user_text || "");
+
+const isGreeting_blockd = /^(oi|ola|olá|bom dia|boa tarde|boa noite)\b/i.test(nt_blockd);
+const isResetCmd_blockd = /^(reset|reiniciar|recomecar|recomeçar|do zero|nova analise|nova análise)\b/i.test(nt_blockd);
+
+if (!isGreeting_blockd && !isResetCmd_blockd && prev_nt_blockd && prev_nt_blockd === nt_blockd) {
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "loop_message_detected",
+    stage,
+    severity: "warning",
+    message: "Cliente enviou a mesma mensagem repetida — bloqueio de loop"
+  });
+
+  return step(env, st, [
+    "Acho que essa mensagem veio igual à anterior 🤔",
+    "Pode me mandar de outro jeitinho? Só pra eu garantir que entendi certinho."
+  ], stage);
+}
+
+// 3) Registrar mensagem atual como última do cliente + última processada
+await upsertState(env, st.wa_id, {
+  last_user_text: userText,
+  last_processed_text: userText,
+  updated_at: new Date().toISOString()
+});
+st.last_user_text = userText;
+st.last_processed_text = userText;
 
 // ============================================================
 // 🧩 INTERCEPTADOR GLOBAL DE SAUDAÇÃO — EM TODAS AS FASES
@@ -3445,12 +3437,10 @@ if (isReset) {
 const nt_global = normalizeText(userText || "");
 
 // saudacoes comuns
-const isGreeting =
-  /\b(oi+|ola|olá|opa|eae|eai|fala|bom dia|boa tarde|boa noite)\b/.test(
-    nt_global
-  );
+const isGreeting_global =
+  /\b(oi+|ola|olá|opa|eae|eai|fala|bom dia|boa tarde|boa noite)\b/.test(nt_global);
 
-if (isGreeting) {
+if (isGreeting_global && stage !== "inicio" && stage !== "inicio_programa") {
   const faseReal = st.fase_conversa || "inicio_programa";
 
   await funnelTelemetry(env, {
@@ -3475,7 +3465,7 @@ if (isGreeting) {
       "Oi! 😊 Tudo bem?",
       "Podemos continuar exatamente de onde paramos."
     ],
-    faseReal // <-- RETOMA AQUI, NÃO NO INÍCIO
+    faseReal
   );
 }
 

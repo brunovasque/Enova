@@ -830,6 +830,11 @@ export default {
     const url = new URL(request.url);
     const pathname = url.pathname;
 
+    // DEBUG: prova de versão do código que está no Git
+    if (pathname === "/__build") {
+      return new Response("BUILD=GIT_FULL_9K", { status: 200 });
+    }
+
     // ---------------------------------------------
     // A8.2 — Validation Engine antes de QUALQUER coisa
     // ---------------------------------------------

@@ -1,0 +1,42 @@
+# Supabase — public tables (schema=public)
+# Total: 38
+# Fonte: query no banco (information_schema / pg_catalog) listando table_schema + table_name
+
+agendamentos
+assinatura_cef
+atendimentos
+chat_history
+chat_history_whatsapp
+chat_logs
+clientesnv_old
+crm_leads
+crm_users
+enavia_brain_modules
+enova_correspondente_queue
+enova_docs
+enova_docs_status
+enova_etapas_log
+enova_faq
+enova_faqs
+enova_incoming_media
+enova_kb
+enova_kv
+enova_log
+enova_logs
+enova_prompts
+enova_prompts_backup_2025_10_08
+enova_prompts_old_backup
+enova_state
+enova_telemetry
+faqs_enova_backup
+indicacoes
+lead_auditoria
+leads_frios
+leads_funil
+leads_unificados
+orchestrator_executions
+orchestrator_flags
+orchestrator_workflows
+pre_analises
+users_roles
+visitas_agendadas

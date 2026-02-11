@@ -136,6 +136,36 @@
   background: #0e151d;
 }
 
+.threadPane {
+  position: relative;
+  overflow: hidden;
+}
+
+.threadWatermark {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  opacity: 0.22;
+}
+
+.threadWatermark::before {
+  content: "";
+  width: min(860px, 86%);
+  height: min(860px, 86%);
+  background: url("/brand/enova-watermark.png") center / contain no-repeat;
+  filter: saturate(1.05);
+}
+
+.threadHeader,
+.messagesArea,
+.threadFooter {
+  position: relative;
+  z-index: 2;
+}
+
 .threadHeader {
   border-bottom: 1px solid #223041;
   padding: 14px 18px;

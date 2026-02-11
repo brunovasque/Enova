@@ -3,7 +3,11 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Enova Panel",
-  description: "Painel administrativo Enova"
+  description: "Painel administrativo Enova",
+  icons: {
+    icon: "/favicon.png",
+    apple: "/apple-touch-icon.png"
+  }
 };
 
 export default function RootLayout({

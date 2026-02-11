@@ -5729,7 +5729,7 @@ case "regime_trabalho": {
       st,
       [
         "Perfeito! 📄",
-        "E qual é a sua **renda líquida mensal** (valor que recebe no holerite)?"
+        "E qual é a sua **renda total mensal** (valor bruto que recebe no holerite)?"
       ],
       "renda"
     );
@@ -5789,7 +5789,7 @@ case "regime_trabalho": {
       st,
       [
         "Perfeito! 👌",
-        "E qual é a sua **renda líquida mensal**?"
+        "E qual é a sua **renda total mensal**?"
       ],
       "renda"
     );

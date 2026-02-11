@@ -10,6 +10,9 @@ type Conversation = {
   nome: string | null;
   last_message_text: string | null;
   updated_at: string | null;
+  fase_conversa: string | null;
+  funil_status: string | null;
+  atendimento_manual: boolean;
 };
 
 type ConversationsPayload = {
@@ -66,6 +69,30 @@ function formatDateTime(input: string | null): string {
     dateStyle: "short",
     timeStyle: "short",
   }).format(date);
+}
+
+function getInitial(name: string | null, waId: string): string {
+  const label = (name ?? "").trim();
+
+  if (label) {
+    return label.charAt(0).toUpperCase();
+  }
+
+  const normalizedWaId = waId.replace(/\D/g, "");
+  return (normalizedWaId.charAt(0) || "?").toUpperCase();
+}
+
+function sanitizePreview(text: string | null): string {
+  if (!text) {
+    return "Sem mensagens";
+  }
+
+  return text
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/__(.*?)__/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function ConversationUI() {
@@ -253,12 +280,34 @@ export function ConversationUI() {
                     onClick={() => handleSelectConversation(conversation.wa_id)}
                     className={`${styles.conversationItem} ${isActive ? styles.conversationItemActive : ""}`}
                   >
-                    <div className={styles.itemTopRow}>
-                      <strong className={styles.itemName}>{conversation.nome || "Sem nome"}</strong>
-                      <span className={styles.itemTime}>{formatTime(conversation.updated_at)}</span>
+                    <div className={styles.itemMainRow}>
+                      <div className={styles.avatar} aria-hidden>
+                        {getInitial(conversation.nome, conversation.wa_id)}
+                      </div>
+                      <div className={styles.itemBody}>
+                        <div className={styles.itemTopRow}>
+                          <strong className={styles.itemName}>{conversation.nome || "Sem nome"}</strong>
+                          <span className={styles.itemTime}>{formatTime(conversation.updated_at)}</span>
+                        </div>
+                        <div className={styles.itemWaId}>{conversation.wa_id}</div>
+                        <div className={styles.itemPreview}>{sanitizePreview(conversation.last_message_text)}</div>
+                        <div className={styles.badgesRow}>
+                          {conversation.fase_conversa ? (
+                            <span className={`${styles.badge} ${styles.badgePhase}`}>
+                              {conversation.fase_conversa}
+                            </span>
+                          ) : null}
+                          {conversation.funil_status ? (
+                            <span className={`${styles.badge} ${styles.badgeNeutral}`}>
+                              {conversation.funil_status}
+                            </span>
+                          ) : null}
+                          {conversation.atendimento_manual ? (
+                            <span className={`${styles.badge} ${styles.badgeWarn}`}>manual</span>
+                          ) : null}
+                        </div>
+                      </div>
                     </div>
-                    <div className={styles.itemWaId}>{conversation.wa_id}</div>
-                    <div className={styles.itemPreview}>{conversation.last_message_text || "Sem mensagens"}</div>
                   </button>
                 );
               })
@@ -269,10 +318,30 @@ export function ConversationUI() {
         <section className={styles.threadPane}>
           <header className={styles.threadHeader}>
             {selectedConversation ? (
-              <>
-                <strong>{selectedConversation.nome || "Sem nome"}</strong>
-                <span>{selectedConversation.wa_id}</span>
-              </>
+              <div className={styles.threadHeaderMain}>
+                <div className={styles.threadAvatar} aria-hidden>
+                  {getInitial(selectedConversation.nome, selectedConversation.wa_id)}
+                </div>
+                <div className={styles.threadHeaderText}>
+                  <strong>{selectedConversation.nome || "Sem nome"}</strong>
+                  <span>{selectedConversation.wa_id}</span>
+                </div>
+                <div className={styles.badgesRow}>
+                  {selectedConversation.fase_conversa ? (
+                    <span className={`${styles.badge} ${styles.badgePhase}`}>
+                      {selectedConversation.fase_conversa}
+                    </span>
+                  ) : null}
+                  {selectedConversation.funil_status ? (
+                    <span className={`${styles.badge} ${styles.badgeNeutral}`}>
+                      {selectedConversation.funil_status}
+                    </span>
+                  ) : null}
+                  {selectedConversation.atendimento_manual ? (
+                    <span className={`${styles.badge} ${styles.badgeWarn}`}>manual</span>
+                  ) : null}
+                </div>
+              </div>
             ) : (
               <>
                 <strong>Nenhuma conversa selecionada</strong>

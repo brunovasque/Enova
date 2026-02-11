@@ -66,16 +66,27 @@ async function checkWorker(
       cache: "no-store",
     });
 
-    if (!response.ok) {
-      return {
-        ok: false,
-        status: response.status,
-        error: `worker check failed (${response.status})`,
-      };
+    const responseText = await response.text();
+    let build: unknown;
+
+    if (responseText) {
+      try {
+        build = JSON.parse(responseText);
+      } catch {
+        build = undefined;
+      }
     }
 
-    const build = await response.json();
-    return { ok: true, status: response.status, build, error: null };
+    if (response.ok) {
+      return { ok: true, status: response.status, build, error: null };
+    }
+
+    return {
+      ok: false,
+      status: response.status,
+      build,
+      error: `HTTP_${response.status}`,
+    };
   } catch (error) {
     return {
       ok: false,

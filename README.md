@@ -49,6 +49,7 @@ curl -i -X POST "https://<worker-url>/webhook/meta" \
 Invoke-WebRequest -Method GET "https://<worker-url>/webhook/meta?hub.mode=subscribe&hub.verify_token=<META_VERIFY_TOKEN>&hub.challenge=123"
 
 Invoke-WebRequest -Method POST "https://<worker-url>/webhook/meta" -ContentType "application/json" -Body '{"entry":[]}'
+```
 
 ## Tabelas relevantes no Supabase para funcionamento do Painel
 2.1 enova_state – estado atual da conversa (CANÔNICO)

@@ -25,16 +25,17 @@ async function checkSupabase(
   serviceRoleKey: string,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
-    const response = await fetch(new URL("/sql/v1", supabaseUrl), {
-      method: "POST",
-      headers: {
-        apikey: serviceRoleKey,
-        Authorization: `Bearer ${serviceRoleKey}`,
-        "Content-Type": "application/json",
+    const response = await fetch(
+      new URL("/rest/v1/enova_state?select=*&limit=1", supabaseUrl),
+      {
+        method: "GET",
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+        },
+        cache: "no-store",
       },
-      body: JSON.stringify({ query: "select 1" }),
-      cache: "no-store",
-    });
+    );
 
     if (!response.ok) {
       return { ok: false, error: `supabase query failed (${response.status})` };

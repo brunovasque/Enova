@@ -89,10 +89,18 @@ export async function GET() {
     workerBaseHost: getWorkerBaseHost(process.env.WORKER_BASE_URL),
   };
 
+  const healthJson = (body: HealthResponse, status: number) =>
+    NextResponse.json<HealthResponse>(body, {
+      status,
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    });
+
   const missingEnvs = REQUIRED_ENVS.filter((envName) => !process.env[envName]);
 
   if (missingEnvs.length > 0) {
-    return NextResponse.json<HealthResponse>(
+    return healthJson(
       {
         ok: false,
         db_ok: false,
@@ -100,32 +108,45 @@ export async function GET() {
         env: envInfo,
         error: `missing env: ${missingEnvs.join(", ")}`,
       },
-      { status: 500 },
+      500,
     );
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL as string;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE as string;
-  const workerBaseUrl = process.env.WORKER_BASE_URL as string;
-  const adminKey = process.env.ENOVA_ADMIN_KEY as string;
+  try {
+    const supabaseUrl = process.env.SUPABASE_URL as string;
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE as string;
+    const workerBaseUrl = process.env.WORKER_BASE_URL as string;
+    const adminKey = process.env.ENOVA_ADMIN_KEY as string;
 
-  const [dbResult, workerResult] = await Promise.all([
-    checkSupabase(supabaseUrl, serviceRoleKey),
-    checkWorker(workerBaseUrl, adminKey),
-  ]);
+    const [dbResult, workerResult] = await Promise.all([
+      checkSupabase(supabaseUrl, serviceRoleKey),
+      checkWorker(workerBaseUrl, adminKey),
+    ]);
 
-  const ok = dbResult.ok && workerResult.ok;
-  const error = [dbResult.error, workerResult.error].filter(Boolean).join("; ") || undefined;
+    const ok = dbResult.ok && workerResult.ok;
+    const error = [dbResult.error, workerResult.error].filter(Boolean).join("; ") || undefined;
 
-  return NextResponse.json<HealthResponse>(
-    {
-      ok,
-      db_ok: dbResult.ok,
-      worker_ok: workerResult.ok,
-      env: envInfo,
-      worker_build: workerResult.build,
-      error,
-    },
-    { status: ok ? 200 : 503 },
-  );
+    return healthJson(
+      {
+        ok,
+        db_ok: dbResult.ok,
+        worker_ok: workerResult.ok,
+        env: envInfo,
+        worker_build: workerResult.build,
+        error,
+      },
+      ok ? 200 : 503,
+    );
+  } catch {
+    return healthJson(
+      {
+        ok: false,
+        db_ok: false,
+        worker_ok: false,
+        env: envInfo,
+        error: "health check failed",
+      },
+      500,
+    );
+  }
 }

@@ -321,6 +321,9 @@ async function upsertState(env, wa_id, payload) {
     updated_at: new Date().toISOString()
   };
 
+  // Sanitize: não escrever coluna que não existe no Supabase
+if ("renda_familiar" in patch) delete patch.renda_familiar;
+
   try {
     // 1) Verifica se já existe registro para esse wa_id
     const existing = await getState(env, wa_id);
@@ -1191,13 +1194,19 @@ try {
   const metaStatus =
     body?.entry?.[0]?.changes?.[0]?.value?.statuses?.[0]?.status || null;
 
-  await logEvent(env, {
+  await telemetry(env, {
     wa_id: waId || null,
-    tag: "meta_minimal",
-    meta_type: metaType,
-    meta_text: metaText,
-    meta_message_id: metaMessageId,
-    meta_status: metaStatus
+    event: "meta_minimal",
+    stage: "meta_message",
+    severity: "debug",
+    message: "Log mínimo da Meta",
+    details: {
+      tag: "meta_minimal",
+      meta_type: metaType,
+      meta_text: metaText,
+      meta_message_id: metaMessageId,
+      meta_status: metaStatus
+    }
   });
 } catch (err) {
   console.log("ERRO AO SALVAR LOG MINIMAL DA META:", err);
@@ -4847,7 +4856,7 @@ case "somar_renda_solteiro": {
     }
   });
 
-  const sozinho = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas\s+eu|somente\s+eu|s[oó]\s+com\s+a\s+minha(\s+renda)?)/i.test(t);
+  const sozinho = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas\s+eu|somente\s+eu|s[oó]\s+com\s+(a\s*)?minha(\s+renda)?)/i.test(t);
   const parceiro = /(parceir|namorad|companheir|meu boy|minha girl|minha esposa|minha mulher|meu marido)/i.test(t);
   const familiar = /(m[aã]e|pai|irm[aã]o|irm[aã]|tia|tio|primo|prima|av[oó]|sobrinh|fam[ií]li|parent)/i.test(t);
 

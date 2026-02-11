@@ -75,6 +75,17 @@ async function step(env, st, messages, nextStage) {
     // Envia mensagens uma a uma (delay humano real)
     // ============================================================
     for (const msg of msgs) {
+      await logger(env, {
+        tag: "DECISION_OUTPUT",
+        wa_id: st.wa_id,
+        meta_type: "text",
+        meta_text: msg,
+        details: {
+          stage: st.fase_conversa || null,
+          next_stage: nextStage || null
+        }
+      });
+
       await sendMessage(env, st.wa_id, msg);
 
       // Telemetria por mensagem enviada (modo verbose)
@@ -175,6 +186,16 @@ async function sendMessage(env, wa_id, text) {
       }
     });
 
+    await logger(env, {
+      tag: "SEND_FAIL",
+      wa_id,
+      details: {
+        stage: "sendMessage",
+        error: err?.message || String(err),
+        payload_enviado: payload
+      }
+    });
+
     console.error("Erro sendMessage (network):", err);
     return false;
   }
@@ -198,6 +219,17 @@ async function sendMessage(env, wa_id, text) {
       }
     });
 
+    await logger(env, {
+      tag: "SEND_FAIL",
+      wa_id,
+      details: {
+        stage: "sendMessage",
+        status: res.status,
+        provider_response: textErr,
+        payload_enviado: payload
+      }
+    });
+
     console.error("Erro sendMessage (HTTP):", res.status, textErr);
     return false;
   }
@@ -212,6 +244,44 @@ async function sendMessage(env, wa_id, text) {
     details: {
       payload,
       status: res.status
+    }
+  });
+
+  let providerResponse = null;
+  let providerMessageId = null;
+
+  try {
+    const rawBody = await res.text();
+    if (rawBody) {
+      try {
+        providerResponse = JSON.parse(rawBody);
+      } catch {
+        providerResponse = rawBody;
+      }
+    }
+
+    if (providerResponse && typeof providerResponse === "object") {
+      const firstMessage = Array.isArray(providerResponse.messages)
+        ? providerResponse.messages[0]
+        : null;
+
+      providerMessageId = firstMessage?.id || null;
+    }
+  } catch (parseErr) {
+    providerResponse = {
+      parse_error: parseErr?.message || String(parseErr)
+    };
+  }
+
+  await logger(env, {
+    tag: "SEND_OK",
+    wa_id,
+    details: {
+      stage: "sendMessage",
+      status: res.status,
+      payload_enviado: payload,
+      provider_response: providerResponse,
+      provider_message_id: providerMessageId
     }
   });
 

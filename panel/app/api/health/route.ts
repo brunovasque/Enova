@@ -7,7 +7,13 @@ type HealthResponse = {
   env: {
     hasSupabaseUrl: boolean;
     hasServiceRole: boolean;
+    hasAdminKey: boolean;
     workerBaseHost: string | null;
+  };
+  worker: {
+    endpointTested: "/__admin__/health";
+    status: number | null;
+    error: string | null;
   };
   worker_build?: unknown;
   error?: string;
@@ -50,9 +56,9 @@ async function checkSupabase(
 async function checkWorker(
   workerBaseUrl: string,
   adminKey: string,
-): Promise<{ ok: boolean; build?: unknown; error?: string }> {
+): Promise<{ ok: boolean; status: number | null; build?: unknown; error: string | null }> {
   try {
-    const response = await fetch(new URL("/__build", workerBaseUrl), {
+    const response = await fetch(new URL("/__admin__/health", workerBaseUrl), {
       method: "GET",
       headers: {
         "x-enova-admin-key": adminKey,
@@ -61,13 +67,21 @@ async function checkWorker(
     });
 
     if (!response.ok) {
-      return { ok: false, error: `worker check failed (${response.status})` };
+      return {
+        ok: false,
+        status: response.status,
+        error: `worker check failed (${response.status})`,
+      };
     }
 
     const build = await response.json();
-    return { ok: true, build };
-  } catch {
-    return { ok: false, error: "worker check failed" };
+    return { ok: true, status: response.status, build, error: null };
+  } catch (error) {
+    return {
+      ok: false,
+      status: null,
+      error: error instanceof Error ? error.message : "worker check failed",
+    };
   }
 }
 
@@ -87,6 +101,7 @@ export async function GET() {
   const envInfo = {
     hasSupabaseUrl: Boolean(process.env.SUPABASE_URL),
     hasServiceRole: Boolean(process.env.SUPABASE_SERVICE_ROLE),
+    hasAdminKey: Boolean(process.env.ENOVA_ADMIN_KEY),
     workerBaseHost: getWorkerBaseHost(process.env.WORKER_BASE_URL),
   };
 
@@ -107,6 +122,11 @@ export async function GET() {
         db_ok: false,
         worker_ok: false,
         env: envInfo,
+        worker: {
+          endpointTested: "/__admin__/health",
+          status: null,
+          error: null,
+        },
         error: `missing env: ${missingEnvs.join(", ")}`,
       },
       500,
@@ -133,6 +153,11 @@ export async function GET() {
         db_ok: dbResult.ok,
         worker_ok: workerResult.ok,
         env: envInfo,
+        worker: {
+          endpointTested: "/__admin__/health",
+          status: workerResult.status,
+          error: workerResult.error,
+        },
         worker_build: workerResult.build,
         error,
       },
@@ -145,6 +170,11 @@ export async function GET() {
         db_ok: false,
         worker_ok: false,
         env: envInfo,
+        worker: {
+          endpointTested: "/__admin__/health",
+          status: null,
+          error: null,
+        },
         error: "health check failed",
       },
       500,

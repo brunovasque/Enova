@@ -5,8 +5,7 @@ export const metadata: Metadata = {
   title: "Enova Panel",
   description: "Painel administrativo Enova",
   icons: {
-    icon: "/favicon.png",
-    apple: "/apple-touch-icon.png"
+    icon: "/favicon.png"
   }
 };
 

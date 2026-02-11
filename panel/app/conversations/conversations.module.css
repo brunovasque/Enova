@@ -141,24 +141,29 @@
   overflow: hidden;
 }
 
-/* camada do watermark (fica fora do scroll) */
+/* Watermark (ENOVA) — camada fixa no viewport da thread (não scrolla com mensagens) */
 .threadWatermark {
   position: absolute;
   inset: 0;
+  z-index: 0;
+  pointer-events: none;
+
+  /* garante centro “fixo” no viewport do painel */
   display: flex;
   align-items: center;
   justify-content: center;
-  pointer-events: none;
-  z-index: 0;
 }
 
 .threadWatermark::before {
   content: "";
-  width: min(980px, 78vw);
-  height: min(980px, 78vh);
-  background: url("/brand/enova-watermark.png") center/contain no-repeat;
-  opacity: 0.28;
-  filter: drop-shadow(0 0 18px rgba(0, 0, 0, 0.55));
+  width: min(860px, 88%);
+  height: min(860px, 88%);
+  background-image: url("/brand/enova-watermark.png");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  opacity: 0.30;
+  filter: drop-shadow(0 10px 30px rgba(0, 0, 0, 0.35));
 }
 
 /* garante que UI fica clicável acima */

@@ -75,7 +75,20 @@ async function step(env, st, messages, nextStage) {
     // Envia mensagens uma a uma (delay humano real)
     // ============================================================
     for (const msg of msgs) {
-      await sendMessage(env, st.wa_id, msg);
+      const sendResult = await sendMessage(env, st.wa_id, msg);
+
+      await logConversationMessage(env, {
+        wa_id: st.wa_id,
+        direction: "out",
+        text: msg,
+        ts: new Date().toISOString(),
+        stage: nextStage || st.fase_conversa || "inicio",
+        source: "bot",
+        meta: {
+          provider: sendResult?.provider || "meta",
+          message_id: sendResult?.message_id || null
+        }
+      });
 
       // Telemetria por mensagem enviada (modo verbose)
       if (env.TELEMETRIA_LEVEL === "verbose") {
@@ -202,6 +215,8 @@ async function sendMessage(env, wa_id, text) {
     return false;
   }
 
+  const metaResponse = await res.json().catch(() => ({}));
+
   // SUCESSO — salvar envio
   await telemetry(env, {
     wa_id,
@@ -211,16 +226,181 @@ async function sendMessage(env, wa_id, text) {
     message: "Mensagem enviada com sucesso",
     details: {
       payload,
-      status: res.status
+      status: res.status,
+      metaResponse
     }
   });
 
-  return true;
+  return {
+    ok: true,
+    provider: "meta",
+    status: res.status,
+    message_id: metaResponse?.messages?.[0]?.id || null,
+    raw: metaResponse
+  };
 }
 
 // =============================================================
 // 🧱 A7.1 — MAPEAR ERROS META
 // =============================================================
+
+function jsonResponse(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { "content-type": "application/json" }
+  });
+}
+
+function getAdminAuthStatus(request, env) {
+  const sentKey = request.headers.get("x-enova-admin-key") || "";
+  const validKey = env.ENOVA_ADMIN_KEY || "";
+
+  if (!sentKey || !validKey || sentKey !== validKey) {
+    return false;
+  }
+
+  return true;
+}
+
+async function logConversationMessage(env, payload) {
+  const row = {
+    wa_id: payload.wa_id,
+    direction: payload.direction,
+    text: payload.text || null,
+    ts: payload.ts || new Date().toISOString(),
+    stage: payload.stage || null,
+    source: payload.source || null,
+    meta: payload.meta || {}
+  };
+
+  try {
+    await supabaseInsert(env, "enova_messages", row);
+  } catch (err) {
+    console.error("logConversationMessage error:", err);
+  }
+}
+
+async function getConversationFlags(env, wa_id) {
+  const state = await getState(env, wa_id);
+  if (state) {
+    return {
+      source: "enova_state",
+      row: state,
+      bot_paused: Boolean(state.bot_paused)
+    };
+  }
+
+  const flagsRows = await supabaseSelect(env, "enova_conversation_flags", {
+    columns: "*",
+    filter: { wa_id: `eq.${wa_id}` },
+    single: true
+  }).catch(() => null);
+
+  const row = Array.isArray(flagsRows) ? (flagsRows[0] || null) : null;
+
+  return {
+    source: "enova_conversation_flags",
+    row,
+    bot_paused: Boolean(row?.bot_paused)
+  };
+}
+
+async function upsertConversationPause(env, wa_id, paused, pausedBy = "admin_panel") {
+  const now = new Date().toISOString();
+  const flags = await getConversationFlags(env, wa_id);
+
+  if (flags.source === "enova_state") {
+    await upsertState(env, wa_id, {
+      bot_paused: paused,
+      paused_at: paused ? now : null,
+      paused_by: paused ? pausedBy : null,
+      updated_at: now
+    });
+  } else {
+    const patch = {
+      wa_id,
+      bot_paused: paused,
+      paused_at: paused ? now : null,
+      paused_by: paused ? pausedBy : null,
+      updated_at: now
+    };
+
+    if (flags.row) {
+      await supabaseUpdate(env, "enova_conversation_flags", { wa_id }, patch);
+    } else {
+      await supabaseInsert(env, "enova_conversation_flags", patch);
+    }
+  }
+
+  return now;
+}
+
+async function handleAdminPause(request, env) {
+  const body = await request.json().catch(() => null);
+  const wa_id = body?.wa_id;
+  const paused = Boolean(body?.paused);
+
+  if (!wa_id) {
+    return jsonResponse({ ok: false, error: "BAD_REQUEST", message: "wa_id is required" }, 400);
+  }
+
+  const updatedAt = await upsertConversationPause(env, wa_id, paused, "admin_api");
+
+  return jsonResponse({ ok: true, wa_id, paused, updated_at: updatedAt });
+}
+
+async function handleAdminSend(request, env) {
+  const body = await request.json().catch(() => null);
+  const wa_id = body?.wa_id;
+  const text = typeof body?.text === "string" ? body.text.trim() : "";
+
+  if (!wa_id || !text) {
+    return jsonResponse({ ok: false, error: "BAD_REQUEST", message: "wa_id and text are required" }, 400);
+  }
+
+  const sendResult = await sendMessage(env, wa_id, text);
+
+  if (!sendResult || sendResult.ok !== true) {
+    return jsonResponse({ ok: false, error: "SEND_FAILED" }, 502);
+  }
+
+  const now = new Date().toISOString();
+  await logConversationMessage(env, {
+    wa_id,
+    direction: "out",
+    text,
+    ts: now,
+    stage: "manual_send",
+    source: "manual_panel",
+    meta: { provider: sendResult.provider, message_id: sendResult.message_id }
+  });
+
+  await upsertState(env, wa_id, {
+    last_bot_msg: text,
+    updated_at: now
+  });
+
+  return jsonResponse({
+    ok: true,
+    wa_id,
+    provider: sendResult.provider,
+    message_id: sendResult.message_id,
+    ts: now
+  });
+}
+
+async function handleAdminReset(request, env) {
+  const body = await request.json().catch(() => null);
+  const wa_id = body?.wa_id;
+
+  if (!wa_id) {
+    return jsonResponse({ ok: false, error: "BAD_REQUEST", message: "wa_id is required" }, 400);
+  }
+
+  await resetTotal(env, wa_id);
+  return jsonResponse({ ok: true, wa_id, reset: true });
+}
+
 function mapMetaError(code) {
   switch (code) {
     case 400:
@@ -835,7 +1015,7 @@ export default {
 
     // DEBUG: prova de versão do código que está no Git
     if (pathname === "/__build") {
-      return new Response("BUILD=GIT_FULL_9K", { status: 200 });
+      return jsonResponse({ ok: true, build: "GIT_FULL_9K" });
     }
 
     // ---------------------------------------------
@@ -891,6 +1071,27 @@ export default {
           headers: { "content-type": "application/json" }
         }
       );
+    }
+
+
+    if (pathname.startsWith("/__admin__/")) {
+      if (!getAdminAuthStatus(request, env)) {
+        return jsonResponse({ ok: false, error: "UNAUTHORIZED" }, 401);
+      }
+
+      if (request.method === "POST" && pathname === "/__admin__/pause") {
+        return handleAdminPause(request, env);
+      }
+
+      if (request.method === "POST" && pathname === "/__admin__/send") {
+        return handleAdminSend(request, env);
+      }
+
+      if (request.method === "POST" && pathname === "/__admin__/reset") {
+        return handleAdminReset(request, env);
+      }
+
+      return jsonResponse({ ok: false, error: "NOT_FOUND" }, 404);
     }
 
     // ---------------------------------------------
@@ -1396,6 +1597,30 @@ if (msg && type !== "text" && type !== "interactive") {
         fase_conversa: st?.fase_conversa || "inicio"
       })
     );
+
+    await logConversationMessage(env, {
+      wa_id: waId,
+      direction: "in",
+      text: userText,
+      ts: new Date().toISOString(),
+      stage: st?.fase_conversa || "inicio",
+      source: "meta_webhook",
+      meta: {
+        dedupKey,
+        message_id: messageId,
+        type
+      }
+    });
+
+    await upsertState(env, waId, {
+      last_user_text: userText,
+      updated_at: new Date().toISOString()
+    });
+
+    const flags = await getConversationFlags(env, waId);
+    if (flags.bot_paused) {
+      return jsonResponse({ ok: true, paused: true });
+    }
 
     // ============================================================
     // 2) CHAMADA CORRETA DO FUNIL

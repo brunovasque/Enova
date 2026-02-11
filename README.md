@@ -1,51 +1,82 @@
 # Enova
 
-# BINDINGS
+Worker Cloudflare + painel de atendimento ENOVA (WhatsApp-like dark).
 
-## Secrets (Cloudflare Worker)
-- `CLOUDFLARE_ACCOUNT_ID` (GitHub Actions secret)
-- `CLOUDFLARE_API_TOKEN` (GitHub Actions secret)
-- `WHATS_TOKEN`
-- `SUPABASE_SERVICE_ROLE`
+## Diagnóstico READ-ONLY (estado atual)
 
-## Vars (Worker)
+- Worker principal em `Enova worker.js` (webhook/funil/admin).
+- Deploy do Worker via `.github/workflows/deploy.yml` + `wrangler.toml` (`main = "Enova worker.js"`).
+- Supabase acessado no Worker via proxy (`VERCEL_PROXY_URL`) e no painel por rotas server-side Next.
+
+## Estrutura
+
+- `Enova worker.js`: worker principal (webhook + funil + admin API)
+- `wrangler.toml`: configuração do deploy do worker
+- `.github/workflows/deploy.yml`: pipeline de deploy do worker
+- `supabase/migrations/*`: migrations SQL oficiais v1
+- `panel/`: painel Next.js (dark mode) para inbox/chat/dashboard/health
+- `scripts/smoke-tests.ps1`: smoke tests canônicos PowerShell
+
+## Migrations Supabase (v1)
+
+1. Criar `enova_messages` (timeline completa in/out).
+2. Adicionar flags em `enova_state` (`bot_paused`, `paused_at`, `paused_by`, `human_notes`, `priority`).
+   - Fallback automático: criar `enova_conversation_flags` se `enova_state` não existir.
+
+## Admin API (Worker)
+
+Todas as respostas em JSON.
+Header obrigatório: `x-enova-admin-key: <ENOVA_ADMIN_KEY>`.
+
+- `POST /__admin__/pause` body `{ wa_id, paused }`
+- `POST /__admin__/send` body `{ wa_id, text }`
+- `POST /__admin__/reset` body `{ wa_id }`
+- `GET /__build` retorna `{ ok:true, build:"..." }`
+
+## Variáveis de ambiente
+
+### Worker
 - `META_API_VERSION`
 - `PHONE_NUMBER_ID`
 - `META_VERIFY_TOKEN`
+- `WHATS_TOKEN`
 - `SUPABASE_URL`
-- `ENOVA_DELAY_MS`
-- `TELEMETRIA_LEVEL`
+- `SUPABASE_SERVICE_ROLE`
+- `ENOVA_ADMIN_KEY`
+- `VERCEL_PROXY_URL`
 
-- # CRON
+### Painel (`panel/`)
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE`
+- `WORKER_BASE_URL`
+- `ENOVA_ADMIN_KEY`
 
-## Produção (PROD)
-- Agendamento: `0 12 * * *`
-- Objetivo: follow-up base fria.
+## Rodar painel
 
-## Teste (TEST)
-- Cron desligado.
-
-## Dependência técnica
-- O cron depende do handler `scheduled()` já existente no worker.
-- O `scheduled()` atual apenas loga execução e chama `runColdFollowupBatch()` em modo stub, sem impactar o `fetch()`.
-- A ativação/desativação de cron será feita pela Cloudflare UI (não via `wrangler.toml`).
-
-# SMOKE TESTS
-
-## GET webhook verification (curl)
 ```bash
-curl -i "https://<worker-url>/webhook/meta?hub.mode=subscribe&hub.verify_token=<META_VERIFY_TOKEN>&hub.challenge=123"
+cd panel
+npm install
+npm run dev
 ```
 
-## POST webhook (curl)
-```bash
-curl -i -X POST "https://<worker-url>/webhook/meta" \
-  -H "Content-Type: application/json" \
-  -d '{"entry":[]}'
-```
+## Smoke tests (PowerShell)
 
-## PowerShell
 ```powershell
-Invoke-WebRequest -Method GET "https://<worker-url>/webhook/meta?hub.mode=subscribe&hub.verify_token=<META_VERIFY_TOKEN>&hub.challenge=123"
+./scripts/smoke-tests.ps1 -base "https://nv-enova.brunovasque.workers.dev" -key "SUA_ENOVA_ADMIN_KEY" -wa "554188609297"
+```
 
-Invoke-WebRequest -Method POST "https://<worker-url>/webhook/meta" -ContentType "application/json" -Body '{"entry":[]}'
+## Checklist funcional
+
+- [ ] Inbox em dark mode com horário da última mensagem
+- [ ] Chat com horário em todas as mensagens
+- [ ] Pause=true bloqueia resposta do bot no inbound
+- [ ] Send manual envia e grava na timeline
+- [ ] Resume retoma respostas automáticas
+- [ ] Reset funil reinicia estado da conversa
+
+## Rollback
+
+1. Reverter commit da mudança (`git revert <sha>`).
+2. Reaplicar deploy worker (`wrangler deploy --keep-vars`).
+3. Se necessário, desconsiderar painel (`panel/`) sem impacto no worker atual.
+4. Migrations: em incidente, desabilitar uso no app antes de dropar colunas/tabelas em janela controlada.

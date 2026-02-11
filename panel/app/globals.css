@@ -1,0 +1,33 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body { margin:0; font-family: Inter, Arial, sans-serif; background:#0b141a; color:#d1d7db; }
+button,input,textarea { font: inherit; }
+a { color:#53bdeb; text-decoration:none; }
+.layout { display:grid; grid-template-columns: 340px 1fr 320px; height:100vh; }
+.sidebar { border-right:1px solid #202c33; background:#111b21; overflow:auto; }
+.main { display:flex; flex-direction:column; background:#0b141a; }
+.drawer { border-left:1px solid #202c33; background:#111b21; padding:16px; overflow:auto; }
+.header { padding:14px 16px; border-bottom:1px solid #202c33; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.toolbar { padding:10px; border-bottom:1px solid #202c33; display:flex; flex-direction:column; gap:8px; }
+.conversation { padding:12px 14px; border-bottom:1px solid #202c33; cursor:pointer; }
+.conversation.active { background:#202c33; }
+.row { display:flex; justify-content:space-between; gap:10px; }
+.preview { color:#8696a0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.badges { display:flex; gap:6px; margin-top:6px; flex-wrap:wrap; }
+.badge { background:#233138; color:#e9edef; padding:2px 8px; border-radius:999px; font-size:11px; }
+.timeline { flex:1; overflow:auto; padding:20px; display:flex; flex-direction:column; gap:10px; }
+.day { align-self:center; background:#182229; color:#8696a0; font-size:12px; padding:4px 10px; border-radius:7px; margin:12px 0; }
+.bubble { max-width:70%; padding:8px 10px; border-radius:8px; display:flex; flex-direction:column; gap:4px; }
+.bubble.in { align-self:flex-start; background:#202c33; }
+.bubble.out { align-self:flex-end; background:#005c4b; }
+.time { font-size:11px; color:#b8c5cc; align-self:flex-end; }
+.controls { display:flex; gap:8px; flex-wrap: wrap; }
+.btn { background:#2a3942; color:#d1d7db; border:none; border-radius:6px; padding:8px 12px; cursor:pointer; }
+.btn.primary { background:#00a884; color:#001; font-weight:700; }
+.composer { border-top:1px solid #202c33; padding:12px; display:flex; gap:8px; background:#111b21; }
+.input { width:100%; flex:1; background:#202c33; color:#d1d7db; border:1px solid #2a3942; border-radius:8px; padding:10px; }
+.section { margin-bottom:18px; }
+.section h3 { margin:0 0 8px; font-size:14px; color:#8696a0; text-transform:uppercase; }
+.meta { font-size:13px; color:#aebac1; }
+.dashboard { padding:10px 14px; border-top:1px solid #202c33; display:flex; flex-direction:column; gap:8px; }
+.card { background:#182229; border-radius:8px; padding:10px; margin-top:0; }

@@ -143,7 +143,7 @@
 
 /* Watermark (ENOVA) — fixo no viewport (não acompanha scroll das mensagens) */
 .threadWatermark {
-  position: fixed;
+  position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
@@ -152,9 +152,9 @@
 .threadWatermark::before {
   content: "";
   position: fixed;
-  left: 50%;
   top: 50%;
-  transform: translate(-50%, -50%);
+  left: 50%;
+  transform: translate(calc(-50% + 180px), -50%);
 
   width: min(860px, 88vw);
   height: min(860px, 88vh);

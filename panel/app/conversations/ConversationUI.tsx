@@ -316,6 +316,7 @@ export function ConversationUI() {
         </aside>
 
         <section className={styles.threadPane}>
+          <div className={styles.threadWatermark} aria-hidden="true" />
           <header className={styles.threadHeader}>
             {selectedConversation ? (
               <div className={styles.threadHeaderMain}>

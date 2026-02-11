@@ -11,16 +11,18 @@ type Message = {
 
 type MessagesResponse = {
   ok: boolean;
-  wa_id: string;
+  wa_id: string | null;
   messages: Message[];
   error: string | null;
 };
 
-type ChatHistoryRow = {
+type EnovaLogRow = {
   id?: string | number | null;
-  phone: string | null;
-  message: string | null;
-  source: string | null;
+  wa_id: string | null;
+  tag: string | null;
+  meta_type: string | null;
+  meta_text: string | null;
+  details: unknown;
   created_at: string | null;
 };
 
@@ -33,20 +35,6 @@ const jsonResponse = (body: MessagesResponse, status: number) =>
       "Cache-Control": "no-store",
     },
   });
-
-function inferDirection(source: string | null): "in" | "out" {
-  const normalized = source?.toLowerCase().trim();
-
-  if (!normalized) {
-    return "in";
-  }
-
-  if (normalized.includes("enova") || normalized.includes("bot") || normalized.includes("assistant")) {
-    return "out";
-  }
-
-  return "in";
-}
 
 function parseLimit(rawLimit: string | null): number {
   if (!rawLimit) {
@@ -62,6 +50,29 @@ function parseLimit(rawLimit: string | null): number {
   return Math.min(parsed, 500);
 }
 
+function parseOutgoingText(details: unknown): string | null {
+  if (!details) {
+    return null;
+  }
+
+  try {
+    const parsed = typeof details === "string" ? JSON.parse(details) : details;
+
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+
+    const candidate =
+      (parsed as Record<string, unknown>).reply ??
+      (parsed as Record<string, unknown>).bot_text ??
+      (parsed as Record<string, unknown>).answer;
+
+    return typeof candidate === "string" ? candidate : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const waId = searchParams.get("wa_id")?.trim() ?? "";
@@ -71,9 +82,9 @@ export async function GET(request: Request) {
     return jsonResponse(
       {
         ok: false,
-        wa_id: "",
+        wa_id: null,
         messages: [],
-        error: "wa_id is required",
+        error: "wa_id obrigatório",
       },
       400,
     );
@@ -97,20 +108,24 @@ export async function GET(request: Request) {
     const supabaseUrl = process.env.SUPABASE_URL as string;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE as string;
 
-    const response = await fetch(
-      new URL(
-        `/rest/v1/chat_history_whatsapp?select=id,phone,message,source,created_at&phone=eq.${encodeURIComponent(waId)}&order=created_at.asc&limit=${limit}`,
-        supabaseUrl,
-      ),
-      {
-        method: "GET",
-        headers: {
-          apikey: serviceRoleKey,
-          Authorization: `Bearer ${serviceRoleKey}`,
-        },
-        cache: "no-store",
-      },
+    const endpoint = new URL("/rest/v1/enova_log", supabaseUrl);
+    endpoint.searchParams.set(
+      "select",
+      "id,wa_id,tag,meta_type,meta_text,details,created_at",
     );
+    endpoint.searchParams.set("wa_id", `eq.${waId}`);
+    endpoint.searchParams.set("tag", "in.(meta_minimal,DECISION_OUTPUT,SEND_OK)");
+    endpoint.searchParams.set("order", "created_at.asc");
+    endpoint.searchParams.set("limit", String(limit));
+
+    const response = await fetch(endpoint, {
+      method: "GET",
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+      },
+      cache: "no-store",
+    });
 
     if (!response.ok) {
       return jsonResponse(
@@ -118,23 +133,42 @@ export async function GET(request: Request) {
           ok: false,
           wa_id: waId,
           messages: [],
-          error: `supabase query failed (${response.status})`,
+          error: "failed to load messages",
         },
-        502,
+        500,
       );
     }
 
-    const rows = (await response.json()) as ChatHistoryRow[];
+    const rows = (await response.json()) as EnovaLogRow[];
 
-    const messages = Array.isArray(rows)
-      ? rows.map((row) => ({
-          id: row.id !== undefined && row.id !== null ? String(row.id) : null,
-          wa_id: row.phone ?? waId,
-          direction: inferDirection(row.source ?? null),
-          text: row.message ?? null,
-          source: row.source ?? null,
-          created_at: row.created_at ?? null,
-        }))
+    const messages: Message[] = Array.isArray(rows)
+      ? rows.reduce<Message[]>((acc, row) => {
+          if (row.tag === "meta_minimal") {
+            acc.push({
+              id: row.id !== undefined && row.id !== null ? String(row.id) : null,
+              wa_id: row.wa_id ?? waId,
+              direction: "in",
+              text: row.meta_text ?? null,
+              source: "user",
+              created_at: row.created_at ?? null,
+            });
+
+            return acc;
+          }
+
+          if (row.tag === "DECISION_OUTPUT" || row.tag === "SEND_OK") {
+            acc.push({
+              id: row.id !== undefined && row.id !== null ? String(row.id) : null,
+              wa_id: row.wa_id ?? waId,
+              direction: "out",
+              text: parseOutgoingText(row.details),
+              source: row.tag,
+              created_at: row.created_at ?? null,
+            });
+          }
+
+          return acc;
+        }, [])
       : [];
 
     return jsonResponse(

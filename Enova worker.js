@@ -1,5 +1,7 @@
 console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
 
+const ENOVA_BUILD = "enova-meta-debug-stamp-2026-02-11";
+
 // =============================================================
 // 🧱 A1 — step() + sendMessage() + logger()
 // =============================================================
@@ -1035,6 +1037,43 @@ async function handleMetaWebhook(request, env, ctx) {
 
   console.log("DEBUG-1: ENTROU NO handleMetaWebhook");
 
+  function isDebugOn(v) {
+    const s = String(v || "").trim().toLowerCase();
+    return s === "1" || s === "true" || s === "on" || s === "yes";
+  }
+
+  const debugOn = isDebugOn(env.DEBUG_META_WEBHOOK);
+  const cfRay = request.headers.get("cf-ray") || null;
+
+  function metaWebhookResponse(status, body) {
+    const headers = {
+      "X-Enova-Build": ENOVA_BUILD,
+      "X-Enova-Debug": debugOn ? "1" : "0"
+    };
+
+    if (!debugOn) {
+      return new Response("EVENT_RECEIVED", { status, headers });
+    }
+
+    return new Response(
+      JSON.stringify({
+        ok: status >= 200 && status < 300,
+        status,
+        build: ENOVA_BUILD,
+        debugOn,
+        cfRay,
+        ...(body || {})
+      }),
+      {
+        status,
+        headers: {
+          ...headers,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+  }
+
   let rawBody = null;
   let body = null;
 
@@ -1100,7 +1139,9 @@ try {
   });
 
   // Meta só precisa de 200 para não ficar reenviando por erro de infra
-  return new Response("EVENT_RECEIVED", { status: 200 });
+  return metaWebhookResponse(200, {
+    reason: "webhook_body_read_error"
+  });
 }
 
   // 2) Tenta fazer parse do JSON
@@ -1123,7 +1164,9 @@ try {
       }
     });
 
-    return new Response("EVENT_RECEIVED", { status: 200 });
+    return metaWebhookResponse(200, {
+      reason: "webhook_parse_error"
+    });
   }
 
   // 3) Loga recebimento bruto
@@ -1161,7 +1204,9 @@ try {
       }
     });
 
-    return new Response("EVENT_RECEIVED", { status: 200 });
+    return metaWebhookResponse(200, {
+      reason: "webhook_invalid_structure"
+    });
   }
 
   const metadata = value.metadata || {};
@@ -1222,7 +1267,9 @@ if (!messages.length && statuses.length) {
       }
     });
 
-    return new Response("EVENT_RECEIVED", { status: 200 });
+    return metaWebhookResponse(200, {
+      reason: "webhook_no_messages"
+    });
 }
 
 // 8.0) GUARDRAIL ABSOLUTO — impedir crash quando não há messages
@@ -1240,7 +1287,9 @@ if (!messages || messages.length === 0) {
     }
   });
 
-  return new Response("EVENT_RECEIVED", { status: 200 });
+  return metaWebhookResponse(200, {
+    reason: "meta_no_message_after_status_patch"
+  });
 }
 
 // 8) Pega a primeira mensagem (padrão da Meta)
@@ -1299,7 +1348,10 @@ if (msg && type !== "text" && type !== "interactive") {
     }
   });
 
-  return new Response("EVENT_RECEIVED", { status: 200 });
+  return metaWebhookResponse(200, {
+    reason: "ignored_non_text_payload",
+    type
+  });
 }
 
   // Chave para futura deduplicação real
@@ -1335,7 +1387,9 @@ if (msg && type !== "text" && type !== "interactive") {
         }
       });
 
-      return new Response("EVENT_RECEIVED", { status: 200 });
+      return metaWebhookResponse(200, {
+        reason: "meta_duplicate_webhook_suppressed"
+      });
     }
 
     // registra o evento atual no cache
@@ -1419,7 +1473,10 @@ if (msg && type !== "text" && type !== "interactive") {
       }
     });
 
-    return new Response("EVENT_RECEIVED", { status: 200 });
+    return metaWebhookResponse(200, {
+      reason: "webhook_no_text",
+      type
+    });
   }
 
   // 10) Entrada no funil (já com telemetria da A3/A6)
@@ -1474,7 +1531,10 @@ if (msg && type !== "text" && type !== "interactive") {
 
     console.log("FUNIL-CALL: depois do runFunnel");
 
-    return new Response("EVENT_RECEIVED", { status: 200 });
+    return metaWebhookResponse(200, {
+      reason: "runFunnel_ok",
+      type
+    });
   } catch (err) {
     const safeDetails = {
       dedupKey,
@@ -1497,7 +1557,10 @@ if (msg && type !== "text" && type !== "interactive") {
     });
 
     // Mesmo com erro, devolve 200 para a META não reenviar
-    return new Response("EVENT_RECEIVED", { status: 200 });
+    return metaWebhookResponse(200, {
+      reason: "runFunnel_error",
+      type
+    });
   }
 } // <-- FECHA o handleMetaWebhook CERTINHO
 

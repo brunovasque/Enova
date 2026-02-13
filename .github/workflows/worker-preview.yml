@@ -35,15 +35,13 @@ jobs:
           echo "head_repo=${{ github.event.pull_request.head.repo.full_name }}"
           echo "base_repo=${{ github.repository }}"
 
-      - name: Deploy worker preview (env=test)
-        id: deploy
-        uses: cloudflare/wrangler-action@v3
+      - name: Deploy worker preview (env=test) (direct)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          command: deploy --env test --config wrangler.toml --keep-vars
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          npm i -g wrangler@3.90.0
+          wrangler deploy --env test --config wrangler.toml --keep-vars
 
       - name: Extract preview URL
         id: preview

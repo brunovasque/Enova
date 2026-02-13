@@ -325,7 +325,7 @@ function mapMetaError(code) {
  */
 async function logger(env, data) {
   try {
-    await sbFetch(env, "/enova_log", {
+    await sbFetch(env, "/rest/v1/enova_log", {
       method: "POST",
       body: JSON.stringify({ ...data, ts: new Date().toISOString() })
     });
@@ -2909,7 +2909,7 @@ function generateChecklistForDocs(st) {
 
 // 17.3 — Salva o status no Supabase
 async function saveDocumentStatus(env, st, status) {
-  await sbFetch(env, "/enova_docs_status", {
+  await sbFetch(env, "/rest/v1/enova_docs_status", {
     method: "POST",
     body: JSON.stringify({
       wa_id: st.wa_id,
@@ -2941,10 +2941,13 @@ async function updateDocsStatusV2(env, st) {
   // ================================
   // 1 — BUSCA DOCUMENTOS RECEBIDOS
   // ================================
-  const { data: docsRecebidos } = await sbFetch(
-    env,
-    `/enova_docs?wa_id=eq.${st.wa_id}&select=*`
-  );
+  const { data: docsRecebidos } = await sbFetch(env, "/rest/v1/enova_docs", {
+    method: "GET",
+    query: {
+      wa_id: `eq.${st.wa_id}`,
+      select: "*"
+    }
+  });
 
   const recebidos = docsRecebidos || [];
 
@@ -3312,10 +3315,18 @@ async function findClientByName(env, nome) {
   if (!nome) return null;
 
   // ILIKE com wildcard nos dois lados
-  const filtro = encodeURIComponent(`*${nome}*`);
-  const path = `/enova_state?nome=ilike.${filtro}&select=wa_id,nome,fase_conversa,funil_status&order=updated_at.desc&limit=1`;
+  const filtro = `*${nome}*`;
 
-  const { data } = await sbFetch(env, path);
+  const { data } = await sbFetch(env, "/rest/v1/enova_state", {
+    method: "GET",
+    query: {
+      nome: `ilike.${filtro}`,
+      select: "wa_id,nome,fase_conversa,funil_status",
+      order: "updated_at.desc",
+      limit: 1
+    }
+  });
+
   if (!data || !data.length) return null;
 
   return data[0]; // pega o mais recente

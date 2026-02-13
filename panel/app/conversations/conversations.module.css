@@ -437,17 +437,12 @@
 }
 
 .manualBanner {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  align-self: center;
-  background: #ef5a18;
-  color: #fff;
-  font-weight: 700;
+  background: linear-gradient(90deg, #2fe6d0 0%, #43f08a 100%);
+  color: #062019;
+  font-weight: 800;
   letter-spacing: 0.08em;
-  padding: 8px 16px;
-  border-radius: 10px;
-  border: 1px solid #ffb07d;
+  border: 1px solid rgba(47, 230, 208, 0.55);
+  box-shadow: 0 0 0 2px rgba(67, 240, 138, 0.18), 0 10px 30px rgba(0, 0, 0, 0.35);
 }
 
 .composerWrap {

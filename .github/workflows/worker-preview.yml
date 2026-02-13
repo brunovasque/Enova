@@ -1,7 +1,7 @@
 name: Worker Preview (PR)
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, synchronize, reopened]
 
 permissions:
@@ -14,10 +14,14 @@ concurrency:
 
 jobs:
   deploy-preview:
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
       - name: Deploy worker preview (env=test)
         id: deploy

@@ -327,10 +327,9 @@ async function logger(env, data) {
   try {
     await sbFetch(env, "/rest/v1/enova_log", {
       method: "POST",
-      body: {
-        ...data,
-        ts: new Date().toISOString()
-      }
+      headers: { "Content-Type": "application/json" },
+      // NÃO inventa coluna "ts" aqui. Deixa o banco cuidar do created_at.
+      body: JSON.stringify(data),
     });
   } catch (e) {
     console.error("Erro logger:", e);

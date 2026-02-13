@@ -912,6 +912,94 @@ export default {
       return new Response("BUILD=GIT_FULL_9K", { status: 200 });
     }
 
+    const hasAdminAccess = request.headers.get("x-enova-admin-key") === env.ENOVA_ADMIN_KEY;
+
+    if (pathname === "/__admin__/health" && request.method !== "GET") {
+      return new Response(JSON.stringify({ ok: false, error: "method_not_allowed" }), {
+        status: 405,
+        headers: { "content-type": "application/json", "Allow": "GET" }
+      });
+    }
+
+    if (pathname === "/__admin__/send" && request.method !== "POST") {
+      return new Response(JSON.stringify({ ok: false, error: "method_not_allowed" }), {
+        status: 405,
+        headers: { "content-type": "application/json", "Allow": "POST" }
+      });
+    }
+
+    if (request.method === "GET" && pathname === "/__admin__/health") {
+      if (!hasAdminAccess) {
+        return new Response(JSON.stringify({ ok: false, error: "forbidden" }), {
+          status: 403,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      const safeBuild = typeof ENOVA_BUILD !== "undefined" ? ENOVA_BUILD : (env?.ENOVA_BUILD || "unknown"); // avoid ReferenceError in prod
+
+      return new Response(JSON.stringify({ ok: true, build: safeBuild }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+
+    if (request.method === "POST" && pathname === "/__admin__/send") {
+      if (!hasAdminAccess) {
+        return new Response(JSON.stringify({ ok: false, error: "forbidden" }), {
+          status: 403,
+          headers: { "content-type": "application/json" }
+        });
+      }
+
+      try {
+        const payload = await request.json();
+        const wa_id = (payload?.wa_id || "").trim();
+        const text = (payload?.text || "").trim();
+
+        if (!wa_id || !text) {
+          return new Response(JSON.stringify({ ok: false, error: "wa_id e text obrigatórios" }), {
+            status: 400,
+            headers: { "content-type": "application/json" }
+          });
+        }
+
+        await logger(env, {
+          tag: "DECISION_OUTPUT",
+          wa_id,
+          meta_type: "text",
+          meta_text: text,
+          details: {
+            stage: "manual_mode",
+            next_stage: null,
+            reply: text
+          }
+        });
+
+        const sent = await sendMessage(env, wa_id, text);
+
+        if (!sent) {
+          return new Response(JSON.stringify({ ok: false, error: "manual send failed" }), {
+            status: 502,
+            headers: { "content-type": "application/json" }
+          });
+        }
+
+        return new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      } catch (err) {
+        return new Response(
+          JSON.stringify({ ok: false, error: err?.message || "manual send exception" }),
+          {
+            status: 500,
+            headers: { "content-type": "application/json" }
+          }
+        );
+      }
+    }
+
     // ---------------------------------------------
     // A8.2 — Validation Engine antes de QUALQUER coisa
     // ---------------------------------------------
@@ -1535,6 +1623,25 @@ if (msg && type !== "text" && type !== "interactive") {
         fase_conversa: st?.fase_conversa || "inicio"
       })
     );
+
+    if (st?.atendimento_manual === true) {
+      await telemetry(env, {
+        wa_id: waId,
+        event: "manual_mode_gate",
+        stage: st?.fase_conversa || "inicio",
+        severity: "info",
+        message: "Modo humano ativo: funil automático bloqueado",
+        details: {
+          atendimento_manual: true,
+          dedupKey
+        }
+      });
+
+      return metaWebhookResponse(200, {
+        reason: "manual_mode_on",
+        type
+      });
+    }
 
     // ============================================================
     // 2) CHAMADA CORRETA DO FUNIL

@@ -423,3 +423,40 @@
   background: rgba(161, 94, 23, 0.34);
   border-color: rgba(203, 129, 52, 0.5);
 }
+
+.manualToggle {
+  border: 1px solid #2a3c4f;
+  background: #122335;
+  color: #d3deea;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.manualToggle:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.composerRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.sendButton {
+  border: 1px solid #266b61;
+  background: linear-gradient(180deg, #0e6157 0%, #0b4d46 100%);
+  color: #e7f3f1;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.sendButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

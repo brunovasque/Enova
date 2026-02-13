@@ -104,6 +104,11 @@ export function ConversationUI() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
+  const [threadReloadTick, setThreadReloadTick] = useState(0);
+  const [manualModeSaving, setManualModeSaving] = useState(false);
+  const [sendText, setSendText] = useState("");
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendLoading, setSendLoading] = useState(false);
 
   const router = useRouter();
   const pathname = usePathname();
@@ -220,7 +225,7 @@ export function ConversationUI() {
     return () => {
       active = false;
     };
-  }, [selectedWaId]);
+  }, [selectedWaId, threadReloadTick]);
 
   const filteredConversations = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -239,11 +244,97 @@ export function ConversationUI() {
   }, [conversations, searchTerm]);
 
   const selectedConversation = conversations.find((conversation) => conversation.wa_id === selectedWaId) ?? null;
+  const manualModeEnabled = Boolean(selectedConversation?.atendimento_manual);
 
   const handleSelectConversation = (waId: string) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set("wa_id", waId);
     router.replace(`${pathname}?${params.toString()}`);
+  };
+
+  const handleToggleManualMode = async () => {
+    if (!selectedConversation || manualModeSaving) {
+      return;
+    }
+
+    setManualModeSaving(true);
+    setSendError(null);
+
+    const nextValue = !selectedConversation.atendimento_manual;
+
+    try {
+      const response = await fetch(sameOriginApiUrl("/api/manual-mode"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          wa_id: selectedConversation.wa_id,
+          atendimento_manual: nextValue,
+        }),
+      });
+
+      const data = (await response.json()) as {
+        ok: boolean;
+        wa_id?: string;
+        atendimento_manual?: boolean;
+        error?: string;
+      };
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || "Falha ao atualizar modo humano");
+      }
+
+      setConversations((current) =>
+        current.map((conversation) =>
+          conversation.wa_id === selectedConversation.wa_id
+            ? { ...conversation, atendimento_manual: Boolean(data.atendimento_manual) }
+            : conversation,
+        ),
+      );
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "Falha ao atualizar modo humano");
+    } finally {
+      setManualModeSaving(false);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!selectedConversation || !manualModeEnabled || sendLoading) {
+      return;
+    }
+
+    const text = sendText.trim();
+
+    if (!text) {
+      return;
+    }
+
+    setSendLoading(true);
+    setSendError(null);
+
+    try {
+      const response = await fetch(sameOriginApiUrl("/api/send"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ wa_id: selectedConversation.wa_id, text }),
+      });
+
+      const data = (await response.json()) as { ok: boolean; error?: string };
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || "Falha no envio manual");
+      }
+
+      setSendText("");
+      setThreadReloadTick((value) => value + 1);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "Falha no envio manual");
+    } finally {
+      setSendLoading(false);
+    }
   };
 
   return (
@@ -327,6 +418,15 @@ export function ConversationUI() {
                   <span>{selectedConversation.wa_id}</span>
                 </div>
                 <div className={styles.badgesRow}>
+                  <button
+                    type="button"
+                    onClick={handleToggleManualMode}
+                    disabled={manualModeSaving}
+                    className={styles.manualToggle}
+                    aria-pressed={manualModeEnabled}
+                  >
+                    {manualModeEnabled ? "Modo humano: ON" : "Modo humano: OFF"}
+                  </button>
                   {selectedConversation.fase_conversa ? (
                     <span className={`${styles.badge} ${styles.badgePhase}`}>
                       {selectedConversation.fase_conversa}
@@ -381,13 +481,38 @@ export function ConversationUI() {
           </div>
 
           <footer className={styles.threadFooter}>
-            <input
-              type="text"
-              readOnly
-              value="Somente leitura (por enquanto)"
-              className={styles.readOnlyInput}
-              aria-label="Somente leitura"
-            />
+            <div className={styles.composerRow}>
+              <input
+                type="text"
+                value={sendText}
+                onChange={(event) => setSendText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleSendMessage();
+                  }
+                }}
+                disabled={!selectedWaId || !manualModeEnabled || sendLoading}
+                placeholder={
+                  !selectedWaId
+                    ? "Selecione uma conversa"
+                    : manualModeEnabled
+                      ? "Digite uma mensagem manual"
+                      : "Ative o modo humano para enviar"
+                }
+                className={styles.readOnlyInput}
+                aria-label="Mensagem manual"
+              />
+              <button
+                type="button"
+                onClick={() => void handleSendMessage()}
+                disabled={!selectedWaId || !manualModeEnabled || sendLoading || sendText.trim().length === 0}
+                className={styles.sendButton}
+              >
+                {sendLoading ? "Enviando..." : "Enviar"}
+              </button>
+            </div>
+            {sendError ? <p className={styles.panelError}>{sendError}</p> : null}
           </footer>
         </section>
       </section>

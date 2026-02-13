@@ -1102,6 +1102,7 @@ try {
           : rawBody || null
     }
   });
+
 } catch (err) {
   console.error("TELEMETRIA-RAW-ERROR:", err);
 }
@@ -1329,6 +1330,15 @@ try {
       meta_message_id: metaMessageId,
       meta_status: metaStatus
     }
+  });
+
+  await logger(env, {
+    tag: "meta_minimal",
+    wa_id: waId || null,
+    meta_type: metaType,
+    meta_text: metaText,
+    meta_message_id: metaMessageId,
+    meta_status: metaStatus
   });
 } catch (err) {
   console.log("ERRO AO SALVAR LOG MINIMAL DA META:", err);

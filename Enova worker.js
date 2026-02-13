@@ -327,7 +327,10 @@ async function logger(env, data) {
   try {
     await sbFetch(env, "/rest/v1/enova_log", {
       method: "POST",
-      body: JSON.stringify({ ...data, ts: new Date().toISOString() })
+      body: {
+        ...data,
+        ts: new Date().toISOString()
+      }
     });
   } catch (e) {
     console.error("Erro logger:", e);

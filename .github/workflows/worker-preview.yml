@@ -36,6 +36,7 @@ jobs:
           echo "base_repo=${{ github.repository }}"
 
       - name: Deploy worker preview (env=test) (direct)
+        id: deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}

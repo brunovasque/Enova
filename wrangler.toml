@@ -8,3 +8,4 @@ DEBUG_META_WEBHOOK = "1"
 
 [env.test]
 name = "nv-enova-test"
+workers_dev = true

@@ -1,0 +1,57 @@
+name: Worker Preview (PR)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: worker-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy worker preview (env=test)
+        id: deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: deploy --env test --config wrangler.toml --keep-vars
+
+      - name: Extract preview URL
+        id: preview
+        run: |
+          OUTPUT='${{ steps.deploy.outputs.command-output }}'
+          URL=$(printf '%s' "$OUTPUT" | grep -Eo 'https://[^ ]+\.workers\.dev' | head -n 1 || true)
+          if [ -z "$URL" ]; then
+            URL="https://nv-enova-test.workers.dev"
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      - name: Comment preview URL on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = [
+              '✅ Worker preview deployed.',
+              '',
+              `Preview URL: ${{ steps.preview.outputs.url }}`,
+              '',
+              'Environment: `test` (`nv-enova-test`).'
+            ].join('\n');
+
+            github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });

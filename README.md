@@ -252,3 +252,19 @@ Ou seja:
 Até 09/02 – entrada de mensagens era registrada em enova_log com meta_minimal.
 
 Depois de um patch recente – o estado continua sendo atualizado, mas novas mensagens pararam de entrar no enova_log.
+
+
+## Cloudflare Worker previews (PR) and production deploy
+
+- **PRs** trigger `.github/workflows/worker-preview.yml` and deploy the Worker in `env=test` (`nv-enova-test`).
+- The workflow comments the preview URL directly in the PR.
+- **Push to `main`** triggers `.github/workflows/worker-deploy.yml` and deploys production (`nv-enova`).
+
+### Required GitHub Secrets
+
+- `CF_API_TOKEN`
+- `CF_ACCOUNT_ID`
+
+### Rollback
+
+- Revert the merge commit (or deploy a previous commit) and re-run the production workflow.

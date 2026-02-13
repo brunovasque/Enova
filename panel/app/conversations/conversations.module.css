@@ -423,3 +423,64 @@
   background: rgba(161, 94, 23, 0.34);
   border-color: rgba(203, 129, 52, 0.5);
 }
+
+.manualToggleWrap {
+  margin-left: auto;
+}
+
+.toggleLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+  color: #c8d8e8;
+}
+
+.manualBanner {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  align-self: center;
+  background: #ef5a18;
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid #ffb07d;
+}
+
+.composerWrap {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+
+.composerWrapActive {
+  border: 1px solid #ff9d66;
+  border-radius: 12px;
+  padding: 8px;
+  box-shadow: 0 0 0 2px rgba(255, 138, 82, 0.2);
+}
+
+.composerInput {
+  width: 100%;
+  border-radius: 10px;
+  border: 1px solid #233546;
+  background: #0f2738;
+  color: #dbe7f3;
+  padding: 10px 12px;
+}
+
+.sendButton {
+  border-radius: 10px;
+  border: 1px solid #238478;
+  background: linear-gradient(180deg, #0f6258 0%, #0a4f47 100%);
+  color: #e6f4f2;
+  padding: 10px 16px;
+  font-weight: 600;
+}
+
+.sendButton:disabled {
+  opacity: 0.6;
+}

@@ -104,6 +104,9 @@ export function ConversationUI() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [threadLoading, setThreadLoading] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
+  const [manualToggleLoading, setManualToggleLoading] = useState(false);
+  const [sendLoading, setSendLoading] = useState(false);
+  const [composerText, setComposerText] = useState("");
 
   const router = useRouter();
   const pathname = usePathname();
@@ -118,108 +121,64 @@ export function ConversationUI() {
     return new URL(path, window.location.origin).toString();
   };
 
-  useEffect(() => {
-    let active = true;
+  const loadConversations = async () => {
+    setListLoading(true);
+    setListError(null);
 
-    async function loadConversations() {
-      setListLoading(true);
-      setListError(null);
+    try {
+      const conversationsUrl = sameOriginApiUrl("/api/conversations?ts=1");
+      const response = await fetch(conversationsUrl, { cache: "no-store" });
+      const data = (await response.json()) as ConversationsPayload;
 
-      try {
-        const conversationsUrl = sameOriginApiUrl("/api/conversations?ts=1");
-
-        if (process.env.NODE_ENV !== "production") {
-          console.info("[conversations] loading list from", conversationsUrl);
-        }
-
-        const response = await fetch(conversationsUrl, {
-          cache: "no-store",
-        });
-
-        const data = (await response.json()) as ConversationsPayload;
-
-        if (!response.ok || !data.ok) {
-          throw new Error(data.error || `Falha ao carregar conversas (${response.status})`);
-        }
-
-        if (active) {
-          setConversations(Array.isArray(data.conversations) ? data.conversations : []);
-        }
-      } catch (error) {
-        if (active) {
-          setConversations([]);
-          setListError(error instanceof Error ? error.message : "Falha ao carregar lista");
-        }
-      } finally {
-        if (active) {
-          setListLoading(false);
-        }
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || `Falha ao carregar conversas (${response.status})`);
       }
+
+      setConversations(Array.isArray(data.conversations) ? data.conversations : []);
+    } catch (error) {
+      setConversations([]);
+      setListError(error instanceof Error ? error.message : "Falha ao carregar lista");
+    } finally {
+      setListLoading(false);
+    }
+  };
+
+  const loadMessages = async (waId: string) => {
+    if (!waId) {
+      setMessages([]);
+      setThreadError(null);
+      setThreadLoading(false);
+      return;
     }
 
-    loadConversations();
+    setThreadLoading(true);
+    setThreadError(null);
 
-    return () => {
-      active = false;
-    };
+    try {
+      const messagesUrl = sameOriginApiUrl(`/api/messages?wa_id=${encodeURIComponent(waId)}&limit=200`);
+      const response = await fetch(messagesUrl, { cache: "no-store" });
+      const data = (await response.json()) as MessagesPayload;
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || `Falha ao carregar mensagens (${response.status})`);
+      }
+
+      setMessages(Array.isArray(data.messages) ? data.messages : []);
+    } catch (error) {
+      setMessages([]);
+      setThreadError(error instanceof Error ? error.message : "Falha ao carregar mensagens");
+    } finally {
+      setThreadLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadConversations();
   }, []);
 
   useEffect(() => {
-    let active = true;
-
-    async function loadMessages() {
-      if (!selectedWaId) {
-        setMessages([]);
-        setThreadError(null);
-        setThreadLoading(false);
-        return;
-      }
-
-      setThreadLoading(true);
-      setThreadError(null);
-
-      try {
-        const messagesUrl = sameOriginApiUrl(
-          `/api/messages?wa_id=${encodeURIComponent(selectedWaId)}&limit=200`,
-        );
-
-        if (process.env.NODE_ENV !== "production") {
-          console.info("[conversations] loading thread from", messagesUrl);
-        }
-
-        const response = await fetch(
-          messagesUrl,
-          {
-            cache: "no-store",
-          },
-        );
-
-        const data = (await response.json()) as MessagesPayload;
-
-        if (!response.ok || !data.ok) {
-          throw new Error(data.error || `Falha ao carregar mensagens (${response.status})`);
-        }
-
-        if (active) {
-          setMessages(Array.isArray(data.messages) ? data.messages : []);
-        }
-      } catch (error) {
-        if (active) {
-          setMessages([]);
-          setThreadError(error instanceof Error ? error.message : "Falha ao carregar mensagens");
-        }
-      } finally {
-        if (active) {
-          setThreadLoading(false);
-        }
-      }
-    }
-
-    loadMessages();
-
-    return () => {
-      active = false;
-    };
+    setComposerText("");
+    loadMessages(selectedWaId);
   }, [selectedWaId]);
 
   const filteredConversations = useMemo(() => {
@@ -244,6 +203,93 @@ export function ConversationUI() {
     const params = new URLSearchParams(searchParams.toString());
     params.set("wa_id", waId);
     router.replace(`${pathname}?${params.toString()}`);
+  };
+
+  const handleToggleManual = async () => {
+    if (!selectedConversation || manualToggleLoading) {
+      return;
+    }
+
+    const nextManual = !selectedConversation.atendimento_manual;
+
+    if (!nextManual) {
+      const confirmed = window.confirm("Deseja realmente desligar o modo humano desta conversa?");
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setManualToggleLoading(true);
+    setThreadError(null);
+
+    try {
+      const response = await fetch(sameOriginApiUrl("/api/manual-mode"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ wa_id: selectedConversation.wa_id, manual: nextManual }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || `Falha ao atualizar modo humano (${response.status})`);
+      }
+
+      await loadConversations();
+    } catch (error) {
+      setThreadError(error instanceof Error ? error.message : "Falha ao atualizar modo humano");
+    } finally {
+      setManualToggleLoading(false);
+    }
+  };
+
+  const handleManualSend = async () => {
+    if (!selectedConversation || sendLoading) {
+      return;
+    }
+
+    const text = composerText.trim();
+
+    if (!text) {
+      return;
+    }
+
+    setSendLoading(true);
+    setThreadError(null);
+
+    try {
+      const response = await fetch(sameOriginApiUrl("/api/send"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ wa_id: selectedConversation.wa_id, text }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || data?.ok === false) {
+        throw new Error(data?.error || `Falha ao enviar (${response.status})`);
+      }
+
+      setComposerText("");
+      await loadMessages(selectedConversation.wa_id);
+      await fetch(sameOriginApiUrl("/api/manual-mode"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ wa_id: selectedConversation.wa_id, manual: false }),
+      });
+      await loadConversations();
+    } catch (error) {
+      setThreadError(error instanceof Error ? error.message : "Falha ao enviar mensagem manual");
+    } finally {
+      setSendLoading(false);
+    }
   };
 
   return (
@@ -341,6 +387,17 @@ export function ConversationUI() {
                     <span className={`${styles.badge} ${styles.badgeWarn}`}>manual</span>
                   ) : null}
                 </div>
+                <div className={styles.manualToggleWrap}>
+                  <label className={styles.toggleLabel}>
+                    <input
+                      type="checkbox"
+                      checked={selectedConversation.atendimento_manual}
+                      onChange={handleToggleManual}
+                      disabled={manualToggleLoading}
+                    />
+                    <span>Modo humano {selectedConversation.atendimento_manual ? "ON" : "OFF"}</span>
+                  </label>
+                </div>
               </div>
             ) : (
               <>
@@ -352,6 +409,9 @@ export function ConversationUI() {
 
           <div className={styles.messagesArea}>
             <div className={styles.threadWatermark} aria-hidden="true" />
+            {selectedConversation?.atendimento_manual ? (
+              <div className={styles.manualBanner}>MODO HUMANO ATIVO</div>
+            ) : null}
             {!selectedWaId ? (
               <p className={styles.emptyState}>Selecione uma conversa</p>
             ) : threadLoading ? (
@@ -381,13 +441,32 @@ export function ConversationUI() {
           </div>
 
           <footer className={styles.threadFooter}>
-            <input
-              type="text"
-              readOnly
-              value="Somente leitura (por enquanto)"
-              className={styles.readOnlyInput}
-              aria-label="Somente leitura"
-            />
+            <div
+                className={`${styles.composerWrap} ${selectedConversation?.atendimento_manual ? styles.composerWrapActive : ""}`}
+            >
+              <input
+                type="text"
+                value={composerText}
+                onChange={(event) => setComposerText(event.target.value)}
+                placeholder={selectedConversation ? "Digite a mensagem manual" : "Selecione uma conversa"}
+                className={styles.composerInput}
+                aria-label="Mensagem manual"
+                disabled={!selectedConversation || sendLoading}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    void handleManualSend();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                className={styles.sendButton}
+                onClick={() => void handleManualSend()}
+                disabled={!selectedConversation || sendLoading || !composerText.trim()}
+              >
+                {sendLoading ? "Enviando..." : "Enviar"}
+              </button>
+            </div>
           </footer>
         </section>
       </section>

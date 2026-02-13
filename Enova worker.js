@@ -289,14 +289,7 @@ async function sendMessage(env, wa_id, text, options = {}) {
     }
   });
 
-  const result = {
-    ok: true,
-    meta_status: res.status,
-    meta_body: providerResponse,
-    message_id: providerMessageId
-  };
-
-  return options?.withMeta ? result : true;
+  return true;
 }
 
 // =============================================================
@@ -2787,14 +2780,7 @@ async function updateDocumentPendingList(env, st, docType, participant, valid) {
     });
   }
 
-  const result = {
-    ok: true,
-    meta_status: res.status,
-    meta_body: providerResponse,
-    message_id: providerMessageId
-  };
-
-  return options?.withMeta ? result : true;
+  return true;
 }
 
 // ======================================================================

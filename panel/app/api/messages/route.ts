@@ -62,10 +62,20 @@ function parseOutgoingText(details: unknown): string | null {
       return null;
     }
 
+    const record = parsed as Record<string, unknown>;
+    const messageNode = record.message as Record<string, unknown> | undefined;
+    const payloadNode = record.payload as Record<string, unknown> | undefined;
+    const messageTextNode = messageNode?.text as Record<string, unknown> | undefined;
+    const payloadTextNode = payloadNode?.text as Record<string, unknown> | undefined;
+
     const candidate =
-      (parsed as Record<string, unknown>).reply ??
-      (parsed as Record<string, unknown>).bot_text ??
-      (parsed as Record<string, unknown>).answer;
+      record.reply ??
+      record.bot_text ??
+      record.answer ??
+      record.text ??
+      record.body ??
+      messageTextNode?.body ??
+      payloadTextNode?.body;
 
     return typeof candidate === "string" ? candidate : null;
   } catch {

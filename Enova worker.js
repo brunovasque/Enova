@@ -151,7 +151,7 @@ async function step(env, st, messages, nextStage) {
 // =============================================================
 // 🧱 A7 — sendMessage() com blindagem total + telemetria META
 // =============================================================
-async function sendMessage(env, wa_id, text) {
+async function sendMessage(env, wa_id, text, options = {}) {
   const url = `https://graph.facebook.com/${env.META_API_VERSION}/${env.PHONE_NUMBER_ID}/messages`;
 
   const payload = {
@@ -199,7 +199,8 @@ async function sendMessage(env, wa_id, text) {
     });
 
     console.error("Erro sendMessage (network):", err);
-    return false;
+    const result = { ok: false, meta_status: null, meta_body: err?.message || String(err), message_id: null };
+    return options?.withMeta ? result : false;
   }
 
   if (!res.ok) {
@@ -233,7 +234,8 @@ async function sendMessage(env, wa_id, text) {
     });
 
     console.error("Erro sendMessage (HTTP):", res.status, textErr);
-    return false;
+    const result = { ok: false, meta_status: res.status, meta_body: textErr, message_id: null };
+    return options?.withMeta ? result : false;
   }
 
   // SUCESSO — salvar envio
@@ -287,7 +289,14 @@ async function sendMessage(env, wa_id, text) {
     }
   });
 
-  return true;
+  const result = {
+    ok: true,
+    meta_status: res.status,
+    meta_body: providerResponse,
+    message_id: providerMessageId
+  };
+
+  return options?.withMeta ? result : true;
 }
 
 // =============================================================
@@ -976,22 +985,44 @@ export default {
           }
         });
 
-        const sent = await sendMessage(env, wa_id, text);
+        const sendResult = await sendMessage(env, wa_id, text, { withMeta: true });
 
-        if (!sent) {
-          return new Response(JSON.stringify({ ok: false, error: "manual send failed" }), {
-            status: 502,
-            headers: { "content-type": "application/json" }
-          });
+        if (!sendResult || sendResult.ok !== true) {
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              error: "META_SEND_FAILED",
+              meta_status: sendResult?.meta_status ?? null,
+              meta_body: sendResult?.meta_body ?? null
+            }),
+            {
+              status: 500,
+              headers: { "content-type": "application/json" }
+            }
+          );
         }
 
-        return new Response(JSON.stringify({ ok: true }), {
-          status: 200,
-          headers: { "content-type": "application/json" }
-        });
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            wa_id,
+            meta_status: sendResult.meta_status ?? null,
+            meta_body: sendResult.meta_body ?? null,
+            message_id: sendResult.message_id ?? null
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" }
+          }
+        );
       } catch (err) {
         return new Response(
-          JSON.stringify({ ok: false, error: err?.message || "manual send exception" }),
+          JSON.stringify({
+            ok: false,
+            error: "META_SEND_FAILED",
+            meta_status: null,
+            meta_body: err?.message || "manual send exception"
+          }),
           {
             status: 500,
             headers: { "content-type": "application/json" }
@@ -2756,7 +2787,14 @@ async function updateDocumentPendingList(env, st, docType, participant, valid) {
     });
   }
 
-  return true;
+  const result = {
+    ok: true,
+    meta_status: res.status,
+    meta_body: providerResponse,
+    message_id: providerMessageId
+  };
+
+  return options?.withMeta ? result : true;
 }
 
 // ======================================================================

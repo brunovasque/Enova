@@ -452,10 +452,10 @@
 }
 
 .composerWrapActive {
-  border: 1px solid #ff9d66;
+  border: 1px solid rgba(47, 230, 208, 0.75);
   border-radius: 12px;
   padding: 8px;
-  box-shadow: 0 0 0 2px rgba(255, 138, 82, 0.2);
+  box-shadow: 0 0 0 2px rgba(67, 240, 138, 0.18), 0 0 18px rgba(47, 230, 208, 0.12);
 }
 
 .composerInput {

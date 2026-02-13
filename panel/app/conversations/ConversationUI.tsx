@@ -277,14 +277,6 @@ export function ConversationUI() {
 
       setComposerText("");
       await loadMessages(selectedConversation.wa_id);
-      await fetch(sameOriginApiUrl("/api/manual-mode"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ wa_id: selectedConversation.wa_id, manual: false }),
-      });
-      await loadConversations();
     } catch (error) {
       setThreadError(error instanceof Error ? error.message : "Falha ao enviar mensagem manual");
     } finally {

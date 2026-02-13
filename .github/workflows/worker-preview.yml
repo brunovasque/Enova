@@ -23,9 +23,23 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
+          - name: Debug secrets (safe)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ]; then echo "HAS_CLOUDFLARE_API_TOKEN"; else echo "MISSING_CLOUDFLARE_API_TOKEN"; fi
+          if [ -n "$CF_ACCOUNT_ID" ]; then echo "HAS_CF_ACCOUNT_ID"; else echo "MISSING_CF_ACCOUNT_ID"; fi
+          echo "event=${{ github.event_name }}"
+          echo "actor=${{ github.actor }}"
+          echo "head_repo=${{ github.event.pull_request.head.repo.full_name }}"
+          echo "base_repo=${{ github.repository }}"
+
       - name: Deploy worker preview (env=test)
         id: deploy
         uses: cloudflare/wrangler-action@v3
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}

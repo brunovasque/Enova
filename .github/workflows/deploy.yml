@@ -3,6 +3,8 @@ name: Deploy nv-enova (Wrangler)
 on:
   push:
     branches: ["main"]
+  pull_request:
+    branches: ["main"]
   workflow_dispatch:
 
 concurrency:
@@ -16,7 +18,7 @@ jobs:
 
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
 
     steps:
       - uses: actions/checkout@v4
@@ -59,7 +61,7 @@ jobs:
 
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
 
     steps:
       - uses: actions/checkout@v4
@@ -76,6 +78,74 @@ jobs:
         run: |
           touch .env .env.test
 
+      - name: Debug secrets (safe)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+            echo HAS_CLOUDFLARE_API_TOKEN
+          else
+            echo MISSING_CLOUDFLARE_API_TOKEN
+          fi
+          if [ -n "$CF_ACCOUNT_ID" ]; then
+            echo HAS_CF_ACCOUNT_ID
+          else
+            echo MISSING_CF_ACCOUNT_ID
+          fi
+          echo "event=${{ github.event_name }}"
+          echo "actor=${{ github.actor }}"
+          echo "head_repo=${{ github.event.pull_request.head.repo.full_name || github.repository }}"
+          echo "base_repo=${{ github.event.pull_request.base.repo.full_name || github.repository }}"
+
       - name: Deploy TEST (verbose)
+        run: |
+          WRANGLER_LOG=debug wrangler deploy --config wrangler.toml --env test --keep-vars
+
+  worker-preview-pr:
+    name: Worker Preview (PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Wrangler
+        run: npm i -g wrangler@3
+
+      - name: Ensure .env files exist (avoid ENOENT noise)
+        run: |
+          touch .env .env.test
+
+      - name: Debug secrets (safe)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+            echo HAS_CLOUDFLARE_API_TOKEN
+          else
+            echo MISSING_CLOUDFLARE_API_TOKEN
+          fi
+          if [ -n "$CF_ACCOUNT_ID" ]; then
+            echo HAS_CF_ACCOUNT_ID
+          else
+            echo MISSING_CF_ACCOUNT_ID
+          fi
+          echo "event=${{ github.event_name }}"
+          echo "actor=${{ github.actor }}"
+          echo "head_repo=${{ github.event.pull_request.head.repo.full_name || github.repository }}"
+          echo "base_repo=${{ github.event.pull_request.base.repo.full_name || github.repository }}"
+
+      - name: Deploy Worker Preview (TEST env)
         run: |
           WRANGLER_LOG=debug wrangler deploy --config wrangler.toml --env test --keep-vars

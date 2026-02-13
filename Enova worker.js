@@ -151,7 +151,7 @@ async function step(env, st, messages, nextStage) {
 // =============================================================
 // 🧱 A7 — sendMessage() com blindagem total + telemetria META
 // =============================================================
-async function sendMessage(env, wa_id, text) {
+async function sendMessage(env, wa_id, text, options = {}) {
   const url = `https://graph.facebook.com/${env.META_API_VERSION}/${env.PHONE_NUMBER_ID}/messages`;
 
   const payload = {
@@ -199,6 +199,13 @@ async function sendMessage(env, wa_id, text) {
     });
 
     console.error("Erro sendMessage (network):", err);
+    if (options.returnMeta) {
+      return {
+        ok: false,
+        meta_status: null,
+        message_id: null
+      };
+    }
     return false;
   }
 
@@ -233,6 +240,13 @@ async function sendMessage(env, wa_id, text) {
     });
 
     console.error("Erro sendMessage (HTTP):", res.status, textErr);
+    if (options.returnMeta) {
+      return {
+        ok: false,
+        meta_status: res.status,
+        message_id: null
+      };
+    }
     return false;
   }
 
@@ -286,6 +300,14 @@ async function sendMessage(env, wa_id, text) {
       provider_message_id: providerMessageId
     }
   });
+
+  if (options.returnMeta) {
+    return {
+      ok: true,
+      meta_status: res.status,
+      message_id: providerMessageId
+    };
+  }
 
   return true;
 }
@@ -965,6 +987,95 @@ export default {
           headers: { "content-type": "application/json" }
         }
       );
+    }
+
+    function adminJson(status, body) {
+      return new Response(JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json" }
+      });
+    }
+
+    function isAdminAuthorized() {
+      const reqKey = request.headers.get("x-enova-admin-key");
+      const envKey = env.ENOVA_ADMIN_KEY;
+      return Boolean(reqKey && envKey && reqKey === envKey);
+    }
+
+    // ---------------------------------------------
+    // 🔐 Admin canônico — deve vir antes de /webhook/meta e fallback
+    // ---------------------------------------------
+    if (request.method === "GET" && pathname === "/__admin__/health") {
+      if (!isAdminAuthorized()) {
+        return adminJson(401, {
+          ok: false,
+          error: "unauthorized",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      return adminJson(200, {
+        ok: true,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
+
+    if (request.method === "POST" && pathname === "/__admin__/send") {
+      if (!isAdminAuthorized()) {
+        return adminJson(401, {
+          ok: false,
+          error: "unauthorized",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_json",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const wa_id = String(payload?.wa_id || "").trim();
+      const text = String(payload?.text || "").trim();
+
+      if (!wa_id || !text) {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_payload",
+          details: "wa_id e text são obrigatórios",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const sendResult = await sendMessage(env, wa_id, text, { returnMeta: true });
+
+      if (!sendResult?.ok) {
+        return adminJson(502, {
+          ok: false,
+          meta_status: sendResult?.meta_status ?? null,
+          message_id: null,
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      return adminJson(200, {
+        ok: true,
+        meta_status: sendResult.meta_status,
+        message_id: sendResult.message_id ?? null,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
     }
 
     // ---------------------------------------------

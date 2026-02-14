@@ -131,7 +131,9 @@ export function ConversationUI() {
       const data = (await response.json()) as ConversationsPayload;
 
       if (!response.ok || !data.ok) {
-        throw new Error(data.error || `Falha ao carregar conversas (${response.status})`);
+        throw new Error(
+          data.error || `Falha ao carregar conversas (${response.status})`
+        );
       }
 
       setConversations(Array.isArray(data.conversations) ? data.conversations : []);
@@ -155,30 +157,36 @@ export function ConversationUI() {
     setThreadError(null);
 
     try {
-      const messagesUrl = sameOriginApiUrl(`/api/messages?wa_id=${encodeURIComponent(waId)}&limit=200`);
+      const messagesUrl = sameOriginApiUrl(
+        `/api/messages?wa_id=${encodeURIComponent(waId)}&limit=200`
+      );
       const response = await fetch(messagesUrl, { cache: "no-store" });
       const data = (await response.json()) as MessagesPayload;
 
       if (!response.ok || !data.ok) {
-        throw new Error(data.error || `Falha ao carregar mensagens (${response.status})`);
+        throw new Error(
+          data.error || `Falha ao carregar mensagens (${response.status})`
+        );
       }
 
       setMessages(Array.isArray(data.messages) ? data.messages : []);
     } catch (error) {
       setMessages([]);
-      setThreadError(error instanceof Error ? error.message : "Falha ao carregar mensagens");
+      setThreadError(
+        error instanceof Error ? error.message : "Falha ao carregar mensagens"
+      );
     } finally {
       setThreadLoading(false);
     }
   };
 
   useEffect(() => {
-    loadConversations();
+    void loadConversations();
   }, []);
 
   useEffect(() => {
     setComposerText("");
-    loadMessages(selectedWaId);
+    void loadMessages(selectedWaId);
   }, [selectedWaId]);
 
   const filteredConversations = useMemo(() => {
@@ -197,7 +205,17 @@ export function ConversationUI() {
     });
   }, [conversations, searchTerm]);
 
-  const selectedConversation = conversations.find((conversation) => conversation.wa_id === selectedWaId) ?? null;
+  const selectedConversation =
+    conversations.find((conversation) => conversation.wa_id === selectedWaId) ?? null;
+
+  const isManualActive = Boolean(selectedConversation?.atendimento_manual);
+
+  const visibleMessages = useMemo(() => {
+    return messages.filter((message) => {
+      const t = (message.text ?? "").trim();
+      return t.length > 0;
+    });
+  }, [messages]);
 
   const handleSelectConversation = (waId: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -214,7 +232,6 @@ export function ConversationUI() {
 
     if (!nextManual) {
       const confirmed = window.confirm("Deseja realmente desligar o modo humano desta conversa?");
-
       if (!confirmed) {
         return;
       }
@@ -240,7 +257,9 @@ export function ConversationUI() {
 
       await loadConversations();
     } catch (error) {
-      setThreadError(error instanceof Error ? error.message : "Falha ao atualizar modo humano");
+      setThreadError(
+        error instanceof Error ? error.message : "Falha ao atualizar modo humano"
+      );
     } finally {
       setManualToggleLoading(false);
     }
@@ -251,8 +270,11 @@ export function ConversationUI() {
       return;
     }
 
-    const text = composerText.trim();
+    if (!selectedConversation.atendimento_manual) {
+      return;
+    }
 
+    const text = composerText.trim();
     if (!text) {
       return;
     }
@@ -278,7 +300,9 @@ export function ConversationUI() {
       setComposerText("");
       await loadMessages(selectedConversation.wa_id);
     } catch (error) {
-      setThreadError(error instanceof Error ? error.message : "Falha ao enviar mensagem manual");
+      setThreadError(
+        error instanceof Error ? error.message : "Falha ao enviar mensagem manual"
+      );
     } finally {
       setSendLoading(false);
     }
@@ -316,7 +340,9 @@ export function ConversationUI() {
                     key={conversation.id}
                     type="button"
                     onClick={() => handleSelectConversation(conversation.wa_id)}
-                    className={`${styles.conversationItem} ${isActive ? styles.conversationItemActive : ""}`}
+                    className={`${styles.conversationItem} ${
+                      isActive ? styles.conversationItemActive : ""
+                    }`}
                   >
                     <div className={styles.itemMainRow}>
                       <div className={styles.avatar} aria-hidden>
@@ -324,11 +350,17 @@ export function ConversationUI() {
                       </div>
                       <div className={styles.itemBody}>
                         <div className={styles.itemTopRow}>
-                          <strong className={styles.itemName}>{conversation.nome || "Sem nome"}</strong>
-                          <span className={styles.itemTime}>{formatTime(conversation.updated_at)}</span>
+                          <strong className={styles.itemName}>
+                            {conversation.nome || "Sem nome"}
+                          </strong>
+                          <span className={styles.itemTime}>
+                            {formatTime(conversation.updated_at)}
+                          </span>
                         </div>
                         <div className={styles.itemWaId}>{conversation.wa_id}</div>
-                        <div className={styles.itemPreview}>{sanitizePreview(conversation.last_message_text)}</div>
+                        <div className={styles.itemPreview}>
+                          {sanitizePreview(conversation.last_message_text)}
+                        </div>
                         <div className={styles.badgesRow}>
                           {conversation.fase_conversa ? (
                             <span className={`${styles.badge} ${styles.badgePhase}`}>
@@ -341,7 +373,9 @@ export function ConversationUI() {
                             </span>
                           ) : null}
                           {conversation.atendimento_manual ? (
-                            <span className={`${styles.badge} ${styles.badgeWarn}`}>manual</span>
+                            <span className={`${styles.badge} ${styles.badgeWarn}`}>
+                              manual
+                            </span>
                           ) : null}
                         </div>
                       </div>
@@ -387,7 +421,9 @@ export function ConversationUI() {
                       onChange={handleToggleManual}
                       disabled={manualToggleLoading}
                     />
-                    <span>Modo humano {selectedConversation.atendimento_manual ? "ON" : "OFF"}</span>
+                    <span>
+                      Modo humano {selectedConversation.atendimento_manual ? "ON" : "OFF"}
+                    </span>
                   </label>
                 </div>
               </div>
@@ -401,29 +437,29 @@ export function ConversationUI() {
 
           <div className={styles.messagesArea}>
             <div className={styles.threadWatermark} aria-hidden="true" />
-            {selectedConversation?.atendimento_manual ? (
-              <div className={styles.manualBanner}>MODO HUMANO ATIVO</div>
-            ) : null}
             {!selectedWaId ? (
               <p className={styles.emptyState}>Selecione uma conversa</p>
             ) : threadLoading ? (
               <p className={styles.panelHint}>Carregando mensagens...</p>
             ) : threadError ? (
               <p className={styles.panelError}>Erro na thread: {threadError}</p>
-            ) : messages.length === 0 ? (
+            ) : visibleMessages.length === 0 ? (
               <p className={styles.panelHint}>Sem mensagens para esta conversa.</p>
             ) : (
-              messages.map((message, index) => {
+              visibleMessages.map((message, index) => {
                 const key = message.id ?? `${message.created_at ?? "msg"}-${index}`;
                 const isOut = message.direction === "out";
+                const text = (message.text ?? "").trim();
 
                 return (
                   <div
                     key={key}
-                    className={`${styles.messageRow} ${isOut ? styles.messageRowOut : styles.messageRowIn}`}
+                    className={`${styles.messageRow} ${
+                      isOut ? styles.messageRowOut : styles.messageRowIn
+                    }`}
                   >
                     <article className={`${styles.bubble} ${isOut ? styles.bubbleOut : styles.bubbleIn}`}>
-                      <p>{message.text || "(sem texto)"}</p>
+                      <p>{text}</p>
                       <div className={styles.messageMeta}>{formatDateTime(message.created_at)}</div>
                     </article>
                   </div>
@@ -434,16 +470,24 @@ export function ConversationUI() {
 
           <footer className={styles.threadFooter}>
             <div
-                className={`${styles.composerWrap} ${selectedConversation?.atendimento_manual ? styles.composerWrapActive : ""}`}
+              className={`${styles.composerWrap} ${
+                isManualActive ? styles.composerWrapActive : ""
+              }`}
             >
               <input
                 type="text"
                 value={composerText}
                 onChange={(event) => setComposerText(event.target.value)}
-                placeholder={selectedConversation ? "Digite a mensagem manual" : "Selecione uma conversa"}
+                placeholder={
+                  !selectedConversation
+                    ? "Selecione uma conversa"
+                    : isManualActive
+                    ? "Digite a mensagem manual"
+                    : "Ative o modo humano para enviar"
+                }
                 className={styles.composerInput}
                 aria-label="Mensagem manual"
-                disabled={!selectedConversation || sendLoading}
+                disabled={!selectedConversation || sendLoading || !isManualActive}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") {
                     void handleManualSend();
@@ -454,7 +498,9 @@ export function ConversationUI() {
                 type="button"
                 className={styles.sendButton}
                 onClick={() => void handleManualSend()}
-                disabled={!selectedConversation || sendLoading || !composerText.trim()}
+                disabled={
+                  !selectedConversation || sendLoading || !isManualActive || !composerText.trim()
+                }
               >
                 {sendLoading ? "Enviando..." : "Enviar"}
               </button>

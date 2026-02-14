@@ -1,162 +1,64 @@
-# SUPABASE AUDIT — Worker call-sites (V1)
+# SUPABASE_AUDIT_CALLSITES_V1
 
-## Escopo e método
-- Escopo desta auditoria: **apenas Worker** (`Enova worker.js`).
-- Foco: `sbFetch(`, referências a `enova_docs_pendencias`, e separação entre acesso direto (`fetch(${env.SUPABASE_URL}/rest/v1/...`) vs proxy (`sbFetch`/`supabaseProxyFetch`).
+Escopo: **Worker-only** (`Enova worker.js`), sem mudanças de runtime.
 
----
+## Inventário completo de call-sites Supabase no Worker
 
-## 1) Call-sites de `sbFetch(` no Worker (lista completa)
+### A) Call-sites via `sbFetch(...)`
 
-### 1.1 `logger(env, data)`
-- **Classificação:** **(A) path ok** (`/rest/v1/...` + sem query inline; query em objeto quando existir)
-- **Âncora (linhas 350–355):**
-```js
-await sbFetch(env, "/rest/v1/enova_log", {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  // NÃO inventa coluna "ts" aqui. Deixa o banco cuidar do created_at.
-  body: JSON.stringify(data),
-});
-```
+| Função (Worker) | Linha | Tabela | Path atual | Formato de query | Status |
+|---|---:|---|---|---|---|
+| `logger(env, data)` | 350 | `enova_log` | `/rest/v1/enova_log` | sem query | **OK** |
+| `getState(env, wa_id)` | 385 | `enova_state` | `/rest/v1/enova_state` | **objeto** (`query: { select, wa_id }`) | **OK** |
+| `saveDocumentStatus(env, st, status)` | 3035 | `enova_docs_status` | `/rest/v1/enova_docs_status` | sem query | **OK** |
+| `updateDocsStatusV2(env, st)` | 3067 | `enova_docs` | `/rest/v1/enova_docs` | **objeto** (`query: { wa_id, select }`) | **OK** |
+| `findClientByName(env, nome)` | 3443 | `enova_state` | `/rest/v1/enova_state` | **objeto** (`query: { nome, select, order, limit }`) | **OK** |
 
-### 1.2 `getState(env, wa_id)`
-- **Classificação:** **(A) path ok** (`/rest/v1/...` + `query` em objeto)
-- **Âncora (linhas 385–392):**
-```js
-const result = await sbFetch(
-  env,
-  "/rest/v1/enova_state",
-  {
-    method: "GET",
-    query: {
-      select: "*",
-      wa_id: `eq.${encodeURIComponent(wa_id)}`
-```
-
-### 1.3 `saveDocumentStatus(env, st, status)`
-- **Classificação:** **(A) path ok**
-- **Âncora (linhas 3035–3041):**
-```js
-await sbFetch(env, "/rest/v1/enova_docs_status", {
-  method: "POST",
-  body: JSON.stringify({
-    wa_id: st.wa_id,
-    status_json: status,
-    updated_at: new Date().toISOString()
-```
-
-### 1.4 `updateDocsStatusV2(env, st)`
-- **Classificação:** **(A) path ok** (`query` em objeto)
-- **Âncora (linhas 3067–3072):**
-```js
-const { data: docsRecebidos } = await sbFetch(env, "/rest/v1/enova_docs", {
-  method: "GET",
-  query: {
-    wa_id: `eq.${st.wa_id}`,
-    select: "*"
-  }
-```
-
-### 1.5 `findClientByName(env, nome)`
-- **Classificação:** **(A) path ok** (`query` em objeto)
-- **Âncora (linhas 3443–3449):**
-```js
-const { data } = await sbFetch(env, "/rest/v1/enova_state", {
-  method: "GET",
-  query: {
-    nome: `ilike.${filtro}`,
-    select: "wa_id,nome,fase_conversa,funil_status",
-    order: "updated_at.desc",
-    limit: 1
-```
-
-### 1.6 Observação de completude
-- Não foram encontrados call-sites `sbFetch(` classificados como:
-  - **(B) path curto** (ex.: `"/enova_log"`, `"/enova_docs_status"`)
-  - **(C) query colada no path** (ex.: `"/enova_docs?wa_id=...&select=*"`)
+**Resumo A:** não há casos com query colada no path entre os call-sites de `sbFetch`.
 
 ---
 
-## 2) Referências a `enova_docs_pendencias` (tabela inexistente)
+### B) Call-sites via `supabaseProxyFetch(...)` (direto)
 
-### 2.1 `updateDocumentPendingList(env, st, docType, participant, valid)`
-- **Ocorrência:** 1 referência explícita à tabela inexistente.
-- **Âncora (linhas 2746–2753):**
-```js
-await fetch(`${env.SUPABASE_URL}/rest/v1/enova_docs_pendencias`, {
-  method: "POST",
-  headers: {
-    "apikey": env.SUPABASE_KEY,
-    "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-    "Content-Type": "application/json"
-  },
-```
-- **Impacto provável:**
-  1. Falha HTTP (tipicamente `404`/`42P01`) ao tentar inserir em tabela não existente.
-  2. Perda silenciosa de rastreio de pendências (sem persistência de dados esperados).
-  3. Possível inconsistência de fluxo: o Worker pode seguir sem refletir corretamente pendências documentais em armazenamento.
+| Função (Worker) | Linha | Tabela | Path atual | Formato de query | Status |
+|---|---:|---|---|---|---|
+| `resetTotal(env, wa_id)` | 856 | `enova_state` | `/rest/v1/enova_state` | **objeto** (`query: { wa_id: eq... }`) | **OK** |
 
 ---
 
-## 3) Separação: acesso direto vs proxy
+### C) Helpers que chamam `supabaseProxyFetch(...)`
 
-## 3.1 Operações com **fetch direto** (`${env.SUPABASE_URL}/rest/v1/...`)
+> Estes pontos também são call-sites de Supabase no Worker, porém com tabela dinâmica (`/rest/v1/${table}`).
 
-1. `saveDocumentForParticipant(...)` → `POST /rest/v1/enova_docs`
-   - Âncora (linhas 2316–2322):
-   ```js
-   await fetch(`${env.SUPABASE_URL}/rest/v1/enova_docs`, {
-     method: "POST",
-     headers: {
-       "apikey": env.SUPABASE_KEY,
-       "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-       "Content-Type": "application/json"
-   ```
-
-2. `saveDocumentToSupabase(...)` → `POST /rest/v1/enova_docs`
-   - Âncora (linhas 2728–2734):
-   ```js
-   await fetch(`${env.SUPABASE_URL}/rest/v1/enova_docs`, {
-     method: "POST",
-     headers: {
-       "apikey": env.SUPABASE_KEY,
-       "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-       "Content-Type": "application/json"
-   ```
-
-3. `updateDocumentPendingList(...)` → `POST /rest/v1/enova_docs_pendencias`
-   - Âncora (linhas 2746–2752):
-   ```js
-   await fetch(`${env.SUPABASE_URL}/rest/v1/enova_docs_pendencias`, {
-     method: "POST",
-     headers: {
-       "apikey": env.SUPABASE_KEY,
-       "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-       "Content-Type": "application/json"
-   ```
-
-## 3.2 Operações via **proxy** (`sbFetch` / `supabaseProxyFetch`)
-
-1. Via `sbFetch`:
-   - `logger(...)` → `/rest/v1/enova_log`
-   - `getState(...)` → `/rest/v1/enova_state`
-   - `saveDocumentStatus(...)` → `/rest/v1/enova_docs_status`
-   - `updateDocsStatusV2(...)` → `/rest/v1/enova_docs`
-   - `findClientByName(...)` → `/rest/v1/enova_state`
-
-2. Via `supabaseProxyFetch` diretamente:
-   - `resetTotal(...)` → `DELETE /rest/v1/enova_state`
-   - Helpers genéricos: `supabaseSelect`, `supabaseUpsert`, `supabaseInsert`, `supabaseUpdate` (todos montando `path: /rest/v1/${table}`)
+| Helper | Linha | Tabela | Path atual | Formato de query | Status |
+|---|---:|---|---|---|---|
+| `supabaseSelect(env, table, ...)` | 786 | dinâmica | `/rest/v1/${table}` | **objeto** (`query` montada no helper) | **OK** |
+| `supabaseUpsert(env, table, rows)` | 804 | dinâmica | `/rest/v1/${table}` | **objeto** (`query.on_conflict` quando `enova_state`) | **OK** |
+| `supabaseInsert(env, table, rows)` | 820 | dinâmica | `/rest/v1/${table}` | sem query | **OK** |
+| `supabaseUpdate(env, table, filter, patch)` | 839 | dinâmica | `/rest/v1/${table}` | **objeto** (`query` com `eq.` por coluna) | **OK** |
+| `sbFetch(env, path, options...)` (wrapper interno) | 368 | dinâmica (via `path`) | repassa `path` recebido | **objeto** (`options.query`) | **OK** |
 
 ---
 
-## 4) Plano de Patch mínimo (sem implementar)
+### D) Call-sites com `fetch` direto para Supabase (`${env.SUPABASE_URL}/rest/v1/...`)
 
-- Padronizar `saveDocumentForParticipant(...)` para usar `sbFetch(env, "/rest/v1/enova_docs", { method: "POST", body, ... })`.
-- Padronizar `saveDocumentToSupabase(...)` para usar `sbFetch` no mesmo padrão acima (evitar duplicação de acesso direto).
-- Padronizar `updateDocumentPendingList(...)` para:
-  - migrar de `fetch` direto para `sbFetch`;
-  - corrigir destino da tabela atualmente `enova_docs_pendencias` (inexistente) para a tabela válida definida no schema real.
-- Manter query sempre em objeto (`query: {...}`), sem query colada em `path`.
-- Consolidar headers/autenticação no proxy para reduzir divergência de `SUPABASE_KEY` vs `SUPABASE_SERVICE_ROLE` entre pontos do Worker.
+| Função (Worker) | Linha | Tabela | Path atual | Formato de query | Status |
+|---|---:|---|---|---|---|
+| `saveDocumentForParticipant(env, st, participant, docType, url)` | 2316 | `enova_docs` | `/rest/v1/enova_docs` | sem query | **OK** |
+| `saveDocumentToSupabase(env, wa_id, data)` | 2728 | `enova_docs` | `/rest/v1/enova_docs` | sem query | **OK** |
+| `updateDocumentPendingList(env, st, docType, participant, valid)` | 2746 | `enova_docs_pendencias` | `/rest/v1/enova_docs_pendencias` | sem query | **ERRADO** (tabela referenciada como inexistente no contexto da auditoria) |
+
+---
+
+## Achados objetivos
+
+- Prefixo `/rest/v1` está correto nos call-sites auditados.
+- Não foi encontrado padrão de query colada no path nos call-sites listados.
+- O único ponto marcado como **ERRADO** é o uso de `enova_docs_pendencias` em `updateDocumentPendingList(...)`.
+
+## Plano de correção cirúrgica
+
+- Substituir o destino `enova_docs_pendencias` por tabela válida do schema (definição a confirmar antes da implementação).
+- Padronizar os 3 pontos de `fetch` direto para `sbFetch(...)`, mantendo o mesmo payload/semântica.
+- Manter regra de query em objeto (`query: { ... }`) e evitar query inline no path.
+- Não alterar fluxo funcional nesta etapa; somente migração de forma de acesso (direto → proxy) e correção de tabela.

@@ -31,43 +31,52 @@ const REQUIRED_ENVS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const;
 const jsonResponse = (body: MessagesResponse, status: number) =>
   NextResponse.json<MessagesResponse>(body, {
     status,
-    headers: {
-      "Cache-Control": "no-store",
-    },
+    headers: { "Cache-Control": "no-store" },
   });
 
 function parseLimit(rawLimit: string | null): number {
-  if (!rawLimit) {
-    return 200;
-  }
+  if (!rawLimit) return 200;
 
   const parsed = Number.parseInt(rawLimit, 10);
-
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return 200;
-  }
+  if (!Number.isFinite(parsed) || parsed <= 0) return 200;
 
   return Math.min(parsed, 500);
 }
 
+function normalizeText(value: string | null | undefined): string | null {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized.length > 0 ? normalized : null;
+}
+
 function parseOutgoingText(details: unknown): string | null {
-  if (!details) {
-    return null;
-  }
+  if (!details) return null;
 
   try {
     const parsed = typeof details === "string" ? JSON.parse(details) : details;
+    if (!parsed || typeof parsed !== "object") return null;
 
-    if (!parsed || typeof parsed !== "object") {
-      return null;
-    }
+    const record = parsed as Record<string, unknown>;
+
+    const payload =
+      record.payload_enviado && typeof record.payload_enviado === "object"
+        ? (record.payload_enviado as Record<string, unknown>)
+        : null;
+
+    const payloadText =
+      payload?.text && typeof payload.text === "object"
+        ? (payload.text as Record<string, unknown>).body
+        : null;
 
     const candidate =
-      (parsed as Record<string, unknown>).reply ??
-      (parsed as Record<string, unknown>).bot_text ??
-      (parsed as Record<string, unknown>).answer;
+      record.reply ??
+      record.bot_text ??
+      record.answer ??
+      record.text ??
+      record.message_text ??
+      payloadText;
 
-    return typeof candidate === "string" ? candidate : null;
+    if (typeof candidate !== "string") return null;
+    return normalizeText(candidate);
   } catch {
     return null;
   }
@@ -75,23 +84,17 @@ function parseOutgoingText(details: unknown): string | null {
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const waId = searchParams.get("wa_id")?.trim() ?? "";
+  const waId = (searchParams.get("wa_id") ?? "").trim();
   const limit = parseLimit(searchParams.get("limit"));
 
   if (!waId) {
     return jsonResponse(
-      {
-        ok: false,
-        wa_id: null,
-        messages: [],
-        error: "wa_id obrigatório",
-      },
+      { ok: false, wa_id: null, messages: [], error: "wa_id obrigatório" },
       400,
     );
   }
 
   const missingEnvs = REQUIRED_ENVS.filter((envName) => !process.env[envName]);
-
   if (missingEnvs.length > 0) {
     return jsonResponse(
       {
@@ -108,86 +111,108 @@ export async function GET(request: Request) {
     const supabaseUrl = process.env.SUPABASE_URL as string;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE as string;
 
-    const endpoint = new URL("/rest/v1/enova_log", supabaseUrl);
-    endpoint.searchParams.set(
+    const headers = {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+    };
+
+    const messages: Message[] = [];
+    const seen = new Set<string>();
+
+    const pushUnique = (msg: Message) => {
+      const key = `${msg.direction}|${msg.created_at ?? ""}|${msg.source ?? ""}|${msg.text ?? ""}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      messages.push(msg);
+    };
+
+    // LEGADO (enova_log) — único canônico aqui (sem colunas inexistentes)
+    const legacyEndpoint = new URL("/rest/v1/enova_log", supabaseUrl);
+    legacyEndpoint.searchParams.set(
       "select",
       "id,wa_id,tag,meta_type,meta_text,details,created_at",
     );
-    endpoint.searchParams.set("wa_id", `eq.${waId}`);
-    endpoint.searchParams.set("tag", "in.(meta_minimal,DECISION_OUTPUT,SEND_OK)");
-    endpoint.searchParams.set("order", "created_at.asc");
-    endpoint.searchParams.set("limit", String(limit));
+    legacyEndpoint.searchParams.set("wa_id", `eq.${waId}`);
+    legacyEndpoint.searchParams.set("tag", "in.(meta_minimal,DECISION_OUTPUT,SEND_OK)");
+    legacyEndpoint.searchParams.set("order", "created_at.asc");
+    legacyEndpoint.searchParams.set("limit", String(limit));
 
-    const response = await fetch(endpoint, {
+    const legacyResponse = await fetch(legacyEndpoint, {
       method: "GET",
-      headers: {
-        apikey: serviceRoleKey,
-        Authorization: `Bearer ${serviceRoleKey}`,
-      },
+      headers,
       cache: "no-store",
     });
 
-    if (!response.ok) {
+    if (!legacyResponse.ok) {
+      const legacyText = await legacyResponse.text().catch(() => "");
       return jsonResponse(
         {
           ok: false,
           wa_id: waId,
           messages: [],
-          error: "failed to load messages",
+          error: `failed to load messages | legacy(enova_log) status=${legacyResponse.status} body=${legacyText.slice(0, 300)}`,
         },
         500,
       );
     }
 
-    const rows = (await response.json()) as EnovaLogRow[];
+    const rows = (await legacyResponse.json()) as EnovaLogRow[];
 
-    const messages: Message[] = Array.isArray(rows)
-      ? rows.reduce<Message[]>((acc, row) => {
-          if (row.tag === "meta_minimal") {
-            acc.push({
-              id: row.id !== undefined && row.id !== null ? String(row.id) : null,
-              wa_id: row.wa_id ?? waId,
-              direction: "in",
-              text: row.meta_text ?? null,
-              source: "user",
-              created_at: row.created_at ?? null,
-            });
+    if (Array.isArray(rows)) {
+      for (const row of rows) {
+        if (row.tag === "meta_minimal") {
+          const inbound = normalizeText(row.meta_text);
+          if (!inbound) continue;
 
-            return acc;
-          }
+          pushUnique({
+            id: row.id !== undefined && row.id !== null ? String(row.id) : null,
+            wa_id: row.wa_id ?? waId,
+            direction: "in",
+            text: inbound,
+            source: "user",
+            created_at: row.created_at ?? null,
+          });
+          continue;
+        }
 
-          if (row.tag === "DECISION_OUTPUT" || row.tag === "SEND_OK") {
-            acc.push({
-              id: row.id !== undefined && row.id !== null ? String(row.id) : null,
-              wa_id: row.wa_id ?? waId,
-              direction: "out",
-              text: parseOutgoingText(row.details),
-              source: row.tag,
-              created_at: row.created_at ?? null,
-            });
-          }
+        if (row.tag === "DECISION_OUTPUT") {
+          // ESSENCIAL pro envio manual aparecer (usa meta_text; fallback details)
+          const outText = normalizeText(row.meta_text) ?? parseOutgoingText(row.details);
+          if (!outText) continue;
 
-          return acc;
-        }, [])
-      : [];
+          pushUnique({
+            id: row.id !== undefined && row.id !== null ? String(row.id) : null,
+            wa_id: row.wa_id ?? waId,
+            direction: "out",
+            text: outText,
+            source: "DECISION_OUTPUT",
+            created_at: row.created_at ?? null,
+          });
+          continue;
+        }
 
-    return jsonResponse(
-      {
-        ok: true,
-        wa_id: waId,
-        messages,
-        error: null,
-      },
-      200,
-    );
+        if (row.tag === "SEND_OK") {
+          // SEND_OK costuma vir como ACK/telemetria; só renderiza se tiver texto válido
+          const outText = parseOutgoingText(row.details) ?? normalizeText(row.meta_text);
+          if (!outText) continue;
+
+          pushUnique({
+            id: row.id !== undefined && row.id !== null ? String(row.id) : null,
+            wa_id: row.wa_id ?? waId,
+            direction: "out",
+            text: outText,
+            source: "SEND_OK",
+            created_at: row.created_at ?? null,
+          });
+          continue;
+        }
+      }
+    }
+
+    return jsonResponse({ ok: true, wa_id: waId, messages, error: null }, 200);
   } catch {
     return jsonResponse(
-      {
-        ok: false,
-        wa_id: waId,
-        messages: [],
-        error: "internal error",
-      },
+      { ok: false, wa_id: waId, messages: [], error: "internal error" },
       500,
     );
   }

@@ -2741,22 +2741,21 @@ async function saveDocumentToSupabase(env, wa_id, data) {
 // ======================================================================
 async function updateDocumentPendingList(env, st, docType, participant, valid) {
 
-  // Exemplo simples: marcar pendência se inválido
+  // Recalcula pendências com base na tabela real enova_docs
+  // e persiste status canônico em enova_docs_status.
+  const status = await updateDocsStatusV2(env, st);
+
   if (!valid.valido) {
-    await fetch(`${env.SUPABASE_URL}/rest/v1/enova_docs_pendencias`, {
-      method: "POST",
-      headers: {
-        "apikey": env.SUPABASE_KEY,
-        "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        wa_id: st.wa_id,
+    await logger(env, {
+      wa_id: st?.wa_id || null,
+      event: "docs_documento_invalido",
+      severity: "warning",
+      details: {
         participante: participant,
         doc_tipo: docType,
         motivo: valid.motivo || "pendente",
-        created_at: new Date().toISOString()
-      })
+        docs_completos: status?.completo === true
+      }
     });
   }
 

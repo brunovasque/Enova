@@ -1,0 +1,36 @@
+name: PR Checklist Guard
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  validate-pr-body:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR description contains required fields
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const body = (pr.body || "").toLowerCase();
+
+            const required = [
+              "pr:",
+              "branch:",
+              "commit:",
+              "smoke tests:",
+              "rollback:"
+            ];
+
+            const missing = required.filter(k => !body.includes(k));
+
+            if (missing.length) {
+              core.setFailed(
+                `PR description missing required fields: ${missing.join(", ")}\n` +
+                `\nAdd these lines to the PR body:\n` +
+                `PR: <number>\nBranch: <name>\nCommit: <hash>\nSmoke tests: <what you ran>\nRollback: <command>\n`
+              );
+            } else {
+              core.info("OK: PR description contains all required fields.");
+            }

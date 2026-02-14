@@ -22,19 +22,7 @@ type EnovaLogRow = {
   tag: string | null;
   meta_type: string | null;
   meta_text: string | null;
-  message_text?: string | null;
-  text?: string | null;
   details: unknown;
-  created_at: string | null;
-};
-
-type EnovaMessageRow = {
-  id?: string | number | null;
-  wa_id: string | null;
-  direction: string | null;
-  source: string | null;
-  text?: string | null;
-  message_text?: string | null;
   created_at: string | null;
 };
 
@@ -60,10 +48,6 @@ function normalizeText(value: string | null | undefined): string | null {
   return normalized.length > 0 ? normalized : null;
 }
 
-function normalizeTextValue(row: { text?: string | null; message_text?: string | null; meta_text?: string | null }) {
-  return row.text ?? row.message_text ?? row.meta_text ?? null;
-}
-
 function parseOutgoingText(details: unknown): string | null {
   if (!details) return null;
 
@@ -83,7 +67,13 @@ function parseOutgoingText(details: unknown): string | null {
         ? (payload.text as Record<string, unknown>).body
         : null;
 
-    const candidate = record.reply ?? record.bot_text ?? record.answer ?? record.text ?? record.message_text ?? payloadText;
+    const candidate =
+      record.reply ??
+      record.bot_text ??
+      record.answer ??
+      record.text ??
+      record.message_text ??
+      payloadText;
 
     if (typeof candidate !== "string") return null;
     return normalizeText(candidate);
@@ -107,7 +97,12 @@ export async function GET(request: Request) {
   const missingEnvs = REQUIRED_ENVS.filter((envName) => !process.env[envName]);
   if (missingEnvs.length > 0) {
     return jsonResponse(
-      { ok: false, wa_id: waId, messages: [], error: `missing env: ${missingEnvs.join(", ")}` },
+      {
+        ok: false,
+        wa_id: waId,
+        messages: [],
+        error: `missing env: ${missingEnvs.join(", ")}`,
+      },
       500,
     );
   }
@@ -131,47 +126,11 @@ export async function GET(request: Request) {
       messages.push(msg);
     };
 
-    // 1) TENTA TABELA NOVA (enova_logs)
-    const modernEndpoint = new URL("/rest/v1/enova_logs", supabaseUrl);
-    modernEndpoint.searchParams.set("select", "id,wa_id,direction,source,text,message_text,created_at");
-    modernEndpoint.searchParams.set("wa_id", `eq.${waId}`);
-    modernEndpoint.searchParams.set("order", "created_at.asc");
-    modernEndpoint.searchParams.set("limit", String(limit));
-
-    const modernResponse = await fetch(modernEndpoint, {
-      method: "GET",
-      headers,
-      cache: "no-store",
-    });
-
-    if (modernResponse.ok) {
-      const modernRows = (await modernResponse.json()) as EnovaMessageRow[];
-
-      if (Array.isArray(modernRows)) {
-        for (const row of modernRows) {
-          const direction: "in" | "out" = row.direction === "out" ? "out" : "in";
-          const text = normalizeText(normalizeTextValue(row));
-
-          // evita "out" vazio virar "(sem texto)" na UI
-          if (direction === "out" && !text) continue;
-
-          pushUnique({
-            id: row.id !== undefined && row.id !== null ? String(row.id) : null,
-            wa_id: row.wa_id ?? waId,
-            direction,
-            text,
-            source: row.source ?? null,
-            created_at: row.created_at ?? null,
-          });
-        }
-      }
-    }
-
-    // 2) FALLBACK LEGADO (enova_log)
+    // LEGADO (enova_log) — único canônico aqui (sem colunas inexistentes)
     const legacyEndpoint = new URL("/rest/v1/enova_log", supabaseUrl);
     legacyEndpoint.searchParams.set(
       "select",
-      "id,wa_id,tag,meta_type,meta_text,text,message_text,details,created_at",
+      "id,wa_id,tag,meta_type,meta_text,details,created_at",
     );
     legacyEndpoint.searchParams.set("wa_id", `eq.${waId}`);
     legacyEndpoint.searchParams.set("tag", "in.(meta_minimal,DECISION_OUTPUT,SEND_OK)");
@@ -184,83 +143,77 @@ export async function GET(request: Request) {
       cache: "no-store",
     });
 
-    if (!legacyResponse.ok && messages.length === 0) {
-  const legacyText = await legacyResponse.text().catch(() => "");
-  const modernText = typeof modernResponse !== "undefined"
-    ? await modernResponse.text().catch(() => "")
-    : "";
+    if (!legacyResponse.ok) {
+      const legacyText = await legacyResponse.text().catch(() => "");
+      return jsonResponse(
+        {
+          ok: false,
+          wa_id: waId,
+          messages: [],
+          error: `failed to load messages | legacy(enova_log) status=${legacyResponse.status} body=${legacyText.slice(0, 300)}`,
+        },
+        500,
+      );
+    }
 
-  return jsonResponse(
-    {
-      ok: false,
-      wa_id: waId,
-      messages: [],
-      error: `failed to load messages | legacy(enova_log) status=${legacyResponse.status} body=${legacyText.slice(0, 300)} | modern(enova_logs) status=${modernResponse?.status ?? "n/a"} body=${modernText.slice(0, 300)}`,
-    },
-    500,
-  );
-}
+    const rows = (await legacyResponse.json()) as EnovaLogRow[];
 
-    if (legacyResponse.ok) {
-      const rows = (await legacyResponse.json()) as EnovaLogRow[];
+    if (Array.isArray(rows)) {
+      for (const row of rows) {
+        if (row.tag === "meta_minimal") {
+          const inbound = normalizeText(row.meta_text);
+          if (!inbound) continue;
 
-      if (Array.isArray(rows)) {
-        for (const row of rows) {
-          if (row.tag === "meta_minimal") {
-            const inbound = normalizeText(row.meta_text);
-            if (!inbound) continue;
+          pushUnique({
+            id: row.id !== undefined && row.id !== null ? String(row.id) : null,
+            wa_id: row.wa_id ?? waId,
+            direction: "in",
+            text: inbound,
+            source: "user",
+            created_at: row.created_at ?? null,
+          });
+          continue;
+        }
 
-            pushUnique({
-              id: row.id !== undefined && row.id !== null ? String(row.id) : null,
-              wa_id: row.wa_id ?? waId,
-              direction: "in",
-              text: inbound,
-              source: "user",
-              created_at: row.created_at ?? null,
-            });
-            continue;
-          }
+        if (row.tag === "DECISION_OUTPUT") {
+          // ESSENCIAL pro envio manual aparecer (usa meta_text; fallback details)
+          const outText = normalizeText(row.meta_text) ?? parseOutgoingText(row.details);
+          if (!outText) continue;
 
-          if (row.tag === "DECISION_OUTPUT") {
-            // ESSENCIAL pro envio manual aparecer (usa meta_text)
-            const outText = normalizeText(row.meta_text) ?? parseOutgoingText(row.details);
-            if (!outText) continue;
+          pushUnique({
+            id: row.id !== undefined && row.id !== null ? String(row.id) : null,
+            wa_id: row.wa_id ?? waId,
+            direction: "out",
+            text: outText,
+            source: "DECISION_OUTPUT",
+            created_at: row.created_at ?? null,
+          });
+          continue;
+        }
 
-            pushUnique({
-              id: row.id !== undefined && row.id !== null ? String(row.id) : null,
-              wa_id: row.wa_id ?? waId,
-              direction: "out",
-              text: outText,
-              source: "DECISION_OUTPUT",
-              created_at: row.created_at ?? null,
-            });
-            continue;
-          }
+        if (row.tag === "SEND_OK") {
+          // SEND_OK costuma vir como ACK/telemetria; só renderiza se tiver texto válido
+          const outText = parseOutgoingText(row.details) ?? normalizeText(row.meta_text);
+          if (!outText) continue;
 
-          if (row.tag === "SEND_OK") {
-            const outText =
-              parseOutgoingText(row.details) ??
-              normalizeText(normalizeTextValue(row));
-
-            // evita cair em "(sem texto)"
-            if (!outText) continue;
-
-            pushUnique({
-              id: row.id !== undefined && row.id !== null ? String(row.id) : null,
-              wa_id: row.wa_id ?? waId,
-              direction: "out",
-              text: outText,
-              source: "SEND_OK",
-              created_at: row.created_at ?? null,
-            });
-            continue;
-          }
+          pushUnique({
+            id: row.id !== undefined && row.id !== null ? String(row.id) : null,
+            wa_id: row.wa_id ?? waId,
+            direction: "out",
+            text: outText,
+            source: "SEND_OK",
+            created_at: row.created_at ?? null,
+          });
+          continue;
         }
       }
     }
 
     return jsonResponse({ ok: true, wa_id: waId, messages, error: null }, 200);
   } catch {
-    return jsonResponse({ ok: false, wa_id: waId, messages: [], error: "internal error" }, 500);
+    return jsonResponse(
+      { ok: false, wa_id: waId, messages: [], error: "internal error" },
+      500,
+    );
   }
 }

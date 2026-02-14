@@ -2593,7 +2593,7 @@ async function processIncomingDocumentV2(env, st, file) {
     // 5 — Salvar no Supabase (enova_docs)
 // ======================================================
     await saveDocumentToSupabase(env, st.wa_id, {
-      participant,
+      participante: participant,
       tipo: docType,
       url: file.url,
       valido: valid.valido,
@@ -2611,6 +2611,21 @@ async function processIncomingDocumentV2(env, st, file) {
     // ======================================================
     // 7 — RETORNO FINAL
     // ======================================================
+    if (!valid.valido) {
+      return {
+        ok: false,
+        participant,
+        docType,
+        readable: false,
+        reason: "documento_ilegivel",
+        message: [
+          "Documento recebido, mas não ficou legível o suficiente.",
+          `Identifiquei como **${docType.replace(/_/g, " ")}** (${participant.toUpperCase()}).`,
+          "Me envie uma foto mais nítida para eu validar corretamente 🙏",
+        ]
+      };
+    }
+
     return {
       ok: true,
       participant,
@@ -2619,7 +2634,7 @@ async function processIncomingDocumentV2(env, st, file) {
       message: [
         "Documento recebido e conferido 👏",
         `Identifiquei como **${docType.replace(/_/g, " ")}** (${participant.toUpperCase()}).`,
-        valid.refazer ? "Se puder, me manda uma foto mais nítida 🙏" : "Tudo certo com ele!",
+        "Tudo certo com ele!",
       ]
     };
 
@@ -2725,6 +2740,10 @@ function validateDocumentReadable(docType, txt) {
 // 🔧 FUNÇÃO E — SALVAR NO SUPABASE
 // ======================================================================
 async function saveDocumentToSupabase(env, wa_id, data) {
+  const participante = data?.participante || data?.participant || null;
+  const payload = { ...data, participante };
+  delete payload.participant;
+
   await fetch(`${env.SUPABASE_URL}/rest/v1/enova_docs`, {
     method: "POST",
     headers: {
@@ -2732,7 +2751,7 @@ async function saveDocumentToSupabase(env, wa_id, data) {
       "Authorization": `Bearer ${env.SUPABASE_KEY}`,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({ wa_id, ...data })
+    body: JSON.stringify({ wa_id, ...payload })
   });
 }
 
@@ -3085,7 +3104,7 @@ async function updateDocsStatusV2(env, st) {
 
   for (const item of checklist) {
     const achou = recebidos.some(
-      d => d.tipo === item.tipo && d.participante === item.participante
+      d => d.tipo === item.tipo && (d.participante || d.participant) === item.participante
     );
     if (!achou) pendencias.push(item);
   }

@@ -185,11 +185,21 @@ export async function GET(request: Request) {
     });
 
     if (!legacyResponse.ok && messages.length === 0) {
-      return jsonResponse(
-        { ok: false, wa_id: waId, messages: [], error: "failed to load messages" },
-        500,
-      );
-    }
+  const legacyText = await legacyResponse.text().catch(() => "");
+  const modernText = typeof modernResponse !== "undefined"
+    ? await modernResponse.text().catch(() => "")
+    : "";
+
+  return jsonResponse(
+    {
+      ok: false,
+      wa_id: waId,
+      messages: [],
+      error: `failed to load messages | legacy(enova_log) status=${legacyResponse.status} body=${legacyText.slice(0, 300)} | modern(enova_logs) status=${modernResponse?.status ?? "n/a"} body=${modernText.slice(0, 300)}`,
+    },
+    500,
+  );
+}
 
     if (legacyResponse.ok) {
       const rows = (await legacyResponse.json()) as EnovaLogRow[];

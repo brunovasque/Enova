@@ -1280,6 +1280,17 @@ export default {
     // ---------------------------------------------
     // 🔐 Admin canônico — deve vir antes de /webhook/meta e fallback
     // ---------------------------------------------
+    const envMode = String(env.ENV_MODE || env.ENOVA_ENV || "").toLowerCase();
+const isAdminPath = pathname.startsWith("/__admin__/");
+if (isAdminPath && envMode !== "test") {
+  return adminJson(403, {
+    ok: false,
+    error: "forbidden_test_only",
+    build: ENOVA_BUILD,
+    ts: new Date().toISOString()
+  });
+}
+    
     if (request.method === "GET" && pathname === "/__admin__/health") {
       if (!isAdminAuthorized()) {
         return adminJson(401, {

@@ -2,82 +2,290 @@
 
 WORKFLOW_ACK: ok
 
-Escopo: auditoria DOC-only de linkagem 1:1 entre o funil canônico (`schema/FUNIL_MINIMO_CANONICO_V1.md`), o grafo mapeado (`schema/FUNIL_GRAPH_V1.md`) e o runtime real (`Enova worker.js`).
+Escopo: DOC-only. Auditoria de linkagem entre:
+- `schema/FUNIL_MINIMO_CANONICO_V1.md` (14 fases canônicas)
+- `schema/FUNIL_GRAPH_V1.md` (grafo documentado)
+- `Enova worker.js` (runtime real)
 
-## 1) MATRIZ DE FASES (ordem do FUNIL_MINIMO_CANONICO_V1)
+## MATRIZ 14/14 (1 fase = 1 bloco)
 
-| fase_canonica | existe_no_worker | stage_id_no_worker | existe_no_graph | entradas aceitas (palavras/regex) | writes/flags (set) | reads/flags (branch) | next_stage_reais | EVIDÊNCIA NO WORKER |
-|---|---|---|---|---|---|---|---|---|
-| 1. Início | sim | `inicio` | sim | `reset|resetar|começar do zero`; saudação `oi|ola|bom dia...`; fallback | reset total (`resetTotal`) e `fase_conversa` via `step(...,"inicio_programa")` | lê `st.fase_conversa`, `userText` normalizado (`nt`), `isResetCmd`, `saudacao` | `inicio_programa`, `inicio_decisao` | `case "inicio"`; detecção reset/saudação e retornos para `inicio_programa`/`inicio_decisao`. |
-| 2. Nome | sim | `inicio_nome` | sim | limpeza de prefixo (`meu nome é|sou...`), validação de tamanho e nº de tokens | `nome` | lê `rawNome`, `partes` para validar | `inicio_nome` (fallback), `estado_civil` | `case "inicio_nome"`; `upsertState(...,{ nome })`; `next_stage: "estado_civil"`. |
-| 3. Estrangeiro? | sim (mas órfã no fluxo principal) | `inicio_nacionalidade` (+`inicio_rnm`, `inicio_rnm_validade`) | sim | nacionalidade: `brasileiro|brasileira...` ou `estrangeiro|estrangeira`; RNM `sim|não`; validade `valido|indeterminado` | `nacionalidade`, `rnm_status`, `rnm_validade`, `funil_status`, `fase_conversa` | lê `nt` normalizado e regex de nacionalidade/RNM/validade | `estado_civil`, `inicio_rnm`, `inicio_rnm_validade`, `fim_ineligivel` | `case "inicio_nacionalidade"`, `case "inicio_rnm"`, `case "inicio_rnm_validade"`. OBS: não há transição ativa para `inicio_nacionalidade` a partir de `inicio_nome`. |
-| 4. Estado civil | sim | `estado_civil` (+`confirmar_casamento`, `financiamento_conjunto`) | sim | parse de estado civil (`solteiro|casado|união estável|separado|divorciado|viúvo`) | `estado_civil`, `solteiro_sozinho`, `financiamento_conjunto`, `somar_renda`, `casamento_formal` | lê `estadoCivil` parseado | `somar_renda_solteiro`, `confirmar_casamento`, `financiamento_conjunto`, `verificar_averbacao`, `verificar_inventario` | `case "estado_civil"` + ramos `confirmar_casamento` e `financiamento_conjunto`. |
-| 5. Regime de trabalho (multi ou não) | sim | `regime_trabalho` (+`inicio_multi_regime_pergunta`, `inicio_multi_regime_coletar`) | sim | `CLT`, `autônomo`, `servidor`, `aposentado`; multi-regime via sim/não + novo regime | `regime`; em multi-regime grava `fase_conversa`/listas auxiliares | lê `parseRegimeTrabalho(t)` e respostas sim/não em multi-regime | `renda`, `regime_trabalho` (fallback), `inicio_multi_regime_coletar` | `case "regime_trabalho"` e blocos `inicio_multi_regime_*`. |
-| 6. Renda (única / multi / mista) | sim | `renda`, `renda_parceiro`, `possui_renda_extra`, `renda_mista_detalhe`, `inicio_multi_renda_pergunta`, `inicio_multi_renda_coletar` | sim | parsing numérico (`parseMoneyBR`, `\d+`); renda extra `sim|não|uber|bico` | `renda`, `renda_parceiro`, `renda_total_para_fluxo`, `renda_formal`, `renda_informal`, `renda_mista` | lê `st.somar_renda`, `st.parceiro_tem_renda`, presença de 2 números em renda mista | `renda_parceiro`, `possui_renda_extra`, `renda_mista_detalhe`, `ir_declarado`, `dependente` (via multi renda) | `case "renda"`, `"renda_parceiro"`, `"possui_renda_extra"`, `"renda_mista_detalhe"`, `"inicio_multi_renda_*"`. |
-| 7. Composição de renda + amarras | sim | `somar_renda_solteiro`, `somar_renda_familiar`, `parceiro_tem_renda`, `interpretar_composicao`, `quem_pode_somar`, `sugerir_composicao_mista`, `regime_trabalho_parceiro_familiar` | sim | termos de composição (`só eu`, `parceiro`, `familiar`, parentesco) | `somar_renda`, `financiamento_conjunto`, `renda_familiar`, `parceiro_tem_renda`, `regime_trabalho_parceiro_familiar` | lê `st.somar_renda`, `st.financiamento_conjunto`, classificação semântica do texto | `regime_trabalho`, `regime_trabalho_parceiro`, `regime_trabalho_parceiro_familiar`, `ir_declarado` | blocos de composição (`somar_renda_*`, `parceiro_tem_renda`, `interpretar_composicao`, `quem_pode_somar`, `sugerir_composicao_mista`). |
-| 8. Dependente | sim | `dependente` | sim | `sim|filho|dependente`; `não|sem dependente`; `não sei|talvez` | `dependentes_qtd` (0/1) | lê `st.financiamento_conjunto` e `st.somar_renda` para pular etapa | `restricao`, `dependente` (fallback) | `case "dependente"`: pulo automático quando composição/conjunto. |
-| 9. 36 meses | sim | `ctps_36`, `ctps_36_parceiro` | sim | `sim|não|não sei` (titular e parceiro) | `ctps_36`, `ctps_36_parceiro` | lê `st.somar_renda` para decidir `restricao` vs `dependente` | `restricao`, `dependente`, mesma fase (fallback) | `case "ctps_36"` e `case "ctps_36_parceiro"`. |
-| 10. Restrição | sim | `restricao` (+`regularizacao_restricao`) | sim | `sim|negativado|serasa|spc`; `não|cpf limpo`; `não sei` | `restricao`, `regularizacao_restricao` | lê classificação `sim/nao/incerto` e depois `sim/nao/talvez` em regularização | `regularizacao_restricao`, `envio_docs`, mesma fase | `case "restricao"` e `case "regularizacao_restricao"`. |
-| 11. DOCs | sim | `envio_docs` | sim | aceite da lista (`sim|ok|manda`), recusa (`não agora|depois`), upload mídia | `docs_lista_enviada`; estado de docs via helper (`docs_pendentes`, `docs_completos` em fluxo auxiliar) | lê `st._incoming_media`, `st.docs_lista_enviada`, resultado `handleDocumentUpload` | `envio_docs` (loop), `agendamento_visita` (quando docs completos no helper) | `case "envio_docs"` + `handleDocumentUpload` retorna `nextStage: "agendamento_visita"` ao completar docs. |
-| 12. Não quis enviar DOCs | nao (não existe stage dedicado) | MISSING (ramo interno em `envio_docs`) | nao (como fase dedicada) | `negar = isNo(t) || /(nao|não agora|depois|mais tarde|agora nao)/` | `docs_lista_enviada: false` | lê `negar` | `envio_docs` (permanece) | Dentro de `case "envio_docs"`, ramo `if (negar) { ... next_stage: "envio_docs" }`. |
-| 13. Enviou DOCs | nao (não existe stage dedicado) | MISSING (evento interno em `envio_docs`/helper) | nao (como fase dedicada) | envio de mídia (`st._incoming_media`) e sucesso OCR/status | sem flag única "enviou_docs"; helper atualiza status e pode avançar | lê `resposta.ok`, `resposta.nextStage` de `handleDocumentUpload` | `envio_docs` ou `agendamento_visita` | `envio_docs` chama `handleDocumentUpload`; no helper, docs completos -> `nextStage: "agendamento_visita"`. |
-| 14. Aprovou financiamento | sim (como evento/ramo, não stage homônimo) | MISSING stage dedicado; ramo em `aguardando_retorno_correspondente` | parcial (grafo mapeia em stage de espera) | regex `aprovado|crédito aprovado|liberado` | `processo_aprovado: true`, `processo_reprovado: false` | lê texto de retorno correspondente e match de nome | `agendamento_visita` | `case "aguardando_retorno_correspondente"` ramo `if (aprovado)` com `next_stage: "agendamento_visita"`. |
+### 1) Início
+- fase_canônica: Início
+- stage_real_no_worker: `inicio`
+- existe_no_worker: sim
+- ligado_no_fluxo_principal: sim + prova (`const stage = st.fase_conversa || "inicio";` + `case "inicio": {`)
+- entradas aceitas (text patterns/gates): reset (`reset|resetar|recomeçar|começar do zero`), saudação (`oi|ola|bom dia|boa tarde|boa noite`), iniciar (`nova analise|iniciar|do zero`)
+- writes/reads (state): reads `st.fase_conversa`, `userText`; write por helper `resetTotal(...)`
+- next_stage real: `inicio_programa` (ou `inicio_decisao` em retomada)
+- evidência (âncora colável do worker.js: snippet exato):
+```js
+const stage = st.fase_conversa || "inicio";
+...
+case "inicio": {
+...
+return step(..., "inicio_programa");
+```
+- divergência com FUNIL_GRAPH_V1 (se houver): sem divergência estrutural relevante
+- ação futura sugerida: ajustar
 
-### Observações estruturais da matriz
-- A fase canônica **Estrangeiro?** existe em runtime, mas está **desacoplada do fluxo principal** atual: `inicio_nome` avança direto para `estado_civil` e não para `inicio_nacionalidade`.
-- As fases canônicas 12, 13 e 14 existem no runtime como **ramos/eventos**, não como stages com nome 1:1.
+### 2) Nome
+- fase_canônica: Nome
+- stage_real_no_worker: `inicio_nome`
+- existe_no_worker: sim
+- ligado_no_fluxo_principal: sim + prova (`inicio_programa` envia para `inicio_nome`)
+- entradas aceitas (text patterns/gates): limpeza de prefixos (`meu nome é`, `sou`), validação de nome completo
+- writes/reads (state): write `nome`; reads `rawNome`, `partes`
+- next_stage real: `estado_civil`
+- evidência (âncora colável do worker.js: snippet exato):
+```js
+case "inicio_nome": {
+...
+await upsertState(env, st.wa_id, { nome: nomeCompleto });
+...
+next_stage: "estado_civil",
+...
+"estado_civil"
+```
+- divergência com FUNIL_GRAPH_V1 (se houver): sem divergência com o graph; divergência é com a fase canônica 3 (nacionalidade não entra aqui)
+- ação futura sugerida: ajustar
 
----
+### 3) Estrangeiro?
+- fase_canônica: Estrangeiro?
+- stage_real_no_worker: `inicio_nacionalidade` (+ `inicio_rnm`, `inicio_rnm_validade`)
+- existe_no_worker: sim
+- ligado_no_fluxo_principal: não + prova (`inicio_nome` avança para `estado_civil`, sem `next_stage: "inicio_nacionalidade"`)
+- entradas aceitas (text patterns/gates): `brasileiro|brasileira`, `estrangeiro|estrangeira`; em RNM `sim|não`; validade `valido|indeterminado`
+- writes/reads (state): writes `nacionalidade`, `rnm_status`, `rnm_validade`, `funil_status`, `fase_conversa`
+- next_stage real: `estado_civil` / `inicio_rnm` / `inicio_rnm_validade` / `fim_ineligivel`
+- evidência (âncora colável do worker.js: snippet exato):
+```js
+case "inicio_nome": {
+...
+return step(..., "estado_civil");
+}
+...
+case "inicio_nacionalidade": {
+```
+- divergência com FUNIL_GRAPH_V1 (se houver): graph posiciona nacionalidade no fluxo principal após nome; runtime atual não liga essa transição
+- ação futura sugerida: ligar
 
-## 2) QUEBRAS / BURACOS
+### 4) Estado civil
+- fase_canônica: Estado civil
+- stage_real_no_worker: `estado_civil`
+- existe_no_worker: sim
+- ligado_no_fluxo_principal: sim + prova (`inicio_nome -> estado_civil`)
+- entradas aceitas (text patterns/gates): parse de `solteiro`, `casado`, `união estável`, `separado`, `divorciado`, `viúvo`
+- writes/reads (state): writes `estado_civil`, `financiamento_conjunto`, `somar_renda` (por ramo)
+- next_stage real: `confirmar_casamento`, `financiamento_conjunto`, `somar_renda_solteiro`, gates legais
+- evidência (âncora colável do worker.js: snippet exato):
+```js
+case "estado_civil": {
+```
+- divergência com FUNIL_GRAPH_V1 (se houver): sem
+- ação futura sugerida: ajustar
 
-### 2.1 Todos os *none* encontrados
-- Busca por stages/identificadores contendo `none`: **nenhum encontrado** no `Enova worker.js`.
-- Evidência de busca: não há ocorrência textual de `_none`/`none` em identificadores de stage.
+### 5) Regime de trabalho (multi ou não)
+- fase_canônica: Regime de trabalho (multi ou não)
+- stage_real_no_worker: `regime_trabalho` (+ `inicio_multi_regime_pergunta`, `inicio_multi_regime_coletar`)
+- existe_no_worker: sim
+- ligado_no_fluxo_principal: sim + prova (`somar_renda_solteiro` envia `next_stage: "regime_trabalho"`)
+- entradas aceitas (text patterns/gates): `parseRegimeTrabalho(t)` para CLT/autônomo/servidor/aposentado
+- writes/reads (state): write `regime`
+- next_stage real: `renda` (ou etapas de multi-regime)
+- evidência (âncora colável do worker.js: snippet exato):
+```js
+case "regime_trabalho": {
+const regimeDetectado = parseRegimeTrabalho(t);
+...
+next_stage: "renda"
+```
+- divergência com FUNIL_GRAPH_V1 (se houver): sem
+- ação futura sugerida: ajustar
 
-### 2.2 Stages sem saída / sem transição
-- **Sem saída (terminal sem `next_stage`)**: não identificado no switch principal; os cases auditados retornam `step(..., next_stage)`.
-- **Sem transição de entrada (órfão funcional)**:
-  - `inicio_nacionalidade`: existe `case`, mas não há referência de entrada (`next_stage: "inicio_nacionalidade"` / `fase_conversa: "inicio_nacionalidade"`) em outros ramos do worker.
+### 6) Renda (única / multi / mista)
+- fase_canônica: Renda (única / multi / mista)
+- stage_real_no_worker: `renda`, `renda_parceiro`, `possui_renda_extra`, `renda_mista_detalhe`, `inicio_multi_renda_*`
+- existe_no_worker: sim
+- ligado_no_fluxo_principal: sim + prova (`regime_trabalho` envia para `renda`)
+- entradas aceitas (text patterns/gates): parsing monetário e padrões `sim|não|bico|uber` para renda extra
+- writes/reads (state): writes `renda`, `renda_parceiro`, `renda_total_para_fluxo`, `renda_formal`, `renda_informal`
+- next_stage real: `renda_parceiro`, `possui_renda_extra`, `renda_mista_detalhe`, `ir_declarado`
+- evidência (âncora colável do worker.js: snippet exato):
+```js
+case "renda": {
+case "renda_parceiro": {
+case "renda_mista_detalhe": {
+case "possui_renda_extra": {
+```
+- divergência com FUNIL_GRAPH_V1 (se houver): sem
+- ação futura sugerida: ajustar
 
-### 2.3 Divergências (FUNIL_GRAPH_V1 diz X, worker faz Y)
-1. **RNM validade invertido no grafo**
-   - Graph: “válido → estado_civil; indeterminado → fim_ineligivel”.
-   - Worker: `valido` seta `funil_status: "ineligivel"` e vai para `fim_ineligivel`; `indeterminado` vai para `estado_civil`.
-2. **Fim ineligível não é terminal no runtime**
-   - Graph descreve `fim_ineligivel` como terminal/manual.
-   - Worker faz fallback para `inicio_programa`.
-3. **Nacionalidade fora da trilha principal atual**
-   - Graph posiciona nacionalidade após nome.
-   - Worker real: `inicio_programa -> inicio_nome -> estado_civil`; `inicio_nacionalidade` está implementado, mas sem entrada ativa.
-4. **Docs completos avançam para visita (não para “enviou docs” como stage)**
-   - Canônico tem fase explícita “Enviou DOCs”.
-   - Worker usa evento interno de helper e avança direto para `agendamento_visita`.
+### 7) Composição de renda (quando/como) + amarras
+- fase_canônica: Composição de renda
+- stage_real_no_worker: `somar_renda_solteiro`, `parceiro_tem_renda`, `somar_renda_familiar`, `regime_trabalho_parceiro_familiar`
+- existe_no_worker: sim
+- ligado_no_fluxo_principal: sim + prova (`estado_civil`/`financiamento_conjunto` roteiam para composição)
+- entradas aceitas (text patterns/gates): `só eu`, `parceiro`, `familiar` + parentescos
+- writes/reads (state): writes `somar_renda`, `financiamento_conjunto`, `renda_familiar`, `parceiro_tem_renda`
+- next_stage real: `regime_trabalho`, `parceiro_tem_renda`, `regime_trabalho_parceiro_familiar`
+- evidência (âncora colável do worker.js: snippet exato):
+```js
+case "somar_renda_solteiro": {
+...
+await upsertState(env, st.wa_id, {
+  somar_renda: false,
+  financiamento_conjunto: false,
+  renda_familiar: false
+});
+```
+- divergência com FUNIL_GRAPH_V1 (se houver): sem
+- ação futura sugerida: ajustar
 
----
+### 8) Dependente
+- fase_canônica: Dependente
+- stage_real_no_worker: `dependente`
+- existe_no_worker: sim
+- ligado_no_fluxo_principal: sim + prova (`ctps_36` envia para `dependente` quando não soma renda)
+- entradas aceitas (text patterns/gates): `sim|filho|dependente`, `não|sem dependente`, `não sei|talvez`
+- writes/reads (state): write `dependentes_qtd`; reads `financiamento_conjunto`, `somar_renda`
+- next_stage real: `restricao` (ou mantém `dependente`)
+- evidência (âncora colável do worker.js: snippet exato):
+```js
+case "dependente": {
+if (st.financiamento_conjunto === true || st.somar_renda === true) {
+  ...
+  next_stage: "restricao"
+}
+```
+- divergência com FUNIL_GRAPH_V1 (se houver): sem
+- ação futura sugerida: ajustar
 
-## 3) INVENTÁRIO DE INTERRUPTORES
+### 9) 36 meses
+- fase_canônica: 36 meses
+- stage_real_no_worker: `ctps_36` e `ctps_36_parceiro`
+- existe_no_worker: sim
+- ligado_no_fluxo_principal: sim + prova (`ir_declarado` direciona para CTPS)
+- entradas aceitas (text patterns/gates): `sim|não|não sei`
+- writes/reads (state): write `ctps_36` e `ctps_36_parceiro` (nos respectivos cases)
+- next_stage real: `dependente` ou `restricao`
+- evidência (âncora colável do worker.js: snippet exato):
+```js
+case "ctps_36": {
+const nextStage = st.somar_renda ? "restricao" : "dependente";
+```
+- divergência com FUNIL_GRAPH_V1 (se houver): sem
+- ação futura sugerida: ajustar
 
-| interruptor / flag / coluna | onde é SETADO (anchor) | onde é LIDO (anchor) | fases/transições dependentes |
-|---|---|---|---|
-| `somar_renda` | `estado_civil` (solteiro=false/true), `financiamento_conjunto` (true/false), composição (`somar_renda_solteiro` etc.) | `renda` (decide `renda_parceiro` vs `possui_renda_extra`), `ctps_36`, `ctps_36_parceiro`, `dependente` | composição de renda, pulo de dependente, rota CTPS/restrição |
-| `financiamento_conjunto` | `estado_civil`, `confirmar_casamento`, `financiamento_conjunto`, `somar_renda_solteiro` | `dependente` (pular quando true), decisões de fluxo conjugal | ativa fluxo em conjunto e altera ordem de perguntas |
-| `parceiro_tem_renda` | `parceiro_tem_renda` | `renda` (`st.somar_renda && st.parceiro_tem_renda`) | define coleta de `renda_parceiro` |
-| `regime` (titular) | `regime_trabalho` | `ir_declarado` (`isAutTitular`) e rotas subsequentes | obrigação de IR/comprovação p/ autônomo |
-| `regime_trabalho_parceiro` / `regime_parceiro` | `regime_trabalho_parceiro` | `ir_declarado` (`isAutParceiro`) | decide se parceiro autônomo cai em coleta adicional |
-| `ir_declarado` + `ir_declarado_por` | `ir_declarado` | `autonomo_compor_renda` (`veio_do_ir`) | bifurcação para comprovação autônoma |
-| `autonomo_comprova` | `autonomo_compor_renda` | fluxo subsequente por transição (`renda` ou `interpretar_composicao`) | mantém autônomo no fluxo normal ou força composição |
-| `ctps_36` | `ctps_36` | mesmo case (decisão nextStage por `somar_renda`) | `dependente` vs `restricao` |
-| `ctps_36_parceiro` | `ctps_36_parceiro` | mesmo case (decisão nextStage) | fechamento da trilha conjunta |
-| `dependentes_qtd` | `dependente` | consumo indireto no dossiê/telemetria | priorização e continuidade para restrição |
-| `restricao` | `restricao` | `regularizacao_restricao`, dossiê/fase final | entra em regularização ou docs direto |
-| `regularizacao_restricao` | `regularizacao_restricao` | controle de mensagem e continuidade | sempre retorna para `envio_docs` com contextos diferentes |
-| `docs_lista_enviada` | `envio_docs` | `envio_docs` (primeira vez, reenvio lista) | loop até mídia/continuidade |
-| `docs_status_geral` (helper docs) | `updateDocsStatusV2` (chamado em `handleDocumentUpload`) | `handleDocumentUpload` / dossiê | quando completo, avanço `agendamento_visita` |
-| `rnm_status` / `rnm_validade` / `nacionalidade` | `inicio_nacionalidade`, `inicio_rnm`, `inicio_rnm_validade` | lidos no próprio bloco de nacionalidade/RNM | elegibilidade de estrangeiro |
-| `processo_enviado_correspondente` | `finalizacao_processo` | `aguardando_retorno_correspondente` (contexto), telemetria | marca envio ao correspondente |
-| `processo_aprovado` / `processo_reprovado` | `aguardando_retorno_correspondente` | ramos de retorno correspondente | aprovado leva para `agendamento_visita` |
+### 10) Restrição
+- fase_canônica: Restrição
+- stage_real_no_worker: `restricao` (+ `regularizacao_restricao`)
+- existe_no_worker: sim
+- ligado_no_fluxo_principal: sim + prova (`dependente` envia para `restricao`)
+- entradas aceitas (text patterns/gates): `negativado|serasa|spc`, `cpf limpo`, `não sei`
+- writes/reads (state): writes `restricao`, `regularizacao_restricao`
+- next_stage real: `regularizacao_restricao` ou `envio_docs`
+- evidência (âncora colável do worker.js: snippet exato):
+```js
+case "restricao": {
+...
+next_stage: "regularizacao_restricao"
+```
+- divergência com FUNIL_GRAPH_V1 (se houver): sem
+- ação futura sugerida: ajustar
 
-## Apêndice — âncoras rápidas usadas na auditoria
-- Switch principal do funil: `switch(stage)`.
-- Stages canônicos/relacionados verificados: `inicio`, `inicio_programa`, `inicio_nome`, `inicio_nacionalidade`, `inicio_rnm`, `inicio_rnm_validade`, `estado_civil`, `confirmar_casamento`, `financiamento_conjunto`, `regime_trabalho`, `renda`, `possui_renda_extra`, `renda_mista_detalhe`, `ir_declarado`, `autonomo_compor_renda`, `ctps_36`, `ctps_36_parceiro`, `dependente`, `restricao`, `regularizacao_restricao`, `envio_docs`, `agendamento_visita`, `finalizacao_processo`, `aguardando_retorno_correspondente`, `fim_ineligivel`.
+### 11) DOCs
+- fase_canônica: DOCs
+- stage_real_no_worker: `envio_docs`
+- existe_no_worker: sim
+- ligado_no_fluxo_principal: sim + prova (`regularizacao_restricao` leva para `envio_docs`)
+- entradas aceitas (text patterns/gates): aceite de lista (`sim|ok|manda`), adiamento (`não agora|depois`) e envio de mídia
+- writes/reads (state): write `docs_lista_enviada`; leitura de `_incoming_media`
+- next_stage real: `envio_docs` (loop) e `agendamento_visita` quando helper retorna avanço
+- evidência (âncora colável do worker.js: snippet exato):
+```js
+case "envio_docs": {
+if (st._incoming_media) {
+  const resposta = await handleDocumentUpload(env, st, midia);
+  return step(env, st, resposta.message, resposta.nextStage);
+}
+```
+- divergência com FUNIL_GRAPH_V1 (se houver): sem
+- ação futura sugerida: ajustar
+
+### 12) Não quis enviar DOCs
+- fase_canônica: Não quis enviar DOCs
+- stage_real_no_worker: não existe stage dedicado (ramo interno de `envio_docs`)
+- existe_no_worker: não
+- ligado_no_fluxo_principal: sim (como ramo) + prova (`if (negar) ... "envio_docs"`)
+- entradas aceitas (text patterns/gates): `nao|não agora|depois|mais tarde|agora nao`
+- writes/reads (state): write `docs_lista_enviada: false`
+- next_stage real: `envio_docs`
+- evidência (âncora colável do worker.js: snippet exato):
+```js
+if (negar) {
+  await upsertState(env, st.wa_id, { docs_lista_enviada: false });
+  return step(env, st, [...], "envio_docs");
+}
+```
+- divergência com FUNIL_GRAPH_V1 (se houver): graph/canônico tratam como fase explícita; runtime trata como ramo interno
+- ação futura sugerida: criar
+
+### 13) Enviou DOCs
+- fase_canônica: Enviou DOCs
+- stage_real_no_worker: não existe stage dedicado (evento do helper)
+- existe_no_worker: não
+- ligado_no_fluxo_principal: sim (como evento) + prova (`handleDocumentUpload` retorna `nextStage: "agendamento_visita"`)
+- entradas aceitas (text patterns/gates): envio de mídia no `envio_docs`
+- writes/reads (state): atualização de pendências por `updateDocsStatusV2`
+- next_stage real: `agendamento_visita`
+- evidência (âncora colável do worker.js: snippet exato):
+```js
+const status = await updateDocsStatusV2(env, st);
+...
+return { ok: true, message: linhas, nextStage: "agendamento_visita" };
+```
+- divergência com FUNIL_GRAPH_V1 (se houver): canônico tem fase nomeada; runtime usa transição por evento
+- ação futura sugerida: criar
+
+### 14) Aprovou financiamento
+- fase_canônica: Aprovou financiamento
+- stage_real_no_worker: não existe stage dedicado (ramo em `aguardando_retorno_correspondente`)
+- existe_no_worker: não
+- ligado_no_fluxo_principal: sim (como ramo) + prova (`if (aprovado) ... next_stage: "agendamento_visita"`)
+- entradas aceitas (text patterns/gates): `aprovado|crédito aprovado|liberado`
+- writes/reads (state): writes `processo_aprovado: true`, `processo_reprovado: false`
+- next_stage real: `agendamento_visita`
+- evidência (âncora colável do worker.js: snippet exato):
+```js
+if (aprovado) {
+  await upsertState(env, st.wa_id, {
+    processo_aprovado: true,
+    processo_reprovado: false
+  });
+  ...
+  next_stage: "agendamento_visita"
+}
+```
+- divergência com FUNIL_GRAPH_V1 (se houver): fase canônica explícita, mas runtime resolve como evento
+- ação futura sugerida: criar
+
+## DIVERGÊNCIAS / ROOT-CAUSE
+
+### Caso `*_none` no simulador (ex.: `inicio_none`, `inicio_nome` “fantasma”)
+Diagnóstico: não há stage `*_none` hardcoded no worker. O admin simulator aceita `start_stage` livre no payload e injeta esse valor diretamente em `fase_conversa`. Se um cliente/admin passar `inicio_none`, o `switch(stage)` cai no `default`, que mantém o mesmo stage inválido (`step(..., stage)`), parecendo que o stage `*_none` “existe”.
+
+Âncoras:
+```js
+const startStage = String(payload?.start_stage || "inicio").trim() || "inicio";
+...
+stateByWaId[wa_id] = createSimulationState(wa_id, startStage || "inicio");
+...
+function createSimulationState(wa_id, startStage) {
+  return { ... fase_conversa: startStage || "inicio", ... };
+}
+...
+default:
+  return step(env, st, [...], stage);
+```
+
+Conclusão operacional: `*_none` é efeito de entrada livre do simulador/fallback de stage inválido, não uma fase real do funil de produção.

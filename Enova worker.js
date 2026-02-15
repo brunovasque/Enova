@@ -508,6 +508,93 @@ function normalizeText(text) {
     .trim();
 }
 
+function isYes(text) {
+  const nt = normalizeText(text);
+  if (!nt) return false;
+  const yesTerms = [
+    "sim", "s", "ss", "claro", "pode", "ok", "beleza", "com certeza",
+    "uhum", "isso", "quero", "vamo", "vamos", "bora"
+  ];
+  return yesTerms.some((term) => nt === term || nt.includes(term));
+}
+
+function isNo(text) {
+  const nt = normalizeText(text);
+  if (!nt) return false;
+  const noTerms = [
+    "nao", "n", "nn", "negativo", "nunca", "jamais", "ainda nao", "agora nao", "talvez depois"
+  ];
+  return noTerms.some((term) => nt === term || nt.includes(term));
+}
+
+function parseMoneyBR(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  const nt = normalizeText(raw);
+
+  const kMatch = nt.match(/(\d+(?:[\.,]\d+)?)\s*k\b/);
+  if (kMatch) {
+    const base = Number(kMatch[1].replace(".", "").replace(",", "."));
+    return Number.isFinite(base) ? Math.round(base * 1000) : null;
+  }
+
+  const clean = raw.replace(/r\$|\s/gi, "");
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(clean)) {
+    const asNumber = Number(clean.replace(/\./g, "").replace(",", "."));
+    return Number.isFinite(asNumber) ? asNumber : null;
+  }
+  if (/^\d+(,\d+)?$/.test(clean)) {
+    const asNumber = Number(clean.replace(",", "."));
+    return Number.isFinite(asNumber) ? asNumber : null;
+  }
+  if (/^\d+(\.\d+)?$/.test(clean)) {
+    const asNumber = Number(clean);
+    return Number.isFinite(asNumber) ? asNumber : null;
+  }
+
+  const digits = nt.replace(/[^\d]/g, "");
+  if (!digits) return null;
+  const fallback = Number(digits);
+  return Number.isFinite(fallback) ? fallback : null;
+}
+
+function parseEstadoCivil(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  if (/(solteir)/.test(nt)) return "solteiro";
+  if (/(casad)/.test(nt)) return "casado";
+  if (/(uniao|estavel|juntad|moro junto|moramos junto|amasiad|companheir)/.test(nt)) return "uniao_estavel";
+  if (/(separad|separei)/.test(nt)) return "separado";
+  if (/(divorciad)/.test(nt)) return "divorciado";
+  if (/(viuv)/.test(nt)) return "viuvo";
+  return null;
+}
+
+function parseRegimeTrabalho(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  if (/(mei)/.test(nt)) return "autonomo";
+  if (/(clt|carteira assinada|registrad)/.test(nt)) return "clt";
+  if (/(autonom|informal|por conta|freela|uber|ifood|liberal|bico)/.test(nt)) return "autonomo";
+  if (/(servidor|funcionario publico|publico|concursad|municipal|estadual|federal|prefeitura)/.test(nt)) return "servidor";
+  if (/(aposentad)/.test(nt)) return "aposentadoria";
+  if (/(desempregad)/.test(nt)) return "desempregado";
+  if (/(estudant)/.test(nt)) return "estudante";
+  return null;
+}
+
+function parseComposicaoRenda(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  if (/(minha esposa|meu marido|companheira|companheiro|namorada|namorado|parceir|espos|marid)/.test(nt)) {
+    return "parceiro";
+  }
+  if (/(pai|mae|irmao|irma|filho|filha|familiar|familia)/.test(nt)) {
+    return "familiar";
+  }
+  return null;
+}
+
 // =============================================================
 // 🧱 A3 — TELEMETRIA ENOVA (MODO SAFE COM DETALHES)
 //  - Não escreve no Supabase
@@ -4046,15 +4133,12 @@ case "inicio_programa": {
   const nt = normalizeText(userText || st.last_user_text || "");
 
   // 🟢 DETECÇÃO DE "SIM"
-  const sim =
-    nt === "sim" ||
-    nt === "s" ||
+  const sim = isYes(nt) ||
     nt.includes("ja sei") ||
     nt.includes("já sei") ||
     nt.includes("sei sim") ||
     nt.includes("tô ligado") ||
     nt.includes("to ligado") ||
-    nt.includes("claro") ||
     nt.includes("conheco") ||
     nt.includes("conheço") ||
     nt.includes("já conheço") ||
@@ -4062,8 +4146,7 @@ case "inicio_programa": {
 
   // 🔴 DETECÇÃO DE "NÃO" — expandida para respostas educadas
   const nao =
-    nt === "nao" ||
-    nt === "n" ||
+    isNo(nt) ||
     nt.includes("nao sei") ||
     nt.includes("não sei") ||
     nt.includes("nao conheco") ||
@@ -4369,7 +4452,7 @@ case "inicio_rnm": {
   // -------------------------------------------
   // ❌ 1) NÃO POSSUI RNM → ineligível
   // -------------------------------------------
-  if (/^(nao|não|nao possuo|não possuo)$/i.test(nt)) {
+  if (isNo(nt) || /^(nao|não|nao possuo|não possuo)$/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       rnm_status: "não possui",
@@ -4397,7 +4480,7 @@ case "inicio_rnm": {
   // -------------------------------------------
   // ✅ 2) POSSUI RNM → perguntar tipo de validade
   // -------------------------------------------
-  if (/^sim$/i.test(nt)) {
+  if (isYes(nt) || /^sim$/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       rnm_status: "possui",
@@ -4540,12 +4623,13 @@ case "estado_civil": {
     }
   });
 
-  const solteiro = /(solteir)/i.test(t);
-  const casado = /(casad)/i.test(t);
-  const uniao = /(uni[aã]o estável|uniao estavel|estavel)/i.test(t);
-  const separado = /(separad)/i.test(t);
-  const divorciado = /(divorciad)/i.test(t);
-  const viuvo = /(vi[uú]v)/i.test(t);
+  const estadoCivil = parseEstadoCivil(t);
+  const solteiro = estadoCivil === "solteiro";
+  const casado = estadoCivil === "casado";
+  const uniao = estadoCivil === "uniao_estavel";
+  const separado = estadoCivil === "separado";
+  const divorciado = estadoCivil === "divorciado";
+  const viuvo = estadoCivil === "viuvo";
 
   // --------- SOLTEIRO ---------
   if (solteiro) {
@@ -4770,10 +4854,12 @@ case "confirmar_casamento": {
     }
   });
 
+  const estadoCivilDetectado = parseEstadoCivil(t);
   const civil =
     /(civil|no papel|casamento civil|casad[ao] no papel)/i.test(t);
 
   const uniao_estavel =
+    estadoCivilDetectado === "uniao_estavel" ||
     /(uni[aã]o est[áa]vel|estavel|vivemos juntos|moramos juntos)/i.test(t);
 
   // ===== CASAMENTO CIVIL NO PAPEL =====
@@ -4882,8 +4968,8 @@ case "financiamento_conjunto": {
     }
   });
 
-  const sim = /(sim|isso|claro|vamos juntos|comprar juntos|juntos)/i.test(t);
-  const nao = /(n[aã]o|s[oó] eu|apenas eu|só eu|somente eu)/i.test(t);
+  const sim = isYes(t) || /(sim|isso|claro|vamos juntos|comprar juntos|juntos)/i.test(t);
+  const nao = isNo(t) || /(n[aã]o|s[oó] eu|apenas eu|só eu|somente eu)/i.test(t);
   const somente_se_precisar = /(se precisar|talvez|depende|s[oó] se precisar)/i.test(t);
 
   // =================== JUNTOS ===================
@@ -5024,8 +5110,8 @@ case "parceiro_tem_renda": {
     }
   });
 
-  const sim = /(sim|tem sim|possui|possui renda|ganha|trabalha)/i.test(t);
-  const nao = /(n[aã]o|nao tem|não tem|sem renda|não trabalha|nao trabalha)/i.test(t);
+  const sim = isYes(t) || /(sim|tem sim|possui|possui renda|ganha|trabalha)/i.test(t);
+  const nao = isNo(t) || /(n[aã]o|nao tem|não tem|sem renda|não trabalha|nao trabalha)/i.test(t);
 
   // -----------------------------
   // PARCEIRO TEM RENDA
@@ -5142,8 +5228,9 @@ case "somar_renda_solteiro": {
   });
 
   const sozinho = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas\s+eu|somente\s+eu|s[oó]\s+com\s+(a\s*)?minha(\s+renda)?)/i.test(t);
-  const parceiro = /(parceir|namorad|companheir|meu boy|minha girl|minha esposa|minha mulher|meu marido)/i.test(t);
-  const familiar = /(m[aã]e|pai|irm[aã]o|irm[aã]|tia|tio|primo|prima|av[oó]|sobrinh|fam[ií]li|parent)/i.test(t);
+  const composicaoSignal = parseComposicaoRenda(t);
+  const parceiro = composicaoSignal === "parceiro" || /(parceir|namorad|companheir|meu boy|minha girl|minha esposa|minha mulher|meu marido)/i.test(t);
+  const familiar = composicaoSignal === "familiar" || /(m[aã]e|pai|irm[aã]o|irm[aã]|tia|tio|primo|prima|av[oó]|sobrinh|fam[ií]li|parent)/i.test(t);
 
   // -----------------------------
   // SOLO — APENAS A RENDA DO TITULAR
@@ -5825,7 +5912,7 @@ case "inicio_multi_renda_pergunta": {
   // -------------------------------------------
   // 👍 SIM — possui outra renda
   // -------------------------------------------
-  if (/^sim$/i.test(nt)) {
+  if (isYes(nt) || /^sim$/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       multi_renda_flag: true,
@@ -5851,7 +5938,7 @@ case "inicio_multi_renda_pergunta": {
   // -------------------------------------------
   // ❌ NÃO — não possui outra renda
   // -------------------------------------------
-  if (/^(nao|não)$/i.test(nt)) {
+  if (isNo(nt) || /^(nao|não)$/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       multi_renda_flag: false,
@@ -5984,18 +6071,18 @@ case "regime_trabalho": {
     }
   });
 
-  // Normalização simples
-  const clt = /(clt|carteira assinada|registrad[ao]|registrado|registrada)/i.test(t);
-  const aut = /(autonom|informal|por conta|freela|motorista|uber|ifood)/i.test(t);
-  const serv = /(servidor|funcion[aá]rio p[úu]blico|publico|municipal|estadual|federal|prefeitura)/i.test(t);
-  const aposentado = /(aposentad)/i.test(t);
+  const regimeDetectado = parseRegimeTrabalho(t);
+  const clt = regimeDetectado === "clt";
+  const aut = regimeDetectado === "autonomo";
+  const serv = regimeDetectado === "servidor";
+  const aposentado = regimeDetectado === "aposentadoria";
 
   // ------------------------------------------------------
   // TITULAR É CLT
   // ------------------------------------------------------
   if (clt) {
     await upsertState(env, st.wa_id, {
-      regime: "CLT"
+      regime: "clt"
     });
 
     // EXIT_STAGE → vai para renda
@@ -6025,7 +6112,7 @@ case "regime_trabalho": {
   // ------------------------------------------------------
   if (aut) {
     await upsertState(env, st.wa_id, {
-      regime: "AUTONOMO"
+      regime: "autonomo"
     });
 
     // EXIT_STAGE → vai para renda
@@ -6055,7 +6142,7 @@ case "regime_trabalho": {
   // ------------------------------------------------------
   if (serv) {
     await upsertState(env, st.wa_id, {
-      regime: "SERVIDOR"
+      regime: "servidor"
     });
 
     // EXIT_STAGE → vai para renda
@@ -6085,7 +6172,7 @@ case "regime_trabalho": {
   // ------------------------------------------------------
   if (aposentado) {
     await upsertState(env, st.wa_id, {
-      regime: "APOSENTADO"
+      regime: "aposentadoria"
     });
 
     // EXIT_STAGE → vai para renda
@@ -6289,7 +6376,7 @@ case "inicio_multi_regime_pergunta": {
   const nt = normalizeText(userText);
 
   // SIM → ir coletar o segundo regime
-  if (/^sim$/i.test(nt)) {
+  if (isYes(nt) || /^sim$/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       fase_conversa: "inicio_multi_regime_coletar"
@@ -6308,7 +6395,7 @@ case "inicio_multi_regime_pergunta": {
   }
 
   // NÃO → segue direto para a renda extra
-  if (/^nao|não$/i.test(nt)) {
+  if (isNo(nt) || /^(nao|não)$/i.test(nt)) {
 
     return step(
       env,
@@ -6352,7 +6439,8 @@ case "inicio_multi_regime_coletar": {
   const nt = normalizeText(userText);
 
   // valida um regime simples
-  if (!/^(clt|autonomo|autônomo|mei|servidor|publico|público|aposentado|pensionista)$/i.test(nt)) {
+  const regimeMulti = parseRegimeTrabalho(nt);
+  if (!regimeMulti || regimeMulti === "desempregado" || regimeMulti === "estudante") {
 
     return step(
       env,
@@ -6368,7 +6456,7 @@ case "inicio_multi_regime_coletar": {
 
   // salva no array multi_regimes
   let regimes = st.multi_regimes || [];
-  regimes.push(nt);
+  regimes.push(regimeMulti === "aposentadoria" ? "aposentado" : regimeMulti);
 
   await upsertState(env, st.wa_id, {
     multi_regimes: regimes
@@ -6408,9 +6496,11 @@ case "regime_trabalho_parceiro": {
     }
   });
 
-  const clt      = /(clt|carteira assinada|registrad[ao]|registrada)/i.test(t);
-  const auto     = /(autonom[oa]|informal|faço bicos|bicos|liberal|profissional liberal)/i.test(t);
-  const servidor = /(servidor|publico|público|concursad[ao])/i.test(t);
+  const regimeParceiro = parseRegimeTrabalho(t);
+  const clt      = regimeParceiro === "clt";
+  const auto     = regimeParceiro === "autonomo";
+  const servidor = regimeParceiro === "servidor";
+  const aposentadoria = regimeParceiro === "aposentadoria";
 
   // -----------------------------
   // CLT
@@ -6505,6 +6595,36 @@ case "regime_trabalho_parceiro": {
   }
 
   // -----------------------------
+  // APOSENTADORIA
+  // -----------------------------
+  if (aposentadoria) {
+    await upsertState(env, st.wa_id, {
+      regime_trabalho_parceiro: "aposentadoria"
+    });
+
+    // EXIT
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "renda_parceiro",
+      severity: "info",
+      message: "Saindo da fase regime_trabalho_parceiro → renda_parceiro (APOSENTADORIA)",
+      details: { userText }
+    });
+
+    return step(
+      env,
+      st,
+      [
+        "Perfeito! 👍",
+        "E quanto ele(a) recebe por mês de aposentadoria, em média?"
+      ],
+      "renda_parceiro"
+    );
+  }
+
+  // -----------------------------
   // NÃO ENTENDIDO
   // -----------------------------
 
@@ -6550,7 +6670,7 @@ case "renda": {
     }
   });
 
-  const valor = parseFloat(t.replace(/[^\d]/g, "")); // captura número digitado
+  const valor = parseMoneyBR(t); // captura número digitado
 
   // -----------------------------------
   // VALOR VÁLIDO
@@ -6653,7 +6773,7 @@ case "renda_parceiro": {
   });
 
   // Captura número da renda
-  const valor = parseFloat(t.replace(/[^\d]/g, ""));
+  const valor = parseMoneyBR(t);
 
   // -----------------------------------
   // VALOR INVÁLIDO
@@ -6783,7 +6903,7 @@ case "renda_parceiro_familiar": {
     }
   });
 
-  const valor = parseFloat(t.replace(/\D+/g, ""));
+  const valor = parseMoneyBR(t);
 
   // ============================================================
   // VALOR INVÁLIDO
@@ -7071,8 +7191,9 @@ case "interpretar_composicao": {
     }
   });
 
-  const parceiro = /(parceir|namorad|espos|marid|mulher|boy|girl)/i.test(t);
-  const familia  = /(pai|m[aã]e|mae|irm[aã]|av[oó]|tia|tio|primo|prima|famil)/i.test(t);
+  const composicaoSignal = parseComposicaoRenda(t);
+  const parceiro = composicaoSignal === "parceiro" || /(parceir|namorad|espos|marid|mulher|boy|girl)/i.test(t);
+  const familia  = composicaoSignal === "familiar" || /(pai|m[aã]e|mae|irm[aã]|av[oó]|tia|tio|primo|prima|famil)/i.test(t);
   const sozinho  = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas eu|somente eu|solo|sozinh)/i.test(t);
 
   // ============================================================
@@ -7201,8 +7322,9 @@ case "quem_pode_somar": {
     }
   });
 
-  const parceiro = /(parceir|namorad|espos|marid|mulher|boy|girl)/i.test(t);
-  const familia  = /(pai|m[aã]e|mae|irm[aã]|av[oó]|tia|tio|primo|prima|famil)/i.test(t);
+  const composicaoSignal = parseComposicaoRenda(t);
+  const parceiro = composicaoSignal === "parceiro" || /(parceir|namorad|espos|marid|mulher|boy|girl)/i.test(t);
+  const familia  = composicaoSignal === "familiar" || /(pai|m[aã]e|mae|irm[aã]|av[oó]|tia|tio|primo|prima|famil)/i.test(t);
   const sozinho  = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas eu|somente eu|solo|sozinh)/i.test(t);
 
   // ============================================================
@@ -8245,10 +8367,10 @@ case "dependente": {
   const txt = (userText || "").toLowerCase();
 
   const sim =
-    /(sim|tenho|filho|filha|crian[cç]a|menor|dependente)/i.test(txt);
+    isYes(txt) || /(sim|tenho|filho|filha|crian[cç]a|menor|dependente)/i.test(txt);
 
   const nao =
-    /(nao|não|nao tenho|não tenho|sem dependente|só eu|somente eu)/i.test(txt);
+    isNo(txt) || /(nao|não|nao tenho|não tenho|sem dependente|só eu|somente eu)/i.test(txt);
 
   const talvez =
     /(não sei|nao sei|talvez|acho|não lembro|nao lembro)/i.test(txt);
@@ -8379,8 +8501,8 @@ case "restricao": {
     }
   });
 
-  const sim = /(sim|tenho|tem sim|sou negativado|estou negativado|negativad|serasa|spc)/i.test(t);
-  const nao = /(n[aã]o|não tenho|nao tenho|tudo certo|cpf limpo|sem restri[cç][aã]o)/i.test(t);
+  const sim = isYes(t) || /(sim|tenho|tem sim|sou negativado|estou negativado|negativad|serasa|spc)/i.test(t);
+  const nao = isNo(t) || /(n[aã]o|não tenho|nao tenho|tudo certo|cpf limpo|sem restri[cç][aã]o)/i.test(t);
   const incerto = /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(t);
 
   // -----------------------------------------------------
@@ -8510,8 +8632,8 @@ case "regularizacao_restricao": {
     }
   });
 
-  const sim = /(sim|já estou|ja estou|estou vendo|to vendo|estou resolvendo|tô resolvendo|pagando|negociando)/i.test(t);
-  const nao = /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi)/i.test(t);
+  const sim = isYes(t) || /(sim|já estou|ja estou|estou vendo|to vendo|estou resolvendo|tô resolvendo|pagando|negociando)/i.test(t);
+  const nao = isNo(t) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi)/i.test(t);
   const talvez = /(talvez|acho|nao sei|não sei|pode ser)/i.test(t);
 
   // -----------------------------------------------------
@@ -8697,8 +8819,8 @@ case "envio_docs": {
   // =====================================================
   // 2 — TEXTO DO CLIENTE (quando não enviou mídia)
   // =====================================================
-  const pronto = /(sim|ok|pode mandar|manda|pode enviar|vamos|blz|beleza)/i.test(t);
-  const negar  = /(nao|não agora|depois|mais tarde|agora nao)/i.test(t);
+  const pronto = isYes(t) || /(sim|ok|pode mandar|manda|pode enviar|vamos|blz|beleza)/i.test(t);
+  const negar  = isNo(t) || /(nao|não agora|depois|mais tarde|agora nao)/i.test(t);
 
   // =====================================================
   // CLIENTE ACEITOU RECEBER A LISTA
@@ -8812,8 +8934,8 @@ case "agendamento_visita": {
     }
   });
 
-  const confirmar = /(sim|pode marcar|pode agendar|vamos sim|quero sim|ok|blz|beleza)/i.test(t);
-  const negar = /(n[aã]o|depois|mais tarde|agora n[aã]o|ainda n[aã]o)/i.test(t);
+  const confirmar = isYes(t) || /(sim|pode marcar|pode agendar|vamos sim|quero sim|ok|blz|beleza)/i.test(t);
+  const negar = isNo(t) || /(n[aã]o|depois|mais tarde|agora n[aã]o|ainda n[aã]o)/i.test(t);
 
   // -----------------------------------------------------
   // CLIENTE CONFIRMA QUE QUER AGENDAR
@@ -8959,8 +9081,8 @@ case "finalizacao_processo": {
     }
   });
 
-  const confirmar = /(sim|pode enviar|pode mandar|envia|manda|quero|vamos)/i.test(t);
-  const negar = /(nao|não|depois|agora nao|mais tarde)/i.test(t);
+  const confirmar = isYes(t) || /(sim|pode enviar|pode mandar|envia|manda|quero|vamos)/i.test(t);
+  const negar = isNo(t) || /(nao|não|depois|agora nao|mais tarde)/i.test(t);
 
   // ------------------------------------------------------
   // CLIENTE CONFIRMA ENVIO AO CORRESPONDENTE

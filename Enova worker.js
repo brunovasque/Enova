@@ -3691,7 +3691,7 @@ if (st.last_processed_text && st.last_processed_text === userText) {
   });
 
   // corte: não reprocessa nem responde de novo
-  return;
+  return new Response("OK_DUPLICATE", { status: 200 });
 }
 
 // 2) Loop por repetição do cliente (comparar com a ÚLTIMA msg do cliente)
@@ -6137,136 +6137,138 @@ case "regime_trabalho": {
 }
 
 // =========================================================
-// 🧩 C16 — INICIO MULTI REGIME PERGUNTA
+// 🧩 C16 — FIM_INELIGIVEL (fallback seguro para stage referenciado)
 // =========================================================
-case "inicio_multi_regime_pergunta": {
+case "fim_ineligivel": {
 
-  await funnelTelemetry(env, {
+  await logger(env, {
+    tag: "UNKNOWN_STAGE_REFERENCED",
     wa_id: st.wa_id,
-    event: "enter_phase",
-    stage,
-    severity: "info",
-    message: "Fase: inicio_multi_regime_pergunta",
-    details: { last_user_text: st.last_user_text }
+    details: { stage: "fim_ineligivel", from_stage: st.fase_conversa || null }
   });
-
-  const nt = normalizeText(userText);
-
-  if (/^sim$/i.test(nt)) {
-    await upsertState(env, st.wa_id, {
-      fase_conversa: "inicio_multi_regime_coletar"
-    });
-
-    return step(
-      env,
-      st,
-      [
-        "Certo! 👍",
-        "Qual é o *outro regime de trabalho*?",
-        "Exemplos:",
-        "- CLT",
-        "- Autônomo",
-        "- Servidor público",
-        "- Aposentado",
-        "- Bicos / informal"
-      ],
-      "inicio_multi_regime_coletar"
-    );
-  }
-
-  if (/^nao|não$/i.test(nt)) {
-    return step(
-      env,
-      st,
-      [
-        "Perfeito! Vamos seguir então 😄",
-        "Agora me informe o *valor BRUTO da sua renda principal* (salário do holerite)."
-      ],
-      "renda_bruta"
-    );
-  }
 
   return step(
     env,
     st,
     [
-      "Só pra confirmar:",
-      "Você possui *outro regime de trabalho* além daquele que já informou?",
-      "Responda: *sim* ou *não*."
+      "Entendi!",
+      "Se quiser, a gente pode revisar tudo desde o início quando você estiver pronto(a)."
     ],
-    "inicio_multi_regime_pergunta"
+    "inicio_programa"
   );
 }
 
 // =========================================================
-// 🧩 C17 — INICIO MULTI REGIME COLETAR
+// 🧩 C17 — VERIFICAR_AVERBACAO (fallback seguro para stage referenciado)
 // =========================================================
-case "inicio_multi_regime_coletar": {
+case "verificar_averbacao": {
+
+  await logger(env, {
+    tag: "UNKNOWN_STAGE_REFERENCED",
+    wa_id: st.wa_id,
+    details: { stage: "verificar_averbacao", from_stage: st.fase_conversa || null }
+  });
+
+  return step(
+    env,
+    st,
+    [
+      "Obrigado por confirmar!",
+      "Agora vamos seguir com a análise de renda para continuar sua simulação."
+    ],
+    "somar_renda_solteiro"
+  );
+}
+
+// =========================================================
+// 🧩 C18 — VERIFICAR_INVENTARIO (fallback seguro para stage referenciado)
+// =========================================================
+case "verificar_inventario": {
+
+  await logger(env, {
+    tag: "UNKNOWN_STAGE_REFERENCED",
+    wa_id: st.wa_id,
+    details: { stage: "verificar_inventario", from_stage: st.fase_conversa || null }
+  });
+
+  return step(
+    env,
+    st,
+    [
+      "Perfeito, obrigado por confirmar.",
+      "Vamos seguir para a parte de renda e continuar sua análise."
+    ],
+    "somar_renda_solteiro"
+  );
+}
+
+// =========================================================
+// 🧩 C19 — REGIME_TRABALHO_PARCEIRO_FAMILIAR
+// =========================================================
+case "regime_trabalho_parceiro_familiar": {
 
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "enter_phase",
     stage,
     severity: "info",
-    message: "Fase: inicio_multi_regime_coletar",
-    details: { last_user_text: st.last_user_text }
+    message: "Entrando na fase: regime_trabalho_parceiro_familiar",
+    details: {
+      last_user_text: st.last_user_text || null,
+      soma_com_familiar: st.somar_renda === "familiar"
+    }
   });
 
-  const regime = normalizeText(userText || "").trim();
-
-  // validação básica
-  const valido =
-    /(clt|informal|autonomo|autônomo|servidor|publico|público|aposentado|bico|bicos)/i.test(
-      regime
-    );
+  const nt = normalizeText(userText || "");
+  const valido = /(clt|autonomo|autônomo|servidor|publico|público|aposentado|pensionista|informal|bico|bicos)/i.test(nt);
 
   if (!valido) {
     return step(
       env,
       st,
       [
-        "Só pra garantir 😅",
-        "Me diga qual é o *regime de trabalho*:",
-        "- CLT",
-        "- Autônomo",
-        "- Servidor público",
-        "- Aposentado",
-        "- Bicos"
+        "Só pra confirmar 😊",
+        "Qual é o regime de trabalho desse familiar?",
+        "Pode responder com: CLT, autônomo, servidor, aposentado, pensionista ou informal."
       ],
-      "inicio_multi_regime_coletar"
+      "regime_trabalho_parceiro_familiar"
     );
   }
 
-  // atualiza JSON
-  let lista = Array.isArray(st.multi_regime_lista)
-    ? st.multi_regime_lista
-    : [];
-
-  lista.push({
-    regime,
-    ts: Date.now()
-  });
-
   await upsertState(env, st.wa_id, {
-    multi_regime_lista: lista,
-    ultima_regime_informado: regime,
-    qtd_regimes_informados: lista.length
+    regime_trabalho_parceiro_familiar: nt
   });
-
-  // sincroniza memória
-  st.multi_regime_lista = lista;
-  st.ultima_regime_informado = regime;
-  st.qtd_regimes_informados = lista.length;
 
   return step(
     env,
     st,
     [
-      "Perfeito! 👌",
-      "Você possui *mais algum regime de trabalho*?",
-      "Responda *sim* ou *não*."
+      "Perfeito!",
+      "Agora me diga o valor da renda mensal dessa pessoa."
     ],
-    "inicio_multi_regime_pergunta"
+    "renda_parceiro_familiar"
+  );
+}
+
+// =========================================================
+// 🧩 C20 — FINALIZACAO (fallback seguro para stage referenciado)
+// =========================================================
+case "finalizacao": {
+
+  await logger(env, {
+    tag: "UNKNOWN_STAGE_REFERENCED",
+    wa_id: st.wa_id,
+    details: { stage: "finalizacao", from_stage: st.fase_conversa || null }
+  });
+
+  return step(
+    env,
+    st,
+    [
+      "Perfeito!",
+      "Vou concluir essa etapa e te guiar no próximo passo."
+    ],
+    "finalizacao_processo"
   );
 }
 

@@ -1278,10 +1278,11 @@ export default {
     }
 
     // ---------------------------------------------
-    // 🔐 Admin canônico — deve vir antes de /webhook/meta e fallback
-    // ---------------------------------------------
-    const envMode = String(env.ENV_MODE || env.ENOVA_ENV || "").toLowerCase();
+// 🔐 Admin canônico — deve vir antes de /webhook/meta e fallback
+// ---------------------------------------------
+const envMode = String(env.ENV_MODE || env.ENOVA_ENV || "").toLowerCase();
 const isAdminPath = pathname.startsWith("/__admin__/");
+
 if (isAdminPath && envMode !== "test") {
   return adminJson(403, {
     ok: false,
@@ -1365,16 +1366,7 @@ if (isAdminPath && envMode !== "test") {
     }
 
     if (request.method === "POST" && pathname === "/__admin__/simulate-funnel") {
-      const envMode = String(env.ENV_MODE || env.ENOVA_ENV || "").toLowerCase();
-      if (envMode !== "test") {
-        return adminJson(403, {
-          ok: false,
-          error: "forbidden_test_only",
-          build: ENOVA_BUILD,
-          ts: new Date().toISOString()
-        });
-      }
-
+     
       if (!isAdminAuthorized()) {
         return adminJson(401, {
           ok: false,

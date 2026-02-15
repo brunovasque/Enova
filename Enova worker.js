@@ -2,6 +2,10 @@ console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
 
 const ENOVA_BUILD = "enova-meta-debug-stamp-2026-02-11";
 
+function getSimulationContext(env) {
+  return env && env.__enovaSimulationCtx ? env.__enovaSimulationCtx : null;
+}
+
 // =============================================================
 // 🧱 A1 — step() + sendMessage() + logger()
 // =============================================================
@@ -11,6 +15,9 @@ console.log("DEBUG-INIT-2: Passou da seção A1 e o Worker continua carregando")
 // 🧱 A6 — STEP com TELEMETRIA TOTAL (blindagem máxima)
 // =============================================================
 async function step(env, st, messages, nextStage) {
+
+  const simCtx = getSimulationContext(env);
+  const isSim = Boolean(simCtx?.active);
 
   // Converte sempre para array
   const arr = Array.isArray(messages) ? messages : [messages];
@@ -71,6 +78,11 @@ async function step(env, st, messages, nextStage) {
         last_bot_msg: msgs[msgs.length - 1] || null,
         updated_at: new Date().toISOString()
       });
+
+      if (isSim) {
+        st.fase_conversa = nextStage;
+        st.last_bot_msg = msgs[msgs.length - 1] || null;
+      }
     }
 
     // ============================================================
@@ -88,7 +100,9 @@ async function step(env, st, messages, nextStage) {
         }
       });
 
-      await sendMessage(env, st.wa_id, msg);
+      if (!isSim) {
+        await sendMessage(env, st.wa_id, msg);
+      }
 
       // Telemetria por mensagem enviada (modo verbose)
       if (env.TELEMETRIA_LEVEL === "verbose") {
@@ -105,6 +119,15 @@ async function step(env, st, messages, nextStage) {
       await new Promise((r) =>
         setTimeout(r, Number(env.ENOVA_DELAY_MS) || 1200)
       );
+    }
+
+    if (isSim) {
+      return {
+        ok: true,
+        simulated: true,
+        stage_after: nextStage || st.fase_conversa || null,
+        messages: msgs
+      };
     }
 
     return new Response("OK", { status: 200 });
@@ -382,6 +405,11 @@ async function sbFetch(env, path, options = {}, context = {}) {
 // Lê o estado do funil (GET correto via Proxy V2)
 // =============================================================
 async function getState(env, wa_id) {
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active && simCtx.stateByWaId && simCtx.stateByWaId[wa_id]) {
+    return simCtx.stateByWaId[wa_id];
+  }
+
   const result = await sbFetch(
     env,
     "/rest/v1/enova_state",
@@ -411,11 +439,26 @@ async function getState(env, wa_id) {
 // Atualiza ou cria estado do funil (UPSERT manual, sem 409)
 // =============================================================
 async function upsertState(env, wa_id, payload) {
+  const simCtx = getSimulationContext(env);
+
   // Sempre atualizamos o updated_at no Worker
   const patch = {
     ...payload,
     updated_at: new Date().toISOString()
   };
+
+  if (simCtx?.active) {
+    const current = simCtx.stateByWaId?.[wa_id] || { wa_id };
+    const merged = { ...current, ...patch, wa_id };
+
+    if (simCtx.stateByWaId) {
+      simCtx.stateByWaId[wa_id] = merged;
+    }
+
+    if (simCtx.dryRun) {
+      return merged;
+    }
+  }
 
   // Sanitize: não escrever coluna que não existe no Supabase
 if ("renda_familiar" in patch) delete patch.renda_familiar;
@@ -593,6 +636,25 @@ function parseComposicaoRenda(text) {
     return "familiar";
   }
   return null;
+}
+
+function buildSimulationFlags(st, userText) {
+  const normalized = normalizeText(userText || "");
+  return {
+    mei_detected: /\bmei\b/.test(normalized),
+    aposentado_detected: /aposentad/.test(normalized),
+    composicao_detected: Boolean(parseComposicaoRenda(userText || "")),
+    renda_value: parseMoneyBR(userText || ""),
+    estado_civil: st?.estado_civil || null,
+    regime_trabalho: st?.regime_trabalho || null,
+    somar_renda: st?.somar_renda ?? null,
+    financiamento_conjunto: st?.financiamento_conjunto ?? null,
+    renda: st?.renda ?? null,
+    renda_parceiro: st?.renda_parceiro ?? null,
+    ctps_36: st?.ctps_36 ?? null,
+    restricao: st?.restricao ?? null,
+    dependente: st?.dependente ?? null
+  };
 }
 
 // =============================================================
@@ -1002,6 +1064,132 @@ async function resetTotal(env, wa_id) {
   return;
 }
 
+function createSimulationState(wa_id, startStage) {
+  return {
+    wa_id,
+    fase_conversa: startStage || "inicio",
+    funil_status: null,
+    last_user_text: null,
+    last_processed_text: null,
+    last_bot_msg: null,
+    nome: null,
+    estado_civil: null,
+    regime_trabalho: null,
+    somar_renda: null,
+    financiamento_conjunto: null,
+    renda: null,
+    renda_parceiro: null,
+    renda_total_para_fluxo: null,
+    dependente: null,
+    restricao: null,
+    ctps_36: null,
+    updated_at: new Date().toISOString()
+  };
+}
+
+async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
+  const previousCtx = env.__enovaSimulationCtx;
+  const stateByWaId = {};
+
+  stateByWaId[wa_id] = createSimulationState(wa_id, startStage || "inicio");
+
+  env.__enovaSimulationCtx = {
+    active: true,
+    dryRun: dryRun !== false,
+    stateByWaId
+  };
+
+  const steps = [];
+  let currentState = stateByWaId[wa_id];
+
+  try {
+    for (const userTextRaw of script) {
+      const userText = String(userTextRaw || "");
+      const stageBefore = currentState?.fase_conversa || "inicio";
+      const normalized = normalizeText(userText);
+
+      let runResult = null;
+      let stepError = null;
+
+      try {
+        runResult = await runFunnel(env, currentState, userText);
+      } catch (err) {
+        stepError = err;
+      }
+
+      currentState = env.__enovaSimulationCtx?.stateByWaId?.[wa_id] || currentState;
+
+      let replyText = null;
+      let stageAfter = currentState?.fase_conversa || stageBefore;
+
+      if (runResult && typeof runResult === "object" && Array.isArray(runResult.messages)) {
+        replyText = runResult.messages.join("\n");
+        if (runResult.stage_after) {
+          stageAfter = runResult.stage_after;
+        }
+      } else if (runResult instanceof Response) {
+        try {
+          const cloned = runResult.clone();
+          const parsed = await cloned.json();
+          if (Array.isArray(parsed?.messages)) {
+            replyText = parsed.messages.join("\n");
+          }
+          if (parsed?.nextStage) {
+            stageAfter = parsed.nextStage;
+          }
+        } catch {
+          replyText = null;
+        }
+      }
+
+      steps.push({
+        stage_before: stageBefore,
+        user_text: userText,
+        normalized_text: normalized || null,
+        matched_gate: null,
+        decision: null,
+        stage_after: stageAfter,
+        reply_text: replyText,
+        flags: buildSimulationFlags(currentState, userText),
+        errors: stepError
+          ? {
+              name: stepError?.name || "Error",
+              message: stepError?.message || String(stepError)
+            }
+          : null
+      });
+
+      if (stepError) {
+        break;
+      }
+    }
+
+    return {
+      ok: true,
+      wa_id,
+      start_stage: startStage || "inicio",
+      end_stage: currentState?.fase_conversa || startStage || "inicio",
+      dry_run: dryRun !== false,
+      steps
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      wa_id,
+      start_stage: startStage || "inicio",
+      end_stage: currentState?.fase_conversa || startStage || "inicio",
+      dry_run: dryRun !== false,
+      steps,
+      errors: {
+        name: err?.name || "Error",
+        message: err?.message || String(err)
+      }
+    };
+  } finally {
+    env.__enovaSimulationCtx = previousCtx;
+  }
+}
+
 // =============================================================
 // 🧱 A4 — Router do Worker (GET/POST META) — VERSÃO BLINDADA
 // =============================================================
@@ -1090,8 +1278,20 @@ export default {
     }
 
     // ---------------------------------------------
-    // 🔐 Admin canônico — deve vir antes de /webhook/meta e fallback
-    // ---------------------------------------------
+// 🔐 Admin canônico — deve vir antes de /webhook/meta e fallback
+// ---------------------------------------------
+const envMode = String(env.ENV_MODE || env.ENOVA_ENV || "").toLowerCase();
+const isAdminPath = pathname.startsWith("/__admin__/");
+
+if (isAdminPath && envMode !== "test") {
+  return adminJson(403, {
+    ok: false,
+    error: "forbidden_test_only",
+    build: ENOVA_BUILD,
+    ts: new Date().toISOString()
+  });
+}
+    
     if (request.method === "GET" && pathname === "/__admin__/health") {
       if (!isAdminAuthorized()) {
         return adminJson(401, {
@@ -1163,6 +1363,54 @@ export default {
         build: ENOVA_BUILD,
         ts: new Date().toISOString()
       });
+    }
+
+    if (request.method === "POST" && pathname === "/__admin__/simulate-funnel") {
+     
+      if (!isAdminAuthorized()) {
+        return adminJson(401, {
+          ok: false,
+          error: "unauthorized",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_json",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const wa_id = String(payload?.wa_id || "").trim();
+      const startStage = String(payload?.start_stage || "inicio").trim() || "inicio";
+      const script = Array.isArray(payload?.script) ? payload.script : [];
+      const dryRun = payload?.dry_run !== false;
+
+      if (!wa_id || !script.length || !script.every((s) => typeof s === "string")) {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_payload",
+          details: "wa_id e script(string[]) são obrigatórios",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const result = await simulateFunnel(env, {
+        wa_id,
+        startStage,
+        script,
+        dryRun
+      });
+
+      return adminJson(result.ok ? 200 : 500, result);
     }
 
     // ---------------------------------------------

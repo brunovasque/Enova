@@ -6,6 +6,130 @@ function getSimulationContext(env) {
   return env && env.__enovaSimulationCtx ? env.__enovaSimulationCtx : null;
 }
 
+const WRITES_CANONICOS = {
+  docs: [
+    "fase_docs",
+    "funil_opcao_docs",
+    "canal_envio_docs",
+    "status_docs",
+    "docs_status",
+    "docs_status_texto",
+    "docs_lista_enviada",
+    "docs_pendentes",
+    "docs_itens_recebidos",
+    "docs_completos",
+    "docs_status_geral",
+    "docs_validacao_atualizada",
+    "ultima_interacao_docs",
+    "processo_enviado_correspondente",
+    "aguardando_retorno_correspondente",
+    "dossie_resumo",
+    "retorno_correspondente_bruto",
+    "retorno_correspondente_status",
+    "retorno_correspondente_motivo",
+    "_incoming_media",
+    "fase_conversa",
+    "funil_status",
+    "intro_etapa",
+    "controle"
+  ],
+  agendamento: [
+    "agendamento_id",
+    "visita_confirmada",
+    "visita_dia_hora",
+    "fase_conversa",
+    "funil_status",
+    "intro_etapa",
+    "controle"
+  ]
+};
+
+const STAGE_WRITES_BLOCK = {
+  envio_docs: "docs",
+  docs_opcao: "docs",
+  docs_nao_enviou: "docs",
+  docs_enviou_correspondente: "docs",
+  agendamento_visita: "agendamento"
+};
+
+function resolveWritesBlock(stageId) {
+  return STAGE_WRITES_BLOCK[String(stageId || "")] || null;
+}
+
+function filterPatchAllowKeys(patch, writesBlock) {
+  if (!patch || typeof patch !== "object") return {};
+
+  const allowedByBlock = WRITES_CANONICOS[writesBlock];
+  if (!Array.isArray(allowedByBlock)) {
+    return { ...patch };
+  }
+
+  const allowed = new Set([...allowedByBlock, "updated_at"]);
+  const filtered = {};
+
+  for (const [key, value] of Object.entries(patch)) {
+    if (allowed.has(key)) {
+      filtered[key] = value;
+    }
+  }
+
+  return filtered;
+}
+
+function filterToExistingColumns(patch) {
+  if (!patch || typeof patch !== "object") return {};
+
+  const filtered = { ...patch };
+  if ("renda_familiar" in filtered) {
+    delete filtered.renda_familiar;
+  }
+
+  return filtered;
+}
+
+function buildCanonicalPatchScenarios() {
+  const scenarios = [
+    {
+      scenario: "agendamento_visita",
+      writes_block: "agendamento",
+      raw_patch: {
+        fase_conversa: "agendamento_visita",
+        visita_confirmada: true,
+        visita_dia_hora: "amanhã 10:30"
+      },
+      expected_keys: ["visita_confirmada", "visita_dia_hora"]
+    },
+    {
+      scenario: "docs_envio",
+      writes_block: "docs",
+      raw_patch: {
+        fase_conversa: "envio_docs",
+        _incoming_media: { type: "image" },
+        docs_pendentes: 2
+      },
+      expected_keys: ["_incoming_media", "docs_pendentes"]
+    }
+  ];
+
+  return scenarios.map((item) => {
+    const withTimestamp = {
+      ...item.raw_patch,
+      updated_at: "2026-01-01T00:00:00.000Z"
+    };
+    const allowFiltered = filterPatchAllowKeys(withTimestamp, item.writes_block);
+    const finalPatch = filterToExistingColumns(allowFiltered);
+
+    return {
+      scenario: item.scenario,
+      writes_block: item.writes_block,
+      final_patch: finalPatch,
+      expected_keys: item.expected_keys,
+      expected_keys_present: item.expected_keys.every((key) => key in finalPatch),
+      removed_keys: Object.keys(withTimestamp).filter((key) => !(key in finalPatch))
+    };
+  });
+}
+
 // =============================================================
 // 🧱 A1 — step() + sendMessage() + logger()
 // =============================================================
@@ -441,31 +565,44 @@ async function getState(env, wa_id) {
 async function upsertState(env, wa_id, payload) {
   const simCtx = getSimulationContext(env);
 
-  // Sempre atualizamos o updated_at no Worker
-  const patch = {
+  const basePatch = {
     ...payload,
     updated_at: new Date().toISOString()
   };
 
-  if (simCtx?.active) {
-    const current = simCtx.stateByWaId?.[wa_id] || { wa_id };
-    const merged = { ...current, ...patch, wa_id };
-
-    if (simCtx.stateByWaId) {
-      simCtx.stateByWaId[wa_id] = merged;
-    }
-
-    if (simCtx.dryRun) {
-      return merged;
-    }
-  }
-
-  // Sanitize: não escrever coluna que não existe no Supabase
-if ("renda_familiar" in patch) delete patch.renda_familiar;
-
   try {
     // 1) Verifica se já existe registro para esse wa_id
     const existing = await getState(env, wa_id);
+    const stageCandidate =
+      payload?.fase_conversa ||
+      simCtx?.stateByWaId?.[wa_id]?.fase_conversa ||
+      existing?.fase_conversa ||
+      null;
+    const writesBlock = resolveWritesBlock(stageCandidate);
+    const patch = filterToExistingColumns(filterPatchAllowKeys(basePatch, writesBlock));
+
+    if (simCtx?.active) {
+      if (Array.isArray(simCtx.patchAudit)) {
+        simCtx.patchAudit.push({
+          wa_id,
+          stage: stageCandidate,
+          writes_block: writesBlock,
+          raw_payload: payload,
+          pre_supabase_patch: patch
+        });
+      }
+
+      const current = simCtx.stateByWaId?.[wa_id] || { wa_id };
+      const merged = { ...current, ...patch, wa_id };
+
+      if (simCtx.stateByWaId) {
+        simCtx.stateByWaId[wa_id] = merged;
+      }
+
+      if (simCtx.dryRun) {
+        return merged;
+      }
+    }
 
     // ---------------------------------------------------------
     // CASO 1: não existe ainda → tenta INSERT
@@ -1096,7 +1233,8 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
   env.__enovaSimulationCtx = {
     active: true,
     dryRun: dryRun !== false,
-    stateByWaId
+    stateByWaId,
+    patchAudit: []
   };
 
   const steps = [];
@@ -1170,7 +1308,9 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
       start_stage: startStage || "inicio",
       end_stage: currentState?.fase_conversa || startStage || "inicio",
       dry_run: dryRun !== false,
-      steps
+      steps,
+      patch_audit: env.__enovaSimulationCtx?.patchAudit || [],
+      canonical_patch_scenarios: buildCanonicalPatchScenarios()
     };
   } catch (err) {
     return {
@@ -1180,6 +1320,8 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
       end_stage: currentState?.fase_conversa || startStage || "inicio",
       dry_run: dryRun !== false,
       steps,
+      patch_audit: env.__enovaSimulationCtx?.patchAudit || [],
+      canonical_patch_scenarios: buildCanonicalPatchScenarios(),
       errors: {
         name: err?.name || "Error",
         message: err?.message || String(err)

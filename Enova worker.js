@@ -89,18 +89,18 @@ async function step(env, st, messages, nextStage) {
     // Envia mensagens uma a uma (delay humano real)
     // ============================================================
     for (const msg of msgs) {
-      await logger(env, {
-        tag: "DECISION_OUTPUT",
-        wa_id: st.wa_id,
-        meta_type: "text",
-        meta_text: msg,
-        details: {
-          stage: st.fase_conversa || null,
-          next_stage: nextStage || null
-        }
-      });
-
       if (!isSim) {
+        await logger(env, {
+          tag: "DECISION_OUTPUT",
+          wa_id: st.wa_id,
+          meta_type: "text",
+          meta_text: msg,
+          details: {
+            stage: st.fase_conversa || null,
+            next_stage: nextStage || null
+          }
+        });
+
         await sendMessage(env, st.wa_id, msg);
       }
 
@@ -440,10 +440,13 @@ async function getState(env, wa_id) {
 // =============================================================
 async function upsertState(env, wa_id, payload) {
   const simCtx = getSimulationContext(env);
+  const current = simCtx?.stateByWaId?.[wa_id] || (simCtx?.active ? null : await getState(env, wa_id));
+  const stageId = payload?.fase_conversa || current?.fase_conversa || "inicio";
+  const patchDbSafe = buildPatchDbSafe(stageId, current, payload || {});
 
   // Sempre atualizamos o updated_at no Worker
   const patch = {
-    ...payload,
+    ...patchDbSafe,
     updated_at: new Date().toISOString()
   };
 
@@ -465,7 +468,7 @@ if ("renda_familiar" in patch) delete patch.renda_familiar;
 
   try {
     // 1) Verifica se já existe registro para esse wa_id
-    const existing = await getState(env, wa_id);
+    const existing = current;
 
     // ---------------------------------------------------------
     // CASO 1: não existe ainda → tenta INSERT
@@ -638,6 +641,391 @@ function parseComposicaoRenda(text) {
   return null;
 }
 
+
+
+const ENOVA_STATE_COLUMNS = new Set([
+  "id","lead_id","wa_id","last_incoming_id","last_reply_id","last_intent","last_context","last_ts","controle","atendimento_manual","updated_at","fase_conversa","intro_etapa","funil_status","funil_opcao_docs","atualizado_em","nome","ultimo_campo","last_incoming_text","last_incoming_at","created_at","canal_envio_docs","status_docs","docs_identidade","docs_carteira_trabalho","docs_comprovante_renda","docs_comprovante_residencia","agendamento_id","last_bot_msg","last_user_msg","estado_civil","regime","renda_liquida","ir_declarado","entrada_valor","dependente","fator_social","idade","renda_bruta","perfil_financeiro","restricao","regularizacao","tem_dependente","restricao_attempts","somar_renda","casamento_civil","renda_formal","renda_informal","renda_mista","renda_total_para_fluxo","financiamento_conjunto","ctps_36","renda_bruta_temp","regime_parceiro","renda_titular","renda_parceiro","parceiro_tem_renda","modo_renda","ctps_parceiro","renda_extra","ir_parceiro","ir_declarado_parceiro","coletas_casal","regime_misto","solteiro_sozinho","composicao_pessoa","p1_tipo","p2_tipo","p3_tipo","p1_maior_idade","p2_maior_idade","p3_maior_idade","p1_doc_identidade_ok","p1_doc_identidade_url","p2_doc_identidade_ok","p2_doc_identidade_url","p3_doc_identidade_ok","p3_doc_identidade_url","p1_comprovante_endereco_ok","p1_comprovante_endereco_url","p2_comprovante_endereco_ok","p2_comprovante_endereco_url","p3_comprovante_endereco_ok","p3_comprovante_endereco_url","p1_certidao_casamento_ok","p1_certidao_casamento_url","p1_ctps_ok","p1_ctps_url","p2_ctps_ok","p2_ctps_url","p3_ctps_ok","p3_ctps_url","p1_renda_ok","p1_renda_tipo","p1_renda_urls","p2_renda_ok","p2_renda_tipo","p2_renda_urls","p3_renda_ok","p3_renda_tipo","p3_renda_urls","docs_status","docs_faltantes","docs_completos","docs_validacao_atualizada","fase_docs","ultima_interacao_docs","retorno_correspondente_bruto","retorno_correspondente_status","retorno_correspondente_motivo","dossie_resumo","processo_enviado_correspondente","aguardando_retorno_correspondente","docs_status_geral","docs_itens_pendentes","docs_itens_recebidos","docs_lista_enviada","docs_status_completo","docs_status_parcial","docs_status_texto","_incoming_meta","processo_pre_analise","processo_pre_analise_status","pre_cadastro_numero","nome_parceiro","nome_parceiro_normalizado","renda","ctps_36_parceiro","regularizacao_restricao","last_processed_text","last_message_id","last_user_text","nacionalidade","estrangeiro_flag","tem_rnm","rnm_tipo","rnm_validade","multi_renda_flag","multi_renda_lista","multi_regime_flag","multi_regime_lista","ultima_renda_bruta_informada","qtd_rendas_informadas","qtd_regimes_informados","ultima_regime_informado","visita_confirmada","visita_dia_hora","_incoming_media","docs_pendentes","faixa_renda_programa","dependentes_qtd","rnm_status","multi_rendas","multi_rendas_parceiro","multi_regimes","multi_regimes_parceiro","autonomo_comprova","avo_beneficio","casamento_formal","ir_declarado_p2","modo_humano","primeiro_nome","processo_aprovado","processo_reprovado","regime_trabalho","regime_trabalho_parceiro","regime_trabalho_parceiro_familiar","tipo_trabalho","tipo_trabalho_parceiro","renda_base","renda_variavel","renda_individual_calculada","renda_parceiro_bruta","renda_parceiro_calculada","renda_total_composicao","p2_renda_variavel","familiar_tipo"
+]);
+
+const ALWAYS_SAFE_KEYS = [
+  "fase_conversa",
+  "intro_etapa",
+  "funil_status",
+  "last_user_text",
+  "last_processed_text",
+  "agendamento_id",
+  "ultimo_campo",
+  "atendimento_manual"
+];
+
+const STAGE_BLOCK_V2 = {
+  inicio: "entrada",
+  inicio_nome: "entrada",
+  inicio_estrangeiro: "entrada",
+  estado_civil: "estado_civil",
+  regime_trabalho: "renda",
+  renda: "renda",
+  composicao_renda: "renda",
+  dependente: "dependente",
+  ctps_36: "ctps",
+  restricao: "restricao",
+  docs_opcao: "docs",
+  docs_nao_enviou: "docs",
+  docs_enviou_correspondente: "docs",
+  agendamento_visita: "agendamento",
+  pos_venda_desligamento: "encerramento",
+  fim_ineligivel: "encerramento"
+};
+
+const WRITES_CANONICOS_V2 = {
+  entrada: ["fase_conversa","funil_status","intro_etapa","nacionalidade","estrangeiro_flag","tem_rnm","rnm_tipo","rnm_validade","nome","primeiro_nome","last_user_text","last_processed_text","last_message_id"],
+  estado_civil: ["estado_civil","casamento_civil","solteiro_sozinho","composicao_pessoa","coletas_casal","financiamento_conjunto","somar_renda","parceiro_tem_renda","nome_parceiro","nome_parceiro_normalizado","fase_conversa","funil_status","intro_etapa","controle"],
+  renda: ["regime_trabalho","regime","renda","renda_titular","renda_parceiro","renda_total_para_fluxo","renda_total_composicao","somar_renda","financiamento_conjunto","parceiro_tem_renda","familiar_tipo","funil_status","fase_conversa","intro_etapa","ultimo_campo"],
+  dependente: ["dependente","dependentes_qtd","fator_social","fase_conversa","funil_status","intro_etapa"],
+  ctps: ["ctps_36","ctps_36_parceiro","fase_conversa","funil_status","intro_etapa"],
+  restricao: ["restricao","regularizacao_restricao","fase_conversa","funil_status","intro_etapa"],
+  docs: ["canal_envio_docs","status_docs","docs_status","docs_status_geral","docs_itens_pendentes","docs_itens_recebidos","docs_lista_enviada","docs_status_texto","processo_enviado_correspondente","aguardando_retorno_correspondente","retorno_correspondente_status","fase_docs","ultima_interacao_docs","docs_pendentes","fase_conversa","funil_status","intro_etapa"],
+  agendamento: ["agendamento_id","visita_confirmada","visita_dia_hora","fase_conversa","funil_status","intro_etapa"],
+  encerramento: ["fase_conversa","funil_status","intro_etapa","processo_aprovado","processo_reprovado","retorno_correspondente_status"]
+};
+
+function filterPatchAllowKeys(stageId, patch) {
+  const blockId = STAGE_BLOCK_V2[stageId] || "encerramento";
+  const allowSet = new Set([...(WRITES_CANONICOS_V2[blockId] || []), ...ALWAYS_SAFE_KEYS]);
+  const filtered = {};
+
+  for (const [key, value] of Object.entries(patch || {})) {
+    if (allowSet.has(key)) {
+      filtered[key] = value;
+    }
+  }
+
+  return filtered;
+}
+
+function filterToExistingColumns(patch) {
+  const filtered = {};
+  for (const [key, value] of Object.entries(patch || {})) {
+    if (ENOVA_STATE_COLUMNS.has(key)) {
+      filtered[key] = value;
+    }
+  }
+  return filtered;
+}
+
+function buildPatchDbSafe(stageId, currentState, patch) {
+  const mergedPatch = {
+    ...patch,
+    fase_conversa: patch?.fase_conversa || stageId || currentState?.fase_conversa || "inicio"
+  };
+  const allowFiltered = filterPatchAllowKeys(stageId || mergedPatch.fase_conversa, mergedPatch);
+  return filterToExistingColumns(allowFiltered);
+}
+
+const FUNIL_V2_STAGES = {
+  inicio: { id: "inicio", phase_index: 1, group: "entrada", writesBlock: "entrada" },
+  inicio_nome: { id: "inicio_nome", phase_index: 2, group: "entrada", writesBlock: "entrada" },
+  inicio_estrangeiro: { id: "inicio_estrangeiro", phase_index: 3, group: "entrada", writesBlock: "entrada" },
+  estado_civil: { id: "estado_civil", phase_index: 4, group: "estado_civil", writesBlock: "estado_civil" },
+  regime_trabalho: { id: "regime_trabalho", phase_index: 5, group: "renda", writesBlock: "renda" },
+  renda: { id: "renda", phase_index: 6, group: "renda", writesBlock: "renda" },
+  composicao_renda: { id: "composicao_renda", phase_index: 7, group: "renda", writesBlock: "renda" },
+  dependente: { id: "dependente", phase_index: 8, group: "dependente", writesBlock: "dependente" },
+  ctps_36: { id: "ctps_36", phase_index: 9, group: "ctps", writesBlock: "ctps" },
+  restricao: { id: "restricao", phase_index: 10, group: "restricao", writesBlock: "restricao" },
+  docs_opcao: { id: "docs_opcao", phase_index: 11, group: "docs", writesBlock: "docs" },
+  docs_nao_enviou: { id: "docs_nao_enviou", phase_index: 12, group: "docs", writesBlock: "docs" },
+  docs_enviou_correspondente: { id: "docs_enviou_correspondente", phase_index: 13, group: "docs", writesBlock: "docs" },
+  agendamento_visita: { id: "agendamento_visita", phase_index: 14, group: "agendamento", writesBlock: "agendamento" },
+  pos_venda_desligamento: { id: "pos_venda_desligamento", phase_index: 15, group: "encerramento", writesBlock: "encerramento" },
+  fim_ineligivel: { id: "fim_ineligivel", phase_index: 16, group: "encerramento", writesBlock: "encerramento" }
+};
+
+const FUNIL_V2_COPY = {
+  v2_inicio_nome: "Perfeito, vamos começar. Qual o seu nome completo?",
+  v2_nome_invalido: "Preciso do nome completo (nome e sobrenome) para seguir.",
+  v2_estrangeiro: "Você é brasileiro(a) ou estrangeiro(a)?",
+  v2_estado_civil: "Qual seu estado civil atual?",
+  v2_regime_trabalho: "Qual seu regime de trabalho? (CLT, servidor, autônomo ou aposentado)",
+  v2_renda: "Agora me diga sua renda bruta mensal.",
+  v2_composicao: "Deseja compor renda com parceiro(a) ou familiar?",
+  v2_dependente: "Você possui dependentes?",
+  v2_ctps: "Você possui 36 meses de CTPS nos últimos 3 anos?",
+  v2_restricao: "Você possui alguma restrição no CPF?",
+  v2_docs: "Perfeito. Você prefere enviar os documentos agora?",
+  v2_docs_nao_enviou: "Sem problema. Vamos agendar uma visita para levar os documentos no plantão.",
+  v2_docs_enviou: "Ótimo, documentos registrados. Vamos avançar para agendamento.",
+  v2_agendamento: "Me informe dia e horário de preferência para visita.",
+  v2_finalizado: "Concluímos sua triagem com sucesso ✅",
+  v2_inelegivel: "Neste momento o perfil ficou inelegível para o programa."
+};
+
+function isV2Stage(stageId) {
+  return Boolean(stageId && FUNIL_V2_STAGES[stageId]);
+}
+
+function runMotor(text, st) {
+  const currentStage = isV2Stage(st?.fase_conversa) ? st.fase_conversa : "inicio";
+  const nt = normalizeText(text || "");
+  const parsedRenda = parseMoneyBR(text || "");
+
+  if (currentStage === "inicio") {
+    return { replyKey: "v2_inicio_nome", nextStage: "inicio_nome", patch: { intro_etapa: "v2", funil_status: "em_andamento", ultimo_campo: "nome" } };
+  }
+
+  if (currentStage === "inicio_nome") {
+    const normalizedName = String(text || "").trim().replace(/\s+/g, " ");
+    if (normalizedName.split(" ").length < 2) {
+      return { replyKey: "v2_nome_invalido", nextStage: "inicio_nome", patch: { ultimo_campo: "nome" } };
+    }
+    return {
+      replyKey: "v2_estrangeiro",
+      nextStage: "inicio_estrangeiro",
+      patch: {
+        nome: normalizedName,
+        primeiro_nome: normalizedName.split(" ")[0],
+        ultimo_campo: "nacionalidade"
+      }
+    };
+  }
+
+  if (currentStage === "inicio_estrangeiro") {
+    if (/estrangeir/.test(nt)) {
+      return {
+        replyKey: "v2_inelegivel",
+        nextStage: "fim_ineligivel",
+        patch: { nacionalidade: "estrangeiro", estrangeiro_flag: true, tem_rnm: false, funil_status: "inelegivel" }
+      };
+    }
+    return {
+      replyKey: "v2_estado_civil",
+      nextStage: "estado_civil",
+      patch: { nacionalidade: "brasileiro", estrangeiro_flag: false, ultimo_campo: "estado_civil" }
+    };
+  }
+
+  if (currentStage === "estado_civil") {
+    const estadoCivil = parseEstadoCivil(text || "");
+    if (!estadoCivil) {
+      return { replyKey: "v2_estado_civil", nextStage: "estado_civil", patch: { ultimo_campo: "estado_civil" } };
+    }
+    const emConjunto = estadoCivil === "casado" || estadoCivil === "uniao_estavel";
+    return {
+      replyKey: "v2_regime_trabalho",
+      nextStage: "regime_trabalho",
+      patch: {
+        estado_civil: estadoCivil,
+        financiamento_conjunto: emConjunto,
+        composicao_pessoa: emConjunto ? "parceiro" : "titular",
+        ultimo_campo: "regime_trabalho"
+      }
+    };
+  }
+
+  if (currentStage === "regime_trabalho") {
+    const regime = parseRegimeTrabalho(text || "");
+    if (!regime) {
+      return { replyKey: "v2_regime_trabalho", nextStage: "regime_trabalho", patch: { ultimo_campo: "regime_trabalho" } };
+    }
+    return {
+      replyKey: "v2_renda",
+      nextStage: "renda",
+      patch: { regime_trabalho: regime, regime, ultimo_campo: "renda" }
+    };
+  }
+
+  if (currentStage === "renda") {
+    if (!parsedRenda || parsedRenda <= 0) {
+      return { replyKey: "v2_renda", nextStage: "renda", patch: { ultimo_campo: "renda" } };
+    }
+
+    const rendaParceiro = st?.financiamento_conjunto ? Math.round(parsedRenda * 0.65) : 0;
+    const rendaTotal = parsedRenda + rendaParceiro;
+
+    if (parsedRenda < 1500 && !st?.financiamento_conjunto) {
+      return {
+        replyKey: "v2_inelegivel",
+        nextStage: "fim_ineligivel",
+        patch: { renda: parsedRenda, renda_titular: parsedRenda, renda_total_para_fluxo: parsedRenda, funil_status: "inelegivel", ultimo_campo: "renda" }
+      };
+    }
+
+    return {
+      replyKey: "v2_composicao",
+      nextStage: "composicao_renda",
+      patch: {
+        renda: parsedRenda,
+        renda_titular: parsedRenda,
+        renda_parceiro: rendaParceiro || null,
+        renda_total_para_fluxo: rendaTotal,
+        renda_total_composicao: rendaTotal,
+        ultimo_campo: "composicao_renda"
+      }
+    };
+  }
+
+  if (currentStage === "composicao_renda") {
+    const composicao = parseComposicaoRenda(text || "");
+    const usarComposicao = isYes(text) || Boolean(composicao) || st?.financiamento_conjunto;
+    return {
+      replyKey: "v2_dependente",
+      nextStage: "dependente",
+      patch: {
+        somar_renda: usarComposicao,
+        parceiro_tem_renda: composicao === "parceiro" ? true : st?.financiamento_conjunto ? true : null,
+        familiar_tipo: composicao === "familiar" ? "familiar" : null,
+        ultimo_campo: "dependente"
+      }
+    };
+  }
+
+  if (currentStage === "dependente") {
+    const hasDependente = isYes(text);
+    return {
+      replyKey: "v2_ctps",
+      nextStage: "ctps_36",
+      patch: {
+        dependente: hasDependente,
+        dependentes_qtd: hasDependente ? 1 : 0,
+        ultimo_campo: "ctps_36"
+      }
+    };
+  }
+
+  if (currentStage === "ctps_36") {
+    const hasCtps = isYes(text);
+    return {
+      replyKey: "v2_restricao",
+      nextStage: "restricao",
+      patch: {
+        ctps_36: hasCtps,
+        ctps_36_parceiro: st?.financiamento_conjunto ? hasCtps : null,
+        ultimo_campo: "restricao"
+      }
+    };
+  }
+
+  if (currentStage === "restricao") {
+    const hasRestricao = /(sim|tenho|negativ|restric)/.test(nt) && !isNo(text);
+    if (hasRestricao) {
+      return {
+        replyKey: "v2_inelegivel",
+        nextStage: "fim_ineligivel",
+        patch: { restricao: true, funil_status: "inelegivel", ultimo_campo: "restricao" }
+      };
+    }
+    return {
+      replyKey: "v2_docs",
+      nextStage: "docs_opcao",
+      patch: { restricao: false, funil_status: "em_andamento", ultimo_campo: "docs_opcao" }
+    };
+  }
+
+  if (currentStage === "docs_opcao") {
+    if (isNo(text)) {
+      return {
+        replyKey: "v2_docs_nao_enviou",
+        nextStage: "docs_nao_enviou",
+        patch: {
+          canal_envio_docs: "plantao",
+          status_docs: "pendente",
+          docs_pendentes: true,
+          fase_docs: "nao_enviou",
+          ultima_interacao_docs: new Date().toISOString(),
+          ultimo_campo: "docs"
+        }
+      };
+    }
+    return {
+      replyKey: "v2_docs_enviou",
+      nextStage: "docs_enviou_correspondente",
+      patch: {
+        canal_envio_docs: "whatsapp",
+        status_docs: "recebido",
+        docs_status: "recebido",
+        docs_status_geral: "recebido",
+        docs_itens_recebidos: ["identidade","comprovante_renda"],
+        docs_itens_pendentes: [],
+        docs_lista_enviada: true,
+        processo_enviado_correspondente: true,
+        aguardando_retorno_correspondente: true,
+        retorno_correspondente_status: "pendente",
+        fase_docs: "enviado",
+        ultima_interacao_docs: new Date().toISOString(),
+        ultimo_campo: "docs"
+      }
+    };
+  }
+
+  if (currentStage === "docs_nao_enviou" || currentStage === "docs_enviou_correspondente") {
+    return {
+      replyKey: "v2_agendamento",
+      nextStage: "agendamento_visita",
+      patch: { ultimo_campo: "agendamento" }
+    };
+  }
+
+  if (currentStage === "agendamento_visita") {
+    return {
+      replyKey: "v2_finalizado",
+      nextStage: "pos_venda_desligamento",
+      patch: {
+        visita_confirmada: true,
+        visita_dia_hora: String(text || "").trim() || "a confirmar",
+        agendamento_id: st?.agendamento_id || `AG-${Date.now()}`,
+        funil_status: "finalizado",
+        processo_aprovado: true,
+        aguardando_retorno_correspondente: false,
+        retorno_correspondente_status: "aprovado",
+        ultimo_campo: "encerrado"
+      }
+    };
+  }
+
+  if (currentStage === "fim_ineligivel") {
+    return { replyKey: "v2_inelegivel", nextStage: "fim_ineligivel", patch: { funil_status: "inelegivel" } };
+  }
+
+  return { replyKey: "v2_finalizado", nextStage: "pos_venda_desligamento", patch: { funil_status: "finalizado" } };
+}
+
+const FUNIL_V2_RUNTIME = { runMotor };
+
+function shouldUseFunilV2(st) {
+  if (!st) return false;
+  if (st.intro_etapa === "v2") return true;
+  if (isV2Stage(st.fase_conversa)) return true;
+  return (!st.intro_etapa && (!st.fase_conversa || st.fase_conversa === "inicio") && !st.nome);
+}
+
+async function runFunnelV2(env, st, userText) {
+  const { replyKey, nextStage, patch } = FUNIL_V2_RUNTIME.runMotor(userText, st);
+  const runtimePatch = {
+    ...patch,
+    fase_conversa: nextStage,
+    intro_etapa: "v2",
+    last_user_text: userText,
+    last_processed_text: userText
+  };
+
+  await upsertState(env, st.wa_id, runtimePatch);
+
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) {
+    simCtx.patchLog = simCtx.patchLog || [];
+    simCtx.patchLog.push({
+      stage: st?.fase_conversa || "inicio",
+      next_stage: nextStage,
+      raw_patch: runtimePatch,
+      allow_patch: filterPatchAllowKeys(nextStage, runtimePatch),
+      db_patch: buildPatchDbSafe(nextStage, st, runtimePatch)
+    });
+  }
+
+  const replyText = FUNIL_V2_COPY[replyKey] || "Vamos seguir para a próxima etapa.";
+  const stMerged = { ...st, ...runtimePatch };
+  return step(env, stMerged, replyText, nextStage);
+}
 function buildSimulationFlags(st, userText) {
   const normalized = normalizeText(userText || "");
   return {
@@ -1096,7 +1484,8 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
   env.__enovaSimulationCtx = {
     active: true,
     dryRun: dryRun !== false,
-    stateByWaId
+    stateByWaId,
+    patchLog: []
   };
 
   const steps = [];
@@ -1142,6 +1531,8 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
         }
       }
 
+      const patchEvents = (env.__enovaSimulationCtx?.patchLog || []).filter((e) => e.stage === stageBefore);
+
       steps.push({
         stage_before: stageBefore,
         user_text: userText,
@@ -1151,6 +1542,7 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
         stage_after: stageAfter,
         reply_text: replyText,
         flags: buildSimulationFlags(currentState, userText),
+        patch_events: patchEvents,
         errors: stepError
           ? {
               name: stepError?.name || "Error",
@@ -1365,7 +1757,7 @@ if (isAdminPath && envMode !== "test") {
       });
     }
 
-    if (request.method === "POST" && pathname === "/__admin__/simulate-funnel") {
+    if (request.method === "POST" && (pathname === "/__admin__/simulate-funnel" || pathname === "/_admin/_simulate-funnel")) {
      
       if (!isAdminAuthorized()) {
         return adminJson(401, {
@@ -1949,6 +2341,7 @@ if (msg && type !== "text" && type !== "interactive") {
     if (!st) {
       await upsertState(env, waId, {
         fase_conversa: "inicio",
+        intro_etapa: "v2",
         funil_status: null,
         nome: null
       });
@@ -3943,6 +4336,10 @@ async function runFunnel(env, st, userText) {
 
   const stage = st.fase_conversa || "inicio";
   const t = (userText || "").trim().toLowerCase();
+
+  if (shouldUseFunilV2(st)) {
+    return runFunnelV2(env, st, userText);
+  }
 
   // ============================================================
   // 🛰 ENTER_STAGE

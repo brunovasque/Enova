@@ -272,7 +272,7 @@ WRITES_CANONICOS.docs = [
   "docs_status",
   "docs_status_texto",
   "docs_lista_enviada",
-  "docs_itens_pendentes",
+  "docs_pendentes",
   "docs_itens_recebidos",
   "docs_completos",
   "docs_status_geral",
@@ -284,16 +284,21 @@ WRITES_CANONICOS.docs = [
   "retorno_correspondente_bruto",
   "retorno_correspondente_status",
   "retorno_correspondente_motivo",
+  "_incoming_media",
   "fase_conversa",
   "funil_status",
   "intro_etapa",
   "controle",
 ];
+Nota canônica de docs: usar `docs_pendentes` como coluna única de pendências (evitar `docs_itens_pendentes` no patch persistido).
+
 3.8. Bloco agendamento
 Usado em: agendamento_visita.
 
 WRITES_CANONICOS.agendamento = [
   "agendamento_id",
+  "visita_confirmada",
+  "visita_dia_hora",
   "fase_conversa",
   "funil_status",
   "intro_etapa",

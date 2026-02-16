@@ -401,6 +401,89 @@ async function sbFetch(env, path, options = {}, context = {}) {
   });
 }
 
+const ALWAYS_SAFE_KEYS = [
+  "fase_conversa",
+  "intro_etapa",
+  "funil_status",
+  "last_user_text",
+  "last_processed_text",
+  "agendamento_id",
+  "ultimo_campo",
+  "atendimento_manual"
+];
+
+const WRITES_CANONICOS_V2 = {
+  entrada: ["nome", "origem", "canal", "lead_source"],
+  docs: [
+    "docs_status",
+    "docs_pendentes",
+    "docs_lista_enviada",
+    "docs_enviados",
+    "documentos_status",
+    "ultimo_campo"
+  ],
+  agendamento: [
+    "agendamento_data",
+    "agendamento_hora",
+    "agendamento_status",
+    "agendamento_visita_confirmado",
+    "agendamento_id"
+  ]
+};
+
+const STAGE_BLOCK_V2 = {
+  inicio: "entrada",
+  inicio_programa: "entrada",
+  inicio_nome: "entrada",
+  docs: "docs",
+  envio_docs: "docs",
+  agendamento_visita: "agendamento",
+  agendamento: "agendamento"
+};
+
+function resolveV2WritesBlock(stage) {
+  const normalizedStage = String(stage || "").trim().toLowerCase();
+  return STAGE_BLOCK_V2[normalizedStage] || null;
+}
+
+function filterPatchAllowKeys(patch, stage) {
+  if (!patch || typeof patch !== "object") return {};
+
+  const writesBlock = resolveV2WritesBlock(stage);
+  const blockKeys = writesBlock ? WRITES_CANONICOS_V2[writesBlock] || [] : [];
+  const allowSet = new Set([...ALWAYS_SAFE_KEYS, ...blockKeys, "updated_at"]);
+
+  const filtered = {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (allowSet.has(key)) {
+      filtered[key] = value;
+    }
+  }
+
+  return {
+    patch: filtered,
+    writesBlock,
+    allowKeys: [...allowSet]
+  };
+}
+
+function filterToExistingColumns(patch, existing) {
+  if (!patch || typeof patch !== "object") return {};
+
+  const existingKeys = existing && typeof existing === "object" ? new Set(Object.keys(existing)) : null;
+  if (!existingKeys || existingKeys.size === 0) {
+    return { ...patch };
+  }
+
+  const filtered = {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (existingKeys.has(key)) {
+      filtered[key] = value;
+    }
+  }
+  return filtered;
+}
+
 // =============================================================
 // Lê o estado do funil (GET correto via Proxy V2)
 // =============================================================
@@ -442,14 +525,29 @@ async function upsertState(env, wa_id, payload) {
   const simCtx = getSimulationContext(env);
 
   // Sempre atualizamos o updated_at no Worker
-  const patch = {
+  const patchRaw = {
     ...payload,
     updated_at: new Date().toISOString()
   };
 
+  const stageForFilter = payload?.fase_conversa || simCtx?.stateByWaId?.[wa_id]?.fase_conversa || "inicio";
+  const allowResult = filterPatchAllowKeys(patchRaw, stageForFilter);
+  const patchAfterAllow = allowResult.patch;
+
+  const patch = { ...patchAfterAllow };
+
   if (simCtx?.active) {
     const current = simCtx.stateByWaId?.[wa_id] || { wa_id };
     const merged = { ...current, ...patch, wa_id };
+
+    simCtx.patchesByWaId = simCtx.patchesByWaId || {};
+    simCtx.patchesByWaId[wa_id] = simCtx.patchesByWaId[wa_id] || [];
+    simCtx.patchesByWaId[wa_id].push({
+      stage: stageForFilter,
+      writes_block: allowResult.writesBlock,
+      filtered_patch: { ...patch },
+      allow_keys: allowResult.allowKeys
+    });
 
     if (simCtx.stateByWaId) {
       simCtx.stateByWaId[wa_id] = merged;
@@ -466,12 +564,13 @@ if ("renda_familiar" in patch) delete patch.renda_familiar;
   try {
     // 1) Verifica se já existe registro para esse wa_id
     const existing = await getState(env, wa_id);
+    const patchDbSafe = filterToExistingColumns(patch, existing);
 
     // ---------------------------------------------------------
     // CASO 1: não existe ainda → tenta INSERT
     // ---------------------------------------------------------
     if (!existing) {
-      const rowInsert = { wa_id, ...patch };
+      const rowInsert = { wa_id, ...patchDbSafe };
 
       try {
         const insertResult = await supabaseInsert(env, "enova_state", rowInsert);
@@ -491,7 +590,7 @@ if ("renda_familiar" in patch) delete patch.renda_familiar;
             env,
             "enova_state",
             { wa_id },
-            patch
+            patchDbSafe
           );
 
           if (Array.isArray(updateResult)) {
@@ -518,7 +617,7 @@ if ("renda_familiar" in patch) delete patch.renda_familiar;
       env,
       "enova_state",
       { wa_id },
-      patch
+      patchDbSafe
     );
 
     if (Array.isArray(updateResult)) {
@@ -1096,7 +1195,8 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
   env.__enovaSimulationCtx = {
     active: true,
     dryRun: dryRun !== false,
-    stateByWaId
+    stateByWaId,
+    patchesByWaId: {}
   };
 
   const steps = [];
@@ -1107,6 +1207,8 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
       const userText = String(userTextRaw || "");
       const stageBefore = currentState?.fase_conversa || "inicio";
       const normalized = normalizeText(userText);
+      const simPatches = env.__enovaSimulationCtx?.patchesByWaId?.[wa_id] || [];
+      const patchStartIdx = simPatches.length;
 
       let runResult = null;
       let stepError = null;
@@ -1150,6 +1252,7 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
         decision: null,
         stage_after: stageAfter,
         reply_text: replyText,
+        patches_before_supabase: simPatches.slice(patchStartIdx),
         flags: buildSimulationFlags(currentState, userText),
         errors: stepError
           ? {

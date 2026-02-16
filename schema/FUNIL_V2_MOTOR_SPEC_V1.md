@@ -156,6 +156,26 @@ Qualquer chave usada internamente pelo motor que não esteja nesta lista é cons
 
 A fonte de verdade das colunas é schema/enova_state.columns.txt + SUPABASE_SCHEMA_MAPPING_V1.md.
 
+### ALWAYS_SAFE_KEYS (global em todos os estágios)
+Além dos blocos por estágio, o runtime V2 deve sempre permitir as chaves globais abaixo em qualquer stage (mesmo sem writesBlock específico):
+
+ALWAYS_SAFE_KEYS = [
+  "fase_conversa",
+  "intro_etapa",
+  "funil_status",
+  "last_user_text",
+  "last_processed_text",
+  "agendamento_id",
+  "ultimo_campo",
+  "atendimento_manual",
+];
+
+Regra de filtragem no runtime:
+- resolver writesBlock do estágio atual (quando existir);
+- construir `allowSet = ALWAYS_SAFE_KEYS ∪ WRITES_CANONICOS[writesBlock]`;
+- filtrar patch por `allowSet`;
+- só depois aplicar filtro de colunas existentes da tabela (`filterToExistingColumns`).
+
 3.1. Bloco entrada
 Usado em: inicio, inicio_nome, inicio_estrangeiro.
 
@@ -499,7 +519,7 @@ Resolve o StageId atual a partir de st.fase_conversa (default "inicio").
 
 Chama STAGES[stageId].run.
 
-Filtra o patch: mantém apenas as chaves em WRITES_CANONICOS[writesBlock].
+Filtra o patch: mantém as chaves em ALWAYS_SAFE_KEYS e em WRITES_CANONICOS[writesBlock].
 
 Garante que fase_conversa do patch final é sempre o nextStage.
 

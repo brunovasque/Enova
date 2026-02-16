@@ -44,7 +44,7 @@ Escopo: **Worker-only / documentação em `schema/`**.
 | pre_analises | não | - | sim | OK | nenhuma |
 | users_roles | não | - | sim | OK | nenhuma |
 | visitas_agendadas | não | - | sim | OK | nenhuma |
-| enova_docs_pendencias | sim | write | não | ERRADO | remover referência ou substituir por tabela válida existente |
+| enova_docs_pendencias | sim | write | sim | OK | manter |
 
 ## Tabelas usadas no Worker — colunas lidas/escritas
 
@@ -62,7 +62,7 @@ Fontes: `schema/SUPABASE_AUDIT_CALLSITES_V1.md`, `schema/enova_state.columns.txt
 - Uso no Worker: **read+write** (`getState`, `upsertState`, `resetTotal`, `findClientByName`, `updateDocsStatusV2`).
 - Colunas lidas observadas (audit/código): `wa_id`, `nome`, `fase_conversa`, `funil_status`, `updated_at`.
 - Colunas escritas observadas (audit/código): `updated_at`, `fase_conversa`, `funil_status`, `last_user_text`, `last_processed_text`, `last_bot_msg`, `last_message_id`, `nome`, `estado_civil`, `somar_renda`, `financiamento_conjunto`, `renda`, `renda_parceiro`, `renda_total_para_fluxo`, `dependente`, `restricao`, `ctps_36`, `ctps_36_parceiro`, `nacionalidade`, `docs_completos`.
-- Colunas **não encontradas** em `schema/enova_state.columns.txt`: `rnm_status`, `multi_rendas`, `multi_rendas_parceiro`, `multi_regimes`, `multi_regimes_parceiro`, `renda_individual_calculada`, `renda_parceiro_calculada`, `renda_total_composicao`, `faixa_renda_programa`, `docs_pendentes`.
+- Colunas novas de `enova_state` já refletidas em `schema/enova_state.columns.txt`: `visita_confirmada`, `visita_dia_hora`, `_incoming_media`, `docs_pendentes`, `faixa_renda_programa`, `dependentes_qtd`, `rnm_status`, `rnm_validade`, `multi_rendas`, `multi_rendas_parceiro`, `multi_regimes`, `multi_regimes_parceiro`, `autonomo_comprova`, `avo_beneficio`, `casamento_formal`, `ir_declarado_p2`, `modo_humano`, `primeiro_nome`, `processo_aprovado`, `processo_reprovado`, `regime_trabalho`, `regime_trabalho_parceiro`, `regime_trabalho_parceiro_familiar`, `tipo_trabalho`, `tipo_trabalho_parceiro`, `renda_base`, `renda_variavel`, `renda_individual_calculada`, `renda_parceiro_bruta`, `renda_parceiro_calculada`, `renda_total_composicao`, `p2_renda_variavel`, `familiar_tipo`.
 - Colunas encontradas em `schema/enova_state.columns.txt` (amostra das usadas): `wa_id`, `updated_at`, `fase_conversa`, `funil_status`, `last_user_text`, `last_processed_text`, `last_bot_msg`, `last_message_id`, `nome`, `estado_civil`, `somar_renda`, `financiamento_conjunto`, `renda`, `renda_parceiro`, `renda_total_para_fluxo`, `dependente`, `restricao`, `ctps_36`, `ctps_36_parceiro`, `nacionalidade`, `docs_completos`.
 - Conclusão: existe desalinhamento parcial de colunas entre runtime e schema conhecido do repo.
 
@@ -85,23 +85,21 @@ Fontes: `schema/SUPABASE_AUDIT_CALLSITES_V1.md`, `schema/enova_state.columns.txt
 
 - Uso no Worker: **write** (`updateDocumentPendingList`).
 - Colunas escritas observadas: `wa_id`, `participante`, `doc_tipo`, `motivo`, `created_at`.
-- Verificação de existência no Supabase (tabela): **não existe** em `schema/public_tables.txt`.
-- Conclusão: referência inválida confirmada.
+- Verificação de existência no Supabase (tabela): **existe** em `schema/public_tables.txt`.
+- Conclusão: referência válida e alinhada com o schema público.
 
 ## Erros confirmados
 
-- `enova_docs_pendencias` é referenciada no Worker, porém **não consta** na lista de tabelas públicas do Supabase no repositório.
-- Em `enova_state`, há colunas usadas pelo runtime que **não aparecem** no inventário `schema/enova_state.columns.txt` (ex.: `docs_pendentes`, `rnm_status`, `multi_rendas`).
+- `enova_docs_pendencias` está mapeada e listada nas tabelas públicas do Supabase no repositório.
+- As colunas novas de `enova_state` usadas pelo runtime agora constam no inventário `schema/enova_state.columns.txt`.
 
 ## Riscos
 
-- Escritas para tabela inexistente (`enova_docs_pendencias`) podem gerar falha silenciosa/erro HTTP e quebrar rastreio de pendências de documentos.
-- Escritas de colunas inexistentes em `enova_state` podem resultar em erro 400/404 na API PostgREST ou perda de atualização de estado.
+- Como `enova_docs_pendencias` e as novas colunas de `enova_state` estão mapeadas, reduzimos risco de divergência entre contrato de schema e runtime.
 - Uso de `fetch` direto misturado com helper proxy (`sbFetch`) aumenta risco de divergência de headers/padrão de autenticação.
 
 ## Plano de Patch mínimo (não implementar)
 
-- Substituir/remover a referência a `enova_docs_pendencias` por tabela válida já existente no Supabase.
-- Padronizar os pontos de `fetch` direto em `/rest/v1/enova_docs` para `sbFetch`/helpers já existentes.
-- Criar checklist de alinhamento de colunas `enova_state` usadas pelo Worker vs schema real (adicionar colunas faltantes **ou** remover uso no runtime).
+- Manter atualização contínua de `schema/enova_state.columns.txt` conforme migrações no Supabase.
+- Manter `enova_docs_pendencias` em `public_tables` e no inventário de call-sites.
 - Adicionar export versionado de colunas para `enova_docs`, `enova_docs_status` e `enova_log` em `schema/` para auditorias futuras.

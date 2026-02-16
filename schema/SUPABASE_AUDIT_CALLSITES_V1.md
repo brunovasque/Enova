@@ -46,7 +46,7 @@ Escopo: **Worker-only** (`Enova worker.js`), sem mudanças de runtime.
 |---|---:|---|---|---|---|
 | `saveDocumentForParticipant(env, st, participant, docType, url)` | 2316 | `enova_docs` | `/rest/v1/enova_docs` | sem query | **OK** |
 | `saveDocumentToSupabase(env, wa_id, data)` | 2728 | `enova_docs` | `/rest/v1/enova_docs` | sem query | **OK** |
-| `updateDocumentPendingList(env, st, docType, participant, valid)` | 2746 | `enova_docs_pendencias` | `/rest/v1/enova_docs_pendencias` | sem query | **ERRADO** (tabela referenciada como inexistente no contexto da auditoria) |
+| `updateDocumentPendingList(env, st, docType, participant, valid)` | 2746 | `enova_docs_pendencias` | `/rest/v1/enova_docs_pendencias` | sem query | **OK** |
 
 ---
 
@@ -54,11 +54,10 @@ Escopo: **Worker-only** (`Enova worker.js`), sem mudanças de runtime.
 
 - Prefixo `/rest/v1` está correto nos call-sites auditados.
 - Não foi encontrado padrão de query colada no path nos call-sites listados.
-- O único ponto marcado como **ERRADO** é o uso de `enova_docs_pendencias` em `updateDocumentPendingList(...)`.
+- `enova_docs_pendencias` aparece como call-site válido e alinhado ao schema documentado.
 
 ## Plano de correção cirúrgica
 
-- Substituir o destino `enova_docs_pendencias` por tabela válida do schema (definição a confirmar antes da implementação).
+- Manter a lista de call-sites sincronizada com `schema/public_tables.txt` e com as migrações de schema.
 - Padronizar os 3 pontos de `fetch` direto para `sbFetch(...)`, mantendo o mesmo payload/semântica.
 - Manter regra de query em objeto (`query: { ... }`) e evitar query inline no path.
-- Não alterar fluxo funcional nesta etapa; somente migração de forma de acesso (direto → proxy) e correção de tabela.

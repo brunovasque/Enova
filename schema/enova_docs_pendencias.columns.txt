@@ -1,0 +1,9 @@
+1  id
+2  wa_id
+3  participante
+4  doc_tipo
+5  motivo
+6  created_at
+
+# indexes
+- enova_docs_pendencias_wa_id_idx (wa_id)

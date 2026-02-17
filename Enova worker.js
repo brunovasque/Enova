@@ -438,11 +438,17 @@ async function getState(env, wa_id) {
 // =============================================================
 // Atualiza ou cria estado do funil (UPSERT manual, sem 409)
 // =============================================================
-async function upsertState(env, wa_id, payload) {
+async function upsertState(env, wa_id, payload, options = {}) {
   const simCtx = getSimulationContext(env);
   const current = simCtx?.stateByWaId?.[wa_id] || (simCtx?.active ? null : await getState(env, wa_id));
-  const stageId = payload?.fase_conversa || current?.fase_conversa || "inicio";
-  const patchDbSafe = buildPatchDbSafe(stageId, current, payload || {});
+  const stageId = options?.stageId || payload?.fase_conversa || current?.fase_conversa || "inicio";
+  const source = options?.source || (payload?.intro_etapa === "v2" || isV2Stage(stageId) ? "FUNIL_V2" : "GENERAL");
+  const patchDbSafe = buildPatchDbSafe(stageId, current, payload || {}, {
+    wa_id,
+    source,
+    stageId,
+    blockId: options?.blockId || STAGE_BLOCK_V2[stageId] || "encerramento"
+  });
 
   // Sempre atualizamos o updated_at no Worker
   const patch = {
@@ -466,6 +472,13 @@ async function upsertState(env, wa_id, payload) {
   // Sanitize: não escrever coluna que não existe no Supabase
 if ("renda_familiar" in patch) delete patch.renda_familiar;
 
+  console.log("FUNIL_V2_UPSERT_ATTEMPT", {
+    wa_id,
+    stageId,
+    source,
+    patch_keys: Object.keys(patchDbSafe || {})
+  });
+
   try {
     // 1) Verifica se já existe registro para esse wa_id
     const existing = current;
@@ -478,6 +491,16 @@ if ("renda_familiar" in patch) delete patch.renda_familiar;
 
       try {
         const insertResult = await supabaseInsert(env, "enova_state", rowInsert);
+        console.log("FUNIL_V2_UPSERT_SUCCESS", {
+          wa_id,
+          stageId,
+          source,
+          method: "insert",
+          status: 201,
+          affected_rows: Array.isArray(insertResult)
+            ? insertResult.length
+            : (Array.isArray(insertResult?.data) ? insertResult.data.length : null)
+        });
 
         if (Array.isArray(insertResult)) {
           return insertResult[0] || null;
@@ -497,6 +520,17 @@ if ("renda_familiar" in patch) delete patch.renda_familiar;
             patch
           );
 
+          console.log("FUNIL_V2_UPSERT_SUCCESS", {
+            wa_id,
+            stageId,
+            source,
+            method: "update_after_409",
+            status: 200,
+            affected_rows: Array.isArray(updateResult)
+              ? updateResult.length
+              : (Array.isArray(updateResult?.data) ? updateResult.data.length : null)
+          });
+
           if (Array.isArray(updateResult)) {
             return updateResult[0] || null;
           }
@@ -506,10 +540,16 @@ if ("renda_familiar" in patch) delete patch.renda_familiar;
           return updateResult || null;
         }
 
-        console.error(
-          `upsertState: erro no INSERT para wa_id=${wa_id}`,
-          err
-        );
+        console.error("FUNIL_V2_UPSERT_ERROR", {
+          wa_id,
+          stageId,
+          source,
+          method: "insert",
+          status: err?.status || null,
+          error: err?.body || err?.message || String(err),
+          patch_keys: Object.keys(patchDbSafe || {})
+        });
+        console.error(`upsertState: erro no INSERT para wa_id=${wa_id}`, err);
         throw err;
       }
     }
@@ -524,6 +564,17 @@ if ("renda_familiar" in patch) delete patch.renda_familiar;
       patch
     );
 
+    console.log("FUNIL_V2_UPSERT_SUCCESS", {
+      wa_id,
+      stageId,
+      source,
+      method: "update",
+      status: 200,
+      affected_rows: Array.isArray(updateResult)
+        ? updateResult.length
+        : (Array.isArray(updateResult?.data) ? updateResult.data.length : null)
+    });
+
     if (Array.isArray(updateResult)) {
       return updateResult[0] || null;
     }
@@ -532,6 +583,15 @@ if ("renda_familiar" in patch) delete patch.renda_familiar;
     }
     return updateResult || null;
   } catch (err) {
+    console.error("FUNIL_V2_UPSERT_ERROR", {
+      wa_id,
+      stageId,
+      source,
+      method: "general",
+      status: err?.status || null,
+      error: err?.body || err?.message || String(err),
+      patch_keys: Object.keys(patchDbSafe || {})
+    });
     console.error(
       `upsertState: erro geral para wa_id=${wa_id}`,
       err
@@ -713,13 +773,45 @@ function filterToExistingColumns(patch) {
   return filtered;
 }
 
-function buildPatchDbSafe(stageId, currentState, patch) {
+function buildPatchDbSafe(stageId, currentState, patch, debugCtx = {}) {
+  const blockId = debugCtx?.blockId || STAGE_BLOCK_V2[stageId] || "encerramento";
+  const originalKeys = Object.keys(patch || {});
+  console.log("FUNIL_V2_PATCH_FILTER_INPUT", {
+    wa_id: debugCtx?.wa_id || null,
+    source: debugCtx?.source || null,
+    stageId: stageId || null,
+    blockId,
+    original_patch_keys: originalKeys
+  });
+
   const mergedPatch = {
     ...patch,
     fase_conversa: patch?.fase_conversa || stageId || currentState?.fase_conversa || "inicio"
   };
   const allowFiltered = filterPatchAllowKeys(stageId || mergedPatch.fase_conversa, mergedPatch);
-  return filterToExistingColumns(allowFiltered);
+  const patchDbSafe = filterToExistingColumns(allowFiltered);
+  const finalKeys = Object.keys(patchDbSafe || {});
+
+  console.log("FUNIL_V2_PATCH_FILTER_OUTPUT", {
+    wa_id: debugCtx?.wa_id || null,
+    source: debugCtx?.source || null,
+    stageId: stageId || null,
+    blockId,
+    patch_db_safe_keys: finalKeys
+  });
+
+  if (finalKeys.length === 0 || (finalKeys.length === 1 && finalKeys[0] === "updated_at")) {
+    console.log("FUNIL_V2_PATCH_EMPTY", {
+      wa_id: debugCtx?.wa_id || null,
+      source: debugCtx?.source || null,
+      stageId: stageId || null,
+      blockId,
+      original_patch_keys: originalKeys,
+      patch_db_safe_keys: finalKeys
+    });
+  }
+
+  return patchDbSafe;
 }
 
 const FUNIL_V2_STAGES = {
@@ -1008,7 +1100,11 @@ async function runFunnelV2(env, st, userText) {
     last_processed_text: userText
   };
 
-  await upsertState(env, st.wa_id, runtimePatch);
+  await upsertState(env, st.wa_id, runtimePatch, {
+    source: "FUNIL_V2",
+    stageId: nextStage,
+    blockId: STAGE_BLOCK_V2[nextStage] || "encerramento"
+  });
 
   const simCtx = getSimulationContext(env);
   if (simCtx?.active) {
@@ -1018,7 +1114,12 @@ async function runFunnelV2(env, st, userText) {
       next_stage: nextStage,
       raw_patch: runtimePatch,
       allow_patch: filterPatchAllowKeys(nextStage, runtimePatch),
-      db_patch: buildPatchDbSafe(nextStage, st, runtimePatch)
+      db_patch: buildPatchDbSafe(nextStage, st, runtimePatch, {
+        wa_id: st?.wa_id,
+        source: "FUNIL_V2",
+        stageId: nextStage,
+        blockId: STAGE_BLOCK_V2[nextStage] || "encerramento"
+      })
     });
   }
 

@@ -2063,6 +2063,45 @@ async function handleMetaWebhook(request, env, ctx) {
     );
   }
 
+  async function logMetaNoReply(eventName, context = {}) {
+    const details = {
+      reason: context.reason || "unknown",
+      message_id: context.messageId || null,
+      wamid: context.messageId || null,
+      hasMessage: Boolean(context.hasMessage),
+      hasText: Boolean(context.hasText),
+      isStatusOnly: Boolean(context.isStatusOnly),
+      dedupeHit: Boolean(context.dedupeHit),
+      type: context.type || null,
+      stage: context.stage || null,
+      flags: context.flags || null
+    };
+
+    try {
+      await telemetry(env, {
+        wa_id: context.waId || null,
+        event: eventName,
+        stage: context.stage || "meta_observability",
+        severity: context.severity || "warning",
+        message: context.message || "Webhook META sem resposta ao usuário detectado",
+        details
+      });
+    } catch (err) {
+      console.error("META-NO-REPLY-TELEMETRY-ERROR:", err);
+    }
+
+    try {
+      await logger(env, {
+        tag: eventName,
+        wa_id: context.waId || null,
+        meta_message_id: context.messageId || null,
+        details
+      });
+    } catch (err) {
+      console.error("META-NO-REPLY-LOGGER-ERROR:", err);
+    }
+  }
+
   let rawBody = null;
   let body = null;
 
@@ -2129,6 +2168,15 @@ try {
   });
 
   // Meta só precisa de 200 para não ficar reenviando por erro de infra
+  await logMetaNoReply("meta_no_reply_early_return", {
+    reason: "webhook_body_read_error",
+    hasMessage: false,
+    hasText: false,
+    isStatusOnly: false,
+    dedupeHit: false,
+    stage: "meta_raw"
+  });
+
   return metaWebhookResponse(200, {
     reason: "webhook_body_read_error"
   });
@@ -2152,6 +2200,15 @@ try {
             ? rawBody.slice(0, 500) + "...(truncado)"
             : rawBody || null
       }
+    });
+
+    await logMetaNoReply("meta_no_reply_early_return", {
+      reason: "webhook_parse_error",
+      hasMessage: false,
+      hasText: false,
+      isStatusOnly: false,
+      dedupeHit: false,
+      stage: "meta_raw"
     });
 
     return metaWebhookResponse(200, {
@@ -2191,6 +2248,20 @@ try {
         hasChange: Boolean(change),
         hasValue: Boolean(value),
         bodyPreview: JSON.stringify(body).slice(0, 500)
+      }
+    });
+
+    await logMetaNoReply("meta_no_reply_early_return", {
+      reason: "webhook_invalid_structure",
+      hasMessage: false,
+      hasText: false,
+      isStatusOnly: false,
+      dedupeHit: false,
+      stage: "meta_structure",
+      flags: {
+        hasEntry: Boolean(entry),
+        hasChange: Boolean(change),
+        hasValue: Boolean(value)
       }
     });
 
@@ -2244,7 +2315,7 @@ if (!messages.length && statuses.length) {
 }
 
   // 7) Caso não tenha mensagem nem status (META mudou algo?)
-  if (!messages.length && !statuses.length) {
+	  if (!messages.length && !statuses.length) {
     await telemetry(env, {
       wa_id: null,
       event: "webhook_no_messages",
@@ -2257,10 +2328,23 @@ if (!messages.length && statuses.length) {
       }
     });
 
-    return metaWebhookResponse(200, {
-      reason: "webhook_no_messages"
-    });
-}
+	    await logMetaNoReply("meta_no_reply_early_return", {
+	      reason: "webhook_no_messages",
+	      hasMessage: false,
+	      hasText: false,
+	      isStatusOnly: false,
+	      dedupeHit: false,
+	      stage: "meta_structure",
+	      flags: {
+	        messagesCount: messages.length,
+	        statusesCount: statuses.length
+	      }
+	    });
+
+	    return metaWebhookResponse(200, {
+	      reason: "webhook_no_messages"
+	    });
+	}
 
 // 8.0) GUARDRAIL ABSOLUTO — impedir crash quando não há messages
 if (!messages || messages.length === 0) {
@@ -2277,10 +2361,24 @@ if (!messages || messages.length === 0) {
     }
   });
 
-  return metaWebhookResponse(200, {
-    reason: "meta_no_message_after_status_patch"
-  });
-}
+	  await logMetaNoReply("meta_no_reply_early_return", {
+	    reason: "meta_no_message_after_status_patch",
+	    waId: statuses?.[0]?.recipient_id || null,
+	    hasMessage: false,
+	    hasText: false,
+	    isStatusOnly: Boolean(statuses.length),
+	    dedupeHit: false,
+	    stage: "meta_message_guard",
+	    flags: {
+	      statusesCount: statuses.length,
+	      hasMessagesArray: Array.isArray(value?.messages) || false
+	    }
+	  });
+
+	  return metaWebhookResponse(200, {
+	    reason: "meta_no_message_after_status_patch"
+	  });
+	}
 
 // 8) Pega a primeira mensagem (padrão da Meta)
 const msg = messages[0];
@@ -2347,11 +2445,26 @@ if (msg && type !== "text" && type !== "interactive") {
     }
   });
 
-  return metaWebhookResponse(200, {
-    reason: "ignored_non_text_payload",
-    type
-  });
-}
+	  await logMetaNoReply("meta_no_reply_early_return", {
+	    reason: "ignored_non_text_payload",
+	    waId,
+	    messageId,
+	    hasMessage: true,
+	    hasText: false,
+	    isStatusOnly: false,
+	    dedupeHit: false,
+	    type,
+	    stage: "meta_message_filter",
+	    flags: {
+	      ignoredType: type
+	    }
+	  });
+
+	  return metaWebhookResponse(200, {
+	    reason: "ignored_non_text_payload",
+	    type
+	  });
+	}
 
   // Chave para futura deduplicação real
   const dedupKey = `${metadata.phone_number_id || "no_phone"}:${
@@ -2386,10 +2499,25 @@ if (msg && type !== "text" && type !== "interactive") {
         }
       });
 
-      return metaWebhookResponse(200, {
-        reason: "meta_duplicate_webhook_suppressed"
-      });
-    }
+	      await logMetaNoReply("meta_no_reply_early_return", {
+	        reason: "meta_duplicate_webhook_suppressed",
+	        waId,
+	        messageId,
+	        hasMessage: true,
+	        hasText: Boolean(msg?.text?.body),
+	        isStatusOnly: false,
+	        dedupeHit: true,
+	        type,
+	        stage: "meta_message",
+	        flags: {
+	          dedupKey
+	        }
+	      });
+
+	      return metaWebhookResponse(200, {
+	        reason: "meta_duplicate_webhook_suppressed"
+	      });
+	    }
 
     // registra o evento atual no cache
     cache.set(dedupKey, now);
@@ -2472,11 +2600,23 @@ if (msg && type !== "text" && type !== "interactive") {
       }
     });
 
-    return metaWebhookResponse(200, {
-      reason: "webhook_no_text",
-      type
-    });
-  }
+	    await logMetaNoReply("meta_no_reply_early_return", {
+	      reason: "webhook_no_text",
+	      waId,
+	      messageId,
+	      hasMessage: true,
+	      hasText: false,
+	      isStatusOnly: false,
+	      dedupeHit: false,
+	      type,
+	      stage: "meta_message"
+	    });
+
+	    return metaWebhookResponse(200, {
+	      reason: "webhook_no_text",
+	      type
+	    });
+	  }
 
   // 10) Entrada no funil (já com telemetria da A3/A6)
   try {
@@ -2527,7 +2667,47 @@ if (msg && type !== "text" && type !== "interactive") {
     // ============================================================
     // 2) CHAMADA CORRETA DO FUNIL
     // ============================================================
-    await runFunnel(env, st, userText);
+	    const runResult = await runFunnel(env, st, userText);
+
+	    let clearlyNoReplyAfterFunnel = false;
+	    let noReplyReason = null;
+
+	    if (runResult && typeof runResult === "object" && Array.isArray(runResult.messages)) {
+	      clearlyNoReplyAfterFunnel = runResult.messages.length === 0;
+	      if (clearlyNoReplyAfterFunnel) {
+	        noReplyReason = "runFunnel_returned_empty_messages";
+	      }
+	    } else if (runResult instanceof Response) {
+	      try {
+	        const parsed = await runResult.clone().json();
+	        if (Array.isArray(parsed?.messages)) {
+	          clearlyNoReplyAfterFunnel = parsed.messages.length === 0;
+	          if (clearlyNoReplyAfterFunnel) {
+	            noReplyReason = "runFunnel_response_messages_empty";
+	          }
+	        }
+	      } catch {
+	        // Response sem JSON parseável (ex: "OK") não permite inferência segura.
+	      }
+	    }
+
+	    if (clearlyNoReplyAfterFunnel) {
+	      await logMetaNoReply("meta_no_reply_after_funil", {
+	        reason: noReplyReason || "runFunnel_no_reply_detected",
+	        waId,
+	        messageId,
+	        hasMessage: true,
+	        hasText: true,
+	        isStatusOnly: false,
+	        dedupeHit: false,
+	        type,
+	        stage: st?.fase_conversa || "inicio",
+	        severity: "critical",
+	        flags: {
+	          inferredFromRunResult: true
+	        }
+	      });
+	    }
 
     console.log("FUNIL-CALL: depois do runFunnel");
 

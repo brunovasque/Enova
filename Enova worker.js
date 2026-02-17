@@ -711,42 +711,78 @@ const ALWAYS_SAFE_KEYS = [
   "fase_conversa",
   "intro_etapa",
   "funil_status",
+  "ultimo_campo",
   "last_user_text",
   "last_processed_text",
+  "updated_at",
   "agendamento_id",
-  "ultimo_campo",
   "atendimento_manual"
 ];
 
 const STAGE_BLOCK_V2 = {
   inicio: "entrada",
+  inicio_decisao: "entrada",
+  inicio_programa: "entrada",
   inicio_nome: "entrada",
+  inicio_nacionalidade: "entrada",
   inicio_estrangeiro: "entrada",
+  inicio_rnm: "entrada",
+  inicio_rnm_validade: "entrada",
   estado_civil: "estado_civil",
+  confirmar_casamento: "estado_civil",
+  financiamento_conjunto: "estado_civil",
+  parceiro_tem_renda: "estado_civil",
+  somar_renda_solteiro: "estado_civil",
+  somar_renda_familiar: "estado_civil",
+  confirmar_avo_familiar: "estado_civil",
+  inicio_multi_renda_pergunta: "estado_civil",
+  inicio_multi_renda_coletar: "estado_civil",
+  inicio_multi_regime_pergunta: "estado_civil",
+  inicio_multi_regime_coletar: "estado_civil",
+  interpretar_composicao: "estado_civil",
+  quem_pode_somar: "estado_civil",
+  sugerir_composicao_mista: "estado_civil",
   regime_trabalho: "renda",
+  regime_trabalho_parceiro: "renda",
+  regime_trabalho_parceiro_familiar: "renda",
   renda: "renda",
+  renda_parceiro: "renda",
+  renda_parceiro_familiar: "renda",
+  renda_mista_detalhe: "renda",
+  possui_renda_extra: "renda",
+  autonomo_compor_renda: "renda",
+  renda_familiar_valor: "renda",
+  ir_declarado: "renda",
   composicao_renda: "renda",
   dependente: "dependente",
   ctps_36: "ctps",
+  ctps_36_parceiro: "ctps",
   restricao: "restricao",
+  regularizacao_restricao: "restricao",
+  envio_docs: "docs",
   docs_opcao: "docs",
   docs_nao_enviou: "docs",
   docs_enviou_correspondente: "docs",
+  aguardando_retorno_correspondente: "docs",
   agendamento_visita: "agendamento",
+  verificar_averbacao: "encerramento",
+  verificar_inventario: "encerramento",
+  finalizacao: "encerramento",
+  finalizacao_processo: "encerramento",
   pos_venda_desligamento: "encerramento",
   fim_ineligivel: "encerramento"
 };
 
 const WRITES_CANONICOS_V2 = {
-  entrada: ["fase_conversa","funil_status","intro_etapa","nacionalidade","estrangeiro_flag","tem_rnm","rnm_tipo","rnm_validade","nome","primeiro_nome","last_user_text","last_processed_text","last_message_id"],
-  estado_civil: ["estado_civil","casamento_civil","solteiro_sozinho","composicao_pessoa","coletas_casal","financiamento_conjunto","somar_renda","parceiro_tem_renda","nome_parceiro","nome_parceiro_normalizado","fase_conversa","funil_status","intro_etapa","controle"],
-  renda: ["regime_trabalho","regime","renda","renda_titular","renda_parceiro","renda_total_para_fluxo","renda_total_composicao","somar_renda","financiamento_conjunto","parceiro_tem_renda","familiar_tipo","funil_status","fase_conversa","intro_etapa","ultimo_campo"],
-  dependente: ["dependente","dependentes_qtd","fator_social","fase_conversa","funil_status","intro_etapa"],
-  ctps: ["ctps_36","ctps_36_parceiro","fase_conversa","funil_status","intro_etapa"],
-  restricao: ["restricao","regularizacao_restricao","fase_conversa","funil_status","intro_etapa"],
-  docs: ["canal_envio_docs","status_docs","docs_status","docs_status_geral","docs_itens_pendentes","docs_itens_recebidos","docs_lista_enviada","docs_status_texto","processo_enviado_correspondente","aguardando_retorno_correspondente","retorno_correspondente_status","fase_docs","ultima_interacao_docs","docs_pendentes","fase_conversa","funil_status","intro_etapa"],
-  agendamento: ["agendamento_id","visita_confirmada","visita_dia_hora","fase_conversa","funil_status","intro_etapa"],
-  encerramento: ["fase_conversa","funil_status","intro_etapa","processo_aprovado","processo_reprovado","retorno_correspondente_status"]
+  entrada: ["fase_conversa","intro_etapa","funil_status","ultimo_campo","last_user_text","last_processed_text","updated_at","nacionalidade","estrangeiro_flag","tem_rnm","rnm_tipo","rnm_validade","rnm_status","nome","primeiro_nome","last_message_id"],
+  estado_civil: ["fase_conversa","intro_etapa","funil_status","ultimo_campo","last_user_text","last_processed_text","updated_at","estado_civil","casamento_civil","casamento_formal","solteiro_sozinho","composicao_pessoa","coletas_casal","financiamento_conjunto","somar_renda","parceiro_tem_renda","nome_parceiro","nome_parceiro_normalizado","familiar_tipo","multi_renda_flag","multi_renda_lista","multi_regime_flag","multi_regime_lista","multi_rendas","multi_rendas_parceiro","multi_regimes","multi_regimes_parceiro","qtd_rendas_informadas","qtd_regimes_informados","controle"],
+  renda: ["fase_conversa","intro_etapa","funil_status","ultimo_campo","last_user_text","last_processed_text","updated_at","regime_trabalho","regime_trabalho_parceiro","regime_trabalho_parceiro_familiar","tipo_trabalho","tipo_trabalho_parceiro","regime","regime_parceiro","modo_renda","renda","renda_base","renda_variavel","renda_bruta","renda_bruta_temp","renda_formal","renda_informal","renda_mista","renda_extra","renda_titular","renda_parceiro","renda_parceiro_bruta","renda_parceiro_calculada","p2_renda_variavel","renda_individual_calculada","renda_total_para_fluxo","renda_total_composicao","somar_renda","financiamento_conjunto","parceiro_tem_renda","familiar_tipo","ir_declarado","ir_parceiro","ir_declarado_parceiro","ir_declarado_p2","autonomo_comprova","ultima_renda_bruta_informada","ultima_regime_informado"],
+  dependente: ["fase_conversa","intro_etapa","funil_status","ultimo_campo","last_user_text","last_processed_text","updated_at","dependente","dependentes_qtd","tem_dependente","fator_social"],
+  ctps: ["fase_conversa","intro_etapa","funil_status","ultimo_campo","last_user_text","last_processed_text","updated_at","ctps_36","ctps_36_parceiro","ctps_parceiro"],
+  restricao: ["fase_conversa","intro_etapa","funil_status","ultimo_campo","last_user_text","last_processed_text","updated_at","restricao","regularizacao","regularizacao_restricao","restricao_attempts"],
+  docs: ["fase_conversa","intro_etapa","funil_status","ultimo_campo","last_user_text","last_processed_text","updated_at","canal_envio_docs","status_docs","docs_status","docs_status_geral","docs_itens_pendentes","docs_itens_recebidos","docs_lista_enviada","docs_status_texto","docs_status_completo","docs_status_parcial","docs_completos","docs_faltantes","processo_enviado_correspondente","aguardando_retorno_correspondente","retorno_correspondente_status","retorno_correspondente_bruto","retorno_correspondente_motivo","fase_docs","ultima_interacao_docs","docs_pendentes"],
+  agendamento: ["fase_conversa","intro_etapa","funil_status","ultimo_campo","last_user_text","last_processed_text","updated_at","agendamento_id","visita_confirmada","visita_dia_hora"],
+  encerramento: ["fase_conversa","intro_etapa","funil_status","ultimo_campo","last_user_text","last_processed_text","updated_at","processo_aprovado","processo_reprovado","retorno_correspondente_status"]
 };
 
 function filterPatchAllowKeys(stageId, patch) {
@@ -789,7 +825,19 @@ function buildPatchDbSafe(stageId, currentState, patch, debugCtx = {}) {
     fase_conversa: patch?.fase_conversa || stageId || currentState?.fase_conversa || "inicio"
   };
   const allowFiltered = filterPatchAllowKeys(stageId || mergedPatch.fase_conversa, mergedPatch);
-  const patchDbSafe = filterToExistingColumns(allowFiltered);
+  const fallbackCorePatch = {
+    fase_conversa: mergedPatch?.fase_conversa,
+    intro_etapa: mergedPatch?.intro_etapa,
+    funil_status: mergedPatch?.funil_status,
+    ultimo_campo: mergedPatch?.ultimo_campo,
+    last_user_text: mergedPatch?.last_user_text,
+    last_processed_text: mergedPatch?.last_processed_text,
+    updated_at: mergedPatch?.updated_at
+  };
+  const patchDbSafe = filterToExistingColumns({
+    ...allowFiltered,
+    ...fallbackCorePatch
+  });
   const finalKeys = Object.keys(patchDbSafe || {});
 
   console.log("FUNIL_V2_PATCH_FILTER_OUTPUT", {

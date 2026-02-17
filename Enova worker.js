@@ -1824,10 +1824,12 @@ export default {
 const envMode = String(env.ENV_MODE || env.ENOVA_ENV || "").toLowerCase();
 const isAdminPath = pathname.startsWith("/__admin__/");
 
-if (isAdminPath && envMode !== "test") {
-  return adminJson(403, {
+// Admin liberado em qualquer env, mas SEMPRE exigindo x-enova-admin-key.
+// (isAdminAuthorized() já valida o header/segredo.)
+if (isAdminPath && !isAdminAuthorized()) {
+  return adminJson(401, {
     ok: false,
-    error: "forbidden_test_only",
+    error: "unauthorized",
     build: ENOVA_BUILD,
     ts: new Date().toISOString()
   });

@@ -1818,7 +1818,7 @@ export default {
       return Boolean(reqKey && envKey && reqKey === envKey);
     }
 
-    // ---------------------------------------------
+// ---------------------------------------------
 // 🔐 Admin canônico — deve vir antes de /webhook/meta e fallback
 // ---------------------------------------------
 const envMode = String(env.ENV_MODE || env.ENOVA_ENV || "").toLowerCase();
@@ -1832,127 +1832,140 @@ if (isAdminPath && envMode !== "test") {
     ts: new Date().toISOString()
   });
 }
-    
-    if (request.method === "GET" && pathname === "/__admin__/health") {
-      if (!isAdminAuthorized()) {
-        return adminJson(401, {
-          ok: false,
-          error: "unauthorized",
-          build: ENOVA_BUILD,
-          ts: new Date().toISOString()
-        });
-      }
 
-      return adminJson(200, {
-        ok: true,
-        build: ENOVA_BUILD,
-        ts: new Date().toISOString()
-      });
+if (request.method === "GET" && pathname === "/__admin__/health") {
+  if (!isAdminAuthorized()) {
+    return adminJson(401, {
+      ok: false,
+      error: "unauthorized",
+      build: ENOVA_BUILD,
+      ts: new Date().toISOString()
+    });
+  }
+
+  return adminJson(200, {
+    ok: true,
+    build: ENOVA_BUILD,
+    ts: new Date().toISOString()
+  });
+}
+
+if (request.method === "POST" && pathname === "/__admin__/send") {
+  if (!isAdminAuthorized()) {
+    return adminJson(401, {
+      ok: false,
+      error: "unauthorized",
+      build: ENOVA_BUILD,
+      ts: new Date().toISOString()
+    });
+  }
+
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return adminJson(400, {
+      ok: false,
+      error: "invalid_json",
+      build: ENOVA_BUILD,
+      ts: new Date().toISOString()
+    });
+  }
+
+  const wa_id = String(payload?.wa_id || "").trim();
+  const text = String(payload?.text || "").trim();
+
+  if (!wa_id || !text) {
+    return adminJson(400, {
+      ok: false,
+      error: "invalid_payload",
+      details: "wa_id e text são obrigatórios",
+      build: ENOVA_BUILD,
+      ts: new Date().toISOString()
+    });
+  }
+
+  const sendResult = await sendMessage(env, wa_id, text, { returnMeta: true });
+
+  if (!sendResult?.ok) {
+    return adminJson(502, {
+      ok: false,
+      meta_status: sendResult?.meta_status ?? null,
+      message_id: null,
+      build: ENOVA_BUILD,
+      ts: new Date().toISOString()
+    });
+  }
+
+  return adminJson(200, {
+    ok: true,
+    meta_status: sendResult.meta_status,
+    message_id: sendResult.message_id ?? null,
+    build: ENOVA_BUILD,
+    ts: new Date().toISOString()
+  });
+}
+
+if (request.method === "POST" && (pathname === "/__admin__/simulate-funnel" || pathname === "/_admin/_simulate-funnel")) {
+  if (!isAdminAuthorized()) {
+    return adminJson(401, {
+      ok: false,
+      error: "unauthorized",
+      build: ENOVA_BUILD,
+      ts: new Date().toISOString()
+    });
+  }
+
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return adminJson(400, {
+      ok: false,
+      error: "invalid_json",
+      build: ENOVA_BUILD,
+      ts: new Date().toISOString()
+    });
+  }
+
+  const wa_id = String(payload?.wa_id || "").trim();
+  const startStage = String(payload?.start_stage || "inicio").trim() || "inicio";
+  const script = Array.isArray(payload?.script) ? payload.script : [];
+
+  // dryRun:
+  // 1) se vier booleano no body, usa;
+  // 2) senão, tenta ler ?dry_run= da URL;
+  // 3) default = true.
+  let dryRun = true;
+  if (typeof payload?.dry_run === "boolean") {
+    dryRun = payload.dry_run;
+  } else {
+    const qp = url.searchParams.get("dry_run");
+    if (qp !== null) {
+      const v = String(qp).toLowerCase();
+      dryRun = v !== "false";
     }
+  }
 
-    if (request.method === "POST" && pathname === "/__admin__/send") {
-      if (!isAdminAuthorized()) {
-        return adminJson(401, {
-          ok: false,
-          error: "unauthorized",
-          build: ENOVA_BUILD,
-          ts: new Date().toISOString()
-        });
-      }
+  if (!wa_id || !script.length || !script.every((s) => typeof s === "string")) {
+    return adminJson(400, {
+      ok: false,
+      error: "invalid_payload",
+      details: "wa_id e script(string[]) são obrigatórios",
+      build: ENOVA_BUILD,
+      ts: new Date().toISOString()
+    });
+  }
 
-      let payload;
-      try {
-        payload = await request.json();
-      } catch {
-        return adminJson(400, {
-          ok: false,
-          error: "invalid_json",
-          build: ENOVA_BUILD,
-          ts: new Date().toISOString()
-        });
-      }
+  const result = await simulateFunnel(env, {
+    wa_id,
+    startStage,
+    script,
+    dryRun
+  });
 
-      const wa_id = String(payload?.wa_id || "").trim();
-      const text = String(payload?.text || "").trim();
-
-      if (!wa_id || !text) {
-        return adminJson(400, {
-          ok: false,
-          error: "invalid_payload",
-          details: "wa_id e text são obrigatórios",
-          build: ENOVA_BUILD,
-          ts: new Date().toISOString()
-        });
-      }
-
-      const sendResult = await sendMessage(env, wa_id, text, { returnMeta: true });
-
-      if (!sendResult?.ok) {
-        return adminJson(502, {
-          ok: false,
-          meta_status: sendResult?.meta_status ?? null,
-          message_id: null,
-          build: ENOVA_BUILD,
-          ts: new Date().toISOString()
-        });
-      }
-
-      return adminJson(200, {
-        ok: true,
-        meta_status: sendResult.meta_status,
-        message_id: sendResult.message_id ?? null,
-        build: ENOVA_BUILD,
-        ts: new Date().toISOString()
-      });
-    }
-
-    if (request.method === "POST" && (pathname === "/__admin__/simulate-funnel" || pathname === "/_admin/_simulate-funnel")) {
-     
-      if (!isAdminAuthorized()) {
-        return adminJson(401, {
-          ok: false,
-          error: "unauthorized",
-          build: ENOVA_BUILD,
-          ts: new Date().toISOString()
-        });
-      }
-
-      let payload;
-      try {
-        payload = await request.json();
-      } catch {
-        return adminJson(400, {
-          ok: false,
-          error: "invalid_json",
-          build: ENOVA_BUILD,
-          ts: new Date().toISOString()
-        });
-      }
-
-      const wa_id = String(payload?.wa_id || "").trim();
-      const startStage = String(payload?.start_stage || "inicio").trim() || "inicio";
-      const script = Array.isArray(payload?.script) ? payload.script : [];
-      const dryRun = payload?.dry_run !== false;
-
-      if (!wa_id || !script.length || !script.every((s) => typeof s === "string")) {
-        return adminJson(400, {
-          ok: false,
-          error: "invalid_payload",
-          details: "wa_id e script(string[]) são obrigatórios",
-          build: ENOVA_BUILD,
-          ts: new Date().toISOString()
-        });
-      }
-
-      const result = await simulateFunnel(env, {
-        wa_id,
-        startStage,
-        script,
-        dryRun
-      });
-
-      return adminJson(result.ok ? 200 : 500, result);
-    }
+  return adminJson(result.ok ? 200 : 500, result);
+}
 
     // ---------------------------------------------
     // 🔄 GET /webhook/meta — verificação do webhook

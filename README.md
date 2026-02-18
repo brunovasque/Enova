@@ -252,3 +252,5 @@ Ou seja:
 Até 09/02 – entrada de mensagens era registrada em enova_log com meta_minimal.
 
 Depois de um patch recente – o estado continua sendo atualizado, mas novas mensagens pararam de entrar no enova_log.
+
+chore: trigger PR checks indexing

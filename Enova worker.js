@@ -7277,32 +7277,53 @@ case "renda_parceiro": {
   // NÃO AUTÔNOMO → segue para CTPS
   // -----------------------------------
 
-  // 🟩 EXIT indo para ctps_36
-  await funnelTelemetry(env, {
-    wa_id: st.wa_id,
-    event: "exit_stage",
-    stage,
-    next_stage: "ctps_36",
-    severity: "info",
-    message: "Saindo de renda_parceiro → ctps_36",
-    details: {
-      renda_parceiro: valor,
-      renda_titular: rendaTitular,
-      renda_total: rendaTotal
-    }
-  });
+  const titularTem36 = st.ctps_36 === true;
 
+// se o titular NÃO tem 36 meses, checa o parceiro.
+// se o titular JÁ tem 36 meses, pode pular o CTPS do parceiro.
+const nextStage = titularTem36 ? "restricao" : "ctps_36_parceiro";
+
+// 🟩 EXIT indo para próximo correto
+await funnelTelemetry(env, {
+  wa_id: st.wa_id,
+  event: "exit_stage",
+  stage,
+  next_stage: nextStage,
+  severity: "info",
+  message: `Saindo de renda_parceiro → ${nextStage}`,
+  details: {
+    renda_parceiro: valor,
+    renda_titular: rendaTitular,
+    renda_total: rendaTotal,
+    titular_ctps_36: st.ctps_36 ?? null
+  }
+});
+
+if (titularTem36) {
   return step(
     env,
     st,
     [
-      "Ótimo! 👍",
+      "Perfeito! 👌",
       `A renda somada ficou em **R$ ${rendaTotal.toLocaleString("pt-BR")}**.`,
-      "Agora me diga:",
-      "Você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
+      "Agora só mais uma coisinha:",
+      "Você está com **alguma restrição no CPF**, como negativação?"
     ],
-    "ctps_36"
+    "restricao"
   );
+}
+
+return step(
+  env,
+  st,
+  [
+    "Ótimo! 👍",
+    `A renda somada ficou em **R$ ${rendaTotal.toLocaleString("pt-BR")}**.`,
+    "Agora me diga:",
+    "O parceiro(a) tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
+  ],
+  "ctps_36_parceiro"
+);
 }
 
 // =========================================================

@@ -447,6 +447,21 @@ async function upsertState(env, wa_id, payload) {
     updated_at: new Date().toISOString()
   };
 
+  if (payload && payload.__motorStageForWriteFilter) {
+    const stageForFilter = payload.__motorStageForWriteFilter;
+    const filtered = filterPatchAllowedKeys(stageForFilter, patch);
+    patch.fase_conversa = filtered.fase_conversa || patch.fase_conversa;
+    patch.funil_status = filtered.funil_status ?? patch.funil_status;
+    patch.intro_etapa = filtered.intro_etapa ?? patch.intro_etapa;
+    patch.controle = filtered.controle ?? patch.controle;
+    for (const key of Object.keys(patch)) {
+      if (!["updated_at", ...Object.keys(filtered)].includes(key)) {
+        delete patch[key];
+      }
+    }
+    delete patch.__motorStageForWriteFilter;
+  }
+
   if (simCtx?.active) {
     const current = simCtx.stateByWaId?.[wa_id] || { wa_id };
     const merged = { ...current, ...patch, wa_id };
@@ -551,7 +566,7 @@ function normalizeText(text) {
     .trim();
 }
 
-function isYes(text) {
+function motorIsYes(text) {
   const nt = normalizeText(text);
   if (!nt) return false;
   const yesTerms = [
@@ -561,7 +576,7 @@ function isYes(text) {
   return yesTerms.some((term) => nt === term || nt.includes(term));
 }
 
-function isNo(text) {
+function motorIsNo(text) {
   const nt = normalizeText(text);
   if (!nt) return false;
   const noTerms = [
@@ -3920,6 +3935,152 @@ async function handleCorrespondenteRetorno(env, msg) {
 } // fecha handleCorrespondenteRetorno   <--- ADICIONE ESTA LINHA
 
 // ======================================================================
+// 🧠 FUNIL V2 MOTOR (Worker-only)
+// ======================================================================
+const WRITES_CANONICOS = {
+  entrada: ["fase_conversa", "funil_status", "intro_etapa", "nacionalidade", "estrangeiro_flag", "tem_rnm", "rnm_tipo", "rnm_validade", "last_user_text", "last_message_id", "last_processed_text"],
+  estado_civil: ["estado_civil", "casamento_civil", "solteiro_sozinho", "composicao_pessoa", "coletas_casal", "financiamento_conjunto", "somar_renda", "parceiro_tem_renda", "nome_parceiro", "nome_parceiro_normalizado", "fase_conversa", "funil_status", "intro_etapa", "controle"],
+  renda: ["modo_renda", "renda_bruta", "renda_liquida", "renda_formal", "renda_informal", "renda_mista", "renda_extra", "renda_titular", "renda_parceiro", "renda_total_para_fluxo", "multi_renda_flag", "multi_renda_lista", "multi_regime_flag", "multi_regime_lista", "qtd_rendas_informadas", "ultima_renda_bruta_informada", "qtd_regimes_informados", "ultima_regime_informado", "perfil_financeiro", "ir_declarado", "ir_parceiro", "ir_declarado_parceiro", "fase_conversa", "funil_status", "intro_etapa", "controle"],
+  dependente: ["fator_social", "fase_conversa", "funil_status", "intro_etapa", "controle"],
+  ctps: ["ctps_36", "ctps_36_parceiro", "fase_conversa", "funil_status", "intro_etapa", "controle"],
+  restricao: ["regularizacao_restricao", "fase_conversa", "funil_status", "intro_etapa", "controle"],
+  docs: ["fase_docs", "funil_opcao_docs", "canal_envio_docs", "status_docs", "docs_status", "docs_status_texto", "docs_lista_enviada", "docs_itens_pendentes", "docs_itens_recebidos", "docs_completos", "docs_status_geral", "docs_validacao_atualizada", "ultima_interacao_docs", "processo_enviado_correspondente", "aguardando_retorno_correspondente", "dossie_resumo", "retorno_correspondente_bruto", "retorno_correspondente_status", "retorno_correspondente_motivo", "fase_conversa", "funil_status", "intro_etapa", "controle"],
+  agendamento: ["agendamento_id", "fase_conversa", "funil_status", "intro_etapa", "controle"],
+  encerramento: ["fase_conversa", "funil_status", "intro_etapa", "controle"]
+};
+
+const FUNIL_V2_STAGES = {
+  inicio: { id: "inicio", phase_index: 1, group: "entrada", fasesCanonicas: ["F0 – Início / boot / lead novo"], writesBlock: "entrada", gates: { allowsReentry: true } },
+  inicio_nome: { id: "inicio_nome", phase_index: 2, group: "entrada", fasesCanonicas: ["F0 – Coleta de nome"], writesBlock: "entrada" },
+  inicio_estrangeiro: { id: "inicio_estrangeiro", phase_index: 3, group: "entrada", fasesCanonicas: ["F1 – Estrangeiro? / nacionalidade"], writesBlock: "entrada", gates: { branchPoint: true } },
+  estado_civil: { id: "estado_civil", phase_index: 4, group: "estado_civil", fasesCanonicas: ["FASE 2 – Estado civil / composição"], writesBlock: "estado_civil", gates: { branchPoint: true } },
+  regime_trabalho: { id: "regime_trabalho", phase_index: 5, group: "renda", fasesCanonicas: ["FASE 3 – Regime de trabalho (CLT / autônomo / aposentado)"], writesBlock: "renda" },
+  renda: { id: "renda", phase_index: 6, group: "renda", fasesCanonicas: ["FASE 3 – Renda principal (única / multi / mista)"], writesBlock: "renda", gates: { branchPoint: true } },
+  composicao_renda: { id: "composicao_renda", phase_index: 7, group: "renda", fasesCanonicas: ["FASE 3–7 – Composição de renda / faixa / perfil"], writesBlock: "renda" },
+  dependente: { id: "dependente", phase_index: 8, group: "dependente", fasesCanonicas: ["FASE 4 – Dependentes / fator social"], writesBlock: "dependente" },
+  ctps_36: { id: "ctps_36", phase_index: 9, group: "ctps", fasesCanonicas: ["FASE 5 – 36 meses de carteira (titular / parceiro)"], writesBlock: "ctps" },
+  restricao: { id: "restricao", phase_index: 10, group: "restricao", fasesCanonicas: ["FASE 6 – Restrição / empréstimos / dívidas relevantes"], writesBlock: "restricao", gates: { branchPoint: true } },
+  docs_opcao: { id: "docs_opcao", phase_index: 11, group: "docs", fasesCanonicas: ["FASE 7–8 – DOCs (escolha de canal, enviar ou não)"], writesBlock: "docs", gates: { branchPoint: true } },
+  docs_nao_enviou: { id: "docs_nao_enviou", phase_index: 12, group: "docs", fasesCanonicas: ["FASE 12 – Não quis enviar DOCs (leva no plantão)"], writesBlock: "docs" },
+  docs_enviou_correspondente: { id: "docs_enviou_correspondente", phase_index: 13, group: "docs", fasesCanonicas: ["FASE 13 – Enviou DOCs / fase Correspondente"], writesBlock: "docs", gates: { branchPoint: true } },
+  agendamento_visita: { id: "agendamento_visita", phase_index: 14, group: "agendamento", fasesCanonicas: ["FASE 14 – Agendamento de visita / plantão"], writesBlock: "agendamento", gates: { branchPoint: true } },
+  pos_venda_desligamento: { id: "pos_venda_desligamento", phase_index: 15, group: "encerramento", fasesCanonicas: ["FASE 13A – Pós-venda / desligamento CEF"], writesBlock: "encerramento", gates: { terminal: true } },
+  fim_ineligivel: { id: "fim_ineligivel", phase_index: 16, group: "encerramento", fasesCanonicas: ["ENCERRAMENTO – Inelegível (RNM / renda / restrição)"], writesBlock: "encerramento", gates: { terminal: true } }
+};
+
+const FUNIL_COPY_V2 = {
+  "v2.inicio.ask_nome": ["Perfeito, vamos começar sua análise 😊", "Pra eu te atender certinho, qual é o seu *nome completo*?"],
+  "v2.inicio_nome.invalid": ["Me manda seu *nome completo* com nome e sobrenome, por favor 🙏"],
+  "v2.inicio_nome.ok": ["Perfeito! Agora me diz: você é brasileiro(a) ou estrangeiro(a)?"],
+  "v2.inicio_estrangeiro.ask_tipo": ["Só pra eu confirmar certinho: você é brasileiro(a) ou estrangeiro(a)?"],
+  "v2.inicio_estrangeiro.ask_rnm": ["Entendi 👍 Você possui RNM (Registro Nacional Migratório) válido? Responda *sim* ou *não*."],
+  "v2.inicio_estrangeiro.ask_rnm_validade": ["Perfeito. O RNM está *válido* (com prazo) ou é *indeterminado*?"],
+  "v2.inicio_estrangeiro.rnm_invalido": ["No momento não consigo seguir com a análise sem RNM elegível. Se regularizar, posso continuar com você depois."],
+  "v2.inicio_estrangeiro.ok": ["Ótimo, vamos seguir. Qual seu estado civil atual? (solteiro(a), casado(a), união estável, separado(a), divorciado(a) ou viúvo(a))"],
+  "v2.estado_civil.invalid": ["Me diga seu estado civil: solteiro(a), casado(a), união estável, separado(a), divorciado(a) ou viúvo(a)."],
+  "v2.estado_civil.ok": ["Perfeito. Qual é o seu regime de trabalho hoje? (CLT, autônomo(a), MEI, servidor(a) ou aposentado(a))"],
+  "v2.regime_trabalho.invalid": ["Consegue me responder com um destes: CLT, autônomo(a), MEI, servidor(a) ou aposentado(a)?"],
+  "v2.regime_trabalho.ok": ["Agora me informe sua renda mensal bruta aproximada (apenas número)."],
+  "v2.renda.invalid": ["Não consegui identificar a renda. Me mande só número (ex.: 3200)."],
+  "v2.renda.ineligivel": ["Pelo valor informado, você ficou fora da faixa atual do programa neste momento."],
+  "v2.renda.ask_composicao": ["Perfeito. Vamos compor a renda. Qual a renda mensal do(a) parceiro(a)?"],
+  "v2.renda.ok": ["Perfeito. Você possui dependente menor de 18 anos? (sim ou não)"],
+  "v2.composicao_renda.invalid": ["Me informe a renda do(a) parceiro(a) em número (ex.: 2500)."],
+  "v2.composicao_renda.ineligivel": ["Com a composição informada, vocês ficaram fora da faixa atual do programa."],
+  "v2.composicao_renda.ok": ["Ótimo. Você possui dependente menor de 18 anos? (sim ou não)"],
+  "v2.dependente.invalid": ["Me responde com *sim* ou *não* sobre dependente menor de 18 anos."],
+  "v2.dependente.ok": ["Perfeito. Você tem 36 meses de carteira assinada nos últimos 3 anos? (sim ou não)"],
+  "v2.ctps_36.invalid": ["Me responde com *sim* ou *não* sobre os 36 meses de carteira."],
+  "v2.ctps_36.ok": ["Tem alguma restrição relevante no CPF (Serasa/SPC)? (sim ou não)"],
+  "v2.restricao.ineligivel": ["Entendi. Com restrição ativa, no momento o processo cai em inelegibilidade até regularização."],
+  "v2.restricao.ok": ["Perfeito! Quer enviar os documentos agora pelo WhatsApp ou prefere levar no plantão?"],
+  "v2.docs_opcao.invalid": ["Me responde com: *enviar agora* ou *levar no plantão*."],
+  "v2.docs_opcao.enviar": ["Perfeito! Assim que os docs forem enviados, eu sigo para agendar sua visita."],
+  "v2.docs_opcao.plantao": ["Sem problema. Você pode levar os docs no plantão. Quando quiser, te ajudo a agendar a visita."],
+  "v2.docs_nao_enviou.keep": ["Quando quiser marcar, me diga *quero agendar visita*."],
+  "v2.docs_nao_enviou.ok": ["Perfeito, vamos agendar sua visita."],
+  "v2.docs_enviou_correspondente.keep": ["Estou aguardando avanço do correspondente. Se já enviou tudo, diga *docs enviados* para seguir."],
+  "v2.docs_enviou_correspondente.ok": ["Docs recebidos ✅ Vamos para o agendamento da visita."],
+  "v2.agendamento_visita.keep": ["Me confirme um horário de preferência para visita (manhã/tarde/noite)."],
+  "v2.agendamento_visita.ok": ["Visita registrada ✅ Seguimos para o pós-venda e próximos passos."],
+  "v2.pos_venda_desligamento.keep": ["Seu processo está em pós-venda. Se precisar, posso te atualizar por aqui."],
+  "v2.fim_ineligivel.keep": ["Seu caso está encerrado como inelegível no momento. Se regularizar, me chame para nova análise."],
+  "v2.fallback": ["Vamos seguir por aqui. Me responde com mais detalhes pra eu continuar sua análise."]
+};
+
+function v2Reply(replyKey) {
+  return FUNIL_COPY_V2[replyKey] || FUNIL_COPY_V2["v2.fallback"];
+}
+
+function extractMoneyValue(text) {
+  const cleaned = String(text || "").replace(/\./g, "").replace(/,/g, ".");
+  const match = cleaned.match(/\d+(?:\.\d+)?/);
+  if (!match) return null;
+  const value = Number(match[0]);
+  return Number.isFinite(value) ? value : null;
+}
+
+function isYes(text) {
+  const nt = normalizeText(text || "");
+  return /\b(sim|s|tenho|possuo|claro|ok)\b/.test(nt);
+}
+
+function isNo(text) {
+  const nt = normalizeText(text || "");
+  return /\b(nao|n|não|sem|nunca)\b/.test(nt);
+}
+
+function normalizeMotorStage(rawStage) {
+  if (rawStage && FUNIL_V2_STAGES[rawStage]) return rawStage;
+  return "inicio";
+}
+
+function filterPatchAllowedKeys(stageId, patch) {
+  const meta = FUNIL_V2_STAGES[stageId] || FUNIL_V2_STAGES.inicio;
+  const block = meta.writesBlock;
+  const allowed = new Set([...(WRITES_CANONICOS[block] || []), "fase_conversa", "funil_status", "intro_etapa", "controle"]);
+  const out = {};
+  for (const [k, v] of Object.entries(patch || {})) {
+    if (allowed.has(k)) out[k] = v;
+  }
+  return out;
+}
+
+const STAGES = {
+  ...FUNIL_V2_STAGES,
+  inicio: { ...FUNIL_V2_STAGES.inicio, run: ({ st }) => ({ replyKey: "v2.inicio.ask_nome", nextStage: "inicio_nome", patch: { funil_status: st.funil_status || "em_andamento", intro_etapa: "v2" } }) },
+  inicio_nome: { ...FUNIL_V2_STAGES.inicio_nome, run: ({ text }) => { const raw = String(text || "").trim(); const parts = raw.split(/\s+/).filter(Boolean); if (parts.length < 2) return { replyKey: "v2.inicio_nome.invalid", nextStage: "inicio_nome", patch: { intro_etapa: "v2" } }; return { replyKey: "v2.inicio_nome.ok", nextStage: "inicio_estrangeiro", patch: { nome: raw, intro_etapa: "v2" } }; } },
+  inicio_estrangeiro: { ...FUNIL_V2_STAGES.inicio_estrangeiro, run: ({ text, st }) => { const nt = normalizeText(text || ""); if (st.controle === "aguardando_rnm") { if (motorIsNo(nt)) return { replyKey: "v2.inicio_estrangeiro.rnm_invalido", nextStage: "fim_ineligivel", patch: { tem_rnm: false, funil_status: "fim_ineligivel", controle: null } }; if (motorIsYes(nt)) return { replyKey: "v2.inicio_estrangeiro.ask_rnm_validade", nextStage: "inicio_estrangeiro", patch: { tem_rnm: true, controle: "aguardando_rnm_validade" } }; return { replyKey: "v2.inicio_estrangeiro.ask_rnm", nextStage: "inicio_estrangeiro", patch: { controle: "aguardando_rnm" } }; } if (st.controle === "aguardando_rnm_validade") { if (/indeterm/.test(nt)) return { replyKey: "v2.inicio_estrangeiro.rnm_invalido", nextStage: "fim_ineligivel", patch: { rnm_validade: "indeterminado", funil_status: "fim_ineligivel", controle: null } }; if (/valid/.test(nt)) return { replyKey: "v2.inicio_estrangeiro.ok", nextStage: "estado_civil", patch: { rnm_validade: "valido", controle: null } }; return { replyKey: "v2.inicio_estrangeiro.ask_rnm_validade", nextStage: "inicio_estrangeiro", patch: { controle: "aguardando_rnm_validade" } }; } if (/brasil|brasileir/.test(nt)) return { replyKey: "v2.inicio_estrangeiro.ok", nextStage: "estado_civil", patch: { nacionalidade: "brasileiro", estrangeiro_flag: false, controle: null } }; if (/estrangeir/.test(nt)) return { replyKey: "v2.inicio_estrangeiro.ask_rnm", nextStage: "inicio_estrangeiro", patch: { nacionalidade: "estrangeiro", estrangeiro_flag: true, controle: "aguardando_rnm" } }; return { replyKey: "v2.inicio_estrangeiro.ask_tipo", nextStage: "inicio_estrangeiro", patch: { intro_etapa: "v2" } }; } },
+  estado_civil: { ...FUNIL_V2_STAGES.estado_civil, run: ({ text }) => { const nt = normalizeText(text || ""); const casal = /casad|uniao estavel|união estável/.test(nt); const solo = /solteir|divorciad|separad|viuv/.test(nt); if (!casal && !solo) return { replyKey: "v2.estado_civil.invalid", nextStage: "estado_civil", patch: {} }; return { replyKey: "v2.estado_civil.ok", nextStage: "regime_trabalho", patch: { estado_civil: casal ? "casado" : "solteiro", somar_renda: casal, parceiro_tem_renda: casal, financiamento_conjunto: casal ? "sim" : "nao" } }; } },
+  regime_trabalho: { ...FUNIL_V2_STAGES.regime_trabalho, run: ({ text }) => { const nt = normalizeText(text || ""); let regime = null; if (/mei|autonom/.test(nt)) regime = "autonomo"; if (/clt|carteira/.test(nt)) regime = "clt"; if (/servidor/.test(nt)) regime = "servidor"; if (/aposent/.test(nt)) regime = "aposentado"; if (!regime) return { replyKey: "v2.regime_trabalho.invalid", nextStage: "regime_trabalho", patch: {} }; return { replyKey: "v2.regime_trabalho.ok", nextStage: "renda", patch: { regime } }; } },
+  renda: { ...FUNIL_V2_STAGES.renda, run: ({ text, st }) => { const rendaTitular = extractMoneyValue(text); if (!rendaTitular) return { replyKey: "v2.renda.invalid", nextStage: "renda", patch: {} }; if (rendaTitular > 12000) return { replyKey: "v2.renda.ineligivel", nextStage: "fim_ineligivel", patch: { renda_titular: rendaTitular, renda_total_para_fluxo: rendaTitular, funil_status: "fim_ineligivel" } }; const next = st.somar_renda ? "composicao_renda" : "dependente"; return { replyKey: st.somar_renda ? "v2.renda.ask_composicao" : "v2.renda.ok", nextStage: next, patch: { renda_titular: rendaTitular, renda_total_para_fluxo: rendaTitular } }; } },
+  composicao_renda: { ...FUNIL_V2_STAGES.composicao_renda, run: ({ text, st }) => { const rendaParceiro = extractMoneyValue(text); if (!rendaParceiro) return { replyKey: "v2.composicao_renda.invalid", nextStage: "composicao_renda", patch: {} }; const total = Number(st.renda_total_para_fluxo || 0) + rendaParceiro; if (total > 12000) return { replyKey: "v2.composicao_renda.ineligivel", nextStage: "fim_ineligivel", patch: { renda_parceiro: rendaParceiro, renda_total_para_fluxo: total, funil_status: "fim_ineligivel" } }; return { replyKey: "v2.composicao_renda.ok", nextStage: "dependente", patch: { renda_parceiro: rendaParceiro, renda_total_para_fluxo: total } }; } },
+  dependente: { ...FUNIL_V2_STAGES.dependente, run: ({ text }) => { if (!motorIsYes(text) && !motorIsNo(text)) return { replyKey: "v2.dependente.invalid", nextStage: "dependente", patch: {} }; return { replyKey: "v2.dependente.ok", nextStage: "ctps_36", patch: { fator_social: motorIsYes(text) ? "com_dependente" : "sem_dependente" } }; } },
+  ctps_36: { ...FUNIL_V2_STAGES.ctps_36, run: ({ text }) => { if (!motorIsYes(text) && !motorIsNo(text)) return { replyKey: "v2.ctps_36.invalid", nextStage: "ctps_36", patch: {} }; return { replyKey: "v2.ctps_36.ok", nextStage: "restricao", patch: { ctps_36: motorIsYes(text) ? "sim" : "nao" } }; } },
+  restricao: { ...FUNIL_V2_STAGES.restricao, run: ({ text }) => { if (motorIsYes(text)) return { replyKey: "v2.restricao.ineligivel", nextStage: "fim_ineligivel", patch: { regularizacao_restricao: "sim", funil_status: "fim_ineligivel" } }; if (motorIsNo(text)) return { replyKey: "v2.restricao.ok", nextStage: "docs_opcao", patch: { regularizacao_restricao: "nao" } }; return { replyKey: "v2.ctps_36.invalid", nextStage: "restricao", patch: {} }; } },
+  docs_opcao: { ...FUNIL_V2_STAGES.docs_opcao, run: ({ text }) => { const nt = normalizeText(text || ""); if (/plantao|plantão|levar|depois/.test(nt)) return { replyKey: "v2.docs_opcao.plantao", nextStage: "docs_nao_enviou", patch: { funil_opcao_docs: "plantao", canal_envio_docs: "plantao" } }; if (/enviar|agora|whats|document/.test(nt)) return { replyKey: "v2.docs_opcao.enviar", nextStage: "docs_enviou_correspondente", patch: { funil_opcao_docs: "enviar", canal_envio_docs: "whatsapp", processo_enviado_correspondente: true, docs_completos: true } }; return { replyKey: "v2.docs_opcao.invalid", nextStage: "docs_opcao", patch: {} }; } },
+  docs_nao_enviou: { ...FUNIL_V2_STAGES.docs_nao_enviou, run: ({ text }) => (/agendar|visita|quero/.test(normalizeText(text || "")) ? { replyKey: "v2.docs_nao_enviou.ok", nextStage: "agendamento_visita", patch: {} } : { replyKey: "v2.docs_nao_enviou.keep", nextStage: "docs_nao_enviou", patch: {} }) },
+  docs_enviou_correspondente: { ...FUNIL_V2_STAGES.docs_enviou_correspondente, run: ({ text }) => { const nt = normalizeText(text || ""); if (/reprov|negad/.test(nt)) return { replyKey: "v2.restricao.ineligivel", nextStage: "fim_ineligivel", patch: { retorno_correspondente_status: "reprovado", funil_status: "fim_ineligivel" } }; if (/aprov|enviad|ok|conclu/.test(nt)) return { replyKey: "v2.docs_enviou_correspondente.ok", nextStage: "agendamento_visita", patch: { retorno_correspondente_status: "aprovado" } }; return { replyKey: "v2.docs_enviou_correspondente.keep", nextStage: "docs_enviou_correspondente", patch: {} }; } },
+  agendamento_visita: { ...FUNIL_V2_STAGES.agendamento_visita, run: ({ text }) => (/manh|tarde|noite|visita|agend/.test(normalizeText(text || "")) ? { replyKey: "v2.agendamento_visita.ok", nextStage: "pos_venda_desligamento", patch: { agendamento_id: `manual-${Date.now()}`, funil_status: "pos_venda_desligamento" } } : { replyKey: "v2.agendamento_visita.keep", nextStage: "agendamento_visita", patch: {} }) },
+  pos_venda_desligamento: { ...FUNIL_V2_STAGES.pos_venda_desligamento, run: () => ({ replyKey: "v2.pos_venda_desligamento.keep", nextStage: "pos_venda_desligamento", patch: { funil_status: "pos_venda_desligamento" } }) },
+  fim_ineligivel: { ...FUNIL_V2_STAGES.fim_ineligivel, run: () => ({ replyKey: "v2.fim_ineligivel.keep", nextStage: "fim_ineligivel", patch: { funil_status: "fim_ineligivel" } }) }
+};
+
+function runMotor(text, st) {
+  const stageId = normalizeMotorStage(st?.fase_conversa);
+  const stage = STAGES[stageId] || STAGES.inicio;
+  const result = stage.run({ text, st: st || {} }) || {};
+  const nextStage = result.nextStage || stageId;
+  const patch = { ...(result.patch || {}), fase_conversa: nextStage };
+  return { replyKey: result.replyKey || "v2.fallback", nextStage, patch };
+}
+
+function shouldUseFunilV2(st) {
+  const stage = st?.fase_conversa || "inicio";
+  return Boolean(FUNIL_V2_STAGES[stage]);
+}
+
+// ======================================================================
 // 🧱 D5 — CÉREBRO DO FUNIL (runFunnel) — VERSÃO BLINDADA
 // ======================================================================
 async function runFunnel(env, st, userText) {
@@ -3943,6 +4104,23 @@ async function runFunnel(env, st, userText) {
 
   const stage = st.fase_conversa || "inicio";
   const t = (userText || "").trim().toLowerCase();
+
+  if (shouldUseFunilV2(st)) {
+    const motorCurrentStage = normalizeMotorStage(st?.fase_conversa);
+    const motorResult = runMotor(userText, st);
+    const filteredPatch = filterPatchAllowedKeys(motorCurrentStage, motorResult.patch || {});
+    const patchToSave = {
+      ...filteredPatch,
+      fase_conversa: motorResult.nextStage,
+      __motorStageForWriteFilter: motorCurrentStage
+    };
+
+    await upsertState(env, st.wa_id, patchToSave);
+    Object.assign(st, patchToSave, { fase_conversa: motorResult.nextStage });
+
+    const reply = v2Reply(motorResult.replyKey);
+    return step(env, st, reply, motorResult.nextStage);
+  }
 
   // ============================================================
   // 🛰 ENTER_STAGE

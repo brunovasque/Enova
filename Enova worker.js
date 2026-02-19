@@ -6420,8 +6420,8 @@ case "regime_trabalho": {
       env,
       st,
       [
-        "Perfeito! 📄",
-        "E qual é a sua **renda total mensal** (valor bruto que recebe no holerite)?"
+        "Perfeito. Você tem mais algum emprego ou faz algum bico além desse?",
+        "Responda *sim* ou *não*."
       ],
       "inicio_multi_regime_pergunta"
     );
@@ -6450,8 +6450,8 @@ case "regime_trabalho": {
       env,
       st,
       [
-        "Certo! 👍",
-        "E qual é a sua **renda mensal aproximada**, somando tudo?"
+        "Perfeito. Você tem mais algum emprego ou faz algum bico além desse?",
+        "Responda *sim* ou *não*."
       ],
       "inicio_multi_regime_pergunta"
     );
@@ -6480,8 +6480,8 @@ case "regime_trabalho": {
       env,
       st,
       [
-        "Perfeito! 👌",
-        "E qual é a sua **renda total mensal**?"
+        "Perfeito. Você tem mais algum emprego ou faz algum bico além desse?",
+        "Responda *sim* ou *não*."
       ],
       "inicio_multi_regime_pergunta"
     );
@@ -6510,8 +6510,8 @@ case "regime_trabalho": {
       env,
       st,
       [
-        "Entendi! 👍",
-        "E qual é o valor que você **recebe de aposentadoria** por mês?"
+        "Perfeito. Você tem mais algum emprego ou faz algum bico além desse?",
+        "Responda *sim* ou *não*."
       ],
       "inicio_multi_regime_pergunta"
     );
@@ -6826,8 +6826,7 @@ case "inicio_multi_regime_pergunta": {
       st,
       [
         "Certo! 😊",
-        "Agora me diga: você possui *mais alguma renda além dessa*?",
-        "Responda *sim* ou *não*."
+        "Então me diga: qual é a sua **renda total mensal**? (valor bruto)"
       ],
       "renda"
     );
@@ -6892,7 +6891,7 @@ case "inicio_multi_regime_coletar": {
     st,
     [
       "Ótimo! 👍",
-      "Agora me diga: você possui *mais alguma renda além dessa*?",
+      "Você tem *mais algum emprego/regime de trabalho* além desse?",
       "Responda *sim* ou *não*."
     ],
     "inicio_multi_regime_pergunta"

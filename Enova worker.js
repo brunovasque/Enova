@@ -4579,9 +4579,9 @@ case "inicio_nome": {
     wa_id: st.wa_id,
     event: "exit_stage",
     stage,
-    next_stage: "estado_civil",
+    next_stage: "inicio_nacionalidade",
     severity: "info",
-    message: "inicio_nome: nome salvo e avançando para estado_civil",
+    message: "inicio_nome: nome salvo e avançando para inicio_nacionalidade",
     details: {
       nome: nomeCompleto,
       primeiro_nome: primeiroNome
@@ -4592,11 +4592,10 @@ case "inicio_nome": {
     env,
     st,
     [
-      `Perfeito, ${primeiroNome}! 😉`,
-      "Agora só pra eu te direcionar certinho...",
-      "Me diga seu *estado civil* atual: solteiro(a), casado(a), união estável, separado(a), divorciado(a) ou viúvo(a)?"
+      `Ótimo, ${primeiroNome} 👌`,
+      "Agora me diz: você é *brasileiro(a)* ou *estrangeiro(a)*?"
     ],
-    "estado_civil"
+    "inicio_nacionalidade"
   );
 }
 
@@ -5050,8 +5049,8 @@ case "estado_civil": {
       env,
       st,
       [
-        "Sinto muito pela perda 🙏",
-        "Você sabe me dizer se o **inventário** já está resolvido?"
+        "Entendi, sinto muito pela sua perda 💛",
+        "Pra eu montar certinho sua lista de documentos: você já tem a *certidão de óbito* do(a) ex-cônjuge e a *certidão de casamento* já *averbada com o óbito*?"
       ],
       "verificar_inventario"
     );
@@ -5453,9 +5452,6 @@ case "parceiro_tem_renda": {
   );
 }
 
-// =========================================================
-// C9 — SOMAR RENDA (SOLTEIRO)
-// =========================================================
 case "somar_renda_solteiro": {
 
   // ============================================================
@@ -5475,16 +5471,88 @@ case "somar_renda_solteiro": {
     }
   });
 
-  const sozinho = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas\s+eu|somente\s+eu|s[oó]\s+com\s+(a\s*)?minha(\s+renda)?)/i.test(t);
-  const composicaoSignal = parseComposicaoRenda(t);
-  const parceiro = composicaoSignal === "parceiro" || /(parceir|namorad|companheir|meu boy|minha girl|minha esposa|minha mulher|meu marido)/i.test(t);
-  const familiar = composicaoSignal === "familiar" || /(m[aã]e|pai|irm[aã]o|irm[aã]|tia|tio|primo|prima|av[oó]|sobrinh|fam[ií]li|parent)/i.test(t);
+  const t = userText.trim();
+
+  const sozinho =
+    /(s[oó] minha renda|s[oó] a minha renda|s[oó] eu|apenas a minha|apenas minha renda|somente minha renda)/i.test(
+      t
+    ) ||
+    /(sozinha|sozinho)/i.test(t);
+
+  const parceiro =
+    /(parceiro|parceira|c[oô]njuge|marido|esposa|esposo|meu namorado|minha namorada)/i.test(
+      t
+    ) ||
+    /(somar com meu parceiro|somar com minha parceira|somar com meu c[oô]njuge)/i.test(t);
+
+  const familiar =
+    /(familiar|fam[ií]lia|pai|m[aã]e|irm[aã]o|irm[aã]|tio|tia|av[oó]|v[oó]|vov[oó])/i.test(
+      t
+    ) ||
+    /(somar com meu pai|somar com minha m[aã]e|somar com meu irm[aã]o|somar com minha irm[aã])/i.test(
+      t
+    );
 
   // -----------------------------
-  // SOLO — APENAS A RENDA DO TITULAR
+  // QUER FICAR SÓ COM A PRÓPRIA RENDA
   // -----------------------------
   if (sozinho) {
 
+    // Renda total já calculada para o fluxo (solo)
+    const rendaTotalRaw =
+      st.renda_total_para_fluxo != null ? st.renda_total_para_fluxo : null;
+    let rendaTotal = 0;
+
+    if (typeof rendaTotalRaw === "number") {
+      rendaTotal = rendaTotalRaw;
+    } else if (typeof rendaTotalRaw === "string") {
+      const cleaned = rendaTotalRaw
+        .replace(/[^\d,.,,]/g, "")
+        .replace(",", ".");
+      const parsed = parseFloat(cleaned);
+      if (!Number.isNaN(parsed)) {
+        rendaTotal = parsed;
+      }
+    }
+
+    // 🔥 Gatilho de inelegibilidade: renda baixa sozinho (≤ 2.380) sem composição
+    if (rendaTotal > 0 && rendaTotal <= 2380) {
+      await upsertState(env, st.wa_id, {
+        somar_renda: false,
+        financiamento_conjunto: false,
+        renda_familiar: false,
+        motivo_ineligivel: "renda_baixa_sem_composicao",
+        funil_status: "ineligivel"
+      });
+
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: "fim_ineligivel",
+        severity: "warning",
+        message:
+          "Saindo da fase: somar_renda_solteiro → fim_ineligivel (renda baixa sem composição)",
+        details: {
+          userText,
+          renda_total_para_fluxo: rendaTotalRaw,
+          renda_total_normalizada: rendaTotal
+        }
+      });
+
+      return step(
+        env,
+        st,
+        [
+          "Entendi 👍",
+          "Pela renda que você me informou, sozinho(a) hoje não fecha aprovação dentro do Minha Casa Minha Vida.",
+          "Vou te explicar certinho o que isso significa e como você pode resolver, se quiser."
+        ],
+        "fim_ineligivel"
+      );
+    }
+
+    // Fluxo original: renda acima de 2.380 ou valor não definido
     // 🟩 EXIT_STAGE
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -5492,7 +5560,8 @@ case "somar_renda_solteiro": {
       stage,
       next_stage: "regime_trabalho",
       severity: "info",
-      message: "Saindo da fase: somar_renda_solteiro → regime_trabalho (solo)",
+      message:
+        "Saindo da fase: somar_renda_solteiro → regime_trabalho (solo)",
       details: { userText }
     });
 
@@ -5526,7 +5595,8 @@ case "somar_renda_solteiro": {
       stage,
       next_stage: "parceiro_tem_renda",
       severity: "info",
-      message: "Saindo da fase: somar_renda_solteiro → parceiro_tem_renda (parceiro)",
+      message:
+        "Saindo da fase: somar_renda_solteiro → parceiro_tem_renda (parceiro)",
       details: { userText }
     });
 
@@ -5540,8 +5610,8 @@ case "somar_renda_solteiro": {
       env,
       st,
       [
-        "Perfeito! 👏",
-        "Seu parceiro(a) **tem renda própria** ou não tem?"
+        "Perfeito! 🙌",
+        "Seu parceiro(a) **tem renda** com registro (CLT, autônomo, servidor) ou não tem renda no momento?"
       ],
       "parceiro_tem_renda"
     );
@@ -5559,7 +5629,8 @@ case "somar_renda_solteiro": {
       stage,
       next_stage: "somar_renda_familiar",
       severity: "info",
-      message: "Saindo da fase: somar_renda_solteiro → somar_renda_familiar (familiar)",
+      message:
+        "Saindo da fase: somar_renda_solteiro → somar_renda_familiar (familiar)",
       details: { userText }
     });
 
@@ -5584,14 +5655,15 @@ case "somar_renda_solteiro": {
   // NÃO ENTENDIDO
   // -----------------------------
 
-  // 🟩 EXIT_STAGE (permanece na mesma fase)
+  // 🟩 EXIT_STAGE
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
     stage,
     next_stage: "somar_renda_solteiro",
     severity: "info",
-    message: "Saindo da fase: somar_renda_solteiro → somar_renda_solteiro (fallback)",
+    message:
+      "Saindo da fase: somar_renda_solteiro → somar_renda_solteiro (fallback)",
     details: { userText }
   });
 
@@ -6476,23 +6548,127 @@ case "regime_trabalho": {
 // =========================================================
 case "fim_ineligivel": {
 
+  // Motivo específico gravado em fases anteriores (quando existir)
+  const motivoRaw =
+    st.motivo_ineligivel != null
+      ? String(st.motivo_ineligivel).trim()
+      : "";
+  const motivo = motivoRaw || null;
+
+  // Campos já usados hoje pelos fluxos de RNM
+  const rnmStatus = st.rnm_status || null;       // "possui" | "não possui" | null
+  const rnmValidade = st.rnm_validade || null;   // "definida" | "indeterminado" | null
+
+  // Tenta pegar o primeiro nome do cliente
+  const primeiroNome =
+    (st.primeiro_nome && String(st.primeiro_nome).trim().split(/\s+/)[0]) ||
+    ((st.nome || "").trim().split(/\s+/)[0] || "");
+
+  const saudacaoNome = primeiroNome ? `${primeiroNome}, ` : "";
+
+  let mensagens;
+
+  // ------------------------------------------------------
+  // 1) IDADE FORA DA FAIXA (definida em fases de docs)
+  // ------------------------------------------------------
+  if (motivo === "idade_inferior_18") {
+    mensagens = [
+      `${saudacaoNome}pelas regras do Minha Casa Minha Vida, só consigo seguir com quem tem 18 anos ou mais.`,
+      "Quando você completar 18 anos, posso refazer toda a análise pra você sem problema nenhum. 😊"
+    ];
+  }
+
+  else if (motivo === "idade_acima_67") {
+    mensagens = [
+      `${saudacaoNome}pelas regras atuais do Minha Casa Minha Vida, a Caixa limita a idade máxima na hora de financiar.`,
+      "Pela sua data de nascimento, hoje não consigo seguir pelo programa, mas posso te orientar sobre outras possibilidades se você quiser."
+    ];
+  }
+
+  // ------------------------------------------------------
+  // 2) APENAS BENEFÍCIOS SOCIAIS (LOAS/BPC/AUXÍLIO etc.)
+  // ------------------------------------------------------
+  else if (motivo === "somente_beneficios_sociais") {
+    mensagens = [
+      `${saudacaoNome}pelo que você me passou, hoje sua renda vem só de benefício social (tipo LOAS, BPC ou auxílio).`,
+      "A Caixa não considera esse tipo de benefício sozinho como renda pra aprovar pelo Minha Casa Minha Vida.",
+      "Se em algum momento você tiver uma renda registrada (CLT, autônomo, servidor etc.) ou alguém pra compor renda com você, eu consigo reavaliar seu cenário."
+    ];
+  }
+
+  // ------------------------------------------------------
+  // 3) RENDA BAIXA SOZINHO (≤ 2.380 sem composição)
+  // ------------------------------------------------------
+  else if (motivo === "renda_baixa_sem_composicao") {
+    mensagens = [
+      `${saudacaoNome}pela renda que você me informou, sozinho(a) hoje não fecha aprovação viavel dentro do Minha Casa Minha Vida.`,
+      "Se em algum momento você conseguir aumentar seu perfil de renda ou somar renda com cônjuge, familiar ou alguém de confiança, me chama aqui que eu refaço todo o estudo pra você, do zero. 👍"
+    ];
+  }
+
+  // ------------------------------------------------------
+  // 4) RESTRIÇÃO ALTA SEM REGULARIZAÇÃO
+  // ------------------------------------------------------
+  else if (motivo === "restricao_sem_regularizacao") {
+    mensagens = [
+      `${saudacaoNome}como hoje você está com uma restrição acima de R$ 1.000 e sem previsão de regularizar.`,
+      "Nessa situação a Caixa não libera financiamento pelo Minha Casa Minha Vida.",
+      "Se você decidir negociar e regularizar essa restrição, eu consigo voltar aqui, revisar tudo e montar o plano certinho com você."
+    ];
+  }
+
+  // ------------------------------------------------------
+  // 5) RNM — ESTRANGEIRO SEM RNM (fluxo atual)
+  // ------------------------------------------------------
+  else if (rnmStatus === "não possui") {
+    mensagens = [
+      `${saudacaoNome}pra Caixa aprovar financiamento de estrangeiro pelo Minha Casa Minha Vida é obrigatório já ter o RNM emitido e o documento tem que ter prazo de validade por tempo indeterminado. 😉`,
+      "Como hoje você ainda não tem o RNM, a Caixa não deixa eu seguir com a análise pelo programa.",
+      "Assim que você tiver o RNM em mãos, me chama aqui que eu reviso tudo desde o início com você, combinado?"
+    ];
+  }
+
+  // ------------------------------------------------------
+  // 6) RNM — COM VALIDADE DEFINIDA (não indeterminado)
+  // ------------------------------------------------------
+  else if (rnmValidade === "definida") {
+    mensagens = [
+      "Pra Caixa aprovar estrangeiro pelo Minha Casa Minha Vida, o RNM precisa ser por prazo indeterminado (sem data de vencimento).",
+      "Como o seu RNM ainda está com validade definida, a Caixa não enquadra no programa.",
+      "Quando você atualizar o RNM pra prazo indeterminado, me chama aqui que eu refaço toda a análise com você, do zero. 😊"
+    ];
+  }
+
+  // ------------------------------------------------------
+  // 7) FALLBACK GENÉRICO (motivo não mapeado)
+  // ------------------------------------------------------
+  else {
+    mensagens = [
+      `${saudacaoNome}pelo que eu vi aqui, hoje seu cenário não encaixa nas regras do Minha Casa Minha Vida.`,
+      "Se algo mudar (documentos, renda ou situação cadastral), me chama aqui que eu reviso tudo desde o início com você, sem problema nenhum. 👍"
+    ];
+  }
+
   await logger(env, {
     tag: "UNKNOWN_STAGE_REFERENCED",
     wa_id: st.wa_id,
-    details: { stage: "fim_ineligivel", from_stage: st.fase_conversa || null }
+    details: {
+      stage: "fim_ineligivel",
+      from_stage: st.fase_conversa || null,
+      motivo_ineligivel: motivo,
+      rnm_status: rnmStatus,
+      rnm_validade: rnmValidade
+    }
   });
 
   return step(
     env,
     st,
-    [
-      "Entendi!",
-      "Se quiser, a gente pode revisar tudo desde o início quando você estiver pronto(a)."
-    ],
+    mensagens,
     "inicio_programa"
   );
 }
-
+      
 // =========================================================
 // 🧩 C17 — VERIFICAR_AVERBACAO (fallback seguro para stage referenciado)
 // =========================================================
@@ -6530,8 +6706,8 @@ case "verificar_inventario": {
     env,
     st,
     [
-      "Perfeito, obrigado por confirmar.",
-      "Vamos seguir para a parte de renda e continuar sua análise."
+      "Show, obrigado por me avisar 🙌",
+      "Isso não te impede de seguir na análise, é só pra eu deixar sua lista de documentos redondinha. Vamos seguir pra parte de renda."
     ],
     "somar_renda_solteiro"
   );
@@ -8880,6 +9056,24 @@ case "regularizacao_restricao": {
     }
   });
 
+  // 🔢 Valor aproximado da restrição (se existir em memória)
+  const valorRestricaoRaw =
+    (st.valor_restricao != null ? st.valor_restricao : null) ??
+    (st.valor_restricao_aproximado != null ? st.valor_restricao_aproximado : null);
+
+  let valorRestricao = 0;
+  if (typeof valorRestricaoRaw === "number") {
+    valorRestricao = valorRestricaoRaw;
+  } else if (typeof valorRestricaoRaw === "string") {
+    const cleaned = valorRestricaoRaw
+      .replace(/[^\d,.,,]/g, "")
+      .replace(",", ".");
+    const parsed = parseFloat(cleaned);
+    if (!Number.isNaN(parsed)) {
+      valorRestricao = parsed;
+    }
+  }
+
   const sim = isYes(t) || /(sim|já estou|ja estou|estou vendo|to vendo|estou resolvendo|tô resolvendo|pagando|negociando)/i.test(t);
   const nao = isNo(t) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi)/i.test(t);
   const talvez = /(talvez|acho|nao sei|não sei|pode ser)/i.test(t);
@@ -8907,8 +9101,8 @@ case "regularizacao_restricao": {
     return step(env, st,
       [
         "Ótimo! 👏",
-        "Quando a restrição sai do sistema, consigo seguir sua análise normalmente.",
-        "Enquanto isso, já posso te adiantar a lista de **documentos** pra você ir separando. Quer que eu te envie?"
+        "Quando a restrição sair do sistema, o banco libera o financiamento. E isso não impede de irmos para a próxima fase 😉",
+        "Enquanto isso, já posso te adiantar a lista de **documentos** pra darmos sequencia. Quer que eu te envie?"
       ],
       "envio_docs"
     );
@@ -8923,6 +9117,39 @@ case "regularizacao_restricao": {
       regularizacao_restricao: "nao_iniciado"
     });
 
+    // 🔥 Gatilho de inelegibilidade: restrição alta (> 1000) sem regularizar
+    if (valorRestricao > 1000) {
+
+      await upsertState(env, st.wa_id, {
+        motivo_ineligivel: "restricao_sem_regularizacao",
+        funil_status: "ineligivel"
+      });
+
+      // EXIT_STAGE → fim_ineligivel
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: "fim_ineligivel",
+        severity: "warning",
+        message: "Cliente NÃO está regularizando restrição alta (> 1000) — encaminhando para fim_ineligivel",
+        details: {
+          userText,
+          valorRestricao
+        }
+      });
+
+      return step(env, st,
+        [
+          "Entendi 😊",
+          "Com uma restrição acima de R$ 1.000 e sem previsão de regularização, a Caixa não libera financiamento pelo Minha Casa Minha Vida.",
+          "Vou te explicar certinho o que isso significa e como você pode resolver, se quiser."
+        ],
+        "fim_ineligivel"
+      );
+    }
+
+    // Fluxo original (restrição menor ou valor desconhecido)
     // EXIT_STAGE
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -8931,13 +9158,13 @@ case "regularizacao_restricao": {
       next_stage: "envio_docs",
       severity: "warning",
       message: "Cliente NÃO está regularizando a restrição",
-      details: { userText }
+      details: { userText, valorRestricao }
     });
 
     return step(env, st,
       [
         "Tranquilo, isso é bem comum 😊",
-        "Pra Caixa analisar, o CPF precisa estar limpo.",
+        "Pra Caixa liberar o financiamento, o CPF precisa estar sem restrição.",
         "Mas não precisa se preocupar: te mostro o caminho mais fácil pra resolver isso pelo app da Serasa ou banco.",
         "Posso te enviar a **instrução rápida** e já te adiantar a lista de documentos?"
       ],
@@ -8968,8 +9195,8 @@ case "regularizacao_restricao": {
     return step(env, st,
       [
         "Sem problema 😊",
-        "Se quiser, te ensino a consultar grátis no app da Serasa.",
-        "Mas independente disso, já posso te passar a lista de **documentos básicos** pra deixar tudo pronto?"
+        "Vemos isso diretamente com o banco na nossa próxima fase, que é a análise com o banco.",
+        "Posso te passar a lista de **documentos básicos** que o banco pede pra validar seu cadastro e analisar se libera financiamento ou não?"
       ],
       "envio_docs"
     );

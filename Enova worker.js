@@ -6262,17 +6262,17 @@ case "inicio_multi_renda_pergunta": {
 
     await upsertState(env, st.wa_id, {
       multi_renda_flag: false,
-      fase_conversa: "dependente"
+      fase_conversa: "ctps_36"
     });
 
     st.multi_renda_flag = false;
-    st.fase_conversa = "dependente";
+    st.fase_conversa = "ctps_36";
 
     return step(
       env,
       st,
       ["Certo! Vamos continuar então 😊"],
-      "dependente"
+      "ctps_36"
     );
   }
 
@@ -7108,7 +7108,7 @@ case "renda": {
     // 🟩 EXIT → próxima fase é renda_parceiro OU possui_renda_extra
     const nextStage = (st.somar_renda && st.parceiro_tem_renda)
       ? "renda_parceiro"
-      : "possui_renda_extra";
+      : "inicio_multi_renda_pergunta";
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -7145,7 +7145,7 @@ case "renda": {
         "Show! 👌",
         "Você possui **renda extra**, como comissão, bicos, horas extras ou premiações?"
       ],
-      "possui_renda_extra"
+      "inicio_multi_renda_pergunta"
     );
   }
 

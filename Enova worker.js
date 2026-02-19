@@ -65,25 +65,26 @@ async function step(env, st, messages, nextStage) {
     // ============================================================
     if (nextStage) {
 
-      // 🔍 LOG PARA DEBUGAR SE A FASE ESTÁ SENDO ATUALIZADA
-      console.log("UPDATE_FASE:", {
-        wa_id: st.wa_id,
-        before: st.fase_conversa,
-        after: nextStage
-      });
-    
-      // Atualiza estado no Supabase
-      await upsertState(env, st.wa_id, {
-        fase_conversa: nextStage,
-        last_bot_msg: msgs[msgs.length - 1] || null,
-        updated_at: new Date().toISOString()
-      });
+  // 🔍 LOG PARA DEBUGAR SE A FASE ESTÁ SENDO ATUALIZADA
+  console.log("UPDATE_FASE:", {
+    wa_id: st.wa_id,
+    before: st.fase_conversa,
+    after: nextStage
+  });
 
-      if (isSim) {
-        st.fase_conversa = nextStage;
-        st.last_bot_msg = msgs[msgs.length - 1] || null;
-      }
-    }
+  // ✅ SIMULAÇÃO: nunca faz IO (não chama Supabase)
+  if (isSim) {
+    st.fase_conversa = nextStage;
+    st.last_bot_msg = msgs[msgs.length - 1] || null;
+  } else {
+    // Atualiza estado no Supabase (somente no fluxo real)
+    await upsertState(env, st.wa_id, {
+      fase_conversa: nextStage,
+      last_bot_msg: msgs[msgs.length - 1] || null,
+      updated_at: new Date().toISOString()
+    });
+  }
+}
 
     // ============================================================
     // Envia mensagens uma a uma (delay humano real)

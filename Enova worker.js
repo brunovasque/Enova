@@ -6405,14 +6405,14 @@ case "regime_trabalho": {
       regime: "clt"
     });
 
-    // EXIT_STAGE → vai para renda
+    // EXIT_STAGE → vai para pergunta de multi regime
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "renda",
+      next_stage: "inicio_multi_regime_pergunta",
       severity: "info",
-      message: "Saindo da fase regime_trabalho → renda (CLT)",
+      message: "Saindo da fase regime_trabalho → inicio_multi_regime_pergunta (CLT)",
       details: { userText }
     });
 
@@ -6420,10 +6420,10 @@ case "regime_trabalho": {
       env,
       st,
       [
-        "Perfeito! 📄",
-        "E qual é a sua **renda total mensal** (valor bruto que recebe no holerite)?"
+        "Perfeito. Você tem mais algum emprego ou faz algum bico além desse?",
+        "Responda *sim* ou *não*."
       ],
-      "renda"
+      "inicio_multi_regime_pergunta"
     );
   }
 
@@ -6435,14 +6435,14 @@ case "regime_trabalho": {
       regime: "autonomo"
     });
 
-    // EXIT_STAGE → vai para renda
+    // EXIT_STAGE → vai para pergunta de multi regime
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "renda",
+      next_stage: "inicio_multi_regime_pergunta",
       severity: "info",
-      message: "Saindo da fase regime_trabalho → renda (AUTONOMO)",
+      message: "Saindo da fase regime_trabalho → inicio_multi_regime_pergunta (AUTONOMO)",
       details: { userText }
     });
 
@@ -6450,10 +6450,10 @@ case "regime_trabalho": {
       env,
       st,
       [
-        "Certo! 👍",
-        "E qual é a sua **renda mensal aproximada**, somando tudo?"
+        "Perfeito. Você tem mais algum emprego ou faz algum bico além desse?",
+        "Responda *sim* ou *não*."
       ],
-      "renda"
+      "inicio_multi_regime_pergunta"
     );
   }
 
@@ -6465,14 +6465,14 @@ case "regime_trabalho": {
       regime: "servidor"
     });
 
-    // EXIT_STAGE → vai para renda
+    // EXIT_STAGE → vai para pergunta de multi regime
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "renda",
+      next_stage: "inicio_multi_regime_pergunta",
       severity: "info",
-      message: "Saindo da fase regime_trabalho → renda (SERVIDOR)",
+      message: "Saindo da fase regime_trabalho → inicio_multi_regime_pergunta (SERVIDOR)",
       details: { userText }
     });
 
@@ -6480,10 +6480,10 @@ case "regime_trabalho": {
       env,
       st,
       [
-        "Perfeito! 👌",
-        "E qual é a sua **renda total mensal**?"
+        "Perfeito. Você tem mais algum emprego ou faz algum bico além desse?",
+        "Responda *sim* ou *não*."
       ],
-      "renda"
+      "inicio_multi_regime_pergunta"
     );
   }
 
@@ -6495,14 +6495,14 @@ case "regime_trabalho": {
       regime: "aposentadoria"
     });
 
-    // EXIT_STAGE → vai para renda
+    // EXIT_STAGE → vai para pergunta de multi regime
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "renda",
+      next_stage: "inicio_multi_regime_pergunta",
       severity: "info",
-      message: "Saindo da fase regime_trabalho → renda (APOSENTADO)",
+      message: "Saindo da fase regime_trabalho → inicio_multi_regime_pergunta (APOSENTADO)",
       details: { userText }
     });
 
@@ -6510,10 +6510,10 @@ case "regime_trabalho": {
       env,
       st,
       [
-        "Entendi! 👍",
-        "E qual é o valor que você **recebe de aposentadoria** por mês?"
+        "Perfeito. Você tem mais algum emprego ou faz algum bico além desse?",
+        "Responda *sim* ou *não*."
       ],
-      "renda"
+      "inicio_multi_regime_pergunta"
     );
   }
 
@@ -6818,7 +6818,7 @@ case "inicio_multi_regime_pergunta": {
     );
   }
 
-  // NÃO → segue direto para a renda extra
+  // NÃO → segue para renda
   if (isNo(nt) || /^(nao|não)$/i.test(nt)) {
 
     return step(
@@ -6826,10 +6826,9 @@ case "inicio_multi_regime_pergunta": {
       st,
       [
         "Certo! 😊",
-        "Agora me diga: você possui *mais alguma renda além dessa*?",
-        "Responda *sim* ou *não*."
+        "Então me diga: qual é a sua **renda total mensal**? (valor bruto)"
       ],
-      "inicio_multi_renda_pergunta"
+      "renda"
     );
   }
 
@@ -6886,16 +6885,16 @@ case "inicio_multi_regime_coletar": {
     multi_regimes: regimes
   });
 
-  // após registrar o regime, pergunta se há renda extra
+  // após registrar o regime, volta para a pergunta de multi regime
   return step(
     env,
     st,
     [
       "Ótimo! 👍",
-      "Agora me diga: você possui *mais alguma renda além dessa*?",
+      "Você tem *mais algum emprego/regime de trabalho* além desse?",
       "Responda *sim* ou *não*."
     ],
-    "inicio_multi_renda_pergunta"
+    "inicio_multi_regime_pergunta"
   );
 }
 

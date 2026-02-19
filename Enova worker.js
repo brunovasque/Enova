@@ -4579,9 +4579,9 @@ case "inicio_nome": {
     wa_id: st.wa_id,
     event: "exit_stage",
     stage,
-    next_stage: "estado_civil",
+    next_stage: "estrangeiro",
     severity: "info",
-    message: "inicio_nome: nome salvo e avançando para estado_civil",
+    message: "inicio_nome: nome salvo e avançando para estrangeiro",
     details: {
       nome: nomeCompleto,
       primeiro_nome: primeiroNome
@@ -4594,10 +4594,151 @@ case "inicio_nome": {
     [
       `Perfeito, ${primeiroNome}! 😉`,
       "Agora só pra eu te direcionar certinho...",
-      "Me diga seu *estado civil* atual: solteiro(a), casado(a), união estável, separado(a), divorciado(a) ou viúvo(a)?"
+      "Você é estrangeiro(a)?"
     ],
-    "estado_civil"
+    "estrangeiro"
   );
+}
+
+// --------------------------------------------------
+// 🧩 C1.3 — ESTRANGEIRO (entra na trilha principal)
+// --------------------------------------------------
+case "estrangeiro": {
+  const nt = normalizeText(userText || "");
+
+  if (isNo(nt) || /^(nao|não|brasileiro|brasileira|sou brasileiro|sou brasileira)$/i.test(nt)) {
+    await upsertState(env, st.wa_id, {
+      estrangeiro_flag: false,
+      nacionalidade: "brasileiro",
+      tem_rnm: null,
+      rnm_tipo: "nao_informado",
+      rnm_validade: null,
+      fase_conversa: "estado_civil"
+    });
+
+    st.estrangeiro_flag = false;
+    st.nacionalidade = "brasileiro";
+    st.tem_rnm = null;
+    st.rnm_tipo = "nao_informado";
+    st.rnm_validade = null;
+    st.fase_conversa = "estado_civil";
+
+    return step(env, st, [
+      "Perfeito! Vamos seguir 😊",
+      "Me diga seu *estado civil* atual: solteiro(a), casado(a), união estável, separado(a), divorciado(a) ou viúvo(a)?"
+    ], "estado_civil");
+  }
+
+  if (isYes(nt) || /^(estrangeiro|estrangeira|sou estrangeiro|sou estrangeira)$/i.test(nt)) {
+    await upsertState(env, st.wa_id, {
+      estrangeiro_flag: true,
+      fase_conversa: "estrangeiro_nacionalidade"
+    });
+
+    st.estrangeiro_flag = true;
+    st.fase_conversa = "estrangeiro_nacionalidade";
+
+    return step(env, st, [
+      "Obrigado por me confirmar 🙌",
+      "Qual é a sua nacionalidade?"
+    ], "estrangeiro_nacionalidade");
+  }
+
+  return step(env, st, [
+    "Só preciso confirmar pra seguir certinho 🙂",
+    "Você é estrangeiro(a)? Responda *sim* ou *não*."
+  ], "estrangeiro");
+}
+
+// --------------------------------------------------
+// 🧩 C1.4 — ESTRANGEIRO_NACIONALIDADE
+// --------------------------------------------------
+case "estrangeiro_nacionalidade": {
+  const nacionalidade = (userText || "").trim();
+
+  if (!nacionalidade || nacionalidade.length < 2) {
+    return step(env, st, [
+      "Não consegui captar sua nacionalidade 😅",
+      "Pode me informar novamente, por favor?"
+    ], "estrangeiro_nacionalidade");
+  }
+
+  await upsertState(env, st.wa_id, {
+    estrangeiro_flag: true,
+    nacionalidade,
+    tem_rnm: null,
+    rnm_tipo: "nao_informado",
+    rnm_validade: null,
+    fase_conversa: "estrangeiro_rnm"
+  });
+
+  st.estrangeiro_flag = true;
+  st.nacionalidade = nacionalidade;
+  st.tem_rnm = null;
+  st.rnm_tipo = "nao_informado";
+  st.rnm_validade = null;
+  st.fase_conversa = "estrangeiro_rnm";
+
+  return step(env, st, [
+    "Perfeito!",
+    "Você tem RNM com prazo indeterminado/definitivo?",
+    "Responda *sim* ou *não*."
+  ], "estrangeiro_rnm");
+}
+
+// --------------------------------------------------
+// 🧩 C1.5 — ESTRANGEIRO_RNM
+// --------------------------------------------------
+case "estrangeiro_rnm": {
+  const nt = normalizeText(userText || "");
+
+  if (isNo(nt) || /(temporario|temporário|nao tenho|não tenho)/i.test(nt)) {
+    await upsertState(env, st.wa_id, {
+      estrangeiro_flag: true,
+      tem_rnm: false,
+      rnm_tipo: "nao_informado",
+      rnm_validade: null,
+      funil_status: "ineligivel",
+      fase_conversa: "fim_ineligivel"
+    });
+
+    st.tem_rnm = false;
+    st.rnm_tipo = "nao_informado";
+    st.rnm_validade = null;
+    st.funil_status = "ineligivel";
+    st.fase_conversa = "fim_ineligivel";
+
+    return step(env, st, [
+      "Entendi.",
+      "Para seguir no Minha Casa Minha Vida, é obrigatório ter RNM com prazo indeterminado/definitivo.",
+      "Quando você tiver essa condição, eu sigo com sua análise."
+    ], "fim_ineligivel");
+  }
+
+  if (isYes(nt) || /(definitivo|indeterminado)/i.test(nt)) {
+    await upsertState(env, st.wa_id, {
+      estrangeiro_flag: true,
+      tem_rnm: true,
+      rnm_tipo: "definitivo",
+      rnm_validade: "indeterminado",
+      fase_conversa: "estado_civil"
+    });
+
+    st.tem_rnm = true;
+    st.rnm_tipo = "definitivo";
+    st.rnm_validade = "indeterminado";
+    st.fase_conversa = "estado_civil";
+
+    return step(env, st, [
+      "Ótimo, obrigado por confirmar 🙌",
+      "Agora me diga seu *estado civil* atual: solteiro(a), casado(a), união estável, separado(a), divorciado(a) ou viúvo(a)?"
+    ], "estado_civil");
+  }
+
+  return step(env, st, [
+    "Só pra confirmar corretamente:",
+    "Você tem RNM com prazo indeterminado/definitivo? Responda *sim* ou *não*."
+  ], "estrangeiro_rnm");
 }
 
 // --------------------------------------------------
@@ -9108,21 +9249,27 @@ case "envio_docs": {
   // CLIENTE NÃO QUER AGORA
   // =====================================================
   if (negar) {
-    await upsertState(env, st.wa_id, { docs_lista_enviada: false });
+    await upsertState(env, st.wa_id, {
+      docs_lista_enviada: false,
+      fase_docs: "docs_plantao",
+      funil_opcao_docs: "docs_plantao",
+      canal_envio_docs: "plantao"
+    });
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "envio_docs",
+      next_stage: "docs_plantao",
       severity: "info",
       message: "Cliente adiou envio da lista de documentos"
     });
 
     return step(env, st, [
       "Sem problema 😊",
-      "Fico no aguardo. Quando quiser, é só me chamar aqui!"
-    ], "envio_docs");
+      "Pra não perder essa oportunidade, te convido a visitar nosso plantão de atendimento.",
+      "Se você responder *sim*, eu já sigo com o agendamento da visita."
+    ], "docs_plantao");
   }
 
   // =====================================================
@@ -9160,6 +9307,42 @@ case "envio_docs": {
     "Pode me enviar os documentos por aqui mesmo 😊",
     "Foto, PDF ou áudio que explique algo… tudo bem!"
   ], "envio_docs");
+}
+
+// =========================================================
+// 🧩 C36.1 — DOCS PLANTÃO
+// =========================================================
+case "docs_plantao": {
+  const aceitarPlantao = isYes(t) || /(quero|agendar|pode marcar|visita|vamos|ok|beleza)/i.test(t);
+
+  if (aceitarPlantao) {
+    await upsertState(env, st.wa_id, {
+      fase_docs: "docs_plantao",
+      funil_opcao_docs: "docs_plantao",
+      canal_envio_docs: "plantao",
+      docs_lista_enviada: false,
+      fase_conversa: "agendamento_visita"
+    });
+
+    st.fase_conversa = "agendamento_visita";
+
+    return step(env, st, [
+      "Perfeito! 🙌",
+      "Vou seguir com seu agendamento agora."
+    ], "agendamento_visita");
+  }
+
+  await upsertState(env, st.wa_id, {
+    fase_docs: "docs_plantao",
+    funil_opcao_docs: "docs_plantao",
+    canal_envio_docs: "plantao",
+    docs_lista_enviada: false
+  });
+
+  return step(env, st, [
+    "Te convido para uma visita no plantão e já deixamos tudo encaminhado por lá 😊",
+    "Me responde *sim* que eu faço seu agendamento agora."
+  ], "docs_plantao");
 }
 
 // =========================================================

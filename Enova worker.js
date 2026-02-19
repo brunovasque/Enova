@@ -7142,8 +7142,7 @@ case "renda": {
       env,
       st,
       [
-        "Show! 👌",
-        "Você possui **renda extra**, como comissão, bicos, horas extras ou premiações?"
+        "Show! 👌",        
       ],
       "inicio_multi_renda_pergunta"
     );

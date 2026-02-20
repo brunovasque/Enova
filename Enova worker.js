@@ -1087,9 +1087,13 @@ function createSimulationState(wa_id, startStage) {
     wa_id,
     fase_conversa: startStage || "inicio",
     funil_status: null,
+
+    // Logs e rastreamento
     last_user_text: null,
     last_processed_text: null,
     last_bot_msg: null,
+
+    // Campos clássicos do funil
     nome: null,
     estado_civil: null,
     regime_trabalho: null,
@@ -1100,7 +1104,28 @@ function createSimulationState(wa_id, startStage) {
     renda_total_para_fluxo: null,
     dependente: null,
     restricao: null,
+
+    // CTPS
     ctps_36: null,
+    ctps_36_parceiro: null,
+
+    // Novos campos da fase inicial
+    nacionalidade: null,
+    rnm_status: null,
+    rnm_validade: null,
+
+    // Multi-renda / multi-regime
+    multi_rendas: null,
+    multi_rendas_parceiro: null,
+    multi_regimes: null,
+    multi_regimes_parceiro: null,
+
+    // Rendas calculadas
+    renda_individual_calculada: null,
+    renda_parceiro_calculada: null,
+    renda_total_composicao: null,
+    faixa_renda_programa: null,
+
     updated_at: new Date().toISOString()
   };
 }

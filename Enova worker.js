@@ -552,14 +552,31 @@ function normalizeText(text) {
     .trim();
 }
 
+// ✅ VERSÃO SEGURA DO isYes
 function isYes(text) {
   const nt = normalizeText(text);
   if (!nt) return false;
-  const yesTerms = [
-    "sim", "s", "ss", "claro", "pode", "ok", "beleza", "com certeza",
-    "uhum", "isso", "quero", "vamo", "vamos", "bora"
+
+  // respostas bem curtas: só EXATO
+  const exact = new Set(["sim", "s", "ss", "ok"]);
+
+  // frases que podem usar includes
+  const phrases = [
+    "claro",
+    "pode",
+    "beleza",
+    "com certeza",
+    "uhum",
+    "isso",
+    "quero",
+    "vamo",
+    "vamos",
+    "bora",
   ];
-  return yesTerms.some((term) => nt === term || nt.includes(term));
+
+  if (exact.has(nt)) return true;
+
+  return phrases.some((term) => nt.includes(term));
 }
 
 function isNo(text) {

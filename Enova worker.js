@@ -5522,13 +5522,12 @@ case "somar_renda_solteiro": {
   const t = userText.trim();
 
   const sozinho =
-    /(s[oó] minha renda|s[oó] a minha renda|s[oó] eu|apenas a minha|apenas minha renda|somente minha renda)/i.test(
-      t
-    ) ||
-    /(sozinha|sozinho)/i.test(t);
+    /\b(s[óo]|somente|apenas)\s+(minha\s*renda|minha|eu)\b/i.test(t) ||
+    /\b(sozinha|sozinho)\b/i.test(t);
 
   const parceiro =
-    /(parceiro|parceira|c[oô]njuge|marido|esposa|esposo|meu namorado|minha namorada)/i.test(
+    /(parceiro|parceira|c[oô]njuge|marido|esposa|esposo|
+meu namorado|minha namorada)/i.test(
       t
     ) ||
     /(somar com meu parceiro|somar com minha parceira|somar com meu c[oô]njuge)/i.test(t);
@@ -9052,9 +9051,23 @@ case "restricao": {
     }
   });
 
-  const sim = isYes(t) || /(sim|tenho|tem sim|sou negativado|estou negativado|negativad|serasa|spc)/i.test(t);
-  const nao = isNo(t) || /(n[aã]o|não tenho|nao tenho|tudo certo|cpf limpo|sem restri[cç][aã]o)/i.test(t);
-  const incerto = /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(t);
+  // Flag pra pegar "não tenho ..." e evitar conflito com SIM
+  const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(t);
+
+  const sim =
+    !temNaoTenho && (
+      isYes(t) ||
+      /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(t) ||
+      /\b(tenho|tem)\s+(restri[cç][aã]o|nome sujo|cpf sujo|d[ií]vida|divida|protesto)\b/i.test(t)
+    );
+
+  const nao =
+    isNo(t) ||
+    temNaoTenho ||
+    /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo)/i.test(t);
+
+  const incerto =
+    /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(t);
 
   // -----------------------------------------------------
   // CPF COM RESTRIÇÃO

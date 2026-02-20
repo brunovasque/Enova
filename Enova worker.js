@@ -8435,7 +8435,7 @@ case "ctps_36": {
       env,
       st,
       [
-        "DEBUG CTPS PARCEIRO 999 👍",
+        "Perfeito, obrigado por confirmar! 👍",
         "Sem problema se você não tiver os 36 meses.",
         "Agora me diga:",
         "O parceiro(a) tem **36 meses ou mais** de carteira assinada nos últimos 3 anos?"
@@ -8449,10 +8449,10 @@ case "ctps_36": {
 // ============================================================
 if (nao_sei) {
 
-  const ehFinanciamentoConjunto =
+  const ehFinanciamentoConjunto2 =
     st.financiamento_conjunto === true || st.somar_renda === true;
 
-  const nextStage = ehFinanciamentoConjunto ? "ctps_36_parceiro" : "ctps_36";
+  const nextStage = ehFinanciamentoConjunto2 ? "ctps_36_parceiro" : "ctps_36";
 
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
@@ -8463,7 +8463,7 @@ if (nao_sei) {
     message: "Cliente não sabe CTPS"
   });
 
-  if (ehFinanciamentoConjunto) {
+  if (ehFinanciamentoConjunto2) {
     return step(
       env,
       st,

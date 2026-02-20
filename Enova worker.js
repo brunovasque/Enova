@@ -8629,23 +8629,49 @@ case "ctps_36_parceiro": {
   // PARCEIRO NÃO SABE / INCERTO
   // ============================================================
   if (nao_sei) {
+    // Mantém informação como "indefinida" para o parceiro
+    await upsertState(env, st.wa_id, { ctps_36_parceiro: null });
+
+    const nextStage = ehFinanciamentoConjunto ? "restricao" : "dependente";
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "ctps_36_parceiro",
+      next_stage: nextStage,
       severity: "warning",
-      message: "Parceiro não sabe informar CTPS — permanência na fase"
+      message: "Parceiro não sabe informar CTPS — seguindo fluxo normal",
+      details: {
+        somar_renda: st.somar_renda,
+        financiamento_conjunto: st.financiamento_conjunto || null
+      }
     });
 
-    return step(env, st,
+    if (ehFinanciamentoConjunto) {
+      // Financiamento conjunto → vai direto pra restrição
+      return step(
+        env,
+        st,
+        [
+          "Sem problema! 😊",
+          "Mesmo sem ter o tempo certinho de carteira, isso não impede a análise.",
+          "Agora só preciso confirmar uma coisinha rápida:",
+          "Você está com **alguma restrição** no CPF, como negativação?"
+        ],
+        "restricao"
+      );
+    }
+
+    // Só renda do titular → segue pra dependente
+    return step(
+      env,
+      st,
       [
-        "Sem pressa 😊",
-        "Normalmente é só somar o tempo de carteira assinada dos últimos empregos.",
-        "Diria que está **próximo** ou **bem distante** dos 36 meses?"
+        "Sem problema! 😊",
+        "Mesmo sem ter o tempo certinho de carteira, ainda dá pra analisar normalmente.",
+        "Vocês têm **dependente menor de 18 anos**?"
       ],
-      "ctps_36_parceiro"
+      "dependente"
     );
   }
 

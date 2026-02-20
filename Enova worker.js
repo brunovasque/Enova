@@ -555,20 +555,32 @@ function normalizeText(text) {
 function isYes(text) {
   const nt = normalizeText(text);
   if (!nt) return false;
-  const yesTerms = [
-    "sim", "s", "ss", "claro", "pode", "ok", "beleza", "com certeza",
+
+  // ✅ respostas curtas: só EXATO (nunca includes)
+  const exact = new Set(["sim", "s", "ss", "ok"]);
+  if (exact.has(nt)) return true;
+
+  // ✅ frases: pode usar includes
+  const phrases = [
+    "claro", "pode", "beleza", "com certeza",
     "uhum", "isso", "quero", "vamo", "vamos", "bora"
   ];
-  return yesTerms.some((term) => nt === term || nt.includes(term));
+  return phrases.some((p) => nt.includes(p));
 }
 
 function isNo(text) {
   const nt = normalizeText(text);
   if (!nt) return false;
-  const noTerms = [
-    "nao", "n", "nn", "negativo", "nunca", "jamais", "ainda nao", "agora nao", "talvez depois"
+
+  // ✅ respostas curtas: só EXATO (nunca includes)
+  const exact = new Set(["nao", "não", "n", "nn"]);
+  if (exact.has(nt)) return true;
+
+  // ✅ frases: pode usar includes
+  const phrases = [
+    "negativo", "nunca", "jamais", "ainda nao", "agora nao", "talvez depois"
   ];
-  return noTerms.some((term) => nt === term || nt.includes(term));
+  return phrases.some((p) => nt.includes(p));
 }
 
 function parseMoneyBR(text) {

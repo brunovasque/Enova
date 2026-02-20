@@ -8318,12 +8318,14 @@ case "ctps_36": {
     (/\b(sim)\b/i.test(t) ||
       /\b(tenho|possuo|completo|mais de 36|acima de 36)\b/i.test(t));
 
-  const nao =
-    temNegacao36 ||
-    /\b(n[aã]o|nao)\b/i.test(t);
-
   const nao_sei =
-    /(nao sei|não sei|não lembro|talvez|acho)/i.test(t);
+  /(nao sei|não sei|não lembro|talvez|acho)/i.test(t);
+
+  const nao =
+    !nao_sei && (
+      temNegacao36 ||
+      /\b(n[aã]o|nao)\b/i.test(t)
+    );
 
   const ehFinanciamentoConjunto =
     st.financiamento_conjunto === true || st.somar_renda === true;

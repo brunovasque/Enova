@@ -1143,6 +1143,16 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
         }
       }
 
+      // ✅ mantém o "cursor" do funil avançando na simulação
+      if (stageAfter && stageAfter !== stageBefore) {
+        currentState.fase_conversa = stageAfter;
+        if (replyText) currentState.last_bot_msg = replyText;
+        // garante que o state guardado no ctx acompanha
+        if (env.__enovaSimulationCtx?.stateByWaId) {
+          env.__enovaSimulationCtx.stateByWaId[wa_id] = currentState;
+        }
+      }
+
       steps.push({
         stage_before: stageBefore,
         user_text: userText,

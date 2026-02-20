@@ -8442,31 +8442,49 @@ case "ctps_36": {
     );
   }
 
-  // ============================================================
-  // NÃO SABE INFORMAR
-  // ============================================================
-  if (nao_sei) {
+// ============================================================
+// NÃO SABE INFORMAR
+// ============================================================
+if (nao_sei) {
 
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "exit_stage",
-      stage,
-      next_stage: "ctps_36",
-      severity: "warning",
-      message: "Cliente não sabe CTPS — permanecendo"
-    });
+  const ehFinanciamentoConjunto =
+    st.financiamento_conjunto === true || st.somar_renda === true;
 
+  const nextStage = ehFinanciamentoConjunto ? "ctps_36_parceiro" : "ctps_36";
+
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "exit_stage",
+    stage,
+    next_stage: nextStage,
+    severity: "warning",
+    message: "Cliente não sabe CTPS"
+  });
+
+  if (ehFinanciamentoConjunto) {
     return step(
       env,
       st,
       [
         "Sem problema! 😊",
-        "É só somar o tempo dos últimos empregos.",
-        "Diria que chega **próximo** ou **bem distante** dos 36 meses?"
+        "Se você não souber certinho agora, seguimos com a informação do parceiro(a).",
+        "O parceiro(a) tem **36 meses ou mais** de carteira assinada nos últimos 3 anos?"
       ],
-      "ctps_36"
+      "ctps_36_parceiro"
     );
   }
+
+  return step(
+    env,
+    st,
+    [
+      "Sem problema! 😊",
+      "É só somar o tempo dos últimos empregos.",
+      "Diria que chega **próximo** ou **bem distante** dos 36 meses?"
+    ],
+    "ctps_36"
+  );
+}
 
   // ============================================================
   // NÃO ENTENDIDO

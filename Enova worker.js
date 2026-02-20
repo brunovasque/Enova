@@ -8312,6 +8312,7 @@ case "ctps_36": {
   const sim = /(sim|tenho|possuo|completo|mais de 36|acima de 36)/i.test(t);
   const nao = /(n[aã]o|não tenho|menos de 36|nao possuo)/i.test(t);
   const nao_sei = /(nao sei|não sei|não lembro|talvez|acho)/i.test(t);
+  const ehFinanciamentoConjunto = st.financiamento_conjunto === true || st.somar_renda === true;
 
   // ============================================================
   // SIM — Possui 36 meses
@@ -8320,10 +8321,19 @@ case "ctps_36": {
 
     await upsertState(env, st.wa_id, { ctps_36: true });
 
-    // 🔥 Lógica canônica:
-    // Se soma renda → pular dependente e seguir para restrição
-    // Se não soma renda → perguntar dependente
-    const nextStage = st.somar_renda ? "restricao" : "dependente";
+    // 🔥 Regra CEF:
+    // - titular já com 36 meses => NÃO pergunta ctps_36_parceiro
+    // - financiamento conjunto => pula dependente e segue para restrição
+    const nextStage = ehFinanciamentoConjunto ? "restricao" : "dependente";
+
+    if (ehFinanciamentoConjunto) {
+      await upsertState(env, st.wa_id, {
+        dependente: true,
+        tem_dependente: true,
+        dependentes_qtd: 1,
+        fator_social: true
+      });
+    }
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -8332,11 +8342,13 @@ case "ctps_36": {
       next_stage: nextStage,
       severity: "info",
       message: "CTPS >=36 verificado",
-      details: { somar_renda: st.somar_renda }
+      details: {
+        somar_renda: st.somar_renda,
+        financiamento_conjunto: st.financiamento_conjunto || null
+      }
     });
 
-    // 🌟 SOLO: perguntar dependente
-    if (!st.somar_renda) {
+    if (!ehFinanciamentoConjunto) {
       return step(
         env,
         st,
@@ -8349,7 +8361,6 @@ case "ctps_36": {
       );
     }
 
-    // 🌟 SOMANDO RENDA: pular dependente
     return step(
       env,
       st,
@@ -8369,7 +8380,10 @@ case "ctps_36": {
 
     await upsertState(env, st.wa_id, { ctps_36: false });
 
-    const nextStage = st.somar_renda ? "restricao" : "dependente";
+    // 🔥 Regra CEF:
+    // - titular sem 36 e financiamento conjunto => perguntar ctps_36_parceiro
+    // - solo => seguir para dependente
+    const nextStage = ehFinanciamentoConjunto ? "ctps_36_parceiro" : "dependente";
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -8378,11 +8392,13 @@ case "ctps_36": {
       next_stage: nextStage,
       severity: "info",
       message: "CTPS <36 verificado",
-      details: { somar_renda: st.somar_renda }
+      details: {
+        somar_renda: st.somar_renda,
+        financiamento_conjunto: st.financiamento_conjunto || null
+      }
     });
 
-    // 🌟 SOLO: perguntar dependente
-    if (!st.somar_renda) {
+    if (!ehFinanciamentoConjunto) {
       return step(
         env,
         st,
@@ -8395,16 +8411,15 @@ case "ctps_36": {
       );
     }
 
-    // 🌟 SOMANDO RENDA: pular dependente
     return step(
       env,
       st,
       [
-        "Tranquilo! 👍",
-        "Agora preciso confirmar:",
-        "Você está com **alguma restrição no CPF** como negativação?"
+        "Perfeito, obrigado por confirmar! 👍",
+        "Agora me diga:",
+        "O parceiro(a) tem **36 meses ou mais** de carteira assinada nos últimos 3 anos?"
       ],
-      "restricao"
+      "ctps_36_parceiro"
     );
   }
 
@@ -8481,8 +8496,41 @@ case "ctps_36_parceiro": {
   const sim = /(sim|tem sim|possui|possu[ií] carteira|completo|completa|mais de 36|acima de 36)/i.test(t);
   const nao = /(n[aã]o|não tem|nao tem|menos de 36|nao possui|não possui|não completa)/i.test(t);
   const nao_sei = /(não sei|nao sei|talvez|acho|não lembro|nao lembro)/i.test(t);
+  const ehFinanciamentoConjunto = st.financiamento_conjunto === true || st.somar_renda === true;
 
-  const somar = st.somar_renda === true;
+  // Regra CEF: titular com 36 meses não deve cair nesta fase.
+  if (st.ctps_36 === true) {
+    if (ehFinanciamentoConjunto) {
+      await upsertState(env, st.wa_id, {
+        dependente: true,
+        tem_dependente: true,
+        dependentes_qtd: 1,
+        fator_social: true
+      });
+    }
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "restricao",
+      severity: "warning",
+      message: "CTPS parceiro ignorado porque titular já possui 36 meses",
+      details: {
+        ctps_36_cliente: st.ctps_36,
+        financiamento_conjunto: st.financiamento_conjunto || null
+      }
+    });
+
+    return step(env, st,
+      [
+        "Perfeito! 👏",
+        "Agora vamos só confirmar uma coisinha rápida:",
+        "Você está com **alguma restrição no CPF**, como negativação?"
+      ],
+      "restricao"
+    );
+  }
 
   // ============================================================
   // PARCEIRO TEM 36+ MESES DE CARTEIRA
@@ -8491,18 +8539,27 @@ case "ctps_36_parceiro": {
 
     await upsertState(env, st.wa_id, { ctps_36_parceiro: true });
 
-    // EXIT_STAGE
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: (!somar ? "restricao" : "dependente"),
+      next_stage: ehFinanciamentoConjunto ? "restricao" : "dependente",
       severity: "info",
       message: "Parceiro possui 36+ meses de CTPS — redirecionando",
-      details: { somar_renda: somar }
+      details: {
+        somar_renda: st.somar_renda,
+        financiamento_conjunto: st.financiamento_conjunto || null
+      }
     });
 
-    if (!somar) {
+    if (ehFinanciamentoConjunto) {
+      await upsertState(env, st.wa_id, {
+        dependente: true,
+        tem_dependente: true,
+        dependentes_qtd: 1,
+        fator_social: true
+      });
+
       return step(env, st,
         [
           "Perfeito! 👏",
@@ -8530,18 +8587,27 @@ case "ctps_36_parceiro": {
 
     await upsertState(env, st.wa_id, { ctps_36_parceiro: false });
 
-    // EXIT_STAGE
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: (!somar ? "restricao" : "dependente"),
+      next_stage: ehFinanciamentoConjunto ? "restricao" : "dependente",
       severity: "info",
       message: "Parceiro NÃO tem 36 meses de CTPS — redirecionando",
-      details: { somar_renda: somar }
+      details: {
+        somar_renda: st.somar_renda,
+        financiamento_conjunto: st.financiamento_conjunto || null
+      }
     });
 
-    if (!somar) {
+    if (ehFinanciamentoConjunto) {
+      await upsertState(env, st.wa_id, {
+        dependente: true,
+        tem_dependente: true,
+        dependentes_qtd: 1,
+        fator_social: true
+      });
+
       return step(env, st,
         [
           "Sem problema! 👍",
@@ -8803,7 +8869,11 @@ case "dependente": {
   if (st.financiamento_conjunto === true || st.somar_renda === true) {
 
     await upsertState(env, st.wa_id, {
-      dependentes_qtd: 0
+      // Regra CEF: em financiamento conjunto, considerar pelo menos 1 dependente
+      dependente: true,
+      tem_dependente: true,
+      dependentes_qtd: 1,
+      fator_social: true
     });
 
     await funnelTelemetry(env, {
@@ -8846,7 +8916,12 @@ case "dependente": {
   // --------------------------------------------
   if (sim) {
 
-    await upsertState(env, st.wa_id, { dependentes_qtd: 1 });
+    await upsertState(env, st.wa_id, {
+      dependente: true,
+      tem_dependente: true,
+      dependentes_qtd: 1,
+      fator_social: true
+    });
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -8874,7 +8949,12 @@ case "dependente": {
   // --------------------------------------------
   if (nao) {
 
-    await upsertState(env, st.wa_id, { dependentes_qtd: 0 });
+    await upsertState(env, st.wa_id, {
+      dependente: false,
+      tem_dependente: false,
+      dependentes_qtd: 0,
+      fator_social: false
+    });
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,

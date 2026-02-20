@@ -8306,10 +8306,27 @@ case "ctps_36": {
     }
   });
 
-  const sim = /(sim|tenho|possuo|completo|mais de 36|acima de 36)/i.test(t);
-  const nao = /(n[aã]o|não tenho|menos de 36|nao possuo)/i.test(t);
-  const nao_sei = /(nao sei|não sei|não lembro|talvez|acho)/i.test(t);
-  const ehFinanciamentoConjunto = st.financiamento_conjunto === true || st.somar_renda === true;
+  const t = userText.trim();
+
+  // Evita ler "não tenho 36 meses" como SIM
+  const temNegacao36 =
+    /\b(n[aã]o|nao)\s+(tenho|possuo|completei|completo)\b/i.test(t) ||
+    /\b(menos de\s*36)\b/i.test(t);
+
+  const sim =
+    !temNegacao36 &&
+    (/\b(sim)\b/i.test(t) ||
+      /\b(tenho|possuo|completo|mais de 36|acima de 36)\b/i.test(t));
+
+  const nao =
+    temNegacao36 ||
+    /\b(n[aã]o|nao)\b/i.test(t);
+
+  const nao_sei =
+    /(nao sei|não sei|não lembro|talvez|acho)/i.test(t);
+
+  const ehFinanciamentoConjunto =
+    st.financiamento_conjunto === true || st.somar_renda === true;
 
   // ============================================================
   // SIM — Possui 36 meses

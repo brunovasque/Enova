@@ -8394,9 +8394,12 @@ case "ctps_36": {
 
     await upsertState(env, st.wa_id, { ctps_36: false });
 
-    // 🔥 Regra CEF:
-    // - titular sem 36 e financiamento conjunto => perguntar ctps_36_parceiro
-    // - solo => seguir para dependente
+    // Regra:
+    // - Se for conjunto, precisa perguntar 36 meses do parceiro
+    // - Se for solo, segue para dependente
+    const ehFinanciamentoConjunto =
+      st.financiamento_conjunto === true || st.somar_renda === true;
+
     const nextStage = ehFinanciamentoConjunto ? "ctps_36_parceiro" : "dependente";
 
     await funnelTelemetry(env, {
@@ -8418,6 +8421,7 @@ case "ctps_36": {
         st,
         [
           "Tranquilo, isso acontece bastante! 👍",
+          "Isso não te impede de seguir, tá?",
           "Agora me diga:",
           "Você tem **dependente menor de 18 anos**?"
         ],
@@ -8430,6 +8434,7 @@ case "ctps_36": {
       st,
       [
         "Perfeito, obrigado por confirmar! 👍",
+        "Sem problema se você não tiver os 36 meses.",
         "Agora me diga:",
         "O parceiro(a) tem **36 meses ou mais** de carteira assinada nos últimos 3 anos?"
       ],

@@ -5522,8 +5522,9 @@ case "somar_renda_solteiro": {
   const t = userText.trim();
 
   const sozinho =
-    /\b(s[óo]|somente|apenas)\s+(minha\s*renda|minha|eu)\b/i.test(t) ||
-    /\b(sozinha|sozinho)\b/i.test(t);
+  /\b(s[óo]|somente|apenas)\s+(minha\s*renda|minha|eu)\b/i.test(t) ||
+  /\b(sozinha|sozinho)\b/i.test(t) ||
+  /seguir\s+s[óo]\s+com\s+minha\s+renda/i.test(t);
 
   const parceiro =
     /(parceiro|parceira|c[oô]njuge|marido|esposa|esposo|meu namorado|minha namorada)/i.test(t) ||

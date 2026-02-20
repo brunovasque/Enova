@@ -8394,8 +8394,14 @@ case "ctps_36": {
 // ============================================================
 if (nao_sei) {
 
+  console.log("DEBUG_CTTS36_NAO_SEI", {
+  somar_renda: st.somar_renda,
+  financiamento_conjunto: st.financiamento_conjunto,
+  parceiro_tem_renda: st.parceiro_tem_renda
+});
+
   const ehFinanciamentoConjunto2 =
-    st.financiamento_conjunto === true || st.somar_renda === true;
+  !!(st.financiamento_conjunto || st.somar_renda || st.parceiro_tem_renda);
 
   const nextStage = ehFinanciamentoConjunto2 ? "ctps_36_parceiro" : "ctps_36";
 

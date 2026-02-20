@@ -556,31 +556,53 @@ function isYes(text) {
   const nt = normalizeText(text);
   if (!nt) return false;
 
-  // ✅ respostas curtas: só EXATO (nunca includes)
+  // respostas curtas: só EXATO (evita "Vasques" virar "s")
   const exact = new Set(["sim", "s", "ss", "ok"]);
   if (exact.has(nt)) return true;
 
-  // ✅ frases: pode usar includes
+  // frases: só bate se for palavra/frase inteira (não substring solta)
   const phrases = [
-    "claro", "pode", "beleza", "com certeza",
-    "uhum", "isso", "quero", "vamo", "vamos", "bora"
+    "claro",
+    "pode",
+    "beleza",
+    "com certeza",
+    "uhum",
+    "isso",
+    "quero",
+    "vamo",
+    "vamos",
+    "bora",
   ];
-  return phrases.some((p) => nt.includes(p));
+
+  return phrases.some((p) => {
+    if (p.includes(" ")) return nt.includes(p);
+    const re = new RegExp(`(^|\\s)${p}(\\s|$)`);
+    return re.test(nt);
+  });
 }
 
 function isNo(text) {
   const nt = normalizeText(text);
   if (!nt) return false;
 
-  // ✅ respostas curtas: só EXATO (nunca includes)
-  const exact = new Set(["nao", "não", "n", "nn"]);
+  // respostas curtas: só EXATO
+  const exact = new Set(["nao", "n", "nn"]);
   if (exact.has(nt)) return true;
 
-  // ✅ frases: pode usar includes
   const phrases = [
-    "negativo", "nunca", "jamais", "ainda nao", "agora nao", "talvez depois"
+    "negativo",
+    "nunca",
+    "jamais",
+    "ainda nao",
+    "agora nao",
+    "talvez depois",
   ];
-  return phrases.some((p) => nt.includes(p));
+
+  return phrases.some((p) => {
+    if (p.includes(" ")) return nt.includes(p);
+    const re = new RegExp(`(^|\\s)${p}(\\s|$)`);
+    return re.test(nt);
+  });
 }
 
 function parseMoneyBR(text) {
@@ -588,6 +610,7 @@ function parseMoneyBR(text) {
   if (!raw) return null;
   const nt = normalizeText(raw);
 
+  // ✅ volta a aceitar 2,5k e 2.5k
   const kMatch = nt.match(/(\d+(?:[\.,]\d+)?)\s*k\b/);
   if (kMatch) {
     const base = Number(kMatch[1].replace(".", "").replace(",", "."));

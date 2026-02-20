@@ -8435,7 +8435,7 @@ case "ctps_36": {
       env,
       st,
       [
-        "Perfeito, obrigado por confirmar! 👍",
+        "DEBUG CTPS PARCEIRO 999 👍",
         "Sem problema se você não tiver os 36 meses.",
         "Agora me diga:",
         "O parceiro(a) tem **36 meses ou mais** de carteira assinada nos últimos 3 anos?"

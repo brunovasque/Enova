@@ -5526,18 +5526,12 @@ case "somar_renda_solteiro": {
     /\b(sozinha|sozinho)\b/i.test(t);
 
   const parceiro =
-    /(parceiro|parceira|c[oô]njuge|marido|esposa|esposo|
-meu namorado|minha namorada)/i.test(
-      t
-    ) ||
+    /(parceiro|parceira|c[oô]njuge|marido|esposa|esposo|meu namorado|minha namorada)/i.test(t) ||
     /(somar com meu parceiro|somar com minha parceira|somar com meu c[oô]njuge)/i.test(t);
 
   const familiar =
-    /(familiar|fam[ií]lia|pai|m[aã]e|irm[aã]o|irm[aã]|tio|tia|av[oó]|v[oó]|vov[oó])/i.test(
-      t
-    ) ||
-    /(somar com meu pai|somar com minha m[aã]e|somar com meu irm[aã]o|somar com minha irm[aã])/i.test(
-      t
+    /(familiar|fam[ií]lia|pai|m[aã]e|irm[aã]o|irm[aã]|tio|tia|av[oó]|v[oó]|vov[oó])/i.test(t) ||
+    /(somar com meu pai|somar com minha m[aã]e|somar com meu irm[aã]o|somar com minha irm[aã])/i.test(t);
     );
 
   // -----------------------------

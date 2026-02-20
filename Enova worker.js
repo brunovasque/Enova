@@ -8328,7 +8328,7 @@ case "ctps_36": {
     );
 
   const ehFinanciamentoConjunto =
-    st.financiamento_conjunto === true || st.somar_renda === true;
+  !!(st.financiamento_conjunto || st.somar_renda);
 
   // ============================================================
   // SIM — Possui 36 meses
@@ -8389,61 +8389,6 @@ case "ctps_36": {
     );
   }
 
-  // ============================================================
-  // NÃO — Não possui 36 meses
-  // ============================================================
-  if (nao) {
-
-    await upsertState(env, st.wa_id, { ctps_36: false });
-
-    // Regra:
-    // - Se for conjunto, precisa perguntar 36 meses do parceiro
-    // - Se for solo, segue para dependente
-    const ehFinanciamentoConjunto =
-      st.financiamento_conjunto === true || st.somar_renda === true;
-
-    const nextStage = ehFinanciamentoConjunto ? "ctps_36_parceiro" : "dependente";
-
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "exit_stage",
-      stage,
-      next_stage: nextStage,
-      severity: "info",
-      message: "CTPS <36 verificado",
-      details: {
-        somar_renda: st.somar_renda,
-        financiamento_conjunto: st.financiamento_conjunto || null
-      }
-    });
-
-    if (!ehFinanciamentoConjunto) {
-      return step(
-        env,
-        st,
-        [
-          "Tranquilo, isso acontece bastante! 👍",
-          "Isso não te impede de seguir, tá?",
-          "Agora me diga:",
-          "Você tem **dependente menor de 18 anos**?"
-        ],
-        "dependente"
-      );
-    }
-
-    return step(
-      env,
-      st,
-      [
-        "Perfeito, obrigado por confirmar! 👍",
-        "Sem problema se você não tiver os 36 meses.",
-        "Agora me diga:",
-        "O parceiro(a) tem **36 meses ou mais** de carteira assinada nos últimos 3 anos?"
-      ],
-      "ctps_36_parceiro"
-    );
-  }
-
 // ============================================================
 // NÃO SABE INFORMAR
 // ============================================================
@@ -8487,6 +8432,61 @@ if (nao_sei) {
     "ctps_36"
   );
 }
+
+  // ============================================================
+  // NÃO — Não possui 36 meses
+  // ============================================================
+  if (nao) {
+
+    await upsertState(env, st.wa_id, { ctps_36: false });
+
+    // Regra:
+    // - Se for conjunto, precisa perguntar 36 meses do parceiro
+    // - Se for solo, segue para dependente
+    const ehFinanciamentoConjunto =
+    !!(st.financiamento_conjunto || st.somar_renda);
+
+    const nextStage = ehFinanciamentoConjunto ? "ctps_36_parceiro" : "dependente";
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: nextStage,
+      severity: "info",
+      message: "CTPS <36 verificado",
+      details: {
+        somar_renda: st.somar_renda,
+        financiamento_conjunto: st.financiamento_conjunto || null
+      }
+    });
+
+    if (!ehFinanciamentoConjunto) {
+      return step(
+        env,
+        st,
+        [
+          "Tranquilo, isso acontece bastante! 👍",
+          "Isso não te impede de seguir, tá?",
+          "Agora me diga:",
+          "Você tem **dependente menor de 18 anos**?"
+        ],
+        "dependente"
+      );
+    }
+
+    return step(
+      env,
+      st,
+      [
+        "Perfeito, obrigado por confirmar! 👍",
+        "Sem problema se você não tiver os 36 meses.",
+        "Agora me diga:",
+        "O parceiro(a) tem **36 meses ou mais** de carteira assinada nos últimos 3 anos?"
+      ],
+      "ctps_36_parceiro"
+    );
+  }
 
   // ============================================================
   // NÃO ENTENDIDO
@@ -8535,7 +8535,7 @@ case "ctps_36_parceiro": {
   const sim = /(sim|tem sim|possui|possu[ií] carteira|completo|completa|mais de 36|acima de 36)/i.test(t);
   const nao = /(n[aã]o|não tem|nao tem|menos de 36|nao possui|não possui|não completa)/i.test(t);
   const nao_sei = /(não sei|nao sei|talvez|acho|não lembro|nao lembro)/i.test(t);
-  const ehFinanciamentoConjunto = st.financiamento_conjunto === true || st.somar_renda === true;
+  const ehFinanciamentoConjunto = !!(st.financiamento_conjunto || st.somar_renda);
 
   // Regra CEF: titular com 36 meses não deve cair nesta fase.
   if (st.ctps_36 === true) {
@@ -8620,6 +8620,30 @@ case "ctps_36_parceiro": {
   }
 
   // ============================================================
+  // PARCEIRO NÃO SABE / INCERTO
+  // ============================================================
+  if (nao_sei) {
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "ctps_36_parceiro",
+      severity: "warning",
+      message: "Parceiro não sabe informar CTPS — permanência na fase"
+    });
+
+    return step(env, st,
+      [
+        "Sem pressa 😊",
+        "Normalmente é só somar o tempo de carteira assinada dos últimos empregos.",
+        "Diria que está **próximo** ou **bem distante** dos 36 meses?"
+      ],
+      "ctps_36_parceiro"
+    );
+  }
+
+  // ============================================================
   // PARCEIRO NÃO TEM 36 MESES
   // ============================================================
   if (nao) {
@@ -8664,30 +8688,6 @@ case "ctps_36_parceiro": {
         "Vocês têm **dependente menor de 18 anos**?"
       ],
       "dependente"
-    );
-  }
-
-  // ============================================================
-  // PARCEIRO NÃO SABE / INCERTO
-  // ============================================================
-  if (nao_sei) {
-
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "exit_stage",
-      stage,
-      next_stage: "ctps_36_parceiro",
-      severity: "warning",
-      message: "Parceiro não sabe informar CTPS — permanência na fase"
-    });
-
-    return step(env, st,
-      [
-        "Sem pressa 😊",
-        "Normalmente é só somar o tempo de carteira assinada dos últimos empregos.",
-        "Diria que está **próximo** ou **bem distante** dos 36 meses?"
-      ],
-      "ctps_36_parceiro"
     );
   }
 

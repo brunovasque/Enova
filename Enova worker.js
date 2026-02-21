@@ -7378,6 +7378,7 @@ case "renda_parceiro": {
     ],
     "ctps_36"
   );
+  } // <-- FECHAR o case "renda_parceiro" aqui
 
 // =========================================================
 // 🧩 C23 — RENDA DO FAMILIAR QUE COMPÕE

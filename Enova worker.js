@@ -5598,19 +5598,31 @@ case "somar_renda_solteiro": {
 
   // Exemplos cobertos: "só eu", "somar com meu marido", "somar com minha mãe"
 
+  // Normalização extra para textos vindo quebrados do PowerShell/console (� / ï¿½ / etc.)
+  const tSafe = t
+    .replace(/�/g, "o")
+    .replace(/ï¿½/g, "o")
+    .replace(/¿½/g, "o");
+
+  // Versão simplificada (sem acento/ruído) para regex mais robusto
+  const tBase = tSafe
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
   const sozinho =
-    /\b(s[óo]|somente|apenas)\s+(minha\s+renda|minha|eu)\b/i.test(t) ||
-    /\b(sozinha|sozinho)\b/i.test(t) ||
-    /\b(quero\s+seguir\s+)?s[óo]\s+com\s+(a\s+)?minha\s+renda\b/i.test(t);
+    /\b(so|somente|apenas)\s+(minha\s+renda|minha|eu)\b/i.test(tBase) ||
+    /\b(sozinha|sozinho)\b/i.test(tBase) ||
+    /\b(quero\s+seguir\s+)?so\s+com\s+(a\s+)?minha\s+renda\b/i.test(tBase);
 
   const parceiro =
-    /quero\s+somar\s+renda\s*$/i.test(t) || // <- NOVO: entende "quero somar renda"
-    /(parceiro|parceira|c[oô]njuge|marido|esposa|esposo|meu namorado|minha namorada)/i.test(t) ||
-    /(somar com meu parceiro|somar com minha parceira|somar com meu c[oô]njuge)/i.test(t);
+    /quero\s+somar\s+renda\s*$/i.test(tBase) ||
+    /(parceiro|parceira|conjuge|marido|esposa|esposo|meu namorado|minha namorada)/i.test(tBase) ||
+    /(somar com meu parceiro|somar com minha parceira|somar com meu conjuge)/i.test(tBase);
 
   const familiar =
-    /(familiar|fam[ií]lia|pai|m[aã]e|irm[aã]o|irm[aã]|tio|tia|av[oó]|v[oó]|vov[oó])/i.test(t) ||
-    /(somar com meu pai|somar com minha m[aã]e|somar com meu irm[aã]o|somar com minha irm[aã])/i.test(t);
+    /(familiar|familia|pai|mae|irmao|irma|tio|tia|avo|vo|vovo)/i.test(tBase) ||
+    /(somar com meu pai|somar com minha mae|somar com meu irmao|somar com minha irma)/i.test(tBase);
 
   // -----------------------------
   // QUER FICAR SÓ COM A PRÓPRIA RENDA

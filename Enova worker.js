@@ -5571,9 +5571,9 @@ case "somar_renda_solteiro": {
   // Exemplos cobertos: "só eu", "somar com meu marido", "somar com minha mãe"
 
   const sozinho =
-    /\b(s[óo]|somente|apenas)\s+(minha\s*renda|minha|eu)\b/i.test(t) ||
+    /\b(s[óo]|somente|apenas)\s+(minha\s+renda|minha|eu)\b/i.test(t) ||
     /\b(sozinha|sozinho)\b/i.test(t) ||
-    /seguir\s+s[óo]\s+com\s+minha\s+renda/i.test(t);
+    /\b(quero\s+seguir\s+)?s[óo]\s+com\s+(a\s+)?minha\s+renda\b/i.test(t);
 
   const parceiro =
     /quero\s+somar\s+renda\s*$/i.test(t) || // <- NOVO: entende "quero somar renda"
@@ -5768,7 +5768,7 @@ case "somar_renda_solteiro": {
     "somar_renda_solteiro"
   );
 }
-
+      
 // =========================================================
 // C10 — SOMAR RENDA FAMILIAR
 // =========================================================

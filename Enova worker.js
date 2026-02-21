@@ -5871,18 +5871,24 @@ await funnelTelemetry(env, {
   // --------------------------------------------------
   // MATCHES (com variações comuns)
   // --------------------------------------------------
+  // Normalização LOCAL (robusta) para essa fase
+  const txtBase = String(userText || "")
+    .toLowerCase()
+    .trim();
+
+  const txt = txtBase
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")   // remove acentos
+    .replace(/[^\w\s]/g, " ")          // remove ruído
+    .replace(/\s+/g, " ")
+    .trim();
+
   const mae = /\b(mae|minha mae)\b/i.test(txt);
-
   const pai = /\b(pai|meu pai)\b/i.test(txt);
-
-  const avo = /\b(avo|avos|vovo|vovos|minha avo|meu avo)\b/i.test(txt);
-
-  const tio = /\b(tio|tia|meu tio|minha tia)\b/i.test(txt);
-
-  const irmao = /\b(irmao|irma|irmaos|irmas|meu irmao|minha irma)\b/i.test(txt);
-
-  const primo = /\b(primo|prima|meu primo|minha prima)\b/i.test(txt);
-
+  const avo = /\b(avo|avos|vo|vos|vovo|vovos)\b/i.test(txt);
+  const tio = /\b(tio|tia)\b/i.test(txt);
+  const irmao = /\b(irmao|irmaos|irma|minha irma|meu irmao)\b/i.test(txt);
+  const primo = /\b(primo|prima)\b/i.test(txt);
   const qualquer = /\b(familia|familiar|qualquer|nao sei)\b/i.test(txt);
 
   // --------------------------------------------------

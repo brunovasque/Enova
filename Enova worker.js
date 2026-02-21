@@ -5446,21 +5446,42 @@ case "parceiro_tem_renda": {
   // -----------------------------
   if (nao) {
 
+    const titularTemDadosBasicos = Boolean((st.regime || st.regime_trabalho) && Number(st.renda || 0) > 0);
+    const nextStage = titularTemDadosBasicos ? "ctps_36" : "regime_trabalho";
+
     // 🟩 EXIT_STAGE
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "regime_trabalho",
+      next_stage: nextStage,
       severity: "info",
-      message: "Saindo da fase: parceiro_tem_renda → regime_trabalho (parceiro sem renda)",
-      details: { userText }
+      message: "Saindo da fase: parceiro_tem_renda (parceiro sem renda)",
+      details: {
+        userText,
+        titular_tem_dados_basicos: titularTemDadosBasicos
+      }
     });
 
     await upsertState(env, st.wa_id, {
       parceiro_tem_renda: false,
-      somar_renda: false
+      somar_renda: false,
+      financiamento_conjunto: false
     });
+
+    if (titularTemDadosBasicos) {
+      return step(
+        env,
+        st,
+        [
+          "Perfeito, entendi 👍",
+          "Então seguimos só com a sua renda.",
+          "Agora me confirma:",
+          "Você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
+        ],
+        "ctps_36"
+      );
+    }
 
     return step(
       env,
@@ -7151,7 +7172,11 @@ case "renda": {
     const exigirComposicao = somarRendaSozinho && valor < 3000;
 
     // 🟩 EXIT → próxima fase é renda_parceiro OU quem_pode_somar OU possui_renda_extra
-    const nextStage = (st.somar_renda && st.parceiro_tem_renda)
+    const precisaConfirmarRendaParceiro = !!st.somar_renda && st.parceiro_tem_renda !== true && st.parceiro_tem_renda !== false;
+
+    const nextStage = precisaConfirmarRendaParceiro
+      ? "parceiro_tem_renda"
+      : (st.somar_renda && st.parceiro_tem_renda)
       ? "renda_parceiro"
       : (exigirComposicao ? "quem_pode_somar" : "inicio_multi_renda_pergunta");
 
@@ -7166,9 +7191,23 @@ case "renda": {
         renda_titular: valor,
         somar_renda: st.somar_renda || null,
         parceiro_tem_renda: st.parceiro_tem_renda || null,
+        precisa_confirmar_renda_parceiro: precisaConfirmarRendaParceiro,
         exigir_composicao: exigirComposicao
       }
     });
+
+    if (precisaConfirmarRendaParceiro) {
+      return step(
+        env,
+        st,
+        [
+          "Perfeito! 👍",
+          "Pra seguir certinho no financiamento em conjunto:",
+          "Seu parceiro(a) **tem renda** ou **não tem renda** no momento?"
+        ],
+        "parceiro_tem_renda"
+      );
+    }
 
     // Se tinha parceiro com renda → pergunta renda dele(a)
     if (st.somar_renda && st.parceiro_tem_renda) {
@@ -8995,6 +9034,8 @@ case "dependente": {
     }
   });
 
+  const rendaSoloParaRegra = Number(st.renda_total_para_fluxo || st.renda || 0);
+
   // --------------------------------------------
   // 1 — PULAR DEPENDENTES SE FOR COMPOSIÇÃO
   // --------------------------------------------
@@ -9015,6 +9056,41 @@ case "dependente": {
       next_stage: "restricao",
       severity: "info",
       message: "Dependente pulado (fluxo conjunto ou composição ativada)"
+    });
+
+    return step(
+      env,
+      st,
+      [
+        "Perfeito! ✔️",
+        "Agora me diz uma coisa importante:",
+        "Tem alguma **restrição no CPF**? (Serasa, SPC, negativado)"
+      ],
+      "restricao"
+    );
+  }
+
+  // --------------------------------------------
+  // 1.1 — SOLO COM RENDA >= 4000 (NÃO PERGUNTA DEPENDENTE)
+  // --------------------------------------------
+  if (rendaSoloParaRegra >= 4000) {
+    await upsertState(env, st.wa_id, {
+      dependente: false,
+      tem_dependente: false,
+      dependentes_qtd: 0,
+      fator_social: false
+    });
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "restricao",
+      severity: "info",
+      message: "Dependente pulado (solo com renda >= 4000)",
+      details: {
+        renda_solo_para_regra: rendaSoloParaRegra
+      }
     });
 
     return step(

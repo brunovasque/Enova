@@ -7536,7 +7536,7 @@ case "renda_parceiro_familiar": {
     }
   });
 
-  const valor = parseMoneyBR(t);
+  const valor = parseMoneyBR(userText || "");
 
   // ============================================================
   // VALOR INVÁLIDO
@@ -7966,12 +7966,11 @@ case "quem_pode_somar": {
     .replace(/Ã©/g, "é")
     .replace(/Ãª/g, "ê")
     .replace(/Ã­/g, "í")
-    .replace(/Ã³/g, "ó")
     .replace(/Ã´/g, "ô")
     .replace(/Ãµ/g, "õ")
     .replace(/Ãº/g, "ú")
     .replace(/Ã§/g, "ç")
-    .replace(/�/g, "o")
+    .replace(/Ã³/g, "ó")
     .replace(/ï¿½/g, "o")
     .replace(/¿½/g, "o");
 

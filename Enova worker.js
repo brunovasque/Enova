@@ -4091,7 +4091,17 @@ const prev_nt_blockd = normalizeText(st.last_user_text || "");
 const isGreeting_blockd = /^(oi|ola|olá|bom dia|boa tarde|boa noite)\b/i.test(nt_blockd);
 const isResetCmd_blockd = /^(reset|reiniciar|recomecar|recomeçar|do zero|nova analise|nova análise)\b/i.test(nt_blockd);
 
-if (!isGreeting_blockd && !isResetCmd_blockd && prev_nt_blockd && prev_nt_blockd === nt_blockd) {
+  const allowRepeatInStage_blockd = (
+  stage === "somar_renda_familiar"
+);
+
+if (
+  !allowRepeatInStage_blockd &&
+  !isGreeting_blockd &&
+  !isResetCmd_blockd &&
+  prev_nt_blockd &&
+  prev_nt_blockd === nt_blockd
+) {
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "loop_message_detected",

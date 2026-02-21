@@ -7979,7 +7979,6 @@ case "quem_pode_somar": {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
 
-  // usado pra reforçar familiar (mãe/mae, pai, etc.)
   const tLower = t.toLowerCase();
 
   const composicaoSignal = parseComposicaoRenda(t);
@@ -7995,11 +7994,11 @@ case "quem_pode_somar": {
     composicaoSignal === "parceiro" ||
     /(parceir|namorad|espos|marid|mulher|boy|girl)/i.test(tBase);
 
-  // 🔧 REFORÇO — familiar (considera mae/mãe, pai, etc. em tLower e tBase)
+  // 🔧 REFORÇO PESADO — familiar (mãe/pai etc.)
   const familia =
     composicaoSignal === "familiar" ||
-    /(pai|m[aã]e|irma|irm[aã]o|av[oó]|v[oó]|tia|tio|primo|prima|famil)/i.test(tLower) ||
-    /(pai|mae|irma|irmao|avo|vo|tia|tio|primo|prima|famil)/i.test(tBase);
+    /\b(meu\s+pai|minha\s+mae|minha\s+m[aã]e|minha\s+familia|minha\s+família|minha\s+avo|minha\s+av[oó]|meu\s+avo|meus\s+pais)\b/i.test(tLower) ||
+    /(pai|m[aã]e|irma|irm[aã]o|av[oó]|v[oó]|tia|tio|primo|prima|famil)/i.test(tLower);
 
   // ============================================================
   // GUARD — MENCIONOU FILHOS/DEPENDENTES (não compõe renda)

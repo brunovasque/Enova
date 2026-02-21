@@ -597,8 +597,9 @@ function parseMoneyBR(text) {
   const raw = String(text || "").trim();
   if (!raw) return null;
   const nt = normalizeText(raw);
+  const rawLower = raw.toLowerCase();
 
-  const kMatch = nt.match(/(\d+(?:[\.,]\d+)?)\s*k\b/);
+  const kMatch = rawLower.match(/(\d+(?:[\.,]\d+)?)\s*k\b/);
   if (kMatch) {
     const base = Number(kMatch[1].replace(".", "").replace(",", "."));
     return Number.isFinite(base) ? Math.round(base * 1000) : null;
@@ -627,9 +628,9 @@ function parseMoneyBR(text) {
 function parseEstadoCivil(text) {
   const nt = normalizeText(text);
   if (!nt) return null;
-  if (/(solteir)/.test(nt)) return "solteiro";
-  if (/(casad)/.test(nt)) return "casado";
-  if (/(uniao|estavel|juntad|moro junto|moramos junto|amasiad|companheir)/.test(nt)) return "uniao_estavel";
+  if (/(solteir|sozinha|sozinho)/.test(nt)) return "solteiro";
+  if (/(casad|casamento civil|casad[oa] no civil|casad[oa] no papel|no papel)/.test(nt)) return "casado";
+  if (/(uniao estavel|uniao|estavel|juntad|moro junto|moramos junto|morar junto|vivemos juntos|amasiad|companheir|marido e mulher)/.test(nt)) return "uniao_estavel";
   if (/(separad|separei)/.test(nt)) return "separado";
   if (/(divorciad)/.test(nt)) return "divorciado";
   if (/(viuv)/.test(nt)) return "viuvo";
@@ -639,14 +640,20 @@ function parseEstadoCivil(text) {
 function parseRegimeTrabalho(text) {
   const nt = normalizeText(text);
   if (!nt) return null;
-  if (/(mei)/.test(nt)) return "autonomo";
-  if (/(clt|carteira assinada|registrad)/.test(nt)) return "clt";
-  if (/(autonom|informal|por conta|freela|uber|ifood|liberal|bico)/.test(nt)) return "autonomo";
-  if (/(servidor|funcionario publico|publico|concursad|municipal|estadual|federal|prefeitura)/.test(nt)) return "servidor";
+  if (/(mei|microempreendedor|micro empreendedor|mei caminhoneiro)/.test(nt)) return "autonomo";
+  if (/(clt|carteira assinada|registrad|registro em carteira|carteira registrada|de carteira)/.test(nt)) return "clt";
+  if (/(autonom|informal|por conta|freela|freelancer|uber|ifood|liberal|bico|diarista|comissionad)/.test(nt)) return "autonomo";
+  if (/(servidor|funcionario publico|publico|concursad|estatutari|municipal|estadual|federal|prefeitura)/.test(nt)) return "servidor";
   if (/(aposentad)/.test(nt)) return "aposentadoria";
   if (/(desempregad)/.test(nt)) return "desempregado";
   if (/(estudant)/.test(nt)) return "estudante";
   return null;
+}
+
+function hasRestricaoIndicador(text) {
+  const nt = normalizeText(text);
+  if (!nt) return false;
+  return /(negativad|nome sujo|cpf sujo|spc|serasa|restricao|protesto|divida em atraso|pendencia no cpf)/.test(nt);
 }
 
 function parseComposicaoRenda(text) {
@@ -4427,6 +4434,7 @@ case "inicio_programa": {
   });
 
   const nt = normalizeText(userText || st.last_user_text || "");
+  // Exemplos cobertos: "já sei como funciona", "pode explicar rapidinho", "não entendi direito"
 
   // 🟢 DETECÇÃO DE "SIM"
   const sim = isYes(nt) ||
@@ -4551,13 +4559,14 @@ case "inicio_nome": {
     }
   });
 
+  // Exemplos cobertos: "meu nome é Ana Maria", "sou João Pedro", "aqui é Carla Souza"
   // Texto bruto digitado pelo cliente
   let rawNome = (userText || "").trim();
 
   // Remove prefixos tipo "meu nome é", "sou o", etc.
-  if (/^(meu nome e|meu nome é|sou|sou o|sou a|aqui e|aqui é)/i.test(rawNome)) {
+  if (/^(meu nome e|meu nome é|me chamo|me chama|sou|sou o|sou a|aqui e|aqui é)/i.test(rawNome)) {
     rawNome = rawNome
-      .replace(/^(meu nome e|meu nome é|sou|sou o|sou a|aqui e|aqui é)\s*/i, "")
+      .replace(/^(meu nome e|meu nome é|me chamo|me chama|sou|sou o|sou a|aqui e|aqui é)\s*/i, "")
       .trim();
   }
 
@@ -4662,11 +4671,12 @@ case "inicio_nacionalidade": {
   });
 
   const nt = normalizeText(userText || "");
+  // Exemplos cobertos: "sou brasileira", "nasci no brasil", "sou estrangeiro"
 
   // -------------------------------------------
   // 🇧🇷 BRASILEIRO
   // -------------------------------------------
-  if (/^(brasileiro|brasileiro mesmo|brasileira|brasileira mesmo|daqui mesmo|sou daqui mesmo|sou brasileiro|sou brasileiro mesmo|sou brasileira mesmo|sou brasileira)$/i.test(nt)) {
+  if (/^(brasileiro|brasileiro mesmo|brasileira|brasileira mesmo|daqui mesmo|sou daqui mesmo|sou brasileiro|sou brasileiro mesmo|sou brasileira mesmo|sou brasileira|nascido no brasil|nascida no brasil|nasci no brasil)$/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       nacionalidade: "brasileiro",
@@ -4691,7 +4701,7 @@ case "inicio_nacionalidade": {
   // -------------------------------------------
   // 🌎 ESTRANGEIRO
   // -------------------------------------------
-  if (/^(estrangeiro|estrangeira|sou estrangeiro|sou estrangeira)$/i.test(nt)) {
+  if (/^(estrangeiro|estrangeira|sou estrangeiro|sou estrangeira|gringo|nao sou brasileiro|não sou brasileiro)$/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       nacionalidade: "estrangeiro",
@@ -4919,6 +4929,7 @@ case "estado_civil": {
   });
 
   const estadoCivil = parseEstadoCivil(t);
+  // Exemplos cobertos: "casada no civil", "moro junto", "sou divorciado", "viúva"
   const solteiro = estadoCivil === "solteiro";
   const casado = estadoCivil === "casado";
   const uniao = estadoCivil === "uniao_estavel";
@@ -5150,6 +5161,7 @@ case "confirmar_casamento": {
   });
 
   const estadoCivilDetectado = parseEstadoCivil(t);
+  // Exemplos cobertos: "casada no papel", "casamento civil", "união estável", "moro junto"
 
   // ✅ Aceita texto livre + sim/não curto
   const respondeuSim = isYes(t); // "sim" => confirma civil no papel
@@ -5157,12 +5169,12 @@ case "confirmar_casamento": {
 
   const civil =
     respondeuSim ||
-    /(civil|no papel|casamento civil|casad[ao] no papel|civil no papel)/i.test(t);
+    /(civil|no papel|casamento civil|casad[ao] no papel|civil no papel|casad[ao] no civil|papel passado)/i.test(t);
 
   const uniao_estavel =
     respondeuNao ||
     estadoCivilDetectado === "uniao_estavel" ||
-    /(uni[aã]o est[áa]vel|estavel|vivemos juntos|moramos juntos)/i.test(t);
+    /(uni[aã]o est[áa]vel|estavel|vivemos juntos|moramos juntos|moro junto|junt[oa]s?)/i.test(t);
 
   // ===== CASAMENTO CIVIL NO PAPEL =====
   if (civil) {
@@ -5274,9 +5286,10 @@ case "financiamento_conjunto": {
     }
   });
 
-  const sim = isYes(t) || /(sim|isso|claro|vamos juntos|comprar juntos|juntos)/i.test(t);
-  const nao = isNo(t) || /(n[aã]o|s[oó] eu|apenas eu|só eu|somente eu)/i.test(t);
-  const somente_se_precisar = /(se precisar|talvez|depende|s[oó] se precisar)/i.test(t);
+  // Exemplos cobertos: "vamos comprar juntos", "só eu", "apenas se faltar renda"
+  const somente_se_precisar = /(se precisar|talvez|depende|s[oó] se precisar|apenas se precisar|se faltar a gente soma|s[oó] se faltar)/i.test(t);
+  const nao = !somente_se_precisar && (isNo(t) || /(n[aã]o|s[oó] eu|apenas eu|somente eu|sozinh[oa])/i.test(t));
+  const sim = !somente_se_precisar && !nao && (isYes(t) || /(sim|isso|claro|vamos juntos|comprar juntos|juntos|somar renda com (minha|meu)|com minha esposa|com meu marido)/i.test(t));
 
   // =================== JUNTOS ===================
   if (sim) {
@@ -5416,8 +5429,9 @@ case "parceiro_tem_renda": {
     }
   });
 
-  const sim = isYes(t) || /(sim|tem sim|possui|possui renda|ganha|trabalha)/i.test(t);
-  const nao = isNo(t) || /(n[aã]o|nao tem|não tem|sem renda|não trabalha|nao trabalha)/i.test(t);
+  // Exemplos cobertos: "ele trabalha", "não tem renda", "só eu trabalho"
+  const nao = isNo(t) || /(n[aã]o|nao tem|não tem|sem renda|não trabalha|nao trabalha|s[oó] eu trabalho|apenas eu trabalho|do lar)/i.test(t);
+  const sim = !nao && (isYes(t) || /(sim|tem sim|possui|possui renda|ganha|trabalha|ele trabalha|ela trabalha)/i.test(t));
 
   // -----------------------------
   // PARCEIRO TEM RENDA
@@ -5553,21 +5567,62 @@ case "somar_renda_solteiro": {
     }
   });
 
-  const t = userText.trim();
+  const tRaw = userText.trim();
+
+  // Normaliza mojibake comum do simulate/console (ex.: "sÃ³", "nÃ£o", "mÃ£e")
+  const t = tRaw
+    .replace(/Ã¡/g, "á")
+    .replace(/Ã /g, "à")
+    .replace(/Ã¢/g, "â")
+    .replace(/Ã£/g, "ã")
+    .replace(/Ã©/g, "é")
+    .replace(/Ãª/g, "ê")
+    .replace(/Ã­/g, "í")
+    .replace(/Ã³/g, "ó")
+    .replace(/Ã´/g, "ô")
+    .replace(/Ãµ/g, "õ")
+    .replace(/Ãº/g, "ú")
+    .replace(/Ã§/g, "ç")
+    .replace(/Ã/g, "Á")
+    .replace(/Ã€/g, "À")
+    .replace(/Ã‚/g, "Â")
+    .replace(/Ãƒ/g, "Ã")
+    .replace(/Ã‰/g, "É")
+    .replace(/ÃŠ/g, "Ê")
+    .replace(/Ã/g, "Í")
+    .replace(/Ã“/g, "Ó")
+    .replace(/Ã”/g, "Ô")
+    .replace(/Ã•/g, "Õ")
+    .replace(/Ãš/g, "Ú")
+    .replace(/Ã‡/g, "Ç");
+
+  // Exemplos cobertos: "só eu", "somar com meu marido", "somar com minha mãe"
+
+  // Normalização extra para textos vindo quebrados do PowerShell/console (� / ï¿½ / etc.)
+  const tSafe = t
+    .replace(/�/g, "o")
+    .replace(/ï¿½/g, "o")
+    .replace(/¿½/g, "o");
+
+  // Versão simplificada (sem acento/ruído) para regex mais robusto
+  const tBase = tSafe
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
 
   const sozinho =
-    /\b(s[óo]|somente|apenas)\s+(minha\s*renda|minha|eu)\b/i.test(t) ||
-    /\b(sozinha|sozinho)\b/i.test(t) ||
-    /seguir\s+s[óo]\s+com\s+minha\s+renda/i.test(t);
+    /\b(so|somente|apenas)\s+(minha\s+renda|minha|eu)\b/i.test(tBase) ||
+    /\b(sozinha|sozinho)\b/i.test(tBase) ||
+    /\b(quero\s+seguir\s+)?so\s+com\s+(a\s+)?minha\s+renda\b/i.test(tBase);
 
   const parceiro =
-    /quero\s+somar\s+renda\s*$/i.test(t) || // <- NOVO: entende "quero somar renda"
-    /(parceiro|parceira|c[oô]njuge|marido|esposa|esposo|meu namorado|minha namorada)/i.test(t) ||
-    /(somar com meu parceiro|somar com minha parceira|somar com meu c[oô]njuge)/i.test(t);
+    /quero\s+somar\s+renda\s*$/i.test(tBase) ||
+    /(parceiro|parceira|conjuge|marido|esposa|esposo|meu namorado|minha namorada)/i.test(tBase) ||
+    /(somar com meu parceiro|somar com minha parceira|somar com meu conjuge)/i.test(tBase);
 
   const familiar =
-    /(familiar|fam[ií]lia|pai|m[aã]e|irm[aã]o|irm[aã]|tio|tia|av[oó]|v[oó]|vov[oó])/i.test(t) ||
-    /(somar com meu pai|somar com minha m[aã]e|somar com meu irm[aã]o|somar com minha irm[aã])/i.test(t);
+    /(familiar|familia|pai|mae|irmao|irma|tio|tia|avo|vo|vovo)/i.test(tBase) ||
+    /(somar com meu pai|somar com minha mae|somar com meu irmao|somar com minha irma)/i.test(tBase);
 
   // -----------------------------
   // QUER FICAR SÓ COM A PRÓPRIA RENDA
@@ -5611,6 +5666,7 @@ case "somar_renda_solteiro": {
           "Saindo da fase: somar_renda_solteiro → fim_ineligivel (renda baixa sem composição)",
         details: {
           userText,
+          userText_normalized: t,
           renda_total_para_fluxo: rendaTotalRaw,
           renda_total_normalizada: rendaTotal
         }
@@ -5638,7 +5694,7 @@ case "somar_renda_solteiro": {
       severity: "info",
       message:
         "Saindo da fase: somar_renda_solteiro → regime_trabalho (solo)",
-      details: { userText }
+      details: { userText, userText_normalized: t }
     });
 
     await upsertState(env, st.wa_id, {
@@ -5673,7 +5729,7 @@ case "somar_renda_solteiro": {
       severity: "info",
       message:
         "Saindo da fase: somar_renda_solteiro → parceiro_tem_renda (parceiro)",
-      details: { userText }
+      details: { userText, userText_normalized: t }
     });
 
     await upsertState(env, st.wa_id, {
@@ -5707,7 +5763,7 @@ case "somar_renda_solteiro": {
       severity: "info",
       message:
         "Saindo da fase: somar_renda_solteiro → somar_renda_familiar (familiar)",
-      details: { userText }
+      details: { userText, userText_normalized: t }
     });
 
     await upsertState(env, st.wa_id, {
@@ -5740,7 +5796,7 @@ case "somar_renda_solteiro": {
     severity: "info",
     message:
       "Saindo da fase: somar_renda_solteiro → somar_renda_solteiro (fallback)",
-    details: { userText }
+    details: { userText, userText_normalized: t }
   });
 
   return step(
@@ -5753,7 +5809,7 @@ case "somar_renda_solteiro": {
     "somar_renda_solteiro"
   );
 }
-
+      
 // =========================================================
 // C10 — SOMAR RENDA FAMILIAR
 // =========================================================
@@ -6304,11 +6360,12 @@ case "inicio_multi_renda_pergunta": {
   });
 
   const nt = normalizeText(userText || "");
+  // Exemplos cobertos: "sim, tenho bicos", "não tenho renda extra"
 
   // -------------------------------------------
   // 👍 SIM — possui outra renda
   // -------------------------------------------
-  if (isYes(nt) || /^sim$/i.test(nt)) {
+  if (isYes(nt) || /^sim$/i.test(nt) || /(tenho renda extra|tenho outra renda|fa[cç]o bico|freela|extra)/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       multi_renda_flag: true,
@@ -6334,7 +6391,7 @@ case "inicio_multi_renda_pergunta": {
   // -------------------------------------------
   // ❌ NÃO — não possui outra renda
   // -------------------------------------------
-  if (isNo(nt) || /^(nao|não)$/i.test(nt)) {
+  if (isNo(nt) || /^(nao|não)$/i.test(nt) || /(nao tenho renda extra|não tenho renda extra|s[oó] essa renda)/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       multi_renda_flag: false,
@@ -6382,12 +6439,13 @@ case "inicio_multi_renda_coletar": {
   });
 
   const txt = userText || "";
+  // Exemplos cobertos: "bico - 800", "uber — 1.200", "ifood - r$ 900"
 
   // Regex robusta pega:
   // Bico — 1200
   // Bico - 1.200
   // autonomo–800
-  const match = txt.match(/(.+?)\s*[-–]\s*([\d\.,]+)/);
+  const match = txt.match(/(.+?)\s*[-–—]\s*(r\$\s*)?([\d\.,kK]+)/);
 
   if (!match) {
     return step(
@@ -6403,7 +6461,7 @@ case "inicio_multi_renda_coletar": {
   }
 
   const tipo = normalizeText(match[1].trim());
-  const valorNumerico = Number(match[2].replace(/\./g, "").replace(",", ".")) || 0;
+  const valorNumerico = parseMoneyBR(match[3]) || 0;
 
   // -------------------------------
   // Atualiza lista local (JSON)
@@ -6468,6 +6526,7 @@ case "regime_trabalho": {
   });
 
   const regimeDetectado = parseRegimeTrabalho(t);
+  // Exemplos cobertos: "registro em carteira", "faço freela", "sou servidor estatutário"
   const clt = regimeDetectado === "clt";
   const aut = regimeDetectado === "autonomo";
   const serv = regimeDetectado === "servidor";
@@ -6874,9 +6933,10 @@ case "inicio_multi_regime_pergunta": {
   });
 
   const nt = normalizeText(userText);
+  // Exemplos cobertos: "sim, tenho outro trampo", "não, só esse"
 
   // SIM → ir coletar o segundo regime
-  if (isYes(nt) || /^sim$/i.test(nt)) {
+  if (isYes(nt) || /^sim$/i.test(nt) || /(tenho outro|mais de um trabalho|mais um emprego|outro trampo)/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       fase_conversa: "inicio_multi_regime_coletar"
@@ -6895,7 +6955,7 @@ case "inicio_multi_regime_pergunta": {
   }
 
   // NÃO → segue para renda
-  if (isNo(nt) || /^(nao|não)$/i.test(nt)) {
+  if (isNo(nt) || /^(nao|não)$/i.test(nt) || /(s[oó] esse|apenas esse|somente esse)/i.test(nt)) {
 
     return step(
       env,
@@ -6936,6 +6996,7 @@ case "inicio_multi_regime_coletar": {
   });
 
   const nt = normalizeText(userText);
+  // Exemplos cobertos: "CLT", "MEI", "autônomo"
 
   // valida um regime simples
   const regimeMulti = parseRegimeTrabalho(nt);
@@ -6996,6 +7057,7 @@ case "regime_trabalho_parceiro": {
   });
 
   const regimeParceiro = parseRegimeTrabalho(t);
+  // Exemplos cobertos: "parceiro é CLT", "ela faz bico", "ele é concursado"
   const clt      = regimeParceiro === "clt";
   const auto     = regimeParceiro === "autonomo";
   const servidor = regimeParceiro === "servidor";
@@ -7169,6 +7231,7 @@ case "renda": {
     }
   });
 
+  // Exemplos cobertos: "2500", "2.500", "2,5k", "r$ 2.500"
   const valor = parseMoneyBR(t); // captura número digitado
 
   // -----------------------------------
@@ -7307,6 +7370,7 @@ case "renda_parceiro": {
     }
   });
 
+  // Exemplos cobertos: "1800", "R$ 1.800", "2k"
   // Captura número da renda
   const valor = parseMoneyBR(t);
 
@@ -7472,7 +7536,7 @@ case "renda_parceiro_familiar": {
     }
   });
 
-  const valor = parseMoneyBR(t);
+  const valor = parseMoneyBR(userText || "");
 
   // ============================================================
   // VALOR INVÁLIDO
@@ -7891,10 +7955,110 @@ case "quem_pode_somar": {
     }
   });
 
+  const tRaw = (userText || "").trim();
+
+  // Normalização de mojibake / caracteres quebrados (PowerShell/console)
+  const t = tRaw
+    .replace(/Ã¡/g, "á")
+    .replace(/Ã /g, "à")
+    .replace(/Ã¢/g, "â")
+    .replace(/Ã£/g, "ã")
+    .replace(/Ã©/g, "é")
+    .replace(/Ãª/g, "ê")
+    .replace(/Ã­/g, "í")
+    .replace(/Ã´/g, "ô")
+    .replace(/Ãµ/g, "õ")
+    .replace(/Ãº/g, "ú")
+    .replace(/Ã§/g, "ç")
+    .replace(/Ã³/g, "ó")
+    .replace(/ï¿½/g, "")
+    .replace(/¿½/g, "");
+
+  const tBase = t
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  const tLower = t.toLowerCase();
+
   const composicaoSignal = parseComposicaoRenda(t);
-  const parceiro = composicaoSignal === "parceiro" || /(parceir|namorad|espos|marid|mulher|boy|girl)/i.test(t);
-  const familia  = composicaoSignal === "familiar" || /(pai|m[aã]e|mae|irm[aã]|av[oó]|tia|tio|primo|prima|famil)/i.test(t);
-  const sozinho  = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|não tenho ningu[eé]m|ninguem para somar|ningu[eé]m pra somar|sem ningu[eé]m)/i.test(t);
+
+  // IMPORTANTE: dependente/filho NÃO é composição de renda
+  const mencionouDependente =
+    /(filho|filha|filhos|filhas|dependente|dependentes|crianca|criancas|bebe|bebes)/i.test(tBase);
+
+  const sozinho =
+    /(so\s*(a\s*)?minha(\s+renda)?|so\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|ninguem para somar|ninguem pra somar|sem ninguem)/i.test(tBase);
+
+  const parceiro =
+    composicaoSignal === "parceiro" ||
+    /(parceir|namorad|espos|marid|mulher|boy|girl)/i.test(tBase);
+
+  // 🔧 REFORÇO PESADO — familiar (mãe/pai etc.)
+  const familia =
+    composicaoSignal === "familiar" ||
+    /\b(meu\s+pai|minha\s+mae|minha\s+m[aã]e|minha\s+familia|minha\s+família|minha\s+avo|minha\s+av[oó]|meu\s+avo|meus\s+pais)\b/i.test(tLower) ||
+    /(pai|m[aã]e|irma|irm[aã]o|av[oó]|v[oó]|tia|tio|primo|prima|famil)/i.test(tLower);
+
+  // ============================================================
+  // GUARD — MENCIONOU FILHOS/DEPENDENTES (não compõe renda)
+  // ============================================================
+  if (mencionouDependente) {
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "quem_pode_somar",
+      severity: "info",
+      message: "Usuário mencionou dependentes (não compõe renda) → repete orientação",
+      details: { userText }
+    });
+
+    return step(
+      env,
+      st,
+      [
+        "Perfeito, entendi 👍",
+        "Filhos/dependentes ajudam no perfil, mas **não entram para somar renda** no financiamento.",
+        "Pra seguir aqui, me diga: você vai somar com **parceiro(a)**, com **familiar** (pai/mãe/irmão), ou vai seguir **só com sua renda**?"
+      ],
+      "quem_pode_somar"
+    );
+  }
+
+  // ============================================================
+  // OPÇÃO — SEGUIR SOZINHO(A)
+  // ============================================================
+  if (sozinho) {
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "fim_ineligivel",
+      severity: "info",
+      message: "Composição escolhida: só o titular",
+      details: { userText }
+    });
+
+    await upsertState(env, st.wa_id, {
+      somar_renda: false,
+      financiamento_conjunto: false,
+      motivo_ineligivel: "renda_baixa_sem_composicao",
+      funil_status: "ineligivel"
+    });
+
+    return step(
+      env,
+      st,
+      [
+        "Entendi! 👍",
+        "Sem alguém para compor renda, com esse valor não consigo seguir no fluxo de aprovação agora.",
+        "Vou te explicar certinho o que isso significa e como você pode resolver, se quiser."
+      ],
+      "fim_ineligivel"
+    );
+  }
 
   // ============================================================
   // OPÇÃO — PARCEIRO(A)
@@ -7951,40 +8115,6 @@ case "quem_pode_somar": {
   }
 
   // ============================================================
-  // OPÇÃO — SEGUIR SOZINHO(A)
-  // ============================================================
-  if (sozinho) {
-
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "exit_stage",
-      stage,
-      next_stage: "fim_ineligivel",
-      severity: "info",
-      message: "Composição escolhida: só o titular",
-      details: { userText }
-    });
-
-    await upsertState(env, st.wa_id, {
-      somar_renda: false,
-      financiamento_conjunto: false,
-      motivo_ineligivel: "renda_baixa_sem_composicao",
-      funil_status: "ineligivel"
-    });
-
-    return step(
-      env,
-      st,
-      [
-        "Entendi! 👍",
-        "Sem alguém para compor renda, com esse valor não consigo seguir no fluxo de aprovação agora.",
-        "Vou te explicar certinho o que isso significa e como você pode resolver, se quiser."
-      ],
-      "fim_ineligivel"
-    );
-  }
-
-  // ============================================================
   // NÃO ENTENDIDO — permanece na fase
   // ============================================================
   await funnelTelemetry(env, {
@@ -8007,7 +8137,7 @@ case "quem_pode_somar": {
     "quem_pode_somar"
   );
 }
-
+      
 // =========================================================
 // 🧩 C28 — SUGERIR COMPOSIÇÃO PARA RENDA MISTA BAIXA
 // =========================================================
@@ -8419,6 +8549,7 @@ case "ctps_36": {
     }
   });
 
+  // Exemplos cobertos: "tenho mais de 3 anos de carteira", "registrado desde 2018", "menos de 36 meses"
   const t = userText.trim();
 
   // Evita ler "não tenho 36 meses" como SIM
@@ -8429,7 +8560,7 @@ case "ctps_36": {
   const sim =
     !temNegacao36 &&
     (/\b(sim)\b/i.test(t) ||
-      /\b(tenho|possuo|completo|mais de 36|acima de 36)\b/i.test(t));
+      /\b(tenho|possuo|completo|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})\b/i.test(t));
 
   const nao_sei =
   /(nao sei|não sei|não lembro|talvez|acho)/i.test(t);
@@ -8651,8 +8782,9 @@ case "ctps_36_parceiro": {
     }
   });
 
-  const sim = /(sim|tem sim|possui|possu[ií] carteira|completo|completa|mais de 36|acima de 36)/i.test(t);
-  const nao = /(n[aã]o|não tem|nao tem|menos de 36|nao possui|não possui|não completa)/i.test(t);
+  // Exemplos cobertos: "sim, tem 3 anos", "não, menos de 36", "não sei"
+  const sim = /(sim|tem sim|possui|possu[ií] carteira|completo|completa|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})/i.test(t);
+  const nao = /(n[aã]o|não tem|nao tem|menos de 36|nao possui|não possui|não completa|menos de 3 anos)/i.test(t);
   const nao_sei = /(não sei|nao sei|talvez|acho|não lembro|nao lembro)/i.test(t);
   const ehFinanciamentoConjunto = !!(st.financiamento_conjunto || st.somar_renda);
 
@@ -9121,13 +9253,14 @@ case "dependente": {
   // --------------------------------------------
   // 2 — PERGUNTA PARA SOLO
   // --------------------------------------------
+  // Exemplos cobertos: "tenho 2 filhos", "tenho uma filha", "não tenho dependentes"
   const txt = (userText || "").toLowerCase();
 
   const sim =
-    isYes(txt) || /(sim|tenho|filho|filha|crian[cç]a|menor|dependente)/i.test(txt);
+    isYes(txt) || /(sim|tenho|filho|filha|filhos|crian[cç]a|menor|dependente|dependentes)/i.test(txt);
 
   const nao =
-    isNo(txt) || /(nao|não|nao tenho|não tenho|sem dependente|só eu|somente eu)/i.test(txt);
+    isNo(txt) || /(nao|não|nao tenho|não tenho|sem dependente|sem dependentes|só eu|somente eu|nenhum filho)/i.test(txt);
 
   const talvez =
     /(não sei|nao sei|talvez|acho|não lembro|nao lembro)/i.test(txt);
@@ -9268,12 +9401,14 @@ case "restricao": {
     }
   });
 
+  // Exemplos cobertos: "nome sujo", "negativado no serasa", "cpf limpo", "não sei"
   // Flag pra pegar "não tenho ..." e evitar conflito com SIM
   const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(t);
+  const temTermoRestricao = hasRestricaoIndicador(t);
 
   const sim =
     !temNaoTenho && (
-      isYes(t) ||
+      (!isNo(t) && temTermoRestricao) ||
       /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(t) ||
       /\b(tenho|tem)\s+(restri[cç][aã]o|nome sujo|cpf sujo|d[ií]vida|divida|protesto)\b/i.test(t)
     );
@@ -9431,8 +9566,9 @@ case "regularizacao_restricao": {
     }
   }
 
-  const sim = isYes(t) || /(sim|já estou|ja estou|estou vendo|to vendo|estou resolvendo|tô resolvendo|pagando|negociando)/i.test(t);
-  const nao = isNo(t) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi)/i.test(t);
+  // Exemplos cobertos: "já tô negociando", "estou pagando acordo", "ainda não fiz nada", "já quitei"
+  const sim = isYes(t) || /(sim|já estou|ja estou|estou vendo|to vendo|estou resolvendo|tô resolvendo|pagando|negociando|acordo|parcelando|renegociando|ja quitei|já quitei|ja paguei|já paguei)/i.test(t);
+  const nao = isNo(t) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|pretendo negociar|vou negociar depois)/i.test(t);
   const talvez = /(talvez|acho|nao sei|não sei|pode ser)/i.test(t);
 
   // -----------------------------------------------------

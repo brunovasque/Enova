@@ -5128,7 +5128,7 @@ case "estado_civil": {
   );
 }
 
-    // --------------------------------------------------
+// --------------------------------------------------
 // 🧩 C6 — CONFIRMAR CASAMENTO (civil ou união estável)
 // --------------------------------------------------
 case "confirmar_casamento": {
@@ -5150,10 +5150,17 @@ case "confirmar_casamento": {
   });
 
   const estadoCivilDetectado = parseEstadoCivil(t);
+
+  // ✅ Aceita texto livre + sim/não curto
+  const respondeuSim = isYes(t); // "sim" => confirma civil no papel
+  const respondeuNao = isNo(t);  // "não" => trata como união estável
+
   const civil =
-    /(civil|no papel|casamento civil|casad[ao] no papel)/i.test(t);
+    respondeuSim ||
+    /(civil|no papel|casamento civil|casad[ao] no papel|civil no papel)/i.test(t);
 
   const uniao_estavel =
+    respondeuNao ||
     estadoCivilDetectado === "uniao_estavel" ||
     /(uni[aã]o est[áa]vel|estavel|vivemos juntos|moramos juntos)/i.test(t);
 
@@ -5167,13 +5174,14 @@ case "confirmar_casamento": {
       stage,
       next_stage: "regime_trabalho",
       severity: "info",
-      message: "Saindo da fase: confirmar_casamento → regime_trabalho (civil no papel)",
+      message: "Saindo da fase: confirmar_casamento → regime_trabalho (civil no papel confirmado)",
       details: { userText }
     });
 
     await upsertState(env, st.wa_id, {
       casamento_formal: "civil_papel",
-      financiamento_conjunto: true
+      financiamento_conjunto: true,
+      somar_renda: true
     });
 
     return step(
@@ -5182,7 +5190,8 @@ case "confirmar_casamento": {
       [
         "Perfeito! 📄",
         "Então seguimos com vocês **juntos no financiamento**.",
-        "Agora me fale sobre seu **tipo de trabalho** (CLT, autônomo, servidor)."
+        "Mesmo que só um tenha renda, o processo continua em conjunto e a documentação final será dos dois.",
+        "Agora me fale seu **tipo de trabalho** (CLT, autônomo(a) ou servidor(a))."
       ],
       "regime_trabalho"
     );
@@ -5203,7 +5212,8 @@ case "confirmar_casamento": {
     });
 
     await upsertState(env, st.wa_id, {
-      casamento_formal: "uniao_estavel"
+      casamento_formal: "uniao_estavel",
+      estado_civil: "uniao_estavel"
     });
 
     return step(
@@ -5211,7 +5221,7 @@ case "confirmar_casamento": {
       st,
       [
         "Perfeito! ✍️",
-        "Vocês pretendem **comprar juntos**, só você, ou **apenas se precisar**?"
+        "Nesse caso, vocês pretendem **comprar juntos**, só você, ou **apenas se precisar**?"
       ],
       "financiamento_conjunto"
     );
@@ -5234,13 +5244,14 @@ case "confirmar_casamento": {
     env,
     st,
     [
-      "Conseguiu confirmar pra mim certinho? 😊",
-      "O casamento é **civil no papel**, ou vocês vivem como **união estável**?"
+      "Me confirma rapidinho 😊",
+      "É **casamento civil no papel** ou **união estável**?",
+      "Se preferir, pode responder só: **sim** (civil) ou **não** (união estável)."
     ],
     "confirmar_casamento"
   );
 }
-
+      
 // --------------------------------------------------
 // 🧩 C7 — FINANCIAMENTO CONJUNTO (casado / união estável)
 // --------------------------------------------------
@@ -5446,54 +5457,56 @@ case "parceiro_tem_renda": {
   // -----------------------------
   if (nao) {
 
-    const titularTemDadosBasicos = Boolean((st.regime || st.regime_trabalho) && Number(st.renda || 0) > 0);
-    const nextStage = titularTemDadosBasicos ? "ctps_36" : "regime_trabalho";
+  const titularTemDadosBasicos = Boolean((st.regime || st.regime_trabalho) && Number(st.renda || 0) > 0);
+  const nextStage = titularTemDadosBasicos ? "ctps_36" : "regime_trabalho";
 
-    // 🟩 EXIT_STAGE
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "exit_stage",
-      stage,
-      next_stage: nextStage,
-      severity: "info",
-      message: "Saindo da fase: parceiro_tem_renda (parceiro sem renda)",
-      details: {
-        userText,
-        titular_tem_dados_basicos: titularTemDadosBasicos
-      }
-    });
-
-    await upsertState(env, st.wa_id, {
-      parceiro_tem_renda: false,
-      somar_renda: false,
-      financiamento_conjunto: false
-    });
-
-    if (titularTemDadosBasicos) {
-      return step(
-        env,
-        st,
-        [
-          "Perfeito, entendi 👍",
-          "Então seguimos só com a sua renda.",
-          "Agora me confirma:",
-          "Você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
-        ],
-        "ctps_36"
-      );
+  // 🟩 EXIT_STAGE
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "exit_stage",
+    stage,
+    next_stage: nextStage,
+    severity: "info",
+    message: "Saindo da fase: parceiro_tem_renda (parceiro sem renda, fluxo conjunto mantido)",
+    details: {
+      userText,
+      titular_tem_dados_basicos: titularTemDadosBasicos,
+      financiamento_conjunto_mantido: true
     }
+  });
 
+  await upsertState(env, st.wa_id, {
+    parceiro_tem_renda: false,
+    somar_renda: true,
+    financiamento_conjunto: true
+  });
+
+  if (titularTemDadosBasicos) {
     return step(
       env,
       st,
       [
-        "Tranquilo! 😊",
-        "Então seguimos só com a sua renda.",
-        "Qual é o seu **tipo de trabalho**? CLT, autônomo(a) ou servidor(a)?"
+        "Perfeito, entendi 👍",
+        "Sem problema — no financiamento em conjunto pode seguir mesmo se só um dos dois tiver renda.",
+        "Vou seguir com a renda de quem trabalha, e no final a documentação continua dos dois, combinado?",
+        "Agora me confirma:",
+        "Você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
       ],
-      "regime_trabalho"
+      "ctps_36"
     );
   }
+
+  return step(
+    env,
+    st,
+    [
+      "Perfeito, entendi 👍",
+      "Sem problema — no financiamento em conjunto pode seguir mesmo se só um dos dois tiver renda.",
+      "Me diga o seu **tipo de trabalho**: CLT, autônomo(a) ou servidor(a)?"
+    ],
+    "regime_trabalho"
+  );
+}
 
   // -----------------------------
   // NÃO ENTENDIDO

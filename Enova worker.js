@@ -6313,22 +6313,22 @@ case "renda_familiar_valor": {
     financiamento_conjunto: true
   });
 
-  // Soma renda total (titular + familiar)
-  const rendaTitular = Number(st.renda_titular || 0);
+  // Soma renda total (titular + familiar) com fallback defensivo
+  const rendaTitular = Number(st.renda || st.renda_titular || st.renda_total_para_fluxo || 0);
   const rendaTotal = rendaTitular + valor;
 
   await upsertState(env, st.wa_id, {
     renda_total_para_fluxo: rendaTotal
   });
 
-  // 🟩 EXIT_STAGE → próxima fase: ctps_36
+  // 🟩 EXIT_STAGE → próxima fase: ctps_36_parceiro (trilho familiar unificado)
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
     stage,
-    next_stage: "ctps_36",
+    next_stage: "ctps_36_parceiro",
     severity: "info",
-    message: "Saindo da fase: renda_familiar_valor → ctps_36",
+    message: "Saindo da fase: renda_familiar_valor → ctps_36_parceiro",
     details: { userText, rendaTitular, renda_parceiro: valor, rendaTotal }
   });
 
@@ -6338,10 +6338,9 @@ case "renda_familiar_valor": {
     [
       "Perfeito! 👌",
       `Então a renda somada ficou em **R$ ${rendaTotal.toLocaleString("pt-BR")}**.`,
-      "Agora vamos analisar seu histórico de trabalho.",
-      "Você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
+      "Agora me diga: essa pessoa que está somando renda com você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
     ],
-    "ctps_36"
+    "ctps_36_parceiro"
   );
 }
 
@@ -7567,7 +7566,7 @@ case "renda_parceiro_familiar": {
   // ============================================================
   // VALOR VÁLIDO — SALVAR NO BANCO
   // ============================================================
-  const rendaTitular = Number(st.renda_titular || 0);
+  const rendaTitular = Number(st.renda || st.renda_titular || st.renda_total_para_fluxo || 0);
   const rendaTotal = rendaTitular + valor;
 
   await upsertState(env, st.wa_id, {
@@ -7865,7 +7864,7 @@ case "interpretar_composicao": {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "regime_trabalho_parceiro_familiar",
+      next_stage: "somar_renda_familiar",
       severity: "info",
       message: "Composição escolhida: familiar",
       details: { userText }
@@ -7877,9 +7876,9 @@ case "interpretar_composicao": {
       [
         "Show! 👏",
         "Vamos compor renda com familiar.",
-        "Qual o **tipo de trabalho** dessa pessoa?"
+        "Qual familiar você quer usar? (pai, mãe, irmão, irmã, tio, tia, avô, avó...)"
       ],
-      "regime_trabalho_parceiro_familiar"
+      "somar_renda_familiar"
     );
   }
 
@@ -8096,7 +8095,7 @@ case "quem_pode_somar": {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "regime_trabalho_parceiro_familiar",
+      next_stage: "somar_renda_familiar",
       severity: "info",
       message: "Composição escolhida: familiar",
       details: { userText }
@@ -8108,9 +8107,9 @@ case "quem_pode_somar": {
       [
         "Show! 👌",
         "Vamos compor renda com familiar.",
-        "Qual o **tipo de trabalho** dessa pessoa?"
+        "Qual familiar você quer usar? (pai, mãe, irmão, irmã, tio, tia, avô, avó...)"
       ],
-      "regime_trabalho_parceiro_familiar"
+      "somar_renda_familiar"
     );
   }
 

@@ -7315,8 +7315,42 @@ case "renda_parceiro": {
   }
 
   // -----------------------------------
-  // NÃO AUTÔNOMO → segue para CTPS
+  // NÃO AUTÔNOMO → validar se já temos dados do titular
   // -----------------------------------
+
+  const titularSemRegime = !st.regime && !st.regime_trabalho;
+  const titularSemRenda = !Number(st.renda || 0);
+
+  // Se ainda não coletamos os dados do titular, volta pro trilho certo primeiro
+  if (titularSemRegime || titularSemRenda) {
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "regime_trabalho",
+      severity: "info",
+      message: "Saindo de renda_parceiro → regime_trabalho (faltam dados do titular antes do CTPS)",
+      details: {
+        renda_parceiro: valor,
+        renda_titular: rendaTitular,
+        renda_total: rendaTotal,
+        titularSemRegime,
+        titularSemRenda
+      }
+    });
+
+    return step(
+      env,
+      st,
+      [
+        "Perfeito! 👍",
+        `Já anotei a renda do parceiro(a) e a renda somada parcial ficou em **R$ ${rendaTotal.toLocaleString("pt-BR")}**.`,
+        "Agora preciso registrar seus dados primeiro, pra seguir certinho:",
+        "Qual é o seu **tipo de trabalho**? CLT, autônomo(a) ou servidor(a)?"
+      ],
+      "regime_trabalho"
+    );
+  }
 
   // 🟩 EXIT indo para ctps_36
   await funnelTelemetry(env, {
@@ -7344,7 +7378,6 @@ case "renda_parceiro": {
     ],
     "ctps_36"
   );
-}
 
 // =========================================================
 // 🧩 C23 — RENDA DO FAMILIAR QUE COMPÕE

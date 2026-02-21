@@ -5831,18 +5831,42 @@ case "somar_renda_familiar": {
     }
   });
 
-  // --------------------------------------------------
-  // NORMALIZAÇÃO LOCAL (robusta para acento/encoding)
-  // --------------------------------------------------
-  const txtBase = String(userText || t || "").toLowerCase().trim();
+// --------------------------------------------------
+// NORMALIZAÇÃO LOCAL (robusta para acento/encoding)
+// --------------------------------------------------
+// prioridade: texto atual da mensagem -> fallbacks de estado
+const rawInput =
+  String(
+    userText ??
+    t ??
+    st?.last_user_text ??
+    st?.user_text ??
+    ""
+  );
 
-  // Remove acentos e normaliza caracteres estranhos
-  const txt = txtBase
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\w\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+const txtBase = rawInput.toLowerCase().trim();
+
+// Remove acentos e normaliza caracteres estranhos
+const txt = txtBase
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .replace(/[^\w\s]/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
+
+// DEBUG TEMPORÁRIO (remover depois)
+await funnelTelemetry(env, {
+  wa_id: st.wa_id,
+  event: "debug",
+  stage,
+  severity: "info",
+  message: "DEBUG somar_renda_familiar input",
+  details: {
+    rawInput,
+    txtBase,
+    txt
+  }
+});
 
   // --------------------------------------------------
   // MATCHES (com variações comuns)

@@ -7955,10 +7955,73 @@ case "quem_pode_somar": {
     }
   });
 
+  const tRaw = (userText || "").trim();
+
+  // Normalização de mojibake / caracteres quebrados (PowerShell/console)
+  const t = tRaw
+    .replace(/Ã¡/g, "á")
+    .replace(/Ã /g, "à")
+    .replace(/Ã¢/g, "â")
+    .replace(/Ã£/g, "ã")
+    .replace(/Ã©/g, "é")
+    .replace(/Ãª/g, "ê")
+    .replace(/Ã­/g, "í")
+    .replace(/Ã³/g, "ó")
+    .replace(/Ã´/g, "ô")
+    .replace(/Ãµ/g, "õ")
+    .replace(/Ãº/g, "ú")
+    .replace(/Ã§/g, "ç")
+    .replace(/�/g, "o")
+    .replace(/ï¿½/g, "o")
+    .replace(/¿½/g, "o");
+
+  const tBase = t
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
   const composicaoSignal = parseComposicaoRenda(t);
-  const parceiro = composicaoSignal === "parceiro" || /(parceir|namorad|espos|marid|mulher|boy|girl)/i.test(t);
-  const familia  = composicaoSignal === "familiar" || /(pai|m[aã]e|mae|irm[aã]|av[oó]|tia|tio|primo|prima|famil)/i.test(t);
-  const sozinho  = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|não tenho ningu[eé]m|ninguem para somar|ningu[eé]m pra somar|sem ningu[eé]m)/i.test(t);
+
+  // IMPORTANTE: dependente/filho NÃO é composição de renda
+  const mencionouDependente =
+    /(filho|filha|filhos|filhas|dependente|dependentes|crianca|criancas|bebe|bebes)/i.test(tBase);
+
+  const parceiro =
+    composicaoSignal === "parceiro" ||
+    /(parceir|namorad|espos|marid|mulher|boy|girl)/i.test(tBase);
+
+  const familia =
+    composicaoSignal === "familiar" ||
+    /(pai|mae|irma|irmao|avo|vo|tia|tio|primo|prima|famil)/i.test(tBase);
+
+  const sozinho =
+    /(so\s*(a\s*)?minha(\s+renda)?|so\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|ninguem para somar|ninguem pra somar|sem ninguem)/i.test(tBase);
+
+  // ============================================================
+  // GUARD — MENCIONOU FILHOS/DEPENDENTES (não compõe renda)
+  // ============================================================
+  if (mencionouDependente) {
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "quem_pode_somar",
+      severity: "info",
+      message: "Usuário mencionou dependentes (não compõe renda) → repete orientação",
+      details: { userText }
+    });
+
+    return step(
+      env,
+      st,
+      [
+        "Perfeito, entendi 👍",
+        "Filhos/dependentes ajudam no perfil, mas **não entram para somar renda** no financiamento.",
+        "Pra seguir aqui, me diga: você vai somar com **parceiro(a)**, com **familiar** (pai/mãe/irmão), ou vai seguir **só com sua renda**?"
+      ],
+      "quem_pode_somar"
+    );
+  }
 
   // ============================================================
   // OPÇÃO — PARCEIRO(A)

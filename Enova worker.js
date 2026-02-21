@@ -5567,7 +5567,35 @@ case "somar_renda_solteiro": {
     }
   });
 
-  const t = userText.trim();
+  const tRaw = userText.trim();
+
+  // Normaliza mojibake comum do simulate/console (ex.: "sÃ³", "nÃ£o", "mÃ£e")
+  const t = tRaw
+    .replace(/Ã¡/g, "á")
+    .replace(/Ã /g, "à")
+    .replace(/Ã¢/g, "â")
+    .replace(/Ã£/g, "ã")
+    .replace(/Ã©/g, "é")
+    .replace(/Ãª/g, "ê")
+    .replace(/Ã­/g, "í")
+    .replace(/Ã³/g, "ó")
+    .replace(/Ã´/g, "ô")
+    .replace(/Ãµ/g, "õ")
+    .replace(/Ãº/g, "ú")
+    .replace(/Ã§/g, "ç")
+    .replace(/Ã/g, "Á")
+    .replace(/Ã€/g, "À")
+    .replace(/Ã‚/g, "Â")
+    .replace(/Ãƒ/g, "Ã")
+    .replace(/Ã‰/g, "É")
+    .replace(/ÃŠ/g, "Ê")
+    .replace(/Ã/g, "Í")
+    .replace(/Ã“/g, "Ó")
+    .replace(/Ã”/g, "Ô")
+    .replace(/Ã•/g, "Õ")
+    .replace(/Ãš/g, "Ú")
+    .replace(/Ã‡/g, "Ç");
+
   // Exemplos cobertos: "só eu", "somar com meu marido", "somar com minha mãe"
 
   const sozinho =
@@ -5626,6 +5654,7 @@ case "somar_renda_solteiro": {
           "Saindo da fase: somar_renda_solteiro → fim_ineligivel (renda baixa sem composição)",
         details: {
           userText,
+          userText_normalized: t,
           renda_total_para_fluxo: rendaTotalRaw,
           renda_total_normalizada: rendaTotal
         }
@@ -5653,7 +5682,7 @@ case "somar_renda_solteiro": {
       severity: "info",
       message:
         "Saindo da fase: somar_renda_solteiro → regime_trabalho (solo)",
-      details: { userText }
+      details: { userText, userText_normalized: t }
     });
 
     await upsertState(env, st.wa_id, {
@@ -5688,7 +5717,7 @@ case "somar_renda_solteiro": {
       severity: "info",
       message:
         "Saindo da fase: somar_renda_solteiro → parceiro_tem_renda (parceiro)",
-      details: { userText }
+      details: { userText, userText_normalized: t }
     });
 
     await upsertState(env, st.wa_id, {
@@ -5722,7 +5751,7 @@ case "somar_renda_solteiro": {
       severity: "info",
       message:
         "Saindo da fase: somar_renda_solteiro → somar_renda_familiar (familiar)",
-      details: { userText }
+      details: { userText, userText_normalized: t }
     });
 
     await upsertState(env, st.wa_id, {
@@ -5755,7 +5784,7 @@ case "somar_renda_solteiro": {
     severity: "info",
     message:
       "Saindo da fase: somar_renda_solteiro → somar_renda_solteiro (fallback)",
-    details: { userText }
+    details: { userText, userText_normalized: t }
   });
 
   return step(

@@ -7971,8 +7971,8 @@ case "quem_pode_somar": {
     .replace(/Ãº/g, "ú")
     .replace(/Ã§/g, "ç")
     .replace(/Ã³/g, "ó")
-    .replace(/ï¿½/g, "o")
-    .replace(/¿½/g, "o");
+    .replace(/ï¿½/g, "")
+    .replace(/¿½/g, "");
 
   const tBase = t
     .normalize("NFD")
@@ -7985,6 +7985,9 @@ case "quem_pode_somar": {
   const mencionouDependente =
     /(filho|filha|filhos|filhas|dependente|dependentes|crianca|criancas|bebe|bebes)/i.test(tBase);
 
+  const sozinho =
+    /(so\s*(a\s*)?minha(\s+renda)?|so\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|ninguem para somar|ninguem pra somar|sem ninguem)/i.test(tBase);
+
   const parceiro =
     composicaoSignal === "parceiro" ||
     /(parceir|namorad|espos|marid|mulher|boy|girl)/i.test(tBase);
@@ -7992,9 +7995,6 @@ case "quem_pode_somar": {
   const familia =
     composicaoSignal === "familiar" ||
     /(pai|mae|irma|irmao|avo|vo|tia|tio|primo|prima|famil)/i.test(tBase);
-
-  const sozinho =
-    /(so\s*(a\s*)?minha(\s+renda)?|so\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|ninguem para somar|ninguem pra somar|sem ninguem)/i.test(tBase);
 
   // ============================================================
   // GUARD — MENCIONOU FILHOS/DEPENDENTES (não compõe renda)
@@ -8019,6 +8019,40 @@ case "quem_pode_somar": {
         "Pra seguir aqui, me diga: você vai somar com **parceiro(a)**, com **familiar** (pai/mãe/irmão), ou vai seguir **só com sua renda**?"
       ],
       "quem_pode_somar"
+    );
+  }
+
+  // ============================================================
+  // OPÇÃO — SEGUIR SOZINHO(A)
+  // ============================================================
+  if (sozinho) {
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "fim_ineligivel",
+      severity: "info",
+      message: "Composição escolhida: só o titular",
+      details: { userText }
+    });
+
+    await upsertState(env, st.wa_id, {
+      somar_renda: false,
+      financiamento_conjunto: false,
+      motivo_ineligivel: "renda_baixa_sem_composicao",
+      funil_status: "ineligivel"
+    });
+
+    return step(
+      env,
+      st,
+      [
+        "Entendi! 👍",
+        "Sem alguém para compor renda, com esse valor não consigo seguir no fluxo de aprovação agora.",
+        "Vou te explicar certinho o que isso significa e como você pode resolver, se quiser."
+      ],
+      "fim_ineligivel"
     );
   }
 
@@ -8077,40 +8111,6 @@ case "quem_pode_somar": {
   }
 
   // ============================================================
-  // OPÇÃO — SEGUIR SOZINHO(A)
-  // ============================================================
-  if (sozinho) {
-
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "exit_stage",
-      stage,
-      next_stage: "fim_ineligivel",
-      severity: "info",
-      message: "Composição escolhida: só o titular",
-      details: { userText }
-    });
-
-    await upsertState(env, st.wa_id, {
-      somar_renda: false,
-      financiamento_conjunto: false,
-      motivo_ineligivel: "renda_baixa_sem_composicao",
-      funil_status: "ineligivel"
-    });
-
-    return step(
-      env,
-      st,
-      [
-        "Entendi! 👍",
-        "Sem alguém para compor renda, com esse valor não consigo seguir no fluxo de aprovação agora.",
-        "Vou te explicar certinho o que isso significa e como você pode resolver, se quiser."
-      ],
-      "fim_ineligivel"
-    );
-  }
-
-  // ============================================================
   // NÃO ENTENDIDO — permanece na fase
   // ============================================================
   await funnelTelemetry(env, {
@@ -8133,7 +8133,7 @@ case "quem_pode_somar": {
     "quem_pode_somar"
   );
 }
-
+      
 // =========================================================
 // 🧩 C28 — SUGERIR COMPOSIÇÃO PARA RENDA MISTA BAIXA
 // =========================================================

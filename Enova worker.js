@@ -7147,10 +7147,13 @@ case "renda": {
       renda_total_para_fluxo: valor
     });
 
-    // 🟩 EXIT → próxima fase é renda_parceiro OU possui_renda_extra
+    const somarRendaSozinho = st.somar_renda === false || st.somar_renda === "sozinho";
+    const exigirComposicao = somarRendaSozinho && valor < 3000;
+
+    // 🟩 EXIT → próxima fase é renda_parceiro OU quem_pode_somar OU possui_renda_extra
     const nextStage = (st.somar_renda && st.parceiro_tem_renda)
       ? "renda_parceiro"
-      : "inicio_multi_renda_pergunta";
+      : (exigirComposicao ? "quem_pode_somar" : "inicio_multi_renda_pergunta");
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -7162,7 +7165,8 @@ case "renda": {
       details: {
         renda_titular: valor,
         somar_renda: st.somar_renda || null,
-        parceiro_tem_renda: st.parceiro_tem_renda || null
+        parceiro_tem_renda: st.parceiro_tem_renda || null,
+        exigir_composicao: exigirComposicao
       }
     });
 
@@ -7176,6 +7180,20 @@ case "renda": {
           "Agora me diga a **renda mensal** do parceiro(a)."
         ],
         "renda_parceiro"
+      );
+    }
+
+    // Se escolheu seguir sozinho(a), mas renda titular ficou abaixo de 3k
+    if (exigirComposicao) {
+      return step(
+        env,
+        st,
+        [
+          "Entendi 👍",
+          "Para essa renda, preciso considerar composição para continuar a análise.",
+          "Com quem você pode somar renda? Parceiro(a), familiar ou ninguém?"
+        ],
+        "quem_pode_somar"
       );
     }
 
@@ -7444,15 +7462,15 @@ case "renda_parceiro_familiar": {
   });
 
   // ============================================================
-  // EXIT → próxima fase = ir_declarado
+  // EXIT → próxima fase = ctps_36_parceiro
   // ============================================================
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
     stage,
-    next_stage: "ir_declarado",
+    next_stage: "ctps_36_parceiro",
     severity: "info",
-    message: "Saindo da fase renda_parceiro_familiar → ir_declarado",
+    message: "Saindo da fase renda_parceiro_familiar → ctps_36_parceiro",
     details: {
       renda_familiar: valor,
       renda_titular: rendaTitular,
@@ -7465,10 +7483,10 @@ case "renda_parceiro_familiar": {
     st,
     [
       "Perfeito! 👌",
-      "Agora vou seguir com a análise completa!",
-      "Você declara **Imposto de Renda**?"
+      "Ótimo! Já somei essa renda com a sua.",
+      "Agora me diga: essa pessoa que está somando renda com você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
     ],
-    "ir_declarado"
+    "ctps_36_parceiro"
   );
 }
 
@@ -7693,7 +7711,7 @@ case "interpretar_composicao": {
   const composicaoSignal = parseComposicaoRenda(t);
   const parceiro = composicaoSignal === "parceiro" || /(parceir|namorad|espos|marid|mulher|boy|girl)/i.test(t);
   const familia  = composicaoSignal === "familiar" || /(pai|m[aã]e|mae|irm[aã]|av[oó]|tia|tio|primo|prima|famil)/i.test(t);
-  const sozinho  = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas eu|somente eu|solo|sozinh)/i.test(t);
+  const sozinho  = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|não tenho ningu[eé]m|ninguem para somar|ningu[eé]m pra somar|sem ningu[eé]m)/i.test(t);
 
   // ============================================================
   // OPÇÃO 1 — COMPOR COM PARCEIRO(A)
@@ -7824,7 +7842,7 @@ case "quem_pode_somar": {
   const composicaoSignal = parseComposicaoRenda(t);
   const parceiro = composicaoSignal === "parceiro" || /(parceir|namorad|espos|marid|mulher|boy|girl)/i.test(t);
   const familia  = composicaoSignal === "familiar" || /(pai|m[aã]e|mae|irm[aã]|av[oó]|tia|tio|primo|prima|famil)/i.test(t);
-  const sozinho  = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas eu|somente eu|solo|sozinh)/i.test(t);
+  const sozinho  = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|não tenho ningu[eé]m|ninguem para somar|ningu[eé]m pra somar|sem ningu[eé]m)/i.test(t);
 
   // ============================================================
   // OPÇÃO — PARCEIRO(A)
@@ -7889,10 +7907,17 @@ case "quem_pode_somar": {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "ir_declarado",
+      next_stage: "fim_ineligivel",
       severity: "info",
       message: "Composição escolhida: só o titular",
       details: { userText }
+    });
+
+    await upsertState(env, st.wa_id, {
+      somar_renda: false,
+      financiamento_conjunto: false,
+      motivo_ineligivel: "renda_baixa_sem_composicao",
+      funil_status: "ineligivel"
     });
 
     return step(
@@ -7900,10 +7925,10 @@ case "quem_pode_somar": {
       st,
       [
         "Entendi! 👍",
-        "Seguimos só com a sua renda então.",
-        "Você declara **Imposto de Renda**?"
+        "Sem alguém para compor renda, com esse valor não consigo seguir no fluxo de aprovação agora.",
+        "Vou te explicar certinho o que isso significa e como você pode resolver, se quiser."
       ],
-      "ir_declarado"
+      "fim_ineligivel"
     );
   }
 

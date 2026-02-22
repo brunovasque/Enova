@@ -5609,9 +5609,14 @@ case "somar_renda_solteiro": {
   const tBaseClean = tBase.replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
 
   const familiar =
-  /\b(familiar|familia|pai|mae|irmao|irma|tio|tia|avo|avoh|vo|vovo)\b/i.test(tBaseClean) ||
-  /\b(somar com (meu|minha) (pai|mae|irmao|irma|tio|tia|avo|vovo))\b/i.test(tBaseClean) ||
-  /\bcom\s+(minha|meu)\s+(mae|pai|irma|irmao|tio|tia|avo|avoh|vo|vovo|familiar|familia)\b/i.test(tBaseClean);
+  /\b(familiar|familia)\b/i.test(tBaseClean) ||
+
+  // parentesco direto (mesmo se o termo vier sozinho)
+  /\b(pai|mae|irma|irmao|tio|tia|avo|avoh|vo|vovo)\b/i.test(tBaseClean) ||
+
+  // intenção de composição com alguém da família (robusto contra ruído no meio)
+  /\bcom\s+(meu|minha)\b/i.test(tBaseClean) &&
+  !/\b(namorad|parceir|conjuge|espos[oa])\b/i.test(tBaseClean);
 
   // -----------------------------
   // QUER FICAR SÓ COM A PRÓPRIA RENDA

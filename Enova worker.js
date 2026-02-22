@@ -8602,26 +8602,21 @@ case "ctps_36": {
   });
 
   // Exemplos cobertos: "tenho mais de 3 anos de carteira", "registrado desde 2018", "menos de 36 meses"
-  const t = userText.trim();
+ const t = userText.trim();
+ const tn = t
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase();
 
-  // Evita ler "não tenho 36 meses" como SIM
-  const temNegacao36 =
-    /\b(n[aã]o|nao)\s+(tenho|possuo|completei|completo)\b/i.test(t) ||
-    /\b(menos de\s*36)\b/i.test(t);
+const nao_sei = /\b(nao sei|nao lembro|talvez|acho)\b/.test(tn);
 
-  const sim =
-    !temNegacao36 &&
-    (/\b(sim)\b/i.test(t) ||
-      /\b(tenho|possuo|completo|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})\b/i.test(t));
+const sim =
+  !/\b(nao|menos de 36|menos de 3 anos)\b/.test(tn) &&
+  /\b(sim|tenho sim|possui|possuo|completo|completa|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})\b/.test(tn);
 
-  const nao_sei =
-    /(nao sei|não sei|não lembro|talvez|acho)/i.test(t);
-
-  const nao =
-    !nao_sei && (
-      temNegacao36 ||
-      /\b(n[aã]o|nao)\b/i.test(t)
-    );
+const nao =
+  !nao_sei &&
+  /\b(nao|nao tem|menos de 36|nao possui|nao completa|menos de 3 anos)\b/.test(tn);
 
   const ehFinanciamentoConjunto =
     !!(st.financiamento_conjunto || st.somar_renda || st.parceiro_tem_renda);
@@ -8833,12 +8828,22 @@ case "ctps_36_parceiro": {
     }
   });
 
-  const t = userText.trim();
+// Exemplos cobertos: "sim, tem 3 anos", "não, menos de 36", "não sei"
+const t = userText.trim();
+const tn = t
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase();
 
-  // Exemplos cobertos: "sim, tem 3 anos", "não, menos de 36", "não sei"
-  const sim = /(sim|tem sim|possui|possu[ií] carteira|completo|completa|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})/i.test(t);
-  const nao_sei = /(não sei|nao sei|talvez|acho|não lembro|nao lembro)/i.test(t);
-  const nao = !nao_sei && /(n[aã]o|não tem|nao tem|menos de 36|nao possui|não possui|não completa|menos de 3 anos)/i.test(t);
+const nao_sei = /\b(nao sei|nao lembro|talvez|acho)\b/.test(tn);
+
+const sim =
+  !/\b(nao|menos de 36|menos de 3 anos)\b/.test(tn) &&
+  /\b(sim|tem sim|possui|possuo|possui carteira|completo|completa|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})\b/.test(tn);
+
+const nao =
+  !nao_sei &&
+  /\b(nao|nao tem|menos de 36|nao possui|nao completa|menos de 3 anos)\b/.test(tn);
 
   const ehFinanciamentoConjunto = !!(
     st.financiamento_conjunto ||

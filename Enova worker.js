@@ -8838,7 +8838,13 @@ case "ctps_36_parceiro": {
   const sim = /(sim|tem sim|possui|possu[ií] carteira|completo|completa|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})/i.test(t);
   const nao = /(n[aã]o|não tem|nao tem|menos de 36|nao possui|não possui|não completa|menos de 3 anos)/i.test(t);
   const nao_sei = /(não sei|nao sei|talvez|acho|não lembro|nao lembro)/i.test(t);
-  const ehFinanciamentoConjunto = !!(st.financiamento_conjunto || st.somar_renda);
+  const ehFinanciamentoConjunto = !!(
+  st.financiamento_conjunto ||
+  st.somar_renda ||
+  st.parceiro_tem_renda ||
+  st.renda_familiar ||
+  st.somar_renda_familiar
+);
 
   // Regra CEF: titular com 36 meses não deve cair nesta fase.
   if (st.ctps_36 === true) {

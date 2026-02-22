@@ -5173,9 +5173,16 @@ case "confirmar_casamento": {
   const estadoCivilDetectado = parseEstadoCivil(t);
   // Exemplos cobertos: "casada no papel", "casamento civil", "união estável", "moro junto"
 
+  const tBase = t
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  const respostaAmbigua = /(nao\s+sei|talvez)/i.test(tBase);
+
   // ✅ Aceita texto livre + sim/não curto
   const respondeuSim = isYes(t); // "sim" => confirma civil no papel
-  const respondeuNao = isNo(t);  // "não" => trata como união estável
+  const respondeuNao = !respostaAmbigua && isNo(t);  // "não" => trata como união estável
 
   const civil =
     respondeuSim ||
@@ -5577,45 +5584,12 @@ case "somar_renda_solteiro": {
     }
   });
 
-  const tRaw = userText.trim();
-
-  // Normaliza mojibake comum do simulate/console (ex.: "sÃ³", "nÃ£o", "mÃ£e")
-  const t = tRaw
-    .replace(/Ã¡/g, "á")
-    .replace(/Ã /g, "à")
-    .replace(/Ã¢/g, "â")
-    .replace(/Ã£/g, "ã")
-    .replace(/Ã©/g, "é")
-    .replace(/Ãª/g, "ê")
-    .replace(/Ã­/g, "í")
-    .replace(/Ã³/g, "ó")
-    .replace(/Ã´/g, "ô")
-    .replace(/Ãµ/g, "õ")
-    .replace(/Ãº/g, "ú")
-    .replace(/Ã§/g, "ç")
-    .replace(/Ã/g, "Á")
-    .replace(/Ã€/g, "À")
-    .replace(/Ã‚/g, "Â")
-    .replace(/Ãƒ/g, "Ã")
-    .replace(/Ã‰/g, "É")
-    .replace(/ÃŠ/g, "Ê")
-    .replace(/Ã/g, "Í")
-    .replace(/Ã“/g, "Ó")
-    .replace(/Ã”/g, "Ô")
-    .replace(/Ã•/g, "Õ")
-    .replace(/Ãš/g, "Ú")
-    .replace(/Ã‡/g, "Ç");
+  const t = userText.trim();
 
   // Exemplos cobertos: "só eu", "somar com meu marido", "somar com minha mãe"
 
-  // Normalização extra para textos vindo quebrados do PowerShell/console (� / ï¿½ / etc.)
-  const tSafe = t
-    .replace(/�/g, "o")
-    .replace(/ï¿½/g, "o")
-    .replace(/¿½/g, "o");
-
   // Versão simplificada (sem acento/ruído) para regex mais robusto
-  const tBase = tSafe
+  const tBase = t
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
@@ -5631,8 +5605,9 @@ case "somar_renda_solteiro": {
     /(somar com meu parceiro|somar com minha parceira|somar com meu conjuge)/i.test(tBase);
 
   const familiar =
-    /(familiar|familia|pai|mae|irmao|irma|tio|tia|avo|vo|vovo)/i.test(tBase) ||
-    /(somar com meu pai|somar com minha mae|somar com meu irmao|somar com minha irma)/i.test(tBase);
+    /(familiar|familia|pai|mae|irmao|irma|tio|tia|avo|avoh|vo|vovo)/i.test(tBase) ||
+    /(somar com meu pai|somar com minha mae|somar com meu irmao|somar com minha irma)/i.test(tBase) ||
+    /com\s+(minha|meu)\s+(mae|pai|irma|irmao|tio|tia|avo|avoh|familiar|familia)/i.test(tBase);
 
   // -----------------------------
   // QUER FICAR SÓ COM A PRÓPRIA RENDA

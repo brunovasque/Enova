@@ -5848,7 +5848,6 @@ case "somar_renda_familiar": {
 const rawInput =
   String(
     userText ??
-    t ??
     st?.last_user_text ??
     st?.user_text ??
     ""

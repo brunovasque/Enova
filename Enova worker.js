@@ -8602,24 +8602,32 @@ case "ctps_36": {
   });
 
   // Exemplos cobertos: "tenho mais de 3 anos de carteira", "registrado desde 2018", "menos de 36 meses"
- const t = userText.trim();
- const tn = t
-  .normalize("NFD")
-  .replace(/[\u0300-\u036f]/g, "")
-  .toLowerCase();
+  const t = userText.trim();
 
-const nao_sei = /\b(nao sei|nao lembro|talvez|acho)\b/.test(tn);
+  // Evita ler "não tenho 36 meses" como SIM
+  const temNegacao36 =
+    /\b(n[aã]o|nao)\s+(tenho|possuo|completei|completo)\b/i.test(t) ||
+    /\b(menos de\s*36)\b/i.test(t);
 
-const sim =
-  !/\b(nao|menos de 36|menos de 3 anos)\b/.test(tn) &&
-  /\b(sim|tenho sim|possui|possuo|completo|completa|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})\b/.test(tn);
+  const sim =
+    !temNegacao36 &&
+    (/\b(sim)\b/i.test(t) ||
+      /\b(tenho|possuo|completo|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})\b/i.test(t));
 
-const nao =
-  !nao_sei &&
-  /\b(nao|nao tem|menos de 36|nao possui|nao completa|menos de 3 anos)\b/.test(tn);
+  const nao_sei =
+    /(nao sei|não sei|não lembro|talvez|acho)/i.test(t);
+
+  const nao =
+    !nao_sei && (
+      temNegacao36 ||
+      /\b(n[aã]o|nao)\b/i.test(t)
+    );
 
   const ehFinanciamentoConjunto =
     !!(st.financiamento_conjunto || st.somar_renda || st.parceiro_tem_renda);
+
+  const rendaTotalFluxoNum = Number(st.renda_total_para_fluxo || st.renda || 0);
+  const devePerguntarDependenteSolo = !ehFinanciamentoConjunto && rendaTotalFluxoNum > 0 && rendaTotalFluxoNum < 4000;
 
   // ============================================================
   // SIM — Possui 36 meses
@@ -8629,9 +8637,12 @@ const nao =
     await upsertState(env, st.wa_id, { ctps_36: true });
 
     // Regra:
-    // - titular com 36 meses em conjunto => pula dependente e vai restrição
-    // - solo => vai dependente
-    const nextStage = ehFinanciamentoConjunto ? "restricao" : "dependente";
+    // - conjunto => pula dependente e vai restrição
+    // - solo abaixo de 4k => dependente
+    // - solo >= 4k => restrição
+    const nextStage = ehFinanciamentoConjunto
+      ? "restricao"
+      : (devePerguntarDependenteSolo ? "dependente" : "restricao");
 
     if (ehFinanciamentoConjunto) {
       await upsertState(env, st.wa_id, {
@@ -8651,11 +8662,12 @@ const nao =
       message: "CTPS >=36 verificado",
       details: {
         somar_renda: st.somar_renda,
-        financiamento_conjunto: st.financiamento_conjunto || null
+        financiamento_conjunto: st.financiamento_conjunto || null,
+        renda_total_para_fluxo: st.renda_total_para_fluxo || null
       }
     });
 
-    if (!ehFinanciamentoConjunto) {
+    if (nextStage === "dependente") {
       return step(
         env,
         st,
@@ -8683,15 +8695,21 @@ const nao =
   // ============================================================
   // NÃO SABE INFORMAR
   // Regra canônica:
-  // - solo => segue (dependente)
   // - conjunto => pergunta ctps_36_parceiro
+  // - solo abaixo de 4k => dependente
+  // - solo >= 4k => restrição
   // ============================================================
   if (nao_sei) {
 
     const ehFinanciamentoConjunto2 =
       !!(st.financiamento_conjunto || st.somar_renda || st.parceiro_tem_renda);
 
-    const nextStage = ehFinanciamentoConjunto2 ? "ctps_36_parceiro" : "dependente";
+    const rendaTotalFluxoNum2 = Number(st.renda_total_para_fluxo || st.renda || 0);
+    const devePerguntarDependenteSolo2 = !ehFinanciamentoConjunto2 && rendaTotalFluxoNum2 > 0 && rendaTotalFluxoNum2 < 4000;
+
+    const nextStage = ehFinanciamentoConjunto2
+      ? "ctps_36_parceiro"
+      : (devePerguntarDependenteSolo2 ? "dependente" : "restricao");
 
     await upsertState(env, st.wa_id, { ctps_36: null });
 
@@ -8704,7 +8722,7 @@ const nao =
       message: "Cliente não sabe CTPS — seguindo sem travar"
     });
 
-    if (ehFinanciamentoConjunto2) {
+    if (nextStage === "ctps_36_parceiro") {
       return step(
         env,
         st,
@@ -8717,16 +8735,30 @@ const nao =
       );
     }
 
+    if (nextStage === "dependente") {
+      return step(
+        env,
+        st,
+        [
+          "Sem problema! 😊",
+          "Isso não impede de seguir.",
+          "Agora me diga:",
+          "Você tem **dependente menor de 18 anos**?"
+        ],
+        "dependente"
+      );
+    }
+
     return step(
       env,
       st,
       [
         "Sem problema! 😊",
-        "Isso não impede de seguir.",
-        "Agora me diga:",
-        "Você tem **dependente menor de 18 anos**?"
+        "Isso não impede a análise.",
+        "Agora só preciso confirmar:",
+        "Você está com **alguma restrição no CPF**?"
       ],
-      "dependente"
+      "restricao"
     );
   }
 
@@ -8734,7 +8766,8 @@ const nao =
   // NÃO — Não possui 36 meses
   // Regra:
   // - conjunto => pergunta 36 meses do parceiro
-  // - solo => segue dependente
+  // - solo abaixo de 4k => dependente
+  // - solo >= 4k => restrição
   // ============================================================
   if (nao) {
 
@@ -8743,7 +8776,12 @@ const nao =
     const ehFinanciamentoConjunto2 =
       !!(st.financiamento_conjunto || st.somar_renda || st.parceiro_tem_renda);
 
-    const nextStage = ehFinanciamentoConjunto2 ? "ctps_36_parceiro" : "dependente";
+    const rendaTotalFluxoNum2 = Number(st.renda_total_para_fluxo || st.renda || 0);
+    const devePerguntarDependenteSolo2 = !ehFinanciamentoConjunto2 && rendaTotalFluxoNum2 > 0 && rendaTotalFluxoNum2 < 4000;
+
+    const nextStage = ehFinanciamentoConjunto2
+      ? "ctps_36_parceiro"
+      : (devePerguntarDependenteSolo2 ? "dependente" : "restricao");
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -8754,11 +8792,12 @@ const nao =
       message: "CTPS <36 verificado",
       details: {
         somar_renda: st.somar_renda,
-        financiamento_conjunto: st.financiamento_conjunto || null
+        financiamento_conjunto: st.financiamento_conjunto || null,
+        renda_total_para_fluxo: st.renda_total_para_fluxo || null
       }
     });
 
-    if (!ehFinanciamentoConjunto2) {
+    if (nextStage === "dependente") {
       return step(
         env,
         st,
@@ -8772,38 +8811,95 @@ const nao =
       );
     }
 
+    if (nextStage === "ctps_36_parceiro") {
+      return step(
+        env,
+        st,
+        [
+          "Perfeito, obrigado por confirmar! 👍",
+          "Agora me diga:",
+          "O parceiro(a) tem **36 meses ou mais** de carteira assinada nos últimos 3 anos?"
+        ],
+        "ctps_36_parceiro"
+      );
+    }
+
     return step(
       env,
       st,
       [
         "Perfeito, obrigado por confirmar! 👍",
-        "Agora me diga:",
+        "Agora só preciso confirmar:",
+        "Você está com **alguma restrição no CPF**?"
+      ],
+      "restricao"
+    );
+  }
+
+  // ============================================================
+  // NÃO ENTENDIDO (informativa, NÃO trava)
+  // Regra:
+  // - conjunto => ctps_36_parceiro
+  // - solo abaixo de 4k => dependente
+  // - solo >= 4k => restrição
+  // ============================================================
+  const ehFinanciamentoConjuntoFallback =
+    !!(st.financiamento_conjunto || st.somar_renda || st.parceiro_tem_renda);
+
+  const rendaTotalFluxoNumFallback = Number(st.renda_total_para_fluxo || st.renda || 0);
+  const devePerguntarDependenteSoloFallback =
+    !ehFinanciamentoConjuntoFallback && rendaTotalFluxoNumFallback > 0 && rendaTotalFluxoNumFallback < 4000;
+
+  const nextStageFallback = ehFinanciamentoConjuntoFallback
+    ? "ctps_36_parceiro"
+    : (devePerguntarDependenteSoloFallback ? "dependente" : "restricao");
+
+  await upsertState(env, st.wa_id, { ctps_36: null });
+
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "exit_stage",
+    stage,
+    next_stage: nextStageFallback,
+    severity: "warning",
+    message: "Resposta não compreendida em CTPS 36 — seguindo sem travar (informativa)"
+  });
+
+  if (nextStageFallback === "ctps_36_parceiro") {
+    return step(
+      env,
+      st,
+      [
+        "Sem problema 👍",
+        "Vou seguir aqui sem travar.",
         "O parceiro(a) tem **36 meses ou mais** de carteira assinada nos últimos 3 anos?"
       ],
       "ctps_36_parceiro"
     );
   }
 
-  // ============================================================
-  // NÃO ENTENDIDO (aqui pode reprompt)
-  // ============================================================
-  await funnelTelemetry(env, {
-    wa_id: st.wa_id,
-    event: "exit_stage",
-    stage,
-    next_stage: "ctps_36",
-    severity: "warning",
-    message: "Resposta não compreendida"
-  });
+  if (nextStageFallback === "dependente") {
+    return step(
+      env,
+      st,
+      [
+        "Sem problema 👍",
+        "Vou seguir aqui sem travar.",
+        "Você tem **dependente menor de 18 anos**?"
+      ],
+      "dependente"
+    );
+  }
 
   return step(
     env,
     st,
     [
-      "Consegue me confirmar certinho? 😊",
-      "Você possui **36 meses de carteira assinada** nos últimos 3 anos?"
+      "Sem problema 👍",
+      "Vou seguir aqui sem travar.",
+      "Você está com **alguma restrição no CPF**?"
     ],
-    "ctps_36"
+    "restricao"
   );
 }
 
@@ -8828,22 +8924,12 @@ case "ctps_36_parceiro": {
     }
   });
 
-// Exemplos cobertos: "sim, tem 3 anos", "não, menos de 36", "não sei"
-const t = userText.trim();
-const tn = t
-  .normalize("NFD")
-  .replace(/[\u0300-\u036f]/g, "")
-  .toLowerCase();
+  const t = userText.trim();
 
-const nao_sei = /\b(nao sei|nao lembro|talvez|acho)\b/.test(tn);
-
-const sim =
-  !/\b(nao|menos de 36|menos de 3 anos)\b/.test(tn) &&
-  /\b(sim|tem sim|possui|possuo|possui carteira|completo|completa|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})\b/.test(tn);
-
-const nao =
-  !nao_sei &&
-  /\b(nao|nao tem|menos de 36|nao possui|nao completa|menos de 3 anos)\b/.test(tn);
+  // Exemplos cobertos: "sim, tem 3 anos", "não, menos de 36", "não sei"
+  const sim = /(sim|tem sim|possui|possu[ií] carteira|completo|completa|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})/i.test(t);
+  const nao_sei = /(não sei|nao sei|talvez|acho|não lembro|nao lembro)/i.test(t);
+  const nao = !nao_sei && /(n[aã]o|não tem|nao tem|menos de 36|nao possui|não possui|não completa|menos de 3 anos)/i.test(t);
 
   const ehFinanciamentoConjunto = !!(
     st.financiamento_conjunto ||
@@ -8999,23 +9085,26 @@ const nao =
   }
 
   // ============================================================
-  // NÃO ENTENDIDO (aqui pode reprompt)
+  // NÃO ENTENDIDO (informativa, NÃO trava)
   // ============================================================
+  await upsertState(env, st.wa_id, { ctps_36_parceiro: null });
+
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
     stage,
-    next_stage: "ctps_36_parceiro",
+    next_stage: "restricao",
     severity: "warning",
-    message: "Resposta não reconhecida — permanência na fase"
+    message: "Resposta não reconhecida em CTPS parceiro — seguindo sem travar"
   });
 
   return step(env, st,
     [
-      "Só pra confirmar certinho 😊",
-      "O parceiro(a) tem **36 meses ou mais** de carteira assinada somando os últimos empregos?"
+      "Sem problema 👍",
+      "Vou seguir aqui sem travar.",
+      "Você está com **alguma restrição no CPF**, como negativação?"
     ],
-    "ctps_36_parceiro"
+    "restricao"
   );
 }
 

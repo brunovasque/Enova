@@ -4091,7 +4091,17 @@ const prev_nt_blockd = normalizeText(st.last_user_text || "");
 const isGreeting_blockd = /^(oi|ola|olá|bom dia|boa tarde|boa noite)\b/i.test(nt_blockd);
 const isResetCmd_blockd = /^(reset|reiniciar|recomecar|recomeçar|do zero|nova analise|nova análise)\b/i.test(nt_blockd);
 
-if (!isGreeting_blockd && !isResetCmd_blockd && prev_nt_blockd && prev_nt_blockd === nt_blockd) {
+  const allowRepeatInStage_blockd = (
+  stage === "somar_renda_familiar"
+);
+
+if (
+  !allowRepeatInStage_blockd &&
+  !isGreeting_blockd &&
+  !isResetCmd_blockd &&
+  prev_nt_blockd &&
+  prev_nt_blockd === nt_blockd
+) {
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "loop_message_detected",
@@ -5831,13 +5841,53 @@ case "somar_renda_familiar": {
     }
   });
 
-  const mae = /(m[aã]e|minha m[aã]e)/i.test(t);
-  const pai = /(pai|meu pai)/i.test(t);
-  const avo = /(av[oó]|v[oó]|vov[oó]|vov[oó]s)/i.test(t);
-  const tio = /(tio|tia)/i.test(t);
-  const irmao = /(irm[aã]o|irm[aã]os|irm[aã]|minha irm[aã]|meu irm[aã]o)/i.test(t);
-  const primo = /(primo|prima)/i.test(t);
-  const qualquer = /(fam[ií]lia|qualquer|não sei|nao sei)/i.test(t);
+// --------------------------------------------------
+// NORMALIZAÇÃO LOCAL (robusta para acento/encoding)
+// --------------------------------------------------
+// prioridade: texto atual da mensagem -> fallbacks de estado
+const rawInput =
+  String(
+    userText ??
+    t ??
+    st?.last_user_text ??
+    st?.user_text ??
+    ""
+  );
+
+const txtBase = rawInput.toLowerCase().trim();
+
+// Remove acentos e normaliza caracteres estranhos
+const txt = txtBase
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .replace(/[^\w\s]/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
+
+// DEBUG TEMPORÁRIO (remover depois)
+await funnelTelemetry(env, {
+  wa_id: st.wa_id,
+  event: "debug",
+  stage,
+  severity: "info",
+  message: "DEBUG somar_renda_familiar input",
+  details: {
+    rawInput,
+    txtBase,
+    txt
+  }
+});
+
+  // --------------------------------------------------
+  // MATCHES (com variações comuns)
+  // --------------------------------------------------
+  const mae = /\b(mae|minha mae)\b/i.test(txt);
+  const pai = /\b(pai|meu pai)\b/i.test(txt);
+  const avo = /\b(avo|avos|vo|vos|vovo|vovos)\b/i.test(txt);
+  const tio = /\b(tio|tia)\b/i.test(txt);
+  const irmao = /\b(irmao|irmaos|irma|minha irma|meu irmao)\b/i.test(txt);
+  const primo = /\b(primo|prima)\b/i.test(txt);
+  const qualquer = /\b(familia|familiar|qualquer|nao sei)\b/i.test(txt);
 
   // --------------------------------------------------
   // MÃE
@@ -5851,8 +5901,8 @@ case "somar_renda_familiar": {
       stage,
       next_stage: "regime_trabalho_parceiro_familiar",
       severity: "info",
-      message: "Saindo da fase: somar_renda_familiar → regime_trabalho_parceiro_familiar (mãe)",
-      details: { userText }
+      message: "Saindo da fase: somar_renda_familiar → regime_trabalho_parceiro_familiar (mae)",
+      details: { userText, txt }
     });
 
     await upsertState(env, st.wa_id, { familiar_tipo: "mae" });
@@ -5881,7 +5931,7 @@ case "somar_renda_familiar": {
       next_stage: "regime_trabalho_parceiro_familiar",
       severity: "info",
       message: "Saindo da fase: somar_renda_familiar → regime_trabalho_parceiro_familiar (pai)",
-      details: { userText }
+      details: { userText, txt }
     });
 
     await upsertState(env, st.wa_id, { familiar_tipo: "pai" });
@@ -5909,8 +5959,8 @@ case "somar_renda_familiar": {
       stage,
       next_stage: "confirmar_avo_familiar",
       severity: "info",
-      message: "Saindo da fase: somar_renda_familiar → confirmar_avo_familiar (avô/avó)",
-      details: { userText }
+      message: "Saindo da fase: somar_renda_familiar → confirmar_avo_familiar (avo/avo)",
+      details: { userText, txt }
     });
 
     await upsertState(env, st.wa_id, { familiar_tipo: "avo" });
@@ -5940,7 +5990,7 @@ case "somar_renda_familiar": {
       next_stage: "regime_trabalho_parceiro_familiar",
       severity: "info",
       message: "Saindo da fase: somar_renda_familiar → regime_trabalho_parceiro_familiar (tio/tia)",
-      details: { userText }
+      details: { userText, txt }
     });
 
     await upsertState(env, st.wa_id, { familiar_tipo: "tio" });
@@ -5968,8 +6018,8 @@ case "somar_renda_familiar": {
       stage,
       next_stage: "regime_trabalho_parceiro_familiar",
       severity: "info",
-      message: "Saindo da fase: somar_renda_familiar → regime_trabalho_parceiro_familiar (irmão/irmã)",
-      details: { userText }
+      message: "Saindo da fase: somar_renda_familiar → regime_trabalho_parceiro_familiar (irmao/irma)",
+      details: { userText, txt }
     });
 
     await upsertState(env, st.wa_id, { familiar_tipo: "irmao" });
@@ -5998,7 +6048,7 @@ case "somar_renda_familiar": {
       next_stage: "regime_trabalho_parceiro_familiar",
       severity: "info",
       message: "Saindo da fase: somar_renda_familiar → regime_trabalho_parceiro_familiar (primo/prima)",
-      details: { userText }
+      details: { userText, txt }
     });
 
     await upsertState(env, st.wa_id, { familiar_tipo: "primo" });
@@ -6026,8 +6076,8 @@ case "somar_renda_familiar": {
       stage,
       next_stage: "regime_trabalho_parceiro_familiar",
       severity: "info",
-      message: "Saindo da fase: somar_renda_familiar → regime_trabalho_parceiro_familiar (familiar genérico)",
-      details: { userText }
+      message: "Saindo da fase: somar_renda_familiar → regime_trabalho_parceiro_familiar (familiar generico)",
+      details: { userText, txt }
     });
 
     await upsertState(env, st.wa_id, { familiar_tipo: "nao_especificado" });
@@ -6055,7 +6105,7 @@ case "somar_renda_familiar": {
     next_stage: "somar_renda_familiar",
     severity: "info",
     message: "Saindo da fase: somar_renda_familiar → somar_renda_familiar (fallback)",
-    details: { userText }
+    details: { userText, txt }
   });
 
   return step(
@@ -6313,22 +6363,22 @@ case "renda_familiar_valor": {
     financiamento_conjunto: true
   });
 
-  // Soma renda total (titular + familiar)
-  const rendaTitular = Number(st.renda_titular || 0);
+  // Soma renda total (titular + familiar) com fallback defensivo
+  const rendaTitular = Number(st.renda || st.renda_titular || st.renda_total_para_fluxo || 0);
   const rendaTotal = rendaTitular + valor;
 
   await upsertState(env, st.wa_id, {
     renda_total_para_fluxo: rendaTotal
   });
 
-  // 🟩 EXIT_STAGE → próxima fase: ctps_36
+  // 🟩 EXIT_STAGE → próxima fase: ctps_36_parceiro (trilho familiar unificado)
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
     stage,
-    next_stage: "ctps_36",
+    next_stage: "ctps_36_parceiro",
     severity: "info",
-    message: "Saindo da fase: renda_familiar_valor → ctps_36",
+    message: "Saindo da fase: renda_familiar_valor → ctps_36_parceiro",
     details: { userText, rendaTitular, renda_parceiro: valor, rendaTotal }
   });
 
@@ -6338,10 +6388,9 @@ case "renda_familiar_valor": {
     [
       "Perfeito! 👌",
       `Então a renda somada ficou em **R$ ${rendaTotal.toLocaleString("pt-BR")}**.`,
-      "Agora vamos analisar seu histórico de trabalho.",
-      "Você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
+      "Agora me diga: essa pessoa que está somando renda com você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
     ],
-    "ctps_36"
+    "ctps_36_parceiro"
   );
 }
 
@@ -7567,7 +7616,7 @@ case "renda_parceiro_familiar": {
   // ============================================================
   // VALOR VÁLIDO — SALVAR NO BANCO
   // ============================================================
-  const rendaTitular = Number(st.renda_titular || 0);
+  const rendaTitular = Number(st.renda || st.renda_titular || st.renda_total_para_fluxo || 0);
   const rendaTotal = rendaTitular + valor;
 
   await upsertState(env, st.wa_id, {
@@ -7865,7 +7914,7 @@ case "interpretar_composicao": {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "regime_trabalho_parceiro_familiar",
+      next_stage: "somar_renda_familiar",
       severity: "info",
       message: "Composição escolhida: familiar",
       details: { userText }
@@ -7877,9 +7926,9 @@ case "interpretar_composicao": {
       [
         "Show! 👏",
         "Vamos compor renda com familiar.",
-        "Qual o **tipo de trabalho** dessa pessoa?"
+        "Qual familiar você quer usar? (pai, mãe, irmão, irmã, tio, tia, avô, avó...)"
       ],
-      "regime_trabalho_parceiro_familiar"
+      "somar_renda_familiar"
     );
   }
 
@@ -8096,7 +8145,7 @@ case "quem_pode_somar": {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "regime_trabalho_parceiro_familiar",
+      next_stage: "somar_renda_familiar",
       severity: "info",
       message: "Composição escolhida: familiar",
       details: { userText }
@@ -8108,9 +8157,9 @@ case "quem_pode_somar": {
       [
         "Show! 👌",
         "Vamos compor renda com familiar.",
-        "Qual o **tipo de trabalho** dessa pessoa?"
+        "Qual familiar você quer usar? (pai, mãe, irmão, irmã, tio, tia, avô, avó...)"
       ],
-      "regime_trabalho_parceiro_familiar"
+      "somar_renda_familiar"
     );
   }
 

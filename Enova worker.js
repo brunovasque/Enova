@@ -5178,7 +5178,9 @@ case "confirmar_casamento": {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
 
-  const respostaAmbigua = /(nao\s+sei|talvez)/i.test(tBase);
+  const respostaAmbigua =
+  /\b(nao\s+sei|n\s*sei|talvez)\b/i.test(tBase) ||
+  /\b(n.o\s+sei)\b/i.test(tBase); // cobre "n?o sei" com caractere quebrado
 
   // ✅ Aceita texto livre + sim/não curto
   const respondeuSim = isYes(t); // "sim" => confirma civil no papel
@@ -5604,10 +5606,12 @@ case "somar_renda_solteiro": {
     /(parceiro|parceira|conjuge|marido|esposa|esposo|meu namorado|minha namorada)/i.test(tBase) ||
     /(somar com meu parceiro|somar com minha parceira|somar com meu conjuge)/i.test(tBase);
 
+  const tBaseClean = tBase.replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+
   const familiar =
-    /(familiar|familia|pai|mae|irmao|irma|tio|tia|avo|avoh|vo|vovo)/i.test(tBase) ||
-    /(somar com meu pai|somar com minha mae|somar com meu irmao|somar com minha irma)/i.test(tBase) ||
-    /com\s+(minha|meu)\s+(mae|pai|irma|irmao|tio|tia|avo|avoh|familiar|familia)/i.test(tBase);
+  /\b(familiar|familia|pai|mae|irmao|irma|tio|tia|avo|avoh|vo|vovo)\b/i.test(tBaseClean) ||
+  /\b(somar com (meu|minha) (pai|mae|irmao|irma|tio|tia|avo|vovo))\b/i.test(tBaseClean) ||
+  /\bcom\s+(minha|meu)\s+(mae|pai|irma|irmao|tio|tia|avo|avoh|vo|vovo|familiar|familia)\b/i.test(tBaseClean);
 
   // -----------------------------
   // QUER FICAR SÓ COM A PRÓPRIA RENDA

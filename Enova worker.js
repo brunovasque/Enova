@@ -6618,14 +6618,14 @@ case "regime_trabalho": {
       regime: "autonomo"
     });
 
-    // EXIT_STAGE → vai para pergunta de multi regime
+    // EXIT_STAGE → vai direto para renda
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "inicio_multi_regime_pergunta",
+      next_stage: "renda",
       severity: "info",
-      message: "Saindo da fase regime_trabalho → inicio_multi_regime_pergunta (AUTONOMO)",
+      message: "Saindo da fase regime_trabalho → renda (AUTONOMO)",
       details: { userText }
     });
 
@@ -6633,10 +6633,10 @@ case "regime_trabalho": {
       env,
       st,
       [
-        "Perfeito. Você tem mais algum emprego ou faz algum bico além desse?",
-        "Responda *sim* ou *não*."
+        "Perfeito. 👍",
+        "Agora me diga qual é a sua **renda mensal média** com esse trabalho como autônomo."
       ],
-      "inicio_multi_regime_pergunta"
+      "renda"
     );
   }
 

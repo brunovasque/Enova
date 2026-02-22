@@ -5173,9 +5173,18 @@ case "confirmar_casamento": {
   const estadoCivilDetectado = parseEstadoCivil(t);
   // Exemplos cobertos: "casada no papel", "casamento civil", "união estável", "moro junto"
 
+  const tBase = t
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+
+  const respostaAmbigua =
+  /\b(nao\s+sei|n\s*sei|talvez)\b/i.test(tBase) ||
+  /\b(n.o\s+sei)\b/i.test(tBase); // cobre "n?o sei" com caractere quebrado
+
   // ✅ Aceita texto livre + sim/não curto
   const respondeuSim = isYes(t); // "sim" => confirma civil no papel
-  const respondeuNao = isNo(t);  // "não" => trata como união estável
+  const respondeuNao = !respostaAmbigua && isNo(t);  // "não" => trata como união estável
 
   const civil =
     respondeuSim ||
@@ -5577,45 +5586,12 @@ case "somar_renda_solteiro": {
     }
   });
 
-  const tRaw = userText.trim();
-
-  // Normaliza mojibake comum do simulate/console (ex.: "sÃ³", "nÃ£o", "mÃ£e")
-  const t = tRaw
-    .replace(/Ã¡/g, "á")
-    .replace(/Ã /g, "à")
-    .replace(/Ã¢/g, "â")
-    .replace(/Ã£/g, "ã")
-    .replace(/Ã©/g, "é")
-    .replace(/Ãª/g, "ê")
-    .replace(/Ã­/g, "í")
-    .replace(/Ã³/g, "ó")
-    .replace(/Ã´/g, "ô")
-    .replace(/Ãµ/g, "õ")
-    .replace(/Ãº/g, "ú")
-    .replace(/Ã§/g, "ç")
-    .replace(/Ã/g, "Á")
-    .replace(/Ã€/g, "À")
-    .replace(/Ã‚/g, "Â")
-    .replace(/Ãƒ/g, "Ã")
-    .replace(/Ã‰/g, "É")
-    .replace(/ÃŠ/g, "Ê")
-    .replace(/Ã/g, "Í")
-    .replace(/Ã“/g, "Ó")
-    .replace(/Ã”/g, "Ô")
-    .replace(/Ã•/g, "Õ")
-    .replace(/Ãš/g, "Ú")
-    .replace(/Ã‡/g, "Ç");
+  const t = userText.trim();
 
   // Exemplos cobertos: "só eu", "somar com meu marido", "somar com minha mãe"
 
-  // Normalização extra para textos vindo quebrados do PowerShell/console (� / ï¿½ / etc.)
-  const tSafe = t
-    .replace(/�/g, "o")
-    .replace(/ï¿½/g, "o")
-    .replace(/¿½/g, "o");
-
   // Versão simplificada (sem acento/ruído) para regex mais robusto
-  const tBase = tSafe
+  const tBase = t
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
@@ -5630,9 +5606,17 @@ case "somar_renda_solteiro": {
     /(parceiro|parceira|conjuge|marido|esposa|esposo|meu namorado|minha namorada)/i.test(tBase) ||
     /(somar com meu parceiro|somar com minha parceira|somar com meu conjuge)/i.test(tBase);
 
+  const tBaseClean = tBase.replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+
   const familiar =
-    /(familiar|familia|pai|mae|irmao|irma|tio|tia|avo|vo|vovo)/i.test(tBase) ||
-    /(somar com meu pai|somar com minha mae|somar com meu irmao|somar com minha irma)/i.test(tBase);
+  /\b(familiar|familia)\b/i.test(tBaseClean) ||
+
+  // parentesco direto (mesmo se o termo vier sozinho)
+  /\b(pai|mae|irma|irmao|tio|tia|avo|avoh|vo|vovo)\b/i.test(tBaseClean) ||
+
+  // intenção de composição com alguém da família (robusto contra ruído no meio)
+  /\bcom\s+(meu|minha)\b/i.test(tBaseClean) &&
+  !/\b(namorad|parceir|conjuge|espos[oa])\b/i.test(tBaseClean);
 
   // -----------------------------
   // QUER FICAR SÓ COM A PRÓPRIA RENDA
@@ -8854,7 +8838,13 @@ case "ctps_36_parceiro": {
   const sim = /(sim|tem sim|possui|possu[ií] carteira|completo|completa|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})/i.test(t);
   const nao = /(n[aã]o|não tem|nao tem|menos de 36|nao possui|não possui|não completa|menos de 3 anos)/i.test(t);
   const nao_sei = /(não sei|nao sei|talvez|acho|não lembro|nao lembro)/i.test(t);
-  const ehFinanciamentoConjunto = !!(st.financiamento_conjunto || st.somar_renda);
+  const ehFinanciamentoConjunto = !!(
+  st.financiamento_conjunto ||
+  st.somar_renda ||
+  st.parceiro_tem_renda ||
+  st.renda_familiar ||
+  st.somar_renda_familiar
+);
 
   // Regra CEF: titular com 36 meses não deve cair nesta fase.
   if (st.ctps_36 === true) {

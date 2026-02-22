@@ -5173,9 +5173,22 @@ case "confirmar_casamento": {
   const estadoCivilDetectado = parseEstadoCivil(t);
   // Exemplos cobertos: "casada no papel", "casamento civil", "união estável", "moro junto"
 
-  // ✅ Aceita texto livre + sim/não curto
-  const respondeuSim = isYes(t); // "sim" => confirma civil no papel
-  const respondeuNao = isNo(t);  // "não" => trata como união estável
+  // ✅ Normaliza base curta para evitar falso positivo (ex.: "não sei" virar "não")
+  const tBaseConfirmar = String(t || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+
+  const ambiguo =
+    /\b(nao sei|talvez|acho|mais ou menos)\b/i.test(tBaseConfirmar);
+
+  // ✅ Aceita texto livre + sim/não curto (mas sem capturar "não sei")
+  const respondeuSim =
+    /^(sim|s)$/i.test(tBaseConfirmar); // "sim" => confirma civil no papel
+
+  const respondeuNao =
+    /^(nao|n)$/i.test(tBaseConfirmar); // "não" => trata como união estável
 
   const civil =
     respondeuSim ||
@@ -5259,7 +5272,7 @@ case "confirmar_casamento": {
     next_stage: "confirmar_casamento",
     severity: "info",
     message: "Saindo da fase: confirmar_casamento → confirmar_casamento (fallback)",
-    details: { userText }
+    details: { userText, ambiguo }
   });
 
   return step(
@@ -5632,7 +5645,8 @@ case "somar_renda_solteiro": {
 
   const familiar =
     /(familiar|familia|pai|mae|irmao|irma|tio|tia|avo|vo|vovo)/i.test(tBase) ||
-    /(somar com meu pai|somar com minha mae|somar com meu irmao|somar com minha irma)/i.test(tBase);
+    /(somar com meu pai|somar com minha mae|somar com meu irmao|somar com minha irma)/i.test(tBase) ||
+    /(com minha mae|com meu pai|com meu irmao|com minha irma)/i.test(tBase);
 
   // -----------------------------
   // QUER FICAR SÓ COM A PRÓPRIA RENDA

@@ -6412,6 +6412,27 @@ case "inicio_multi_renda_pergunta": {
   // Exemplos cobertos: "sim, tenho bicos", "não tenho renda extra"
 
   // -------------------------------------------
+  // ❌ NÃO — não possui outra renda
+  // -------------------------------------------
+  if (isNo(nt) || /^(nao|não)$/i.test(nt) || /(nao tenho renda extra|não tenho renda extra|s[oó] essa renda)/i.test(nt)) {
+
+    await upsertState(env, st.wa_id, {
+      multi_renda_flag: false,
+      fase_conversa: "ctps_36"
+    });
+
+    st.multi_renda_flag = false;
+    st.fase_conversa = "ctps_36";
+
+    return step(
+      env,
+      st,
+      ["Certo! Vamos continuar então 😊"],
+      "ctps_36"
+    );
+  }
+
+  // -------------------------------------------
   // 👍 SIM — possui outra renda
   // -------------------------------------------
   if (isYes(nt) || /^sim$/i.test(nt) || /(tenho renda extra|tenho outra renda|fa[cç]o bico|freela|extra)/i.test(nt)) {
@@ -6434,27 +6455,6 @@ case "inicio_multi_renda_pergunta": {
         "Exemplo: *Bico — 1200*"
       ],
       "inicio_multi_renda_coletar"
-    );
-  }
-
-  // -------------------------------------------
-  // ❌ NÃO — não possui outra renda
-  // -------------------------------------------
-  if (isNo(nt) || /^(nao|não)$/i.test(nt) || /(nao tenho renda extra|não tenho renda extra|s[oó] essa renda)/i.test(nt)) {
-
-    await upsertState(env, st.wa_id, {
-      multi_renda_flag: false,
-      fase_conversa: "ctps_36"
-    });
-
-    st.multi_renda_flag = false;
-    st.fase_conversa = "ctps_36";
-
-    return step(
-      env,
-      st,
-      ["Certo! Vamos continuar então 😊"],
-      "ctps_36"
     );
   }
 
@@ -6915,7 +6915,12 @@ case "regime_trabalho_parceiro_familiar": {
   });
 
   const nt = normalizeText(userText || "");
+  const parceiroAutonomoSemIr = /autonom/.test(nt) && /\b(sem|nao)\b/.test(nt) && /\bir\b/.test(nt);
   const valido = /(clt|autonomo|autônomo|servidor|publico|público|aposentado|pensionista|informal|bico|bicos)/i.test(nt);
+
+  if (parceiroAutonomoSemIr) {
+    st.composicao_autonomo_sem_ir = true;
+  }
 
   if (!valido) {
     return step(
@@ -6933,6 +6938,17 @@ case "regime_trabalho_parceiro_familiar": {
   await upsertState(env, st.wa_id, {
     regime_trabalho_parceiro_familiar: nt
   });
+
+  if (parceiroAutonomoSemIr) {
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "flag_memoria",
+      stage,
+      severity: "info",
+      message: "Composição com parceiro familiar autônomo sem IR sinalizada",
+      details: { composicao_autonomo_sem_ir: true }
+    });
+  }
 
   return step(
     env,
@@ -7616,6 +7632,10 @@ case "renda_parceiro_familiar": {
   // ============================================================
   // VALOR VÁLIDO — SALVAR NO BANCO
   // ============================================================
+  if (/autonom/.test(normalizeText(st.regime_trabalho_parceiro_familiar || "")) && st.ir_declarado === false) {
+    st.composicao_autonomo_sem_ir = true;
+  }
+
   const rendaTitular = Number(st.renda || st.renda_titular || st.renda_total_para_fluxo || 0);
   const rendaTotal = rendaTitular + valor;
 
@@ -9483,19 +9503,18 @@ case "restricao": {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "regularizacao_restricao",
+      next_stage: "restricao",
       severity: "warning",
-      message: "Cliente confirmou restrição no CPF"
+      message: "Cliente confirmou restrição no CPF (checkpoint em restricao)"
     });
 
     return step(env, st,
       [
         "Obrigado por avisar! 🙏",
-        "Com **restrição ativa**, a Caixa exige que o CPF esteja limpo para analisar.",
-        "Mas relaxa, vou te orientar certinho.",
-        "Você sabe se já está fazendo alguma **regularização**?"
+        "Anotei aqui que existe restrição no CPF.",
+        "Perfeito, por enquanto encerramos esta etapa em **restrição**."
       ],
-      "regularizacao_restricao"
+      "restricao"
     );
   }
 
@@ -9512,18 +9531,18 @@ case "restricao": {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "envio_docs",
+      next_stage: "restricao",
       severity: "info",
-      message: "CPF limpo confirmado"
+      message: "CPF limpo confirmado (checkpoint em restricao)"
     });
 
     return step(env, st,
       [
         "Perfeito! 👌",
         "Isso ajuda bastante na análise.",
-        "Agora vamos pra parte final: preciso de alguns **documentos simples** pra montar sua ficha. Posso te passar a lista?"
+        "Ótimo, por enquanto encerramos esta etapa em **restrição**."
       ],
-      "envio_docs"
+      "restricao"
     );
   }
 
@@ -9540,19 +9559,18 @@ case "restricao": {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "regularizacao_restricao",
+      next_stage: "restricao",
       severity: "warning",
-      message: "Cliente não sabe se tem restrição"
+      message: "Cliente não sabe se tem restrição (checkpoint em restricao)"
     });
 
     return step(env, st,
       [
         "Tranquilo, isso é bem comum 😊",
-        "Normalmente você recebe SMS ou e-mail quando tem restrição.",
-        "Se quiser, posso te ajudar a verificar isso grátis pelo app da Serasa.",
-        "Mas antes: você **acha** que pode ter algo pendente?"
+        "Anotei como informação incerta de restrição.",
+        "Perfeito, por enquanto encerramos esta etapa em **restrição**."
       ],
-      "regularizacao_restricao"
+      "restricao"
     );
   }
 

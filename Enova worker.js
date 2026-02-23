@@ -8926,11 +8926,6 @@ case "ctps_36_parceiro": {
 
   const t = userText.trim();
 
-  // Exemplos cobertos: "sim, tem 3 anos", "não, menos de 36", "não sei"
-  const sim = /(sim|tem sim|possui|possu[ií] carteira|completo|completa|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})/i.test(t);
-  const nao_sei = /(não sei|nao sei|talvez|acho|não lembro|nao lembro)/i.test(t);
-  const nao = !nao_sei && /(n[aã]o|não tem|nao tem|menos de 36|nao possui|não possui|não completa|menos de 3 anos)/i.test(t);
-
   const ehFinanciamentoConjunto = !!(
     st.financiamento_conjunto ||
     st.somar_renda ||
@@ -8939,11 +8934,59 @@ case "ctps_36_parceiro": {
     st.somar_renda_familiar
   );
 
-  // Segurança: esta fase é canonicamente de conjunto/composição
-  // Mesmo se cair sem flag, mantém regra de saída informativa para restrição (não trava)
+  // Segurança: esta fase só deve existir em fluxo conjunto/composição.
+  // Se cair aqui sem flag, não trava: segue informativo para restrição.
+  if (!ehFinanciamentoConjunto) {
+    await upsertState(env, st.wa_id, { ctps_36_parceiro: null });
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "restricao",
+      severity: "warning",
+      message: "ctps_36_parceiro acionado fora de fluxo conjunto — seguindo para restrição"
+    });
+
+    return step(
+      env,
+      st,
+      [
+        "Sem problema 👍",
+        "Vou seguir aqui sem travar.",
+        "Você está com **alguma restrição no CPF**, como negativação?"
+      ],
+      "restricao"
+    );
+  }
+
+  // Evita ler "não possui / não completa / menos de 36" como SIM
+  const temNegacao36Parceiro =
+    /\b(n[aã]o|nao)\s+(tem|tenho|possui|possuo|completei|completo|completa)\b/i.test(t) ||
+    /\b(menos de\s*36)\b/i.test(t) ||
+    /\b(menos de\s*3 anos)\b/i.test(t);
+
+  const sim =
+    !temNegacao36Parceiro &&
+    (
+      /\b(sim)\b/i.test(t) ||
+      /\b(tem sim|possui|possuo|completo|completa|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})\b/i.test(t)
+    );
+
+  const nao_sei =
+    /(não sei|nao sei|talvez|acho|não lembro|nao lembro)/i.test(t);
+
+  const nao =
+    !nao_sei && (
+      temNegacao36Parceiro ||
+      /\b(n[aã]o|nao)\b/i.test(t)
+    );
+
+  // Segurança: saída sempre informativa (não trava)
   const nextStageInformativo = "restricao";
 
   // Regra CEF: titular com 36 meses não deve cair nesta fase.
+  // Se caiu, segue sem travar e pula dependente (casal).
   if (st.ctps_36 === true) {
     await upsertState(env, st.wa_id, {
       dependente: true,
@@ -8965,7 +9008,9 @@ case "ctps_36_parceiro": {
       }
     });
 
-    return step(env, st,
+    return step(
+      env,
+      st,
       [
         "Perfeito! 👏",
         "Agora vamos só confirmar uma coisinha rápida:",
@@ -9003,7 +9048,9 @@ case "ctps_36_parceiro": {
       fator_social: true
     });
 
-    return step(env, st,
+    return step(
+      env,
+      st,
       [
         "Perfeito! 👏",
         "Agora vamos só confirmar uma coisinha rápida:",
@@ -9074,7 +9121,9 @@ case "ctps_36_parceiro": {
       fator_social: true
     });
 
-    return step(env, st,
+    return step(
+      env,
+      st,
       [
         "Sem problema! 👍",
         "Agora só mais uma coisinha:",
@@ -9098,7 +9147,9 @@ case "ctps_36_parceiro": {
     message: "Resposta não reconhecida em CTPS parceiro — seguindo sem travar"
   });
 
-  return step(env, st,
+  return step(
+    env,
+    st,
     [
       "Sem problema 👍",
       "Vou seguir aqui sem travar.",

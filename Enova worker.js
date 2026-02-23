@@ -8853,72 +8853,29 @@ case "ctps_36": {
     );
   }
 
-  // ============================================================
-  // NÃO ENTENDIDO (informativa, NÃO trava)
-  // Regra:
-  // - conjunto => ctps_36_parceiro
-  // - solo abaixo de 4k => dependente
-  // - solo >= 4k => restrição
-  // ============================================================
-  const ehFinanciamentoConjuntoFallback =
-    !!(st.financiamento_conjunto || st.somar_renda || st.parceiro_tem_renda);
+// ============================================================
+// NÃO ENTENDIDO
+// Regra canônica:
+// - lixo/ruído permanece na fase
+// ============================================================
+await funnelTelemetry(env, {
+  wa_id: st.wa_id,
+  event: "exit_stage",
+  stage,
+  next_stage: "ctps_36",
+  severity: "warning",
+  message: "Resposta não reconhecida — permanência na fase"
+});
 
-  const rendaTotalFluxoNumFallback = Number(st.renda_total_para_fluxo || st.renda || 0);
-  const devePerguntarDependenteSoloFallback =
-    !ehFinanciamentoConjuntoFallback && rendaTotalFluxoNumFallback > 0 && rendaTotalFluxoNumFallback < 4000;
-
-  const nextStageFallback = ehFinanciamentoConjuntoFallback
-    ? "ctps_36_parceiro"
-    : (devePerguntarDependenteSoloFallback ? "dependente" : "restricao");
-
-  await upsertState(env, st.wa_id, { ctps_36: null });
-
-  await funnelTelemetry(env, {
-    wa_id: st.wa_id,
-    event: "exit_stage",
-    stage,
-    next_stage: nextStageFallback,
-    severity: "warning",
-    message: "Resposta não compreendida em CTPS 36 — seguindo sem travar (informativa)"
-  });
-
-  if (nextStageFallback === "ctps_36_parceiro") {
-    return step(
-      env,
-      st,
-      [
-        "Sem problema 👍",
-        "Vou seguir aqui sem travar.",
-        "O parceiro(a) tem **36 meses ou mais** de carteira assinada nos últimos 3 anos?"
-      ],
-      "ctps_36_parceiro"
-    );
-  }
-
-  if (nextStageFallback === "dependente") {
-    return step(
-      env,
-      st,
-      [
-        "Sem problema 👍",
-        "Vou seguir aqui sem travar.",
-        "Você tem **dependente menor de 18 anos**?"
-      ],
-      "dependente"
-    );
-  }
-
-  return step(
-    env,
-    st,
-    [
-      "Sem problema 👍",
-      "Vou seguir aqui sem travar.",
-      "Você está com **alguma restrição no CPF**?"
-    ],
-    "restricao"
-  );
-}
+return step(
+  env,
+  st,
+  [
+    "Só pra confirmar certinho 😊",
+    "Você possui **36 meses ou mais de carteira assinada** nos últimos 3 anos?"
+  ],
+  "ctps_36"
+);
       
 // =========================================================
 // 🧩 C32 — CTPS 36 MESES (PARCEIRO)
@@ -9150,31 +9107,27 @@ case "ctps_36_parceiro": {
     );
   }
 
-  // ============================================================
-  // NÃO ENTENDIDO (informativa, NÃO trava)
-  // ============================================================
-  await upsertState(env, st.wa_id, { ctps_36_parceiro: null });
+// ============================================================
+// NÃO ENTENDIDO
+// Regra canônica:
+// - lixo/ruído permanece na fase
+// ============================================================
+await funnelTelemetry(env, {
+  wa_id: st.wa_id,
+  event: "exit_stage",
+  stage,
+  next_stage: "ctps_36_parceiro",
+  severity: "warning",
+  message: "Resposta não reconhecida — permanência na fase"
+});
 
-  await funnelTelemetry(env, {
-    wa_id: st.wa_id,
-    event: "exit_stage",
-    stage,
-    next_stage: "restricao",
-    severity: "warning",
-    message: "Resposta não reconhecida em CTPS parceiro — seguindo sem travar"
-  });
-
-  return step(
-    env,
-    st,
-    [
-      "Sem problema 👍",
-      "Vou seguir aqui sem travar.",
-      "Você está com **alguma restrição no CPF**, como negativação?"
-    ],
-    "restricao"
-  );
-}
+return step(env, st,
+  [
+    "Só pra confirmar certinho 😊",
+    "O parceiro(a) tem **36 meses ou mais** de carteira assinada somando os últimos empregos?"
+  ],
+  "ctps_36_parceiro"
+);
 
 // =============================================================
 // 🔢 C33 - Cálculo global de renda do cliente + parceiro

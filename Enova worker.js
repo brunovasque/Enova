@@ -4078,7 +4078,12 @@ if (isReset) {
   // ============================================================
 
   // 1) Webhook duplicado (mesmo texto que já foi processado)
-if (st.last_processed_text && st.last_processed_text === userText) {
+// ✅ só bloqueia se repetir o mesmo texto NA MESMA FASE
+const prevProcessedStage = String(st.last_processed_stage || "");
+const currStage = String(stage || "");
+const sameStageProcessed = prevProcessedStage === currStage;
+
+if (sameStageProcessed && st.last_processed_text && st.last_processed_text === userText) {
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "duplicate_webhook",
@@ -4087,7 +4092,9 @@ if (st.last_processed_text && st.last_processed_text === userText) {
     message: "Webhook duplicado detectado — processamento BLOQUEADO",
     details: {
       last_processed_text: st.last_processed_text,
-      current_text: userText
+      current_text: userText,
+      last_processed_stage: prevProcessedStage,
+      current_stage: currStage
     }
   });
 
@@ -4140,13 +4147,15 @@ if (
 // 3) Registrar mensagem atual como última do cliente + última processada
 await upsertState(env, st.wa_id, {
   last_user_text: userText,
-  last_processed_text: userText,
   last_user_stage: String(stage || ""),
+  last_processed_text: userText,
+  last_processed_stage: String(stage || ""),
   updated_at: new Date().toISOString()
 });
 st.last_user_text = userText;
-st.last_processed_text = userText;
 st.last_user_stage = String(stage || "");
+st.last_processed_text = userText;
+st.last_processed_stage = String(stage || "");
 
 // ============================================================
 // 🧩 INTERCEPTADOR GLOBAL DE SAUDAÇÃO — EM TODAS AS FASES

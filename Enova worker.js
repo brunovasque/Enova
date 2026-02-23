@@ -547,7 +547,18 @@ if ("renda_familiar" in patch) delete patch.renda_familiar;
 // 🔧 Helper de normalização de texto (para regex e reset global)
 // =============================================================
 function normalizeText(text) {
-  return (text || "")
+  let s = String(text || "");
+
+  // Corrige mojibake comum de UTF-8 vindo quebrado (ex.: "nÃ£o")
+  if (/[ÃÂ]/.test(s)) {
+    try {
+      s = decodeURIComponent(escape(s));
+    } catch (_) {
+      // se falhar, segue com o texto original
+    }
+  }
+
+  return s
     .toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")        // remove acentos
@@ -8618,14 +8629,9 @@ case "ctps_36": {
     }
   });
 
-  // Texto bruto + normalizado (sem acento) para evitar falha em "nao"
-  const t = String(userText || "").trim();
-  const tNorm = t
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  // Texto bruto + normalizado (centralizado no helper global)
+const t = String(userText || "").trim();
+const tNorm = normalizeText(t);
 
   // Token simples (evita depender de \b em casos chatos)
   const hasWord = (w) => new RegExp(`(^|\\s)${w}(\\s|$)`, "i").test(tNorm);
@@ -8911,12 +8917,7 @@ case "ctps_36_parceiro": {
   });
 
   const t = String(userText || "").trim();
-  const tNorm = t
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  const tNorm = normalizeText(t);
 
   const ehFinanciamentoConjunto = !!(
     st.financiamento_conjunto ||

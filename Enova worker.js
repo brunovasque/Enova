@@ -8601,26 +8601,43 @@ case "ctps_36": {
     }
   });
 
-  // Exemplos cobertos: "tenho mais de 3 anos de carteira", "registrado desde 2018", "menos de 36 meses"
-  const t = userText.trim();
+  // Texto bruto + normalizado (sem acento) para evitar falha em "nao"
+  const t = String(userText || "").trim();
+  const tNorm = t
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, ""); // remove acentos: "não" -> "nao"
 
-  // Evita ler "não tenho 36 meses" como SIM
+  // Token simples (evita depender de \b em casos chatos)
+  const hasWord = (w) => new RegExp(`(^|\\s)${w}(\\s|$)`, "i").test(tNorm);
+
+  // Negação explícita sobre 36 meses
   const temNegacao36 =
-    /\b(n[aã]o|nao)\s+(tenho|possuo|completei|completo)\b/i.test(t) ||
-    /\b(menos de\s*36)\b/i.test(t);
+    /(nao)\s+(tenho|possuo|completei|completo)/i.test(tNorm) ||
+    /(menos de\s*36)/i.test(tNorm) ||
+    /(menos de\s*3 anos)/i.test(tNorm) ||
+    /(nao\s+tem\s+36)/i.test(tNorm);
 
+  // "sim" / positivo
   const sim =
     !temNegacao36 &&
-    (/\b(sim)\b/i.test(t) ||
-      /\b(tenho|possuo|completo|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})\b/i.test(t));
+    (
+      hasWord("sim") ||
+      /(tenho|possuo|completo)/i.test(tNorm) ||
+      /(mais de\s*36|acima de\s*36)/i.test(tNorm) ||
+      /(mais de\s*3 anos|3 anos ou mais)/i.test(tNorm) ||
+      /(desde\s*20\d{2})/i.test(tNorm)
+    );
 
+  // "não sei"
   const nao_sei =
-    /(nao sei|não sei|não lembro|talvez|acho)/i.test(t);
+    /(nao sei|nao lembro|talvez|acho)/i.test(tNorm);
 
+  // "não" (inclui "nao" simples)
   const nao =
     !nao_sei && (
       temNegacao36 ||
-      /\b(n[aã]o|nao)\b/i.test(t)
+      hasWord("nao")
     );
 
   const ehFinanciamentoConjunto =
@@ -8902,7 +8919,7 @@ case "ctps_36": {
     "restricao"
   );
 }
-
+      
 // =========================================================
 // 🧩 C32 — CTPS 36 MESES (PARCEIRO)
 // =========================================================

@@ -4046,13 +4046,6 @@ if (isReset) {
   // 🔥 CORREÇÃO ABSOLUTA: recarrega estado limpo
   const novoSt = await getState(env, st.wa_id);
 
-  // Regrava o texto atual logo após o reset para blindar reentrega do webhook
-  await upsertState(env, st.wa_id, {
-    last_user_text: userText,
-    last_processed_text: userText,
-    updated_at: new Date().toISOString()
-  });
-
   novoSt.last_user_text = userText;
   novoSt.last_processed_text = userText;
 

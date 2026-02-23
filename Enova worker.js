@@ -8635,10 +8635,15 @@ case "ctps_36": {
 
   // "não" (inclui "nao" simples)
   const nao =
-    !nao_sei && (
-      temNegacao36 ||
-      hasWord("nao")
-    );
+  !nao_sei &&
+  (
+    temNegacao36 ||
+    /^(nao)$/i.test(tNorm) ||
+    /\bnao\b/i.test(tNorm) ||
+    /\bnao tem\b/i.test(tNorm) ||
+    /\bmenos de\s*36\b/i.test(tNorm) ||
+    /\bmenos de\s*3 anos\b/i.test(tNorm)
+  );
 
   const ehFinanciamentoConjunto =
     !!(st.financiamento_conjunto || st.somar_renda || st.parceiro_tem_renda);

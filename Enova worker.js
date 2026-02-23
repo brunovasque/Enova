@@ -5644,10 +5644,15 @@ case "somar_renda_solteiro": {
     .toLowerCase();
 
   const sozinho =
-    /\b(so|somente|apenas)\s+(minha\s+renda|minha|eu)\b/i.test(tBase) ||
-    /\b(sozinha|sozinho)\b/i.test(tBase) ||
-    /\b(quero\s+seguir\s+)?so\s+com\s+(a\s+)?minha\s+renda\b/i.test(tBase);
-
+  /\b(so|somente|apenas)\s+(minha\s+renda|minha|eu)\b/i.test(tBase) ||
+  /\b(sozinha|sozinho)\b/i.test(tBase) ||
+  /\b(quero\s+seguir\s+)?so\s+com\s+(a\s+)?minha\s+renda\b/i.test(tBase) ||
+  /\bso\s+a\s+minha\b/i.test(tBase) ||
+  /\bso\s+minha\b/i.test(tBase) ||
+  /\bs[oó]\s+com\s+a?\s*minha\b/i.test(t) ||
+  /\bs[oó]\s+eu\b/i.test(t) ||
+  /\bapenas\s+eu\b/i.test(tBase);
+  
   const parceiro =
     /quero\s+somar\s+renda\s*$/i.test(tBase) ||
     /(parceiro|parceira|conjuge|marido|esposa|esposo|meu namorado|minha namorada)/i.test(tBase) ||

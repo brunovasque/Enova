@@ -6470,16 +6470,23 @@ case "inicio_multi_renda_coletar": {
     details: { last_user_text: st.last_user_text }
   });
 
-  const txt = userText || "";
-  // Exemplos cobertos: "bico - 800", "uber — 1.200", "ifood - r$ 900"
+  const txt = String(userText || "").trim();
 
-  // Regex robusta pega:
-  // Bico — 1200
-  // Bico - 1.200
-  // autonomo–800
-  const match = txt.match(/(.+?)\s*[-–—]\s*(r\$\s*)?([\d\.,kK]+)/);
+  // 1) Formato completo: "tipo - valor"
+  // 2) Formato curto: "1200,00" (assume renda extra genérica)
+  const matchCompleto = txt.match(/(.+?)\s*[-–—]\s*(r\$\s*)?([\d\.,kK]+)/i);
+  const matchSomenteValor = txt.match(/^(r\$\s*)?([\d\.,kK]+)$/i);
 
-  if (!match) {
+  let tipo = "";
+  let valorNumerico = 0;
+
+  if (matchCompleto) {
+    tipo = normalizeText(matchCompleto[1].trim());
+    valorNumerico = parseMoneyBR(matchCompleto[3]) || 0;
+  } else if (matchSomenteValor) {
+    tipo = "renda extra";
+    valorNumerico = parseMoneyBR(matchSomenteValor[2]) || 0;
+  } else {
     return step(
       env,
       st,
@@ -6492,8 +6499,18 @@ case "inicio_multi_renda_coletar": {
     );
   }
 
-  const tipo = normalizeText(match[1].trim());
-  const valorNumerico = parseMoneyBR(match[3]) || 0;
+  if (!valorNumerico || valorNumerico <= 0) {
+    return step(
+      env,
+      st,
+      [
+        "Não consegui identificar o valor da renda extra 😅",
+        "Pode me enviar novamente?",
+        "Exemplo: *Bico — 1000* ou só *1000*"
+      ],
+      "inicio_multi_renda_coletar"
+    );
+  }
 
   // -------------------------------
   // Atualiza lista local (JSON)
@@ -8606,44 +8623,47 @@ case "ctps_36": {
   const tNorm = t
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, ""); // remove acentos: "não" -> "nao"
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 
   // Token simples (evita depender de \b em casos chatos)
   const hasWord = (w) => new RegExp(`(^|\\s)${w}(\\s|$)`, "i").test(tNorm);
 
   // Negação explícita sobre 36 meses
   const temNegacao36 =
-    /(nao)\s+(tenho|possuo|completei|completo)/i.test(tNorm) ||
+    /(nao)\s+(tenho|possuo|completei|completo|completa|tem|possui)/i.test(tNorm) ||
     /(menos de\s*36)/i.test(tNorm) ||
     /(menos de\s*3 anos)/i.test(tNorm) ||
     /(nao\s+tem\s+36)/i.test(tNorm);
-
-  // "sim" / positivo
-  const sim =
-    !temNegacao36 &&
-    (
-      hasWord("sim") ||
-      /(tenho|possuo|completo)/i.test(tNorm) ||
-      /(mais de\s*36|acima de\s*36)/i.test(tNorm) ||
-      /(mais de\s*3 anos|3 anos ou mais)/i.test(tNorm) ||
-      /(desde\s*20\d{2})/i.test(tNorm)
-    );
 
   // "não sei"
   const nao_sei =
     /(nao sei|nao lembro|talvez|acho)/i.test(tNorm);
 
-  // "não" (inclui "nao" simples)
+  // "sim" / positivo
+  const sim =
+    !temNegacao36 &&
+    !nao_sei &&
+    (
+      hasWord("sim") ||
+      /(tenho|possuo|possui|completo|completa)/i.test(tNorm) ||
+      /(mais de\s*36|acima de\s*36)/i.test(tNorm) ||
+      /(mais de\s*3 anos|3 anos ou mais)/i.test(tNorm) ||
+      /(desde\s*20\d{2})/i.test(tNorm)
+    );
+
+  // "não" (inclui "nao" simples e frases comuns)
   const nao =
-  !nao_sei &&
-  (
-    temNegacao36 ||
-    /^(nao)$/i.test(tNorm) ||
-    /\bnao\b/i.test(tNorm) ||
-    /\bnao tem\b/i.test(tNorm) ||
-    /\bmenos de\s*36\b/i.test(tNorm) ||
-    /\bmenos de\s*3 anos\b/i.test(tNorm)
-  );
+    !nao_sei &&
+    !sim &&
+    (
+      temNegacao36 ||
+      hasWord("nao") ||
+      tNorm === "n" ||
+      /(nao tem|nao possui|nao completo|nao completei)/i.test(tNorm) ||
+      /(menos de\s*36|menos de\s*3 anos)/i.test(tNorm)
+    );
 
   const ehFinanciamentoConjunto =
     !!(st.financiamento_conjunto || st.somar_renda || st.parceiro_tem_renda);
@@ -8658,10 +8678,6 @@ case "ctps_36": {
 
     await upsertState(env, st.wa_id, { ctps_36: true });
 
-    // Regra:
-    // - conjunto => pula dependente e vai restrição
-    // - solo abaixo de 4k => dependente
-    // - solo >= 4k => restrição
     const nextStage = ehFinanciamentoConjunto
       ? "restricao"
       : (devePerguntarDependenteSolo ? "dependente" : "restricao");
@@ -8716,10 +8732,6 @@ case "ctps_36": {
 
   // ============================================================
   // NÃO SABE INFORMAR
-  // Regra canônica:
-  // - conjunto => pergunta ctps_36_parceiro
-  // - solo abaixo de 4k => dependente
-  // - solo >= 4k => restrição
   // ============================================================
   if (nao_sei) {
 
@@ -8786,10 +8798,6 @@ case "ctps_36": {
 
   // ============================================================
   // NÃO — Não possui 36 meses
-  // Regra:
-  // - conjunto => pergunta 36 meses do parceiro
-  // - solo abaixo de 4k => dependente
-  // - solo >= 4k => restrição
   // ============================================================
   if (nao) {
 
@@ -8858,29 +8866,27 @@ case "ctps_36": {
     );
   }
 
-// ============================================================
-// NÃO ENTENDIDO
-// Regra canônica:
-// - lixo/ruído permanece na fase
-// ============================================================
-await funnelTelemetry(env, {
-  wa_id: st.wa_id,
-  event: "exit_stage",
-  stage,
-  next_stage: "ctps_36",
-  severity: "warning",
-  message: "Resposta não reconhecida — permanência na fase"
-});
+  // ============================================================
+  // NÃO ENTENDIDO
+  // ============================================================
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "exit_stage",
+    stage,
+    next_stage: "ctps_36",
+    severity: "warning",
+    message: "Resposta não reconhecida — permanência na fase"
+  });
 
-return step(
-  env,
-  st,
-  [
-    "Só pra confirmar certinho 😊",
-    "Você possui **36 meses ou mais de carteira assinada** nos últimos 3 anos?"
-  ],
-  "ctps_36"
-);
+  return step(
+    env,
+    st,
+    [
+      "Só pra confirmar certinho 😊",
+      "Você possui **36 meses ou mais de carteira assinada** nos últimos 3 anos?"
+    ],
+    "ctps_36"
+  );
 }
       
 // =========================================================
@@ -8904,7 +8910,13 @@ case "ctps_36_parceiro": {
     }
   });
 
-  const t = userText.trim();
+  const t = String(userText || "").trim();
+  const tNorm = t
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 
   const ehFinanciamentoConjunto = !!(
     st.financiamento_conjunto ||
@@ -8914,8 +8926,6 @@ case "ctps_36_parceiro": {
     st.somar_renda_familiar
   );
 
-  // Segurança: esta fase só deve existir em fluxo conjunto/composição.
-  // Se cair aqui sem flag, não trava: segue informativo para restrição.
   if (!ehFinanciamentoConjunto) {
     await upsertState(env, st.wa_id, { ctps_36_parceiro: null });
 
@@ -8940,33 +8950,32 @@ case "ctps_36_parceiro": {
     );
   }
 
-  // Evita ler "não possui / não completa / menos de 36" como SIM
   const temNegacao36Parceiro =
-    /\b(n[aã]o|nao)\s+(tem|tenho|possui|possuo|completei|completo|completa)\b/i.test(t) ||
-    /\b(menos de\s*36)\b/i.test(t) ||
-    /\b(menos de\s*3 anos)\b/i.test(t);
+    /(nao)\s+(tem|tenho|possui|possuo|completei|completo|completa)/i.test(tNorm) ||
+    /(menos de\s*36)/i.test(tNorm) ||
+    /(menos de\s*3 anos)/i.test(tNorm);
+
+  const nao_sei =
+    /(nao sei|talvez|acho|nao lembro)/i.test(tNorm);
 
   const sim =
     !temNegacao36Parceiro &&
+    !nao_sei &&
     (
-      /\b(sim)\b/i.test(t) ||
-      /\b(tem sim|possui|possuo|completo|completa|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})\b/i.test(t)
+      /(^|\s)sim(\s|$)/i.test(tNorm) ||
+      /(tem sim|possui|possuo|completo|completa|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})/i.test(tNorm)
     );
-
-  const nao_sei =
-    /(não sei|nao sei|talvez|acho|não lembro|nao lembro)/i.test(t);
 
   const nao =
-    !nao_sei && (
+    !nao_sei &&
+    !sim &&
+    (
       temNegacao36Parceiro ||
-      /\b(n[aã]o|nao)\b/i.test(t)
+      /(^|\s)nao(\s|$)/i.test(tNorm)
     );
 
-  // Segurança: saída sempre informativa (não trava)
   const nextStageInformativo = "restricao";
 
-  // Regra CEF: titular com 36 meses não deve cair nesta fase.
-  // Se caiu, segue sem travar e pula dependente (casal).
   if (st.ctps_36 === true) {
     await upsertState(env, st.wa_id, {
       dependente: true,
@@ -9000,9 +9009,6 @@ case "ctps_36_parceiro": {
     );
   }
 
-  // ============================================================
-  // PARCEIRO TEM 36+ MESES DE CARTEIRA
-  // ============================================================
   if (sim) {
 
     await upsertState(env, st.wa_id, { ctps_36_parceiro: true });
@@ -9040,9 +9046,6 @@ case "ctps_36_parceiro": {
     );
   }
 
-  // ============================================================
-  // PARCEIRO NÃO SABE / INCERTO (informativa, não trava)
-  // ============================================================
   if (nao_sei) {
     await upsertState(env, st.wa_id, { ctps_36_parceiro: null });
 
@@ -9073,9 +9076,6 @@ case "ctps_36_parceiro": {
     );
   }
 
-  // ============================================================
-  // PARCEIRO NÃO TEM 36 MESES (informativa, não trava)
-  // ============================================================
   if (nao) {
 
     await upsertState(env, st.wa_id, { ctps_36_parceiro: false });
@@ -9113,29 +9113,26 @@ case "ctps_36_parceiro": {
     );
   }
 
-// ============================================================
-// NÃO ENTENDIDO
-// Regra canônica:
-// - lixo/ruído permanece na fase
-// ============================================================
-await funnelTelemetry(env, {
-  wa_id: st.wa_id,
-  event: "exit_stage",
-  stage,
-  next_stage: "ctps_36_parceiro",
-  severity: "warning",
-  message: "Resposta não reconhecida — permanência na fase"
-});
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "exit_stage",
+    stage,
+    next_stage: "ctps_36_parceiro",
+    severity: "warning",
+    message: "Resposta não reconhecida — permanência na fase"
+  });
 
-return step(env, st,
-  [
-    "Só pra confirmar certinho 😊",
-    "O parceiro(a) tem **36 meses ou mais** de carteira assinada somando os últimos empregos?"
-  ],
-  "ctps_36_parceiro"
-);
+  return step(
+    env,
+    st,
+    [
+      "Só pra confirmar certinho 😊",
+      "O parceiro(a) tem **36 meses ou mais** de carteira assinada somando os últimos empregos?"
+    ],
+    "ctps_36_parceiro"
+  );
 }
-
+      
 // =============================================================
 // 🔢 C33 - Cálculo global de renda do cliente + parceiro
 // =============================================================

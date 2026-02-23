@@ -8876,6 +8876,7 @@ return step(
   ],
   "ctps_36"
 );
+}
       
 // =========================================================
 // 🧩 C32 — CTPS 36 MESES (PARCEIRO)
@@ -9128,6 +9129,7 @@ return step(env, st,
   ],
   "ctps_36_parceiro"
 );
+}
 
 // =============================================================
 // 🔢 C33 - Cálculo global de renda do cliente + parceiro

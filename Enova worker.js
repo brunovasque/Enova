@@ -4031,51 +4031,6 @@ async function runFunnel(env, st, userText) {
     }
   });
 
-// ============================================================
-// 🔄 RESET GLOBAL — funciona em QUALQUER FASE
-// ============================================================
-const nt = normalizeText(userText || "");
-
-const isReset =
-  nt === "reset" ||
-  /\b(resetar|reset|recomecar|recomeçar|zerar tudo|comecar do zero|começar do zero|comecar tudo de novo|começar tudo de novo)\b/.test(nt);
-
-if (isReset) {
-  await resetTotal(env, st.wa_id);
-
-  // 🔥 CORREÇÃO ABSOLUTA: recarrega estado limpo
-  const novoSt = await getState(env, st.wa_id);
-
-  novoSt.last_user_text = userText;
-  novoSt.last_processed_text = userText;
-
-  await funnelTelemetry(env, {
-    wa_id: st.wa_id,
-    event: "reset_global",
-    stage,
-    next_stage: "inicio_programa",
-    severity: "info",
-    message: "Reset global solicitado pelo usuário",
-    details: {
-      previous_stage: stage,
-      normalized_text: nt,
-      last_user_text: userText
-    }
-  });
-
-  return step(
-    env,
-    novoSt,
-    [
-      "Perfeito, limpamos tudo aqui pra você 👌",
-      "Eu sou a Enova 😊, assistente do programa Minha Casa Minha Vida.",
-      "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
-      "Me responde com *sim* (já sei) ou *não* (quero que explique)."
-    ],
-    "inicio_programa"
-  );
-}
-
   // ============================================================
   // 🛑 BLOCO D — ANTI-LOOP / ANTI-DUPLICAÇÃO
   // ============================================================
@@ -4103,6 +4058,63 @@ if (sameStageProcessed && st.last_processed_text && st.last_processed_text === u
 
   // corte: não reprocessa nem responde de novo
   return new Response("OK_DUPLICATE", { status: 200 });
+}
+
+// ============================================================
+// 🔄 RESET GLOBAL — funciona em QUALQUER FASE
+// ============================================================
+const nt = normalizeText(userText || "");
+
+const isReset =
+  nt === "reset" ||
+  /\b(resetar|reset|recomecar|recomeçar|zerar tudo|comecar do zero|começar do zero|comecar tudo de novo|começar tudo de novo)\b/.test(nt);
+
+if (isReset) {
+  await resetTotal(env, st.wa_id);
+
+  // 🔥 CORREÇÃO ABSOLUTA: recarrega estado limpo
+  const novoSt = await getState(env, st.wa_id);
+
+  await upsertState(env, st.wa_id, {
+    fase_conversa: "inicio_programa",
+    last_user_text: null,
+    last_user_stage: null,
+    last_processed_text: null,
+    last_processed_stage: null,
+    updated_at: new Date().toISOString()
+  });
+
+  novoSt.fase_conversa = "inicio_programa";
+  novoSt.last_user_text = null;
+  novoSt.last_user_stage = null;
+  novoSt.last_processed_text = null;
+  novoSt.last_processed_stage = null;
+
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "reset_global",
+    stage,
+    next_stage: "inicio_programa",
+    severity: "info",
+    message: "Reset global solicitado pelo usuário",
+    details: {
+      previous_stage: stage,
+      normalized_text: nt,
+      last_user_text: userText
+    }
+  });
+
+  return step(
+    env,
+    novoSt,
+    [
+      "Perfeito, limpamos tudo aqui pra você 👌",
+      "Eu sou a Enova 😊, assistente do programa Minha Casa Minha Vida.",
+      "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
+      "Me responde com *sim* (já sei) ou *não* (quero que explique)."
+    ],
+    "inicio_programa"
+  );
 }
 
 // 2) Loop por repetição do cliente (comparar com a ÚLTIMA msg do cliente)

@@ -4098,15 +4098,20 @@ if (st.last_processed_text && st.last_processed_text === userText) {
 // 2) Loop por repetição do cliente (comparar com a ÚLTIMA msg do cliente)
 const nt_blockd = normalizeText(userText || "");
 const prev_nt_blockd = normalizeText(st.last_user_text || "");
+const prev_stage_user_blockd = String(st.last_user_stage || "");
 
 const isGreeting_blockd = /^(oi|ola|olá|bom dia|boa tarde|boa noite)\b/i.test(nt_blockd);
 const isResetCmd_blockd = /^(reset|reiniciar|recomecar|recomeçar|do zero|nova analise|nova análise)\b/i.test(nt_blockd);
 
-  const allowRepeatInStage_blockd = (
+const allowRepeatInStage_blockd = (
   stage === "somar_renda_familiar"
 );
 
+// ✅ só bloqueia repetição se for na MESMA fase
+const sameStageRepeat_blockd = (prev_stage_user_blockd === String(stage || ""));
+
 if (
+  sameStageRepeat_blockd &&
   !allowRepeatInStage_blockd &&
   !isGreeting_blockd &&
   !isResetCmd_blockd &&
@@ -4118,7 +4123,12 @@ if (
     event: "loop_message_detected",
     stage,
     severity: "warning",
-    message: "Cliente enviou a mesma mensagem repetida — bloqueio de loop"
+    message: "Cliente enviou a mesma mensagem repetida — bloqueio de loop",
+    details: {
+      prev_stage_user: prev_stage_user_blockd,
+      current_stage: String(stage || ""),
+      normalized_text: nt_blockd
+    }
   });
 
   return step(env, st, [
@@ -4131,10 +4141,12 @@ if (
 await upsertState(env, st.wa_id, {
   last_user_text: userText,
   last_processed_text: userText,
+  last_user_stage: String(stage || ""),
   updated_at: new Date().toISOString()
 });
 st.last_user_text = userText;
 st.last_processed_text = userText;
+st.last_user_stage = String(stage || "");
 
 // ============================================================
 // 🧩 INTERCEPTADOR GLOBAL DE SAUDAÇÃO — EM TODAS AS FASES

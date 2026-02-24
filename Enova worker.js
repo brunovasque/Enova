@@ -8719,11 +8719,8 @@ const tNorm = normalizeText(t);
 
   const ehFinanciamentoConjunto = !!(
   st.financiamento_conjunto ||
-  st.parceiro_tem_renda ||
-  st.regime_trabalho_parceiro ||
-  st.renda_parceiro ||
-  st.renda_familiar ||
-  st.somar_renda_familiar
+  st.somar_renda_familiar ||
+  st.renda_familiar
 );
 
   const rendaTotalFluxoNum = Number(st.renda_total_para_fluxo || st.renda || 0);
@@ -8820,11 +8817,8 @@ const tNorm = normalizeText(t);
 
   const ehFinanciamentoConjunto2 = !!(
   st.financiamento_conjunto ||
-  st.parceiro_tem_renda ||
-  st.regime_trabalho_parceiro ||
-  st.renda_parceiro ||
-  st.renda_familiar ||
-  st.somar_renda_familiar
+  st.somar_renda_familiar ||
+  st.renda_familiar
 );
 
     const rendaTotalFluxoNum2 = Number(st.renda_total_para_fluxo || st.renda || 0);
@@ -8894,11 +8888,8 @@ const tNorm = normalizeText(t);
 
   const ehFinanciamentoConjunto2 = !!(
   st.financiamento_conjunto ||
-  st.parceiro_tem_renda ||
-  st.regime_trabalho_parceiro ||
-  st.renda_parceiro ||
-  st.renda_familiar ||
-  st.somar_renda_familiar
+  st.somar_renda_familiar ||
+  st.renda_familiar
 );
 
     const rendaTotalFluxoNum2 = Number(st.renda_total_para_fluxo || st.renda || 0);
@@ -9010,11 +9001,8 @@ case "ctps_36_parceiro": {
 
   const ehFinanciamentoConjunto = !!(
   st.financiamento_conjunto ||
-  st.parceiro_tem_renda ||
-  st.regime_trabalho_parceiro ||
-  st.renda_parceiro ||
-  st.renda_familiar ||
-  st.somar_renda_familiar
+  st.somar_renda_familiar ||
+  st.renda_familiar
 );
 
   if (!ehFinanciamentoConjunto) {

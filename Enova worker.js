@@ -8727,6 +8727,31 @@ const tNorm = normalizeText(t);
 );
 
   const rendaTotalFluxoNum = Number(st.renda_total_para_fluxo || st.renda || 0);
+
+  await funnelTelemetry(env, {
+  wa_id: st.wa_id,
+  event: "ctps_36_debug_gate",
+  stage,
+  severity: "warning",
+  message: "DEBUG ctps_36 gate decision",
+  details: {
+    userText_raw: String(userText || ""),
+    userText_norm: tNorm,
+    sim,
+    nao,
+    nao_sei,
+    renda: st.renda ?? null,
+    renda_total_para_fluxo: st.renda_total_para_fluxo ?? null,
+    rendaTotalFluxoNum,
+    financiamento_conjunto: st.financiamento_conjunto ?? null,
+    parceiro_tem_renda: st.parceiro_tem_renda ?? null,
+    somar_renda: st.somar_renda ?? null,
+    somar_renda_familiar: st.somar_renda_familiar ?? null,
+    regime_trabalho: st.regime_trabalho ?? st.regime ?? null,
+    regime_trabalho_parceiro: st.regime_trabalho_parceiro ?? null
+  }
+});
+  
   const devePerguntarDependenteSolo = !ehFinanciamentoConjunto && rendaTotalFluxoNum > 0 && rendaTotalFluxoNum < 4000;
 
   // ============================================================

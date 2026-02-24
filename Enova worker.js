@@ -1248,7 +1248,39 @@ function createSimulationState(wa_id, startStage) {
     ultima_renda_bruta_informada: null,
     qtd_rendas_informadas: null,
     qtd_regimes_informados: null,
-    ultima_regime_informado: null
+    ultima_regime_informado: null,
+
+    // Docs / pré-análise (espelho do reset real)
+    docs_status: null,
+    docs_faltantes: null,
+    docs_completos: null,
+    docs_validacao_atualizada: null,
+    fase_docs: null,
+    ultima_interacao_docs: null,
+    docs_status_geral: null,
+    docs_itens_pendentes: null,
+    docs_itens_recebidos: null,
+    docs_lista_enviada: null,
+    docs_status_completo: null,
+    docs_status_parcial: null,
+    docs_status_texto: null,
+
+    processo_pre_analise: null,
+    processo_pre_analise_status: null,
+    retorno_correspondente_bruto: null,
+    retorno_correspondente_status: null,
+    retorno_correspondente_motivo: null,
+    dossie_resumo: null,
+    processo_enviado_correspondente: null,
+    aguardando_retorno_correspondente: null,
+
+    // Participantes (zera composição antiga)
+    p1_tipo: null,
+    p2_tipo: null,
+    p3_tipo: null,
+    p1_maior_idade: null,
+    p2_maior_idade: null,
+    p3_maior_idade: null
   };
 }
 

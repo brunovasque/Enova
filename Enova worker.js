@@ -1054,99 +1054,141 @@ async function resetTotal(env, wa_id) {
     }
   });
 
-  // 2) Recria estado 100% limpo e CONSISTENTE com tabela atual
+  // 2) Recria estado 100% limpo e COMPATÍVEL com a tabela real
   await upsertState(env, wa_id, {
-    // Fase inicial do funil
+    // Base
     fase_conversa: "inicio",
     funil_status: null,
+    updated_at: new Date().toISOString(),
 
-    // Logs e rastreamento
+    // Rastreamento / mensagens
     last_user_text: null,
     last_processed_text: null,
     last_bot_msg: null,
     last_message_id: null,
+    last_user_msg: null,
+    last_incoming_text: null,
+    last_incoming_id: null,
+    last_reply_id: null,
+    last_intent: null,
+    last_context: null,
+    last_ts: null,
+    _incoming_meta: null,
 
-    // Campos clássicos
+    // Identificação / início
     nome: null,
-    primeiro_nome: null,
-    nome_parceiro: null,
-    nome_parceiro_normalizado: null,
     estado_civil: null,
-    casamento_formal: null,
-    somar_renda: null,
-    somar_renda_familiar: null,
-    financiamento_conjunto: null,
-    parceiro_tem_renda: null,
-    familiar_tipo: null,
-    regime: null,
-    regime_trabalho: null,
-    regime_parceiro: null,
-    regime_trabalho_parceiro: null,
-    regime_trabalho_parceiro_familiar: null,
-    tipo_trabalho: null,
-    tipo_trabalho_parceiro: null,
-    renda: null,
-    renda_base: null,
-    renda_bruta: null,
-    renda_titular: null,
-    renda_variavel: null,
-    renda_mista: null,
-    renda_parceiro: null,
-    renda_parceiro_bruta: null,
-    p2_renda_variavel: null,
-    renda_familiar: null,
-    renda_total_para_fluxo: null,
-    ultima_renda_bruta_informada: null,
-    qtd_rendas_informadas: null,
-    dependente: null,
-    tem_dependente: null,
-    dependentes_qtd: null,
-    fator_social: null,
-    restricao: null,
-    valor_restricao: null,
-    valor_restricao_aproximado: null,
-    motivo_ineligivel: null,
-
-    // CTPS / formalização
-    ctps_36: null,
-    ctps_36_parceiro: null,
-    ir_declarado: null,
-    ir_declarado_parceiro: null,
-    ir_declarado_p2: null,
-    
-    // Novos campos da fase inicial (compatível com sua tabela)
     nacionalidade: null,
-    rnm_status: null,
+    estrangeiro_flag: null,
+    tem_rnm: null,
+    rnm_tipo: null,
     rnm_validade: null,
 
-    // Multi-renda / multi-regime
-    multi_rendas: null,
-    multi_rendas_parceiro: null,
-    multi_regimes: null,
-    multi_regimes_parceiro: null,
+    // Trilho principal / renda
+    somar_renda: null,
+    financiamento_conjunto: null,
+    renda: null,
+    renda_liquida: null,
+    renda_bruta: null,
+    renda_bruta_temp: null,
+    renda_titular: null,
+    renda_parceiro: null,
+    renda_total_para_fluxo: null,
+    ultima_renda_bruta_informada: null,
+
+    // Regime / trabalho
+    regime: null,
+    regime_parceiro: null,
+    modo_renda: null,
+    renda_formal: null,
+    renda_informal: null,
+    renda_mista: null,
+    renda_extra: null,
+
+    // IR / CTPS
+    ir_declarado: null,
+    ir_parceiro: null,
+    ir_declarado_parceiro: null,
+    ctps_36: null,
+    ctps_parceiro: null,
+    ctps_36_parceiro: null,
+
+    // Dependente / social
+    dependente: null,
+    tem_dependente: null,
+    fator_social: null,
+
+    // Restrição
+    restricao: null,
+    regularizacao: null,
+    regularizacao_restricao: null,
+    restricao_attempts: null,
+
+    // Composição / parceiro (campos que contaminam trilho)
+    parceiro_tem_renda: null,
+    nome_parceiro: null,
+    nome_parceiro_normalizado: null,
+    casamento_civil: null,
+    coletas_casal: null,
+    regime_misto: null,
+    solteiro_sozinho: null,
+
+    // Composição familiar
+    composicao_pessoa: null,
+    p1_tipo: null,
+    p2_tipo: null,
+    p3_tipo: null,
+    p1_maior_idade: null,
+    p2_maior_idade: null,
+    p3_maior_idade: null,
+
+    // Multi-renda / multi-regime (nomes reais da tabela)
     multi_renda_flag: null,
     multi_renda_lista: null,
+    multi_regime_flag: null,
+    multi_regime_lista: null,
+    qtd_rendas_informadas: null,
+    qtd_regimes_informados: null,
+    ultima_regime_informado: null,
 
-    // Rendas calculadas (suportam cálculo global)
-    renda_individual_calculada: null,
-    renda_parceiro_calculada: null,
-    renda_total_composicao: null,
-    faixa_renda_programa: null,
-
-    // Docs / visita / operação
-    docs_lista_enviada: null,
+    // Docs / pré-análise / visita (pra reset total mesmo)
+    canal_envio_docs: null,
+    status_docs: null,
+    docs_identidade: null,
+    docs_carteira_trabalho: null,
+    docs_comprovante_renda: null,
+    docs_comprovante_residencia: null,
+    docs_status: null,
+    docs_faltantes: null,
+    docs_completos: null,
+    docs_validacao_atualizada: null,
+    fase_docs: null,
+    ultima_interacao_docs: null,
     docs_status_geral: null,
+    docs_itens_pendentes: null,
+    docs_itens_recebidos: null,
+    docs_lista_enviada: null,
+    docs_status_completo: null,
+    docs_status_parcial: null,
+    docs_status_texto: null,
+
+    processo_pre_analise: null,
+    processo_pre_analise_status: null,
+    pre_cadastro_numero: null,
+    retorno_correspondente_bruto: null,
+    retorno_correspondente_status: null,
+    retorno_correspondente_motivo: null,
+    dossie_resumo: null,
     processo_enviado_correspondente: null,
-    visita_confirmada: null,
-    visita_dia_hora: null,
-    modo_humano: null,
+    aguardando_retorno_correspondente: null,
 
-    // Controle de processamento
-    last_processed_stage: null,
-    last_user_stage: null,
+    agendamento_id: null,
 
-    // Atualização
-    updated_at: new Date().toISOString()
+    // Controle auxiliar
+    ultimo_campo: null,
+    intro_etapa: null,
+    controle: null,
+    atendimento_manual: null
   });
 
   return;
@@ -1155,94 +1197,140 @@ async function resetTotal(env, wa_id) {
 function createSimulationState(wa_id, startStage) {
   return {
     wa_id,
+
+    // Base
     fase_conversa: startStage || "inicio",
     funil_status: null,
+    updated_at: new Date().toISOString(),
 
-    // Logs e rastreamento
+    // Rastreamento / mensagens
     last_user_text: null,
     last_processed_text: null,
     last_bot_msg: null,
+    last_message_id: null,
+    last_user_msg: null,
+    last_incoming_text: null,
+    last_incoming_id: null,
+    last_reply_id: null,
+    last_intent: null,
+    last_context: null,
+    last_ts: null,
+    _incoming_meta: null,
 
-    // Campos clássicos do funil
+    // Identificação / início
     nome: null,
-    primeiro_nome: null,
-    nome_parceiro: null,
-    nome_parceiro_normalizado: null,
     estado_civil: null,
-    casamento_formal: null,
-    regime: null,
-    regime_trabalho: null,
-    regime_parceiro: null,
-    regime_trabalho_parceiro: null,
-    regime_trabalho_parceiro_familiar: null,
-    tipo_trabalho: null,
-    tipo_trabalho_parceiro: null,
-    somar_renda: null,
-    somar_renda_familiar: null,
-    financiamento_conjunto: null,
-    parceiro_tem_renda: null,
-    familiar_tipo: null,
-    renda: null,
-    renda_base: null,
-    renda_bruta: null,
-    renda_titular: null,
-    renda_variavel: null,
-    renda_mista: null,
-    renda_parceiro: null,
-    renda_parceiro_bruta: null,
-    p2_renda_variavel: null,
-    renda_familiar: null,
-    renda_total_para_fluxo: null,
-    ultima_renda_bruta_informada: null,
-    qtd_rendas_informadas: null,
-    dependente: null,
-    tem_dependente: null,
-    dependentes_qtd: null,
-    fator_social: null,
-    restricao: null,
-    valor_restricao: null,
-    valor_restricao_aproximado: null,
-    motivo_ineligivel: null,
-
-    // CTPS / formalização
-    ctps_36: null,
-    ctps_36_parceiro: null,
-    ir_declarado: null,
-    ir_declarado_parceiro: null,
-    ir_declarado_p2: null,
-    
-    // Novos campos da fase inicial
     nacionalidade: null,
-    rnm_status: null,
+    estrangeiro_flag: null,
+    tem_rnm: null,
+    rnm_tipo: null,
     rnm_validade: null,
 
+    // Trilho principal / renda
+    somar_renda: null,
+    financiamento_conjunto: null,
+    renda: null,
+    renda_liquida: null,
+    renda_bruta: null,
+    renda_bruta_temp: null,
+    renda_titular: null,
+    renda_parceiro: null,
+    renda_total_para_fluxo: null,
+    ultima_renda_bruta_informada: null,
+
+    // Regime / trabalho
+    regime: null,
+    regime_parceiro: null,
+    modo_renda: null,
+    renda_formal: null,
+    renda_informal: null,
+    renda_mista: null,
+    renda_extra: null,
+
+    // IR / CTPS
+    ir_declarado: null,
+    ir_parceiro: null,
+    ir_declarado_parceiro: null,
+    ctps_36: null,
+    ctps_parceiro: null,
+    ctps_36_parceiro: null,
+
+    // Dependente / social
+    dependente: null,
+    tem_dependente: null,
+    fator_social: null,
+
+    // Restrição
+    restricao: null,
+    regularizacao: null,
+    regularizacao_restricao: null,
+    restricao_attempts: null,
+
+    // Composição / parceiro
+    parceiro_tem_renda: null,
+    nome_parceiro: null,
+    nome_parceiro_normalizado: null,
+    casamento_civil: null,
+    coletas_casal: null,
+    regime_misto: null,
+    solteiro_sozinho: null,
+
+    // Composição familiar
+    composicao_pessoa: null,
+    p1_tipo: null,
+    p2_tipo: null,
+    p3_tipo: null,
+    p1_maior_idade: null,
+    p2_maior_idade: null,
+    p3_maior_idade: null,
+
     // Multi-renda / multi-regime
-    multi_rendas: null,
-    multi_rendas_parceiro: null,
-    multi_regimes: null,
-    multi_regimes_parceiro: null,
     multi_renda_flag: null,
     multi_renda_lista: null,
+    multi_regime_flag: null,
+    multi_regime_lista: null,
+    qtd_rendas_informadas: null,
+    qtd_regimes_informados: null,
+    ultima_regime_informado: null,
 
-    // Rendas calculadas
-    renda_individual_calculada: null,
-    renda_parceiro_calculada: null,
-    renda_total_composicao: null,
-    faixa_renda_programa: null,
-
-    // Docs / visita / operação
-    docs_lista_enviada: null,
+    // Docs / pré-análise / visita
+    canal_envio_docs: null,
+    status_docs: null,
+    docs_identidade: null,
+    docs_carteira_trabalho: null,
+    docs_comprovante_renda: null,
+    docs_comprovante_residencia: null,
+    docs_status: null,
+    docs_faltantes: null,
+    docs_completos: null,
+    docs_validacao_atualizada: null,
+    fase_docs: null,
+    ultima_interacao_docs: null,
     docs_status_geral: null,
+    docs_itens_pendentes: null,
+    docs_itens_recebidos: null,
+    docs_lista_enviada: null,
+    docs_status_completo: null,
+    docs_status_parcial: null,
+    docs_status_texto: null,
+
+    processo_pre_analise: null,
+    processo_pre_analise_status: null,
+    pre_cadastro_numero: null,
+    retorno_correspondente_bruto: null,
+    retorno_correspondente_status: null,
+    retorno_correspondente_motivo: null,
+    dossie_resumo: null,
     processo_enviado_correspondente: null,
-    visita_confirmada: null,
-    visita_dia_hora: null,
-    modo_humano: null,
+    aguardando_retorno_correspondente: null,
 
-    // Controle de processamento
-    last_processed_stage: null,
-    last_user_stage: null,
+    agendamento_id: null,
 
-    updated_at: new Date().toISOString()
+    // Controle auxiliar
+    ultimo_campo: null,
+    intro_etapa: null,
+    controle: null,
+    atendimento_manual: null
   };
 }
 
@@ -7068,7 +7156,8 @@ case "regime_trabalho_parceiro_familiar": {
   const parceiroAutonomoSemIr = /autonom/.test(nt) && /\b(sem|nao)\b/.test(nt) && /\bir\b/.test(nt);
   const valido = /(clt|autonomo|autônomo|servidor|publico|público|aposentado|pensionista|informal|bico|bicos)/i.test(nt);
 
-  if (parceiroAutonomoSemIr) {    
+  if (parceiroAutonomoSemIr) {
+    st.composicao_autonomo_sem_ir = true;
   }
 
   if (!valido) {
@@ -7094,7 +7183,8 @@ case "regime_trabalho_parceiro_familiar": {
       event: "flag_memoria",
       stage,
       severity: "info",
-      message: "Composição com parceiro familiar autônomo sem IR sinalizada",      
+      message: "Composição com parceiro familiar autônomo sem IR sinalizada",
+      details: { composicao_autonomo_sem_ir: true }
     });
   }
 
@@ -7780,7 +7870,8 @@ case "renda_parceiro_familiar": {
   // ============================================================
   // VALOR VÁLIDO — SALVAR NO BANCO
   // ============================================================
-  if (/autonom/.test(normalizeText(st.regime_trabalho_parceiro_familiar || "")) && st.ir_declarado === false) {    
+  if (/autonom/.test(normalizeText(st.regime_trabalho_parceiro_familiar || "")) && st.ir_declarado === false) {
+    st.composicao_autonomo_sem_ir = true;
   }
 
   const rendaTitular = Number(st.renda || st.renda_titular || st.renda_total_para_fluxo || 0);
@@ -8809,11 +8900,8 @@ const tNorm = normalizeText(t);
 
   const ehFinanciamentoConjunto = !!(
   st.financiamento_conjunto ||
-  st.parceiro_tem_renda ||
-  st.regime_trabalho_parceiro ||
-  st.renda_parceiro ||
-  st.renda_familiar ||
-  st.somar_renda_familiar
+  st.somar_renda_familiar ||
+  st.renda_familiar
 );
 
   const rendaTotalFluxoNum = Number(st.renda_total_para_fluxo || st.renda || 0);
@@ -8910,11 +8998,8 @@ const tNorm = normalizeText(t);
 
   const ehFinanciamentoConjunto2 = !!(
   st.financiamento_conjunto ||
-  st.parceiro_tem_renda ||
-  st.regime_trabalho_parceiro ||
-  st.renda_parceiro ||
-  st.renda_familiar ||
-  st.somar_renda_familiar
+  st.somar_renda_familiar ||
+  st.renda_familiar
 );
 
     const rendaTotalFluxoNum2 = Number(st.renda_total_para_fluxo || st.renda || 0);
@@ -8984,11 +9069,8 @@ const tNorm = normalizeText(t);
 
   const ehFinanciamentoConjunto2 = !!(
   st.financiamento_conjunto ||
-  st.parceiro_tem_renda ||
-  st.regime_trabalho_parceiro ||
-  st.renda_parceiro ||
-  st.renda_familiar ||
-  st.somar_renda_familiar
+  st.somar_renda_familiar ||
+  st.renda_familiar
 );
 
     const rendaTotalFluxoNum2 = Number(st.renda_total_para_fluxo || st.renda || 0);
@@ -9100,11 +9182,8 @@ case "ctps_36_parceiro": {
 
   const ehFinanciamentoConjunto = !!(
   st.financiamento_conjunto ||
-  st.parceiro_tem_renda ||
-  st.regime_trabalho_parceiro ||
-  st.renda_parceiro ||
-  st.renda_familiar ||
-  st.somar_renda_familiar
+  st.somar_renda_familiar ||
+  st.renda_familiar
 );
 
   if (!ehFinanciamentoConjunto) {

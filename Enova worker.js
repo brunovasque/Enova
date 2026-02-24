@@ -6462,7 +6462,12 @@ case "inicio_multi_renda_pergunta": {
     return step(
       env,
       st,
-      ["Certo! Vamos continuar então 😊"],
+      [
+        "Perfeito 👌",
+        "Agora me confirma uma coisa importante:",
+        "Somando todos os seus empregos registrados na carteira de trabalho, você tem *36 meses ou mais de carteira assinada* (considerando todos os períodos)?",
+        "Responda *sim* ou *não*."
+      ],
       "ctps_36"
     );
   }
@@ -6507,7 +6512,7 @@ case "inicio_multi_renda_pergunta": {
     "inicio_multi_renda_pergunta"
   );
 }
-
+      
 // --------------------------------------------------
 // 🧩 C14 — INÍCIO_MULTI_RENDA_COLETAR (loop)
 // --------------------------------------------------

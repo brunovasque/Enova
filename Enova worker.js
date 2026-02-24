@@ -1113,8 +1113,7 @@ async function resetTotal(env, wa_id) {
     ir_declarado: null,
     ir_declarado_parceiro: null,
     ir_declarado_p2: null,
-    composicao_autonomo_sem_ir: null,
-
+    
     // Novos campos da fase inicial (compatível com sua tabela)
     nacionalidade: null,
     rnm_status: null,
@@ -1211,8 +1210,7 @@ function createSimulationState(wa_id, startStage) {
     ir_declarado: null,
     ir_declarado_parceiro: null,
     ir_declarado_p2: null,
-    composicao_autonomo_sem_ir: null,
-
+    
     // Novos campos da fase inicial
     nacionalidade: null,
     rnm_status: null,
@@ -7070,8 +7068,7 @@ case "regime_trabalho_parceiro_familiar": {
   const parceiroAutonomoSemIr = /autonom/.test(nt) && /\b(sem|nao)\b/.test(nt) && /\bir\b/.test(nt);
   const valido = /(clt|autonomo|autônomo|servidor|publico|público|aposentado|pensionista|informal|bico|bicos)/i.test(nt);
 
-  if (parceiroAutonomoSemIr) {
-    st.composicao_autonomo_sem_ir = true;
+  if (parceiroAutonomoSemIr) {    
   }
 
   if (!valido) {
@@ -7097,8 +7094,7 @@ case "regime_trabalho_parceiro_familiar": {
       event: "flag_memoria",
       stage,
       severity: "info",
-      message: "Composição com parceiro familiar autônomo sem IR sinalizada",
-      details: { composicao_autonomo_sem_ir: true }
+      message: "Composição com parceiro familiar autônomo sem IR sinalizada",      
     });
   }
 
@@ -7784,8 +7780,7 @@ case "renda_parceiro_familiar": {
   // ============================================================
   // VALOR VÁLIDO — SALVAR NO BANCO
   // ============================================================
-  if (/autonom/.test(normalizeText(st.regime_trabalho_parceiro_familiar || "")) && st.ir_declarado === false) {
-    st.composicao_autonomo_sem_ir = true;
+  if (/autonom/.test(normalizeText(st.regime_trabalho_parceiro_familiar || "")) && st.ir_declarado === false) {    
   }
 
   const rendaTitular = Number(st.renda || st.renda_titular || st.renda_total_para_fluxo || 0);

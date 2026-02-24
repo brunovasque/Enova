@@ -8949,9 +8949,9 @@ const tNorm = normalizeText(t);
 );
 
     const rendaTotalFluxoNum2 = Number(st.renda_total_para_fluxo || st.renda || 0);
-    const devePerguntarDependenteSolo2 = !ehFinanciamentoConjunto2 && rendaTotalFluxoNum2 > 0 && rendaTotalFluxoNum2 < 4000;
+    const devePerguntarDependenteSolo2 = !ehFinanciamentoConjunto && rendaTotalFluxoNum2 > 0 && rendaTotalFluxoNum2 < 4000;
 
-    const nextStage = ehFinanciamentoConjunto2
+    const nextStage = ehFinanciamentoConjunto
       ? "ctps_36_parceiro"
       : (devePerguntarDependenteSolo2 ? "dependente" : "restricao");
 
@@ -9019,9 +9019,9 @@ const tNorm = normalizeText(t);
 );
 
     const rendaTotalFluxoNum2 = Number(st.renda_total_para_fluxo || st.renda || 0);
-    const devePerguntarDependenteSolo2 = !ehFinanciamentoConjunto2 && rendaTotalFluxoNum2 > 0 && rendaTotalFluxoNum2 < 4000;
+    const devePerguntarDependenteSolo2 = !ehFinanciamentoConjunto && rendaTotalFluxoNum2 > 0 && rendaTotalFluxoNum2 < 4000;
 
-    const nextStage = ehFinanciamentoConjunto2
+    const nextStage = ehFinanciamentoConjunto
       ? "ctps_36_parceiro"
       : (devePerguntarDependenteSolo2 ? "dependente" : "restricao");
 

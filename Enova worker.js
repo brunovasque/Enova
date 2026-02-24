@@ -8846,10 +8846,9 @@ const tNorm = normalizeText(t);
       /(menos de\s*36|menos de\s*3 anos)/i.test(tNorm)
     );
 
-  const ehFinanciamentoConjunto = !!(
-  st.financiamento_conjunto ||
-  st.somar_renda_familiar ||
-  st.renda_familiar
+  const ehFinanciamentoConjunto = (
+  st.financiamento_conjunto === true ||
+  st.somar_renda === true
 );
 
   const rendaTotalFluxoNum = Number(st.renda_total_para_fluxo || st.renda || 0);
@@ -8944,10 +8943,9 @@ const tNorm = normalizeText(t);
   // ============================================================
   if (nao_sei) {
 
-  const ehFinanciamentoConjunto2 = !!(
-  st.financiamento_conjunto ||
-  st.somar_renda_familiar ||
-  st.renda_familiar
+  const ehFinanciamentoConjunto = (
+  st.financiamento_conjunto === true ||
+  st.somar_renda === true
 );
 
     const rendaTotalFluxoNum2 = Number(st.renda_total_para_fluxo || st.renda || 0);
@@ -9015,10 +9013,9 @@ const tNorm = normalizeText(t);
 
     await upsertState(env, st.wa_id, { ctps_36: false });
 
-  const ehFinanciamentoConjunto2 = !!(
-  st.financiamento_conjunto ||
-  st.somar_renda_familiar ||
-  st.renda_familiar
+  const ehFinanciamentoConjunto = (
+  st.financiamento_conjunto === true ||
+  st.somar_renda === true
 );
 
     const rendaTotalFluxoNum2 = Number(st.renda_total_para_fluxo || st.renda || 0);
@@ -9128,10 +9125,9 @@ case "ctps_36_parceiro": {
   const t = String(userText || "").trim();
   const tNorm = normalizeText(t);
 
-  const ehFinanciamentoConjunto = !!(
-  st.financiamento_conjunto ||
-  st.somar_renda_familiar ||
-  st.renda_familiar
+  const ehFinanciamentoConjunto = (
+  st.financiamento_conjunto === true ||
+  st.somar_renda === true
 );
 
   if (!ehFinanciamentoConjunto) {

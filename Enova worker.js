@@ -5914,45 +5914,46 @@ case "somar_renda_solteiro": {
   // -----------------------------
   if (parceiro) {
 
-    // 🟩 EXIT_STAGE
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "exit_stage",
-      stage,
-      next_stage: "parceiro_tem_renda",
-      severity: "info",
-      message:
-        "Saindo da fase: somar_renda_solteiro → parceiro_tem_renda (parceiro)",
-      details: { userText, userText_normalized: t }
-    });
+  // Personaliza o termo exibido conforme o texto do cliente
+  const parceiroLabel =
+    /\bminha\s+namorada\b/i.test(tBaseClean) ? "sua namorada" :
+    /\bmeu\s+namorado\b/i.test(tBaseClean) ? "seu namorado" :
+    /\bminha\s+esposa\b/i.test(tBaseClean) ? "sua esposa" :
+    /\bmeu\s+marido\b/i.test(tBaseClean) ? "seu marido" :
+    /\bminha\s+parceira\b/i.test(tBaseClean) ? "sua parceira" :
+    /\bmeu\s+parceiro\b/i.test(tBaseClean) ? "seu parceiro" :
+    "seu parceiro(a)";
 
-    await upsertState(env, st.wa_id, {
-  somar_renda: true,
-  financiamento_conjunto: true,
-  renda_familiar: false
-});
+  // 🟩 EXIT_STAGE
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "exit_stage",
+    stage,
+    next_stage: "regime_trabalho_parceiro",
+    severity: "info",
+    message:
+      "Saindo da fase: somar_renda_solteiro → regime_trabalho_parceiro (parceiro)",
+    details: { userText, userText_normalized: t }
+  });
 
-// Personaliza o termo exibido conforme o que o cliente digitou
-const parceiroLabel =
-  /\bminha\s+namorada\b/i.test(tBaseClean) ? "Sua namorada" :
-  /\bmeu\s+namorado\b/i.test(tBaseClean) ? "Seu namorado" :
-  /\bminha\s+esposa\b/i.test(tBaseClean) ? "Sua esposa" :
-  /\bmeu\s+marido\b/i.test(tBaseClean) ? "Seu marido" :
-  /\bminha\s+parceira\b/i.test(tBaseClean) ? "Sua parceira" :
-  /\bmeu\s+parceiro\b/i.test(tBaseClean) ? "Seu parceiro" :
-  "Seu parceiro(a)";
+  await upsertState(env, st.wa_id, {
+    somar_renda: true,
+    financiamento_conjunto: true,
+    renda_familiar: false
+  });
 
-    return step(
-      env,
-      st,
-      [
-        "Perfeito! 🙌",
-        `${parceiroLabel} **tem renda** com registro (CLT, autônomo, servidor) ou não tem renda no momento?`
-      ],
-      "parceiro_tem_renda"
-    );
-  }
-
+  return step(
+    env,
+    st,
+    [
+      "Perfeito! 🙌",
+      `Vamos incluir a renda de ${parceiroLabel}.`,
+      `${parceiroLabel.charAt(0).toUpperCase() + parceiroLabel.slice(1)} é CLT, autônomo(a) ou servidor(a)?`
+    ],
+    "regime_trabalho_parceiro"
+  );
+}
+  
   // -----------------------------
   // QUER SOMAR COM FAMILIAR
   // -----------------------------

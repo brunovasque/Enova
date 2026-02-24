@@ -1054,52 +1054,117 @@ async function resetTotal(env, wa_id) {
     }
   });
 
-  // 2) Recria estado 100% limpo e CONSISTENTE com tabela atual
+  // 2) Recria estado 100% limpo e compatível com enova_state atual
   await upsertState(env, wa_id, {
-    // Fase inicial do funil
+    // Base
     fase_conversa: "inicio",
     funil_status: null,
+    updated_at: new Date().toISOString(),
 
-    // Logs e rastreamento
+    // Logs / rastreio (colunas válidas)
     last_user_text: null,
     last_processed_text: null,
-    last_bot_msg: null,
     last_message_id: null,
+    last_bot_msg: null,
 
-    // Campos clássicos
+    // Identificação
     nome: null,
+    nome_parceiro: null,
+    nome_parceiro_normalizado: null,
+
+    // Trilho principal
     estado_civil: null,
     somar_renda: null,
     financiamento_conjunto: null,
+    composicao_pessoa: null,
+    solteiro_sozinho: null,
+    casamento_civil: null,
+    coletas_casal: null,
+
+    // Regimes / renda (colunas válidas do schema)
+    regime: null,
+    regime_parceiro: null,
+    regime_misto: null,
+    parceiro_tem_renda: null,
+    modo_renda: null,
+
     renda: null,
+    renda_titular: null,
     renda_parceiro: null,
     renda_total_para_fluxo: null,
-    dependente: null,
-    restricao: null,
+    renda_bruta: null,
+    renda_bruta_temp: null,
+    renda_extra: null,
+    renda_formal: null,
+    renda_informal: null,
+    renda_mista: null,
+
+    // IR / formalização
+    ir_declarado: null,
+    ir_parceiro: null,
+    ir_declarado_parceiro: null,
 
     // CTPS
     ctps_36: null,
     ctps_36_parceiro: null,
+    ctps_parceiro: null,
 
-    // Novos campos da fase inicial (compatível com sua tabela)
+    // Elegibilidade
+    dependente: null,
+    tem_dependente: null,
+    restricao: null,
+    regularizacao: null,
+    regularizacao_restricao: null,
+    restricao_attempts: null,
+
+    // Nacionalidade / RNM (colunas válidas)
     nacionalidade: null,
-    rnm_status: null,
+    estrangeiro_flag: null,
+    tem_rnm: null,
+    rnm_tipo: null,
     rnm_validade: null,
 
-    // Multi-renda / multi-regime
-    multi_rendas: null,
-    multi_rendas_parceiro: null,
-    multi_regimes: null,
-    multi_regimes_parceiro: null,
+    // Multi-renda / multi-regime (colunas válidas)
+    multi_renda_flag: null,
+    multi_renda_lista: null,
+    multi_regime_flag: null,
+    multi_regime_lista: null,
+    ultima_renda_bruta_informada: null,
+    qtd_rendas_informadas: null,
+    qtd_regimes_informados: null,
+    ultima_regime_informado: null,
 
-    // Rendas calculadas (suportam cálculo global)
-    renda_individual_calculada: null,
-    renda_parceiro_calculada: null,
-    renda_total_composicao: null,
-    faixa_renda_programa: null,
+    // Docs / pré-análise (evita sujeira de trilho anterior)
+    docs_status: null,
+    docs_faltantes: null,
+    docs_completos: null,
+    docs_validacao_atualizada: null,
+    fase_docs: null,
+    ultima_interacao_docs: null,
+    docs_status_geral: null,
+    docs_itens_pendentes: null,
+    docs_itens_recebidos: null,
+    docs_lista_enviada: null,
+    docs_status_completo: null,
+    docs_status_parcial: null,
+    docs_status_texto: null,
 
-    // Atualização
-    updated_at: new Date().toISOString()
+    processo_pre_analise: null,
+    processo_pre_analise_status: null,
+    retorno_correspondente_bruto: null,
+    retorno_correspondente_status: null,
+    retorno_correspondente_motivo: null,
+    dossie_resumo: null,
+    processo_enviado_correspondente: null,
+    aguardando_retorno_correspondente: null,
+
+    // Participantes (zera composição antiga)
+    p1_tipo: null,
+    p2_tipo: null,
+    p3_tipo: null,
+    p1_maior_idade: null,
+    p2_maior_idade: null,
+    p3_maior_idade: null
   });
 
   return;
@@ -1110,46 +1175,80 @@ function createSimulationState(wa_id, startStage) {
     wa_id,
     fase_conversa: startStage || "inicio",
     funil_status: null,
+    updated_at: new Date().toISOString(),
 
-    // Logs e rastreamento
+    // Logs / rastreio
     last_user_text: null,
     last_processed_text: null,
+    last_message_id: null,
     last_bot_msg: null,
 
-    // Campos clássicos do funil
+    // Identificação
     nome: null,
+    nome_parceiro: null,
+    nome_parceiro_normalizado: null,
+
+    // Trilho principal
     estado_civil: null,
-    regime_trabalho: null,
     somar_renda: null,
     financiamento_conjunto: null,
+    composicao_pessoa: null,
+    solteiro_sozinho: null,
+    casamento_civil: null,
+    coletas_casal: null,
+
+    // Regimes / renda
+    regime: null,
+    regime_parceiro: null,
+    regime_misto: null,
+    parceiro_tem_renda: null,
+    modo_renda: null,
+
     renda: null,
+    renda_titular: null,
     renda_parceiro: null,
     renda_total_para_fluxo: null,
-    dependente: null,
-    restricao: null,
+    renda_bruta: null,
+    renda_bruta_temp: null,
+    renda_extra: null,
+    renda_formal: null,
+    renda_informal: null,
+    renda_mista: null,
+
+    // IR / formalização
+    ir_declarado: null,
+    ir_parceiro: null,
+    ir_declarado_parceiro: null,
 
     // CTPS
     ctps_36: null,
     ctps_36_parceiro: null,
+    ctps_parceiro: null,
 
-    // Novos campos da fase inicial
+    // Elegibilidade
+    dependente: null,
+    tem_dependente: null,
+    restricao: null,
+    regularizacao: null,
+    regularizacao_restricao: null,
+    restricao_attempts: null,
+
+    // Nacionalidade / RNM
     nacionalidade: null,
-    rnm_status: null,
+    estrangeiro_flag: null,
+    tem_rnm: null,
+    rnm_tipo: null,
     rnm_validade: null,
 
     // Multi-renda / multi-regime
-    multi_rendas: null,
-    multi_rendas_parceiro: null,
-    multi_regimes: null,
-    multi_regimes_parceiro: null,
-
-    // Rendas calculadas
-    renda_individual_calculada: null,
-    renda_parceiro_calculada: null,
-    renda_total_composicao: null,
-    faixa_renda_programa: null,
-
-    updated_at: new Date().toISOString()
+    multi_renda_flag: null,
+    multi_renda_lista: null,
+    multi_regime_flag: null,
+    multi_regime_lista: null,
+    ultima_renda_bruta_informada: null,
+    qtd_rendas_informadas: null,
+    qtd_regimes_informados: null,
+    ultima_regime_informado: null
   };
 }
 
@@ -4075,20 +4174,18 @@ if (isReset) {
   // 🔥 CORREÇÃO ABSOLUTA: recarrega estado limpo
   const novoSt = await getState(env, st.wa_id);
 
-  await upsertState(env, st.wa_id, {
+    await upsertState(env, st.wa_id, {
     fase_conversa: "inicio_programa",
     last_user_text: null,
-    last_user_stage: null,
     last_processed_text: null,
-    last_processed_stage: null,
+    last_message_id: null,
     updated_at: new Date().toISOString()
   });
 
   novoSt.fase_conversa = "inicio_programa";
   novoSt.last_user_text = null;
-  novoSt.last_user_stage = null;
   novoSt.last_processed_text = null;
-  novoSt.last_processed_stage = null;
+  novoSt.last_message_id = null;
 
   await funnelTelemetry(env, {
     wa_id: st.wa_id,

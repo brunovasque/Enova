@@ -4257,20 +4257,16 @@ if (isReset) {
   const novoSt = await getState(env, st.wa_id);
 
   await upsertState(env, st.wa_id, {
-    fase_conversa: "inicio_programa",
-    last_user_text: null,
-    last_user_stage: null,
-    last_processed_text: null,
-    last_processed_stage: null,
-    updated_at: new Date().toISOString()
-  });
+  fase_conversa: "inicio_programa",
+  last_user_text: null,
+  last_processed_text: null,
+  updated_at: new Date().toISOString()
+});
 
   novoSt.fase_conversa = "inicio_programa";
   novoSt.last_user_text = null;
-  novoSt.last_user_stage = null;
   novoSt.last_processed_text = null;
-  novoSt.last_processed_stage = null;
-
+  
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "reset_global",

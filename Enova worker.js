@@ -1068,18 +1068,52 @@ async function resetTotal(env, wa_id) {
 
     // Campos clássicos
     nome: null,
+    primeiro_nome: null,
+    nome_parceiro: null,
+    nome_parceiro_normalizado: null,
     estado_civil: null,
+    casamento_formal: null,
     somar_renda: null,
+    somar_renda_familiar: null,
     financiamento_conjunto: null,
+    parceiro_tem_renda: null,
+    familiar_tipo: null,
+    regime: null,
+    regime_trabalho: null,
+    regime_parceiro: null,
+    regime_trabalho_parceiro: null,
+    regime_trabalho_parceiro_familiar: null,
+    tipo_trabalho: null,
+    tipo_trabalho_parceiro: null,
     renda: null,
+    renda_base: null,
+    renda_bruta: null,
+    renda_titular: null,
+    renda_variavel: null,
+    renda_mista: null,
     renda_parceiro: null,
+    renda_parceiro_bruta: null,
+    p2_renda_variavel: null,
+    renda_familiar: null,
     renda_total_para_fluxo: null,
+    ultima_renda_bruta_informada: null,
+    qtd_rendas_informadas: null,
     dependente: null,
+    tem_dependente: null,
+    dependentes_qtd: null,
+    fator_social: null,
     restricao: null,
+    valor_restricao: null,
+    valor_restricao_aproximado: null,
+    motivo_ineligivel: null,
 
-    // CTPS
+    // CTPS / formalização
     ctps_36: null,
     ctps_36_parceiro: null,
+    ir_declarado: null,
+    ir_declarado_parceiro: null,
+    ir_declarado_p2: null,
+    composicao_autonomo_sem_ir: null,
 
     // Novos campos da fase inicial (compatível com sua tabela)
     nacionalidade: null,
@@ -1091,12 +1125,26 @@ async function resetTotal(env, wa_id) {
     multi_rendas_parceiro: null,
     multi_regimes: null,
     multi_regimes_parceiro: null,
+    multi_renda_flag: null,
+    multi_renda_lista: null,
 
     // Rendas calculadas (suportam cálculo global)
     renda_individual_calculada: null,
     renda_parceiro_calculada: null,
     renda_total_composicao: null,
     faixa_renda_programa: null,
+
+    // Docs / visita / operação
+    docs_lista_enviada: null,
+    docs_status_geral: null,
+    processo_enviado_correspondente: null,
+    visita_confirmada: null,
+    visita_dia_hora: null,
+    modo_humano: null,
+
+    // Controle de processamento
+    last_processed_stage: null,
+    last_user_stage: null,
 
     // Atualização
     updated_at: new Date().toISOString()
@@ -1118,19 +1166,52 @@ function createSimulationState(wa_id, startStage) {
 
     // Campos clássicos do funil
     nome: null,
+    primeiro_nome: null,
+    nome_parceiro: null,
+    nome_parceiro_normalizado: null,
     estado_civil: null,
+    casamento_formal: null,
+    regime: null,
     regime_trabalho: null,
+    regime_parceiro: null,
+    regime_trabalho_parceiro: null,
+    regime_trabalho_parceiro_familiar: null,
+    tipo_trabalho: null,
+    tipo_trabalho_parceiro: null,
     somar_renda: null,
+    somar_renda_familiar: null,
     financiamento_conjunto: null,
+    parceiro_tem_renda: null,
+    familiar_tipo: null,
     renda: null,
+    renda_base: null,
+    renda_bruta: null,
+    renda_titular: null,
+    renda_variavel: null,
+    renda_mista: null,
     renda_parceiro: null,
+    renda_parceiro_bruta: null,
+    p2_renda_variavel: null,
+    renda_familiar: null,
     renda_total_para_fluxo: null,
+    ultima_renda_bruta_informada: null,
+    qtd_rendas_informadas: null,
     dependente: null,
+    tem_dependente: null,
+    dependentes_qtd: null,
+    fator_social: null,
     restricao: null,
+    valor_restricao: null,
+    valor_restricao_aproximado: null,
+    motivo_ineligivel: null,
 
-    // CTPS
+    // CTPS / formalização
     ctps_36: null,
     ctps_36_parceiro: null,
+    ir_declarado: null,
+    ir_declarado_parceiro: null,
+    ir_declarado_p2: null,
+    composicao_autonomo_sem_ir: null,
 
     // Novos campos da fase inicial
     nacionalidade: null,
@@ -1142,12 +1223,26 @@ function createSimulationState(wa_id, startStage) {
     multi_rendas_parceiro: null,
     multi_regimes: null,
     multi_regimes_parceiro: null,
+    multi_renda_flag: null,
+    multi_renda_lista: null,
 
     // Rendas calculadas
     renda_individual_calculada: null,
     renda_parceiro_calculada: null,
     renda_total_composicao: null,
     faixa_renda_programa: null,
+
+    // Docs / visita / operação
+    docs_lista_enviada: null,
+    docs_status_geral: null,
+    processo_enviado_correspondente: null,
+    visita_confirmada: null,
+    visita_dia_hora: null,
+    modo_humano: null,
+
+    // Controle de processamento
+    last_processed_stage: null,
+    last_user_stage: null,
 
     updated_at: new Date().toISOString()
   };
@@ -8719,8 +8814,11 @@ const tNorm = normalizeText(t);
 
   const ehFinanciamentoConjunto = !!(
   st.financiamento_conjunto ||
-  st.somar_renda_familiar ||
-  st.renda_familiar
+  st.parceiro_tem_renda ||
+  st.regime_trabalho_parceiro ||
+  st.renda_parceiro ||
+  st.renda_familiar ||
+  st.somar_renda_familiar
 );
 
   const rendaTotalFluxoNum = Number(st.renda_total_para_fluxo || st.renda || 0);
@@ -8817,8 +8915,11 @@ const tNorm = normalizeText(t);
 
   const ehFinanciamentoConjunto2 = !!(
   st.financiamento_conjunto ||
-  st.somar_renda_familiar ||
-  st.renda_familiar
+  st.parceiro_tem_renda ||
+  st.regime_trabalho_parceiro ||
+  st.renda_parceiro ||
+  st.renda_familiar ||
+  st.somar_renda_familiar
 );
 
     const rendaTotalFluxoNum2 = Number(st.renda_total_para_fluxo || st.renda || 0);
@@ -8888,8 +8989,11 @@ const tNorm = normalizeText(t);
 
   const ehFinanciamentoConjunto2 = !!(
   st.financiamento_conjunto ||
-  st.somar_renda_familiar ||
-  st.renda_familiar
+  st.parceiro_tem_renda ||
+  st.regime_trabalho_parceiro ||
+  st.renda_parceiro ||
+  st.renda_familiar ||
+  st.somar_renda_familiar
 );
 
     const rendaTotalFluxoNum2 = Number(st.renda_total_para_fluxo || st.renda || 0);
@@ -9001,8 +9105,11 @@ case "ctps_36_parceiro": {
 
   const ehFinanciamentoConjunto = !!(
   st.financiamento_conjunto ||
-  st.somar_renda_familiar ||
-  st.renda_familiar
+  st.parceiro_tem_renda ||
+  st.regime_trabalho_parceiro ||
+  st.renda_parceiro ||
+  st.renda_familiar ||
+  st.somar_renda_familiar
 );
 
   if (!ehFinanciamentoConjunto) {

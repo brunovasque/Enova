@@ -5625,8 +5625,27 @@ case "parceiro_tem_renda": {
   });
 
   // Exemplos cobertos: "ele trabalha", "não tem renda", "só eu trabalho"
-  const nao = isNo(t) || /(n[aã]o|nao tem|não tem|sem renda|não trabalha|nao trabalha|s[oó] eu trabalho|apenas eu trabalho|do lar)/i.test(t);
-  const sim = !nao && (isYes(t) || /(sim|tem sim|possui|possui renda|ganha|trabalha|ele trabalha|ela trabalha)/i.test(t));
+  const tParceiroBase = String(t || "")
+  .normalize("NFD")
+  .replace(/[\u0300-\u036f]/g, "")
+  .toLowerCase()
+  .replace(/[^a-z0-9\s]/g, " ")
+  .replace(/\s+/g, " ")
+  .trim();
+
+const nao =
+  isNo(t) ||
+  /\b(nao|nao tem|sem renda|desempregad[oa]|do lar|nao trabalha|s[oó]\s+eu\s+trabalho|apenas eu trabalho|so eu trabalho)\b/i.test(tParceiroBase) ||
+  /\b(ele|ela)\s+(nao\s+trabalha|nao\s+tem\s+renda|esta\s+desempregad[oa])\b/i.test(tParceiroBase);
+
+const sim =
+  !nao && (
+    isYes(t) ||
+    /\b(sim|tem sim|possui|possui renda|ganha|trabalha|tem renda)\b/i.test(tParceiroBase) ||
+    /\b(ele|ela)\s+(trabalha|tem renda|ganha)\b/i.test(tParceiroBase) ||
+    /\b(ele|ela)\s+e\s+(clt|autonom[oa]|servidor[oa]?|mei|registrad[oa])\b/i.test(tParceiroBase) ||
+    /\b(clt|autonom[oa]|servidor[oa]?|mei)\b/i.test(tParceiroBase)
+  );
 
   // -----------------------------
   // PARCEIRO TEM RENDA
@@ -5908,17 +5927,27 @@ case "somar_renda_solteiro": {
     });
 
     await upsertState(env, st.wa_id, {
-      somar_renda: true,
-      financiamento_conjunto: true,
-      renda_familiar: false
-    });
+  somar_renda: true,
+  financiamento_conjunto: true,
+  renda_familiar: false
+});
+
+// Personaliza o termo exibido conforme o que o cliente digitou
+const parceiroLabel =
+  /\bminha\s+namorada\b/i.test(tBaseClean) ? "Sua namorada" :
+  /\bmeu\s+namorado\b/i.test(tBaseClean) ? "Seu namorado" :
+  /\bminha\s+esposa\b/i.test(tBaseClean) ? "Sua esposa" :
+  /\bmeu\s+marido\b/i.test(tBaseClean) ? "Seu marido" :
+  /\bminha\s+parceira\b/i.test(tBaseClean) ? "Sua parceira" :
+  /\bmeu\s+parceiro\b/i.test(tBaseClean) ? "Seu parceiro" :
+  "Seu parceiro(a)";
 
     return step(
       env,
       st,
       [
         "Perfeito! 🙌",
-        "Seu parceiro(a) **tem renda** com registro (CLT, autônomo, servidor) ou não tem renda no momento?"
+        `${parceiroLabel} **tem renda** com registro (CLT, autônomo, servidor) ou não tem renda no momento?`
       ],
       "parceiro_tem_renda"
     );

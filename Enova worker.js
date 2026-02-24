@@ -7599,7 +7599,7 @@ case "renda": {
       st,
       [
         "Show! 👌",
-        "Você possui **renda extra**, como comissão, bicos, horas extras ou premiações?"
+        "Você possui **alguma fonte de renda a mais**, fora essa renda?"
       ],
       "inicio_multi_renda_pergunta"
     );

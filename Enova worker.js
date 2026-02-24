@@ -8943,7 +8943,7 @@ const tNorm = normalizeText(t);
   // ============================================================
   if (nao_sei) {
 
-  cconst ehFinanciamentoConjunto = (
+  const ehFinanciamentoConjunto = (
   st.financiamento_conjunto === true ||
   st.somar_renda === true
 );

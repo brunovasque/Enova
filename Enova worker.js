@@ -8717,8 +8717,14 @@ const tNorm = normalizeText(t);
       /(menos de\s*36|menos de\s*3 anos)/i.test(tNorm)
     );
 
-  const ehFinanciamentoConjunto =
-    !!(st.financiamento_conjunto || st.somar_renda || st.parceiro_tem_renda);
+  const ehFinanciamentoConjunto = !!(
+  st.financiamento_conjunto ||
+  st.parceiro_tem_renda ||
+  st.regime_trabalho_parceiro ||
+  st.renda_parceiro ||
+  st.renda_familiar ||
+  st.somar_renda_familiar
+);
 
   const rendaTotalFluxoNum = Number(st.renda_total_para_fluxo || st.renda || 0);
   const devePerguntarDependenteSolo = !ehFinanciamentoConjunto && rendaTotalFluxoNum > 0 && rendaTotalFluxoNum < 4000;
@@ -8787,8 +8793,14 @@ const tNorm = normalizeText(t);
   // ============================================================
   if (nao_sei) {
 
-    const ehFinanciamentoConjunto2 =
-      !!(st.financiamento_conjunto || st.somar_renda || st.parceiro_tem_renda);
+  const ehFinanciamentoConjunto2 = !!(
+  st.financiamento_conjunto ||
+  st.parceiro_tem_renda ||
+  st.regime_trabalho_parceiro ||
+  st.renda_parceiro ||
+  st.renda_familiar ||
+  st.somar_renda_familiar
+);
 
     const rendaTotalFluxoNum2 = Number(st.renda_total_para_fluxo || st.renda || 0);
     const devePerguntarDependenteSolo2 = !ehFinanciamentoConjunto2 && rendaTotalFluxoNum2 > 0 && rendaTotalFluxoNum2 < 4000;
@@ -8855,8 +8867,14 @@ const tNorm = normalizeText(t);
 
     await upsertState(env, st.wa_id, { ctps_36: false });
 
-    const ehFinanciamentoConjunto2 =
-      !!(st.financiamento_conjunto || st.somar_renda || st.parceiro_tem_renda);
+  const ehFinanciamentoConjunto2 = !!(
+  st.financiamento_conjunto ||
+  st.parceiro_tem_renda ||
+  st.regime_trabalho_parceiro ||
+  st.renda_parceiro ||
+  st.renda_familiar ||
+  st.somar_renda_familiar
+);
 
     const rendaTotalFluxoNum2 = Number(st.renda_total_para_fluxo || st.renda || 0);
     const devePerguntarDependenteSolo2 = !ehFinanciamentoConjunto2 && rendaTotalFluxoNum2 > 0 && rendaTotalFluxoNum2 < 4000;
@@ -8966,12 +8984,13 @@ case "ctps_36_parceiro": {
   const tNorm = normalizeText(t);
 
   const ehFinanciamentoConjunto = !!(
-    st.financiamento_conjunto ||
-    st.somar_renda ||
-    st.parceiro_tem_renda ||
-    st.renda_familiar ||
-    st.somar_renda_familiar
-  );
+  st.financiamento_conjunto ||
+  st.parceiro_tem_renda ||
+  st.regime_trabalho_parceiro ||
+  st.renda_parceiro ||
+  st.renda_familiar ||
+  st.somar_renda_familiar
+);
 
   if (!ehFinanciamentoConjunto) {
     await upsertState(env, st.wa_id, { ctps_36_parceiro: null });

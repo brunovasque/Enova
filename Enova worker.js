@@ -9249,10 +9249,9 @@ case "ctps_36_parceiro": {
       env,
       st,
       [
-        "Perfeito! 👏",
-        "Agora vamos só confirmar uma coisinha rápida:",
-        "Você está com **alguma restrição no CPF**, como negativação?"
-      ],
+  "Perfeito! 👏",
+  "Agora vou confirmar primeiro o **seu CPF**: tem alguma restrição?",
+   ],
       "restricao"
     );
   }
@@ -9317,8 +9316,7 @@ case "ctps_36_parceiro": {
       [
         "Sem problema! 😊",
         "Mesmo sem ter o tempo certinho de carteira, isso não impede a análise.",
-        "Agora só preciso confirmar uma coisinha rápida:",
-        "Você está com **alguma restrição** no CPF, como negativação?"
+        "Agora vou confirmar primeiro o **seu CPF**: possui alguma restrição?"
       ],
       "restricao"
     );
@@ -9355,7 +9353,7 @@ case "ctps_36_parceiro": {
       [
         "Sem problema! 👍",
         "Agora só mais uma coisinha:",
-        "Você está com **alguma restrição no CPF**, como negativação?"
+        "Você possui **alguma restrição no CPF**?"
       ],
       "restricao"
     );
@@ -9815,152 +9813,209 @@ case "restricao": {
   const incerto =
     /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(t);
 
+  const ehFluxoConjunto =
+  st.financiamento_conjunto === true ||
+  st.somar_renda === true;
+
+const titularJaRespondeuRestricao =
+  st.restricao === true ||
+  st.restricao === false ||
+  st.restricao === "incerto";
+
+const segundaPerguntaParceiro =
+  ehFluxoConjunto && titularJaRespondeuRestricao;
+
   // -----------------------------------------------------
   // CPF COM RESTRIÇÃO
   // -----------------------------------------------------
   if (sim) {
-    await upsertState(env, st.wa_id, {
-      restricao: true
-    });
 
-    // Se for conjunto, pergunta parceiro antes de encerrar
-    if (ehConjunto) {
-      await funnelTelemetry(env, {
-        wa_id: st.wa_id,
-        event: "exit_stage",
-        stage,
-        next_stage: "restricao_parceiro",
-        severity: "warning",
-        message: "Titular confirmou restrição; seguindo para restrição do parceiro"
-      });
+  // 2ª resposta (parceiro) no fluxo conjunto
+  if (segundaPerguntaParceiro) {
+    try {
+      await upsertState(env, st.wa_id, { restricao_parceiro: true });
+    } catch (_) {}
 
-      return step(env, st,
-        [
-          "Perfeito, anotei aqui 👍",
-          "Agora me confirma do parceiro(a):",
-          "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
-        ],
-        "restricao_parceiro"
-      );
-    }
-
-    // EXIT_STAGE (solo)
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
       next_stage: "restricao",
       severity: "warning",
-      message: "Cliente confirmou restrição no CPF (checkpoint em restricao)"
+      message: "Parceiro confirmou restrição no CPF (checkpoint em restricao)"
     });
 
     return step(env, st,
       [
-        "Obrigado por avisar! 🙏",
-        "Anotei aqui que existe restrição no CPF.",
-        "Perfeito, por enquanto encerramos esta etapa em **restrição**."
-      ],
-      "restricao"
-    );
-  }
-
-  // -----------------------------------------------------
-  // CPF LIMPO
-  // -----------------------------------------------------
-  if (nao) {
-    await upsertState(env, st.wa_id, {
-      restricao: false
-    });
-
-    // Se for conjunto, pergunta parceiro antes de encerrar
-    if (ehConjunto) {
-      await funnelTelemetry(env, {
-        wa_id: st.wa_id,
-        event: "exit_stage",
-        stage,
-        next_stage: "restricao_parceiro",
-        severity: "info",
-        message: "Titular sem restrição; seguindo para restrição do parceiro"
-      });
-
-      return step(env, st,
-        [
-          "Perfeito! 👌",
-          "Agora me confirma do parceiro(a):",
-          "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
-        ],
-        "restricao_parceiro"
-      );
-    }
-
-    // EXIT_STAGE (solo)
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "exit_stage",
-      stage,
-      next_stage: "restricao",
-      severity: "info",
-      message: "CPF limpo confirmado (checkpoint em restricao)"
-    });
-
-    return step(env, st,
-      [
-        "Perfeito! 👌",
-        "Isso ajuda bastante na análise.",
+        "Perfeito 👍",
+        "Anotei que o parceiro(a) possui restrição no CPF.",
         "Ótimo, por enquanto encerramos esta etapa em **restrição**."
       ],
       "restricao"
     );
   }
 
+  // 1ª resposta (titular)
+  await upsertState(env, st.wa_id, { restricao: true });
+
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "exit_stage",
+    stage,
+    next_stage: "restricao",
+    severity: "warning",
+    message: "Titular confirmou restrição no CPF",
+    details: { ehFluxoConjunto }
+  });
+
+  if (ehFluxoConjunto) {
+    return step(env, st,
+      [
+        "Perfeito 👍",
+        "Agora preciso confirmar o CPF do parceiro(a):",
+        "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
+      ],
+      "restricao"
+    );
+  }
+
+  return step(env, st,
+    [
+      "Obrigado por avisar! 🙏",
+      "Anotei aqui que existe restrição no CPF.",
+      "Perfeito, por enquanto encerramos esta etapa em **restrição**."
+    ],
+    "restricao"
+  );
+}
+
   // -----------------------------------------------------
-  // CPF INCERTO / NÃO LEMBRA
+  // CPF LIMPO
   // -----------------------------------------------------
-  if (incerto) {
-    await upsertState(env, st.wa_id, {
-      restricao: "incerto"
+  if (nao) {
+
+  // 2ª resposta (parceiro) no fluxo conjunto
+  if (segundaPerguntaParceiro) {
+    try {
+      await upsertState(env, st.wa_id, { restricao_parceiro: false });
+    } catch (_) {}
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "restricao",
+      severity: "info",
+      message: "Parceiro confirmou CPF limpo (checkpoint em restricao)"
     });
 
-    // Se for conjunto, pergunta parceiro antes de encerrar
-    if (ehConjunto) {
-      await funnelTelemetry(env, {
-        wa_id: st.wa_id,
-        event: "exit_stage",
-        stage,
-        next_stage: "restricao_parceiro",
-        severity: "warning",
-        message: "Titular com restrição incerta; seguindo para restrição do parceiro"
-      });
+    return step(env, st,
+      [
+        "Perfeito! 👌",
+        "Anotei que o parceiro(a) está sem restrição no CPF.",
+        "Ótimo, por enquanto encerramos esta etapa em **restrição**."
+      ],
+      "restricao"
+    );
+  }
 
-      return step(env, st,
-        [
-          "Tranquilo, isso é bem comum 😊",
-          "Anotei como informação incerta no seu CPF.",
-          "Agora me confirma do parceiro(a): ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
-        ],
-        "restricao_parceiro"
-      );
-    }
+  // 1ª resposta (titular)
+  await upsertState(env, st.wa_id, { restricao: false });
 
-    // EXIT_STAGE (solo)
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "exit_stage",
+    stage,
+    next_stage: "restricao",
+    severity: "info",
+    message: "CPF limpo confirmado",
+    details: { ehFluxoConjunto }
+  });
+
+  if (ehFluxoConjunto) {
+    return step(env, st,
+      [
+        "Perfeito! 👌",
+        "Agora preciso confirmar o CPF do parceiro(a):",
+        "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
+      ],
+      "restricao"
+    );
+  }
+
+  return step(env, st,
+    [
+      "Perfeito! 👌",
+      "Isso ajuda bastante na análise.",
+      "Ótimo, por enquanto encerramos esta etapa em **restrição**."
+    ],
+    "restricao"
+  );
+}
+
+  // -----------------------------------------------------
+// CPF INCERTO / NÃO LEMBRA
+// -----------------------------------------------------
+if (incerto) {
+
+  // 2ª resposta (parceiro) no fluxo conjunto
+  if (segundaPerguntaParceiro) {
+    try {
+      await upsertState(env, st.wa_id, { restricao_parceiro: "incerto" });
+    } catch (_) {}
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
       next_stage: "restricao",
       severity: "warning",
-      message: "Cliente não sabe se tem restrição (checkpoint em restricao)"
+      message: "Parceiro não soube informar restrição (checkpoint em restricao)"
     });
 
     return step(env, st,
       [
-        "Tranquilo, isso é bem comum 😊",
-        "Anotei como informação incerta de restrição.",
-        "Perfeito, por enquanto encerramos esta etapa em **restrição**."
+        "Tranquilo 😊",
+        "Anotei como informação incerta para o parceiro(a).",
+        "Ótimo, por enquanto encerramos esta etapa em **restrição**."
       ],
       "restricao"
     );
   }
+
+  // 1ª resposta (titular)
+  await upsertState(env, st.wa_id, { restricao: "incerto" });
+
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "exit_stage",
+    stage,
+    next_stage: "restricao",
+    severity: "warning",
+    message: "Cliente não sabe se tem restrição",
+    details: { ehFluxoConjunto }
+  });
+
+  if (ehFluxoConjunto) {
+    return step(env, st,
+      [
+        "Tranquilo, isso é bem comum 😊",
+        "Agora preciso confirmar o CPF do parceiro(a):",
+        "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
+      ],
+      "restricao"
+    );
+  }
+
+  return step(env, st,
+    [
+      "Tranquilo, isso é bem comum 😊",
+      "Anotei como informação incerta de restrição.",
+      "Perfeito, por enquanto encerramos esta etapa em **restrição**."
+    ],
+    "restricao"
+  );
+}
 
   // -----------------------------------------------------
   // NÃO ENTENDIDO

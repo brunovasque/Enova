@@ -6766,6 +6766,355 @@ case "inicio_multi_renda_coletar": {
   );
 }
 
+// --------------------------------------------------
+// 🧩 C20B - INICIO_MULTI_REGIME_PERGUNTA_PARCEIRO
+// --------------------------------------------------
+case "inicio_multi_regime_pergunta_parceiro": {
+
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "enter_phase",
+    stage,
+    severity: "info",
+    message: "Fase: inicio_multi_regime_pergunta_parceiro",
+    details: { last_user_text: st.last_user_text }
+  });
+
+  const nt = normalizeText(userText || "");
+
+  // SIM → coletar outro regime do parceiro
+  if (isYes(nt) || /^sim$/i.test(nt) || /(tenho outro|mais de um trabalho|mais um emprego|outro trampo)/i.test(nt)) {
+    await upsertState(env, st.wa_id, {
+      fase_conversa: "inicio_multi_regime_coletar_parceiro"
+    });
+
+    return step(
+      env,
+      st,
+      [
+        "Perfeito! 👍",
+        "Me diga qual é o *outro regime de trabalho* do parceiro(a).",
+        "Exemplos: *CLT*, *Autônomo*, *Servidor*, *MEI*, *Aposentado*…"
+      ],
+      "inicio_multi_regime_coletar_parceiro"
+    );
+  }
+
+  // NÃO → segue para renda do parceiro
+  if (isNo(nt) || /^(nao|não)$/i.test(nt) || /(s[oó] esse|apenas esse|somente esse)/i.test(nt)) {
+    return step(
+      env,
+      st,
+      [
+        "Certo! 😊",
+        "Então me diga: qual é a **renda mensal** do parceiro(a)? (valor bruto)"
+      ],
+      "renda_parceiro"
+    );
+  }
+
+  return step(
+    env,
+    st,
+    [
+      "Só para confirmar 😊",
+      "O parceiro(a) tem *mais algum regime de trabalho* além desse?",
+      "Responda *sim* ou *não*."
+    ],
+    "inicio_multi_regime_pergunta_parceiro"
+  );
+}
+
+// --------------------------------------------------
+// 🧩 C20C - INICIO_MULTI_REGIME_COLETAR_PARCEIRO
+// --------------------------------------------------
+case "inicio_multi_regime_coletar_parceiro": {
+
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "enter_phase",
+    stage,
+    severity: "info",
+    message: "Fase: inicio_multi_regime_coletar_parceiro",
+    details: { last_user_text: st.last_user_text }
+  });
+
+  const nt = normalizeText(userText || "");
+  const regimeMulti = parseRegimeTrabalho(nt);
+
+  if (!regimeMulti || regimeMulti === "desempregado" || regimeMulti === "estudante") {
+    return step(
+      env,
+      st,
+      [
+        "Acho que não entendi certinho 😅",
+        "Me diga apenas o regime do parceiro(a), por exemplo:",
+        "👉 *CLT*\n👉 *Autônomo*\n👉 *Servidor*\n👉 *MEI*\n👉 *Aposentado*"
+      ],
+      "inicio_multi_regime_coletar_parceiro"
+    );
+  }
+
+  let regimesParceiro = Array.isArray(st.multi_regime_lista_parceiro) ? st.multi_regime_lista_parceiro : [];
+  regimesParceiro.push(regimeMulti === "aposentadoria" ? "aposentado" : regimeMulti);
+
+  await upsertState(env, st.wa_id, {
+    multi_regime_lista_parceiro: regimesParceiro
+  });
+
+  return step(
+    env,
+    st,
+    [
+      "Ótimo! 👍",
+      "O parceiro(a) tem *mais algum emprego/regime de trabalho* além desse?",
+      "Responda *sim* ou *não*."
+    ],
+    "inicio_multi_regime_pergunta_parceiro"
+  );
+}
+
+// --------------------------------------------------
+// 🧩 C20D - INICIO_MULTI_RENDA_PERGUNTA_PARCEIRO
+// --------------------------------------------------
+case "inicio_multi_renda_pergunta_parceiro": {
+
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "enter_phase",
+    stage,
+    severity: "info",
+    message: "Fase: inicio_multi_renda_pergunta_parceiro",
+    details: { last_user_text: st.last_user_text }
+  });
+
+  const nt = normalizeText(userText || "");
+
+  // -------------------------------------------
+  // NÃO — parceiro não possui outra renda
+  // -------------------------------------------
+  if (isNo(nt) || /^(nao|não)$/i.test(nt) || /(nao tenho renda extra|não tenho renda extra|s[oó] essa renda)/i.test(nt)) {
+
+    await upsertState(env, st.wa_id, {
+      multi_renda_flag_parceiro: false
+    });
+
+    const rendaTitular = Number(st.renda || 0);
+    const rendaParceiroBase = Number(st.renda_parceiro || 0);
+    const listaParceiro = Array.isArray(st.multi_renda_lista_parceiro) ? st.multi_renda_lista_parceiro : [];
+    const rendaExtraParceiro = listaParceiro.reduce((acc, item) => acc + Number(item?.valor || 0), 0);
+    const rendaTotal = rendaTitular + rendaParceiroBase + rendaExtraParceiro;
+
+    await upsertState(env, st.wa_id, {
+      renda_total_para_fluxo: rendaTotal
+    });
+
+    // Parceiro autônomo → perguntar IR
+    if (st.regime_trabalho_parceiro === "autonomo" || st.regime_parceiro === "AUTONOMO") {
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: "ir_declarado",
+        severity: "info",
+        message: "Saindo de inicio_multi_renda_pergunta_parceiro → ir_declarado",
+        details: {
+          renda_titular: rendaTitular,
+          renda_parceiro: rendaParceiroBase,
+          renda_extra_parceiro: rendaExtraParceiro,
+          renda_total: rendaTotal
+        }
+      });
+
+      return step(
+        env,
+        st,
+        [
+          "Perfeito! 👌",
+          `A renda somada ficou em **R$ ${rendaTotal.toLocaleString("pt-BR")}**.`,
+          "O parceiro(a) **declara Imposto de Renda**?"
+        ],
+        "ir_declarado"
+      );
+    }
+
+    // Ainda faltam dados do titular → volta pro trilho do titular
+    const titularSemRegime = !st.regime && !st.regime_trabalho;
+    const titularSemRenda = !Number(st.renda || 0);
+
+    if (titularSemRegime || titularSemRenda) {
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: "regime_trabalho",
+        severity: "info",
+        message: "Saindo de inicio_multi_renda_pergunta_parceiro → regime_trabalho (faltam dados do titular)",
+        details: {
+          renda_titular: rendaTitular,
+          renda_parceiro: rendaParceiroBase,
+          renda_extra_parceiro: rendaExtraParceiro,
+          renda_total: rendaTotal
+        }
+      });
+
+      return step(
+        env,
+        st,
+        [
+          "Perfeito! 👍",
+          `Já anotei as rendas do parceiro(a) e a renda somada parcial ficou em **R$ ${rendaTotal.toLocaleString("pt-BR")}**.`,
+          "Agora preciso registrar seus dados primeiro, pra seguir certinho:",
+          "Qual é o seu **tipo de trabalho**? CLT, autônomo(a) ou servidor(a)?"
+        ],
+        "regime_trabalho"
+      );
+    }
+
+    // Titular já preenchido → segue CTPS
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "ctps_36",
+      severity: "info",
+      message: "Saindo de inicio_multi_renda_pergunta_parceiro → ctps_36",
+      details: {
+        renda_titular: rendaTitular,
+        renda_parceiro: rendaParceiroBase,
+        renda_extra_parceiro: rendaExtraParceiro,
+        renda_total: rendaTotal
+      }
+    });
+
+    return step(
+      env,
+      st,
+      [
+        "Ótimo! 👍",
+        `A renda somada ficou em **R$ ${rendaTotal.toLocaleString("pt-BR")}**.`,
+        "Agora me diga:",
+        "Você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
+      ],
+      "ctps_36"
+    );
+  }
+
+  // -------------------------------------------
+  // SIM — parceiro possui outra renda
+  // -------------------------------------------
+  if (isYes(nt) || /^sim$/i.test(nt) || /(tenho renda extra|tenho outra renda|fa[cç]o bico|freela|extra)/i.test(nt)) {
+    await upsertState(env, st.wa_id, {
+      multi_renda_flag_parceiro: true
+    });
+
+    return step(
+      env,
+      st,
+      [
+        "Perfeito! 👍",
+        "Me diga qual é a *outra renda do parceiro(a)* e o *valor BRUTO*.",
+        "Exemplo: *Bico — 1200*"
+      ],
+      "inicio_multi_renda_coletar_parceiro"
+    );
+  }
+
+  return step(
+    env,
+    st,
+    [
+      "Só pra confirmar 🙂",
+      "O parceiro(a) possui *mais alguma renda* além dessa?",
+      "Responda *sim* ou *não*."
+    ],
+    "inicio_multi_renda_pergunta_parceiro"
+  );
+}
+
+// --------------------------------------------------
+// 🧩 C20E - INICIO_MULTI_RENDA_COLETAR_PARCEIRO
+// --------------------------------------------------
+case "inicio_multi_renda_coletar_parceiro": {
+
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "enter_phase",
+    stage,
+    severity: "info",
+    message: "Fase: inicio_multi_renda_coletar_parceiro",
+    details: { last_user_text: st.last_user_text }
+  });
+
+  const txt = String(userText || "").trim();
+
+  const matchCompleto = txt.match(/(.+?)\s*[-–—]\s*(r\$\s*)?([\d\.,kK]+)/i);
+  const matchSomenteValor = txt.match(/^(r\$\s*)?([\d\.,kK]+)$/i);
+
+  let tipo = "";
+  let valorNumerico = 0;
+
+  if (matchCompleto) {
+    tipo = normalizeText(matchCompleto[1].trim());
+    valorNumerico = parseMoneyBR(matchCompleto[3]) || 0;
+  } else if (matchSomenteValor) {
+    tipo = "renda extra parceiro";
+    valorNumerico = parseMoneyBR(matchSomenteValor[2]) || 0;
+  } else {
+    return step(
+      env,
+      st,
+      [
+        "Não consegui entender certinho 😅",
+        "Envie no formato: *tipo — valor*",
+        "Exemplo: *Bico — 1000*"
+      ],
+      "inicio_multi_renda_coletar_parceiro"
+    );
+  }
+
+  if (!valorNumerico || valorNumerico <= 0) {
+    return step(
+      env,
+      st,
+      [
+        "Não consegui identificar o valor da renda extra 😅",
+        "Pode me enviar novamente?",
+        "Exemplo: *Bico — 1000* ou só *1000*"
+      ],
+      "inicio_multi_renda_coletar_parceiro"
+    );
+  }
+
+  let lista = Array.isArray(st.multi_renda_lista_parceiro) ? st.multi_renda_lista_parceiro : [];
+  lista.push({
+    tipo,
+    valor: valorNumerico,
+    ts: Date.now()
+  });
+
+  await upsertState(env, st.wa_id, {
+    multi_renda_lista_parceiro: lista,
+    ultima_renda_bruta_informada_parceiro: valorNumerico,
+    qtd_rendas_informadas_parceiro: lista.length
+  });
+
+  st.multi_renda_lista_parceiro = lista;
+  st.ultima_renda_bruta_informada_parceiro = valorNumerico;
+  st.qtd_rendas_informadas_parceiro = lista.length;
+
+  return step(
+    env,
+    st,
+    [
+      "Ótimo! 👌",
+      "O parceiro(a) tem *mais alguma renda*?",
+      "Responda: *sim* ou *não*."
+    ],
+    "inicio_multi_renda_pergunta_parceiro"
+  );
+}
+
 // =========================================================
 // C15 — REGIME DE TRABALHO
 // =========================================================
@@ -7352,14 +7701,13 @@ case "regime_trabalho_parceiro": {
       regime_trabalho_parceiro: "clt"
     });
 
-    // EXIT
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "renda_parceiro",
+      next_stage: "inicio_multi_regime_pergunta_parceiro",
       severity: "info",
-      message: "Saindo da fase regime_trabalho_parceiro → renda_parceiro (CLT)",
+      message: "Saindo da fase regime_trabalho_parceiro → inicio_multi_regime_pergunta_parceiro (CLT)",
       details: { userText }
     });
 
@@ -7368,9 +7716,11 @@ case "regime_trabalho_parceiro": {
       st,
       [
         "Perfeito! 👍",
-        "E quanto ele(a) ganha por mês, em média?"
+        "Só pra eu montar certinho o perfil do parceiro(a):",
+        "Ele(a) tem *mais algum regime de trabalho* além desse?",
+        "Responda *sim* ou *não*."
       ],
-      "renda_parceiro"
+      "inicio_multi_regime_pergunta_parceiro"
     );
   }
 
@@ -7382,14 +7732,13 @@ case "regime_trabalho_parceiro": {
       regime_trabalho_parceiro: "autonomo"
     });
 
-    // EXIT
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "renda_parceiro",
+      next_stage: "inicio_multi_regime_pergunta_parceiro",
       severity: "info",
-      message: "Saindo da fase regime_trabalho_parceiro → renda_parceiro (AUTÔNOMO)",
+      message: "Saindo da fase regime_trabalho_parceiro → inicio_multi_regime_pergunta_parceiro (AUTÔNOMO)",
       details: { userText }
     });
 
@@ -7399,9 +7748,11 @@ case "regime_trabalho_parceiro": {
       [
         "Entendi! 😊",
         "Autônomo(a) também entra no programa, sem problema.",
-        "Me diga qual é a **renda mensal média** dele(a)?"
+        "Só pra eu montar certinho o perfil do parceiro(a):",
+        "Ele(a) tem *mais algum regime de trabalho* além desse?",
+        "Responda *sim* ou *não*."
       ],
-      "renda_parceiro"
+      "inicio_multi_regime_pergunta_parceiro"
     );
   }
 
@@ -7413,14 +7764,13 @@ case "regime_trabalho_parceiro": {
       regime_trabalho_parceiro: "servidor"
     });
 
-    // EXIT
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "renda_parceiro",
+      next_stage: "inicio_multi_regime_pergunta_parceiro",
       severity: "info",
-      message: "Saindo da fase regime_trabalho_parceiro → renda_parceiro (SERVIDOR)",
+      message: "Saindo da fase regime_trabalho_parceiro → inicio_multi_regime_pergunta_parceiro (SERVIDOR)",
       details: { userText }
     });
 
@@ -7430,9 +7780,11 @@ case "regime_trabalho_parceiro": {
       [
         "Ótimo! 👌",
         "Servidor(a) público costuma ter análise rápida.",
-        "Qual é o salário mensal dele(a)?"
+        "Só pra eu montar certinho o perfil do parceiro(a):",
+        "Ele(a) tem *mais algum regime de trabalho* além desse?",
+        "Responda *sim* ou *não*."
       ],
-      "renda_parceiro"
+      "inicio_multi_regime_pergunta_parceiro"
     );
   }
 
@@ -7444,14 +7796,13 @@ case "regime_trabalho_parceiro": {
       regime_trabalho_parceiro: "aposentadoria"
     });
 
-    // EXIT
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "renda_parceiro",
+      next_stage: "inicio_multi_regime_pergunta_parceiro",
       severity: "info",
-      message: "Saindo da fase regime_trabalho_parceiro → renda_parceiro (APOSENTADORIA)",
+      message: "Saindo da fase regime_trabalho_parceiro → inicio_multi_regime_pergunta_parceiro (APOSENTADORIA)",
       details: { userText }
     });
 
@@ -7460,9 +7811,11 @@ case "regime_trabalho_parceiro": {
       st,
       [
         "Perfeito! 👍",
-        "E quanto ele(a) recebe por mês de aposentadoria, em média?"
+        "Só pra eu montar certinho o perfil do parceiro(a):",
+        "Ele(a) tem *mais algum regime de trabalho* além desse?",
+        "Responda *sim* ou *não*."
       ],
-      "renda_parceiro"
+      "inicio_multi_regime_pergunta_parceiro"
     );
   }
 
@@ -7663,16 +8016,12 @@ case "renda_parceiro": {
     }
   });
 
-  // Exemplos cobertos: "1800", "R$ 1.800", "2k"
-  // Captura número da renda
   const valor = parseMoneyBR(t);
 
   // -----------------------------------
   // VALOR INVÁLIDO
   // -----------------------------------
   if (!valor || isNaN(valor) || valor < 200) {
-
-    // 🔻 EXIT mantendo a fase
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -7695,105 +8044,36 @@ case "renda_parceiro": {
   }
 
   // -----------------------------------
-  // SALVA RENDA DO PARCEIRO
+  // SALVA RENDA BASE DO PARCEIRO
   // -----------------------------------
   await upsertState(env, st.wa_id, {
-  renda_parceiro: valor,
-  parceiro_tem_renda: true,
-  somar_renda: true
-});
+    renda_parceiro: valor,
+    parceiro_tem_renda: true,
+    somar_renda: true
+  });
 
-  // -----------------------------------
-  // ATUALIZA RENDA TOTAL
-  // -----------------------------------
+  // Renda parcial (titular + base parceiro)
   const rendaTitular = Number(st.renda || st.renda_total_para_fluxo || 0);
-  const rendaTotal = rendaTitular + valor;
+  const rendaTotalParcial = rendaTitular + valor;
 
   await upsertState(env, st.wa_id, {
-    renda_total_para_fluxo: rendaTotal
+    renda_total_para_fluxo: rendaTotalParcial
   });
 
   // -----------------------------------
-  // SE AUTÔNOMO → PERGUNTAR IR
+  // NOVO: perguntar multi-renda do parceiro ANTES de seguir
   // -----------------------------------
-  if (st.regime_trabalho_parceiro === "autonomo" || st.regime_parceiro === "AUTONOMO") {
-
-    // 🟩 EXIT desta fase indo para ir_declarado
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "exit_stage",
-      stage,
-      next_stage: "ir_declarado",
-      severity: "info",
-      message: "Saindo de renda_parceiro → ir_declarado",
-      details: {
-        renda_parceiro: valor,
-        renda_titular: rendaTitular,
-        renda_total: rendaTotal
-      }
-    });
-
-    return step(
-      env,
-      st,
-      [
-        "Perfeito! 👌",
-        "O parceiro(a) **declara Imposto de Renda**?"
-      ],
-      "ir_declarado"
-    );
-  }
-
-  // -----------------------------------
-  // NÃO AUTÔNOMO → validar se já temos dados do titular
-  // -----------------------------------
-
-  const titularSemRegime = !st.regime && !st.regime_trabalho;
-  const titularSemRenda = !Number(st.renda || 0);
-
-  // Se ainda não coletamos os dados do titular, volta pro trilho certo primeiro
-  if (titularSemRegime || titularSemRenda) {
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "exit_stage",
-      stage,
-      next_stage: "regime_trabalho",
-      severity: "info",
-      message: "Saindo de renda_parceiro → regime_trabalho (faltam dados do titular antes do CTPS)",
-      details: {
-        renda_parceiro: valor,
-        renda_titular: rendaTitular,
-        renda_total: rendaTotal,
-        titularSemRegime,
-        titularSemRenda
-      }
-    });
-
-    return step(
-      env,
-      st,
-      [
-        "Perfeito! 👍",
-        `Já anotei a renda do parceiro(a) e a renda somada parcial ficou em **R$ ${rendaTotal.toLocaleString("pt-BR")}**.`,
-        "Agora preciso registrar seus dados primeiro, pra seguir certinho:",
-        "Qual é o seu **tipo de trabalho**? CLT, autônomo(a) ou servidor(a)?"
-      ],
-      "regime_trabalho"
-    );
-  }
-
-  // 🟩 EXIT indo para ctps_36
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
     stage,
-    next_stage: "ctps_36",
+    next_stage: "inicio_multi_renda_pergunta_parceiro",
     severity: "info",
-    message: "Saindo de renda_parceiro → ctps_36",
+    message: "Saindo de renda_parceiro → inicio_multi_renda_pergunta_parceiro",
     details: {
       renda_parceiro: valor,
       renda_titular: rendaTitular,
-      renda_total: rendaTotal
+      renda_total_parcial: rendaTotalParcial
     }
   });
 
@@ -7801,14 +8081,14 @@ case "renda_parceiro": {
     env,
     st,
     [
-      "Ótimo! 👍",
-      `A renda somada ficou em **R$ ${rendaTotal.toLocaleString("pt-BR")}**.`,
-      "Agora me diga:",
-      "Você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
+      "Perfeito! 👍",
+      `Já anotei a renda principal do parceiro(a): **R$ ${valor.toLocaleString("pt-BR")}**.`,
+      "Ele(a) possui *mais alguma renda* além dessa?",
+      "Responda *sim* ou *não*."
     ],
-    "ctps_36"
+    "inicio_multi_renda_pergunta_parceiro"
   );
-  } // <-- FECHAR o case "renda_parceiro" aqui
+} // <-- FECHAR o case "renda_parceiro" aqui
 
 // =========================================================
 // 🧩 C23 — RENDA DO FAMILIAR QUE COMPÕE

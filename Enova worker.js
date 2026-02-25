@@ -7528,8 +7528,15 @@ case "renda": {
     const somarRendaSozinho = st.somar_renda === false || st.somar_renda === "sozinho";
     const exigirComposicao = somarRendaSozinho && valor < 3000;
 
-    // 🟩 EXIT → próxima fase é renda_parceiro OU quem_pode_somar OU possui_renda_extra
-    const precisaConfirmarRendaParceiro = !!st.somar_renda && st.parceiro_tem_renda !== true && st.parceiro_tem_renda !== false;
+// Se já existe regime/renda do parceiro, não pode perguntar "tem renda?" de novo
+const parceiroJaInformado = !!(
+  st.parceiro_tem_renda === true ||
+  st.regime_trabalho_parceiro ||
+  st.renda_parceiro
+);
+
+// 🟩 EXIT → próxima fase é renda_parceiro OU quem_pode_somar OU possui_renda_extra
+const precisaConfirmarRendaParceiro = !!st.somar_renda && !parceiroJaInformado;
 
     const nextStage = precisaConfirmarRendaParceiro
       ? "parceiro_tem_renda"
@@ -7686,8 +7693,10 @@ case "renda_parceiro": {
   // SALVA RENDA DO PARCEIRO
   // -----------------------------------
   await upsertState(env, st.wa_id, {
-    renda_parceiro: valor
-  });
+  renda_parceiro: valor,
+  parceiro_tem_renda: true,
+  somar_renda: true
+});
 
   // -----------------------------------
   // ATUALIZA RENDA TOTAL

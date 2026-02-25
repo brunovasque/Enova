@@ -7526,6 +7526,7 @@ case "renda": {
     });
 
     const somarRendaSozinho = st.somar_renda === false || st.somar_renda === "sozinho";
+    const rendaParceiroJaInformada = Number(st.renda_parceiro || 0) > 0;
     const exigirComposicao = somarRendaSozinho && valor < 3000;
 
 // Se já existe regime/renda do parceiro, não pode perguntar "tem renda?" de novo
@@ -7536,13 +7537,17 @@ const parceiroJaInformado = !!(
 );
 
 // 🟩 EXIT → próxima fase é renda_parceiro OU quem_pode_somar OU possui_renda_extra
-const precisaConfirmarRendaParceiro = !!st.somar_renda && !parceiroJaInformado;
+const precisaConfirmarRendaParceiro =
+  !!st.somar_renda &&
+  !rendaParceiroJaInformada &&
+  st.parceiro_tem_renda !== true &&
+  st.parceiro_tem_renda !== false;
 
     const nextStage = precisaConfirmarRendaParceiro
-      ? "parceiro_tem_renda"
-      : (st.somar_renda && st.parceiro_tem_renda)
-      ? "renda_parceiro"
-      : (exigirComposicao ? "quem_pode_somar" : "inicio_multi_renda_pergunta");
+  ? "parceiro_tem_renda"
+  : (st.somar_renda && st.parceiro_tem_renda && !rendaParceiroJaInformada)
+  ? "renda_parceiro"
+  : (exigirComposicao ? "quem_pode_somar" : "inicio_multi_renda_pergunta");
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -7574,7 +7579,7 @@ const precisaConfirmarRendaParceiro = !!st.somar_renda && !parceiroJaInformado;
     }
 
     // Se tinha parceiro com renda → pergunta renda dele(a)
-    if (st.somar_renda && st.parceiro_tem_renda) {
+    if (st.somar_renda && st.parceiro_tem_renda && !rendaParceiroJaInformada) {
       return step(
         env,
         st,

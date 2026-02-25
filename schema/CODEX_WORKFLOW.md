@@ -79,7 +79,9 @@ Fase 2 — IMPLEMENTAÇÃO (somente após meu OK)
 1) Implementar patch cirúrgico (sem refatorar, sem renomear por estética).
 2) CRUCIAL: criar/usar UMA PR única e manter o mesmo branch até finalizar.
 3) Rodar os smoke tests e registrar o resultado.
-4) Entregar report final (obrigatório):
+4) Push obrigatório no MESMO branch do PR:
+   - git push -u origin HEAD
+5) Entregar report final (obrigatório):
    - PR # e branch
    - hash do commit
    - arquivos alterados

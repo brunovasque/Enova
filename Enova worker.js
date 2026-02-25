@@ -9003,7 +9003,7 @@ const tNorm = normalizeText(t);
         [
           "Sem problema! 😊",
           "Mesmo sem saber certinho agora, dá pra seguir.",
-          "O parceiro(a) tem **36 meses ou mais** de carteira assinada nos últimos 3 anos?"
+          "O parceiro(a) tem **36 meses ou mais** de carteira assinada somando todos os registros?" 
         ],
         "ctps_36_parceiro"
       );
@@ -9090,7 +9090,7 @@ const tNorm = normalizeText(t);
         [
           "Perfeito, obrigado por confirmar! 👍",
           "Agora me diga:",
-          "O parceiro(a) tem **36 meses ou mais** de carteira assinada nos últimos 3 anos?"
+          "O parceiro(a) tem **36 meses ou mais** de carteira assinada somando todos os registros"
         ],
         "ctps_36_parceiro"
       );
@@ -9125,7 +9125,7 @@ const tNorm = normalizeText(t);
     st,
     [
       "Só pra confirmar certinho 😊",
-      "Você possui **36 meses ou mais de carteira assinada** nos últimos 3 anos?"
+      "Somando todos os seus empregos registrados na carteira de trabalho, você tem *36 meses ou mais de carteira assinada* (considerando todos os períodos)?"
     ],
     "ctps_36"
   );
@@ -9361,7 +9361,7 @@ case "ctps_36_parceiro": {
     st,
     [
       "Só pra confirmar certinho 😊",
-      "O parceiro(a) tem **36 meses ou mais** de carteira assinada somando os últimos empregos?"
+      "O parceiro(a) tem **36 meses ou mais** de carteira assinada somando todos os registros?"
     ],
     "ctps_36_parceiro"
   );
@@ -9779,18 +9779,19 @@ case "restricao": {
     }
   });
 
+  const ehConjunto = !!(st.financiamento_conjunto || st.somar_renda);
+
   // Exemplos cobertos: "nome sujo", "negativado no serasa", "cpf limpo", "não sei"
-  // Flag pra pegar "não tenho ..." e evitar conflito com SIM
   const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(t);
   const temTermoRestricao = hasRestricaoIndicador(t);
 
   const sim =
-  !temNaoTenho && (
-    isYes(t) ||
-    (!isNo(t) && temTermoRestricao) ||
-    /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(t) ||
-    /\b(tenho|tem)\s+(restri[cç][aã]o|nome sujo|cpf sujo|d[ií]vida|divida|protesto)\b/i.test(t)
-  );
+    !temNaoTenho && (
+      isYes(t) ||
+      (!isNo(t) && temTermoRestricao) ||
+      /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(t) ||
+      /\b(tenho|tem)\s+(restri[cç][aã]o|nome sujo|cpf sujo|d[ií]vida|divida|protesto)\b/i.test(t)
+    );
 
   const nao =
     isNo(t) ||
@@ -9808,7 +9809,28 @@ case "restricao": {
       restricao: true
     });
 
-    // EXIT_STAGE
+    // Se for conjunto, pergunta parceiro antes de encerrar
+    if (ehConjunto) {
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: "restricao_parceiro",
+        severity: "warning",
+        message: "Titular confirmou restrição; seguindo para restrição do parceiro"
+      });
+
+      return step(env, st,
+        [
+          "Perfeito, anotei aqui 👍",
+          "Agora me confirma do parceiro(a):",
+          "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
+        ],
+        "restricao_parceiro"
+      );
+    }
+
+    // EXIT_STAGE (solo)
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -9836,7 +9858,28 @@ case "restricao": {
       restricao: false
     });
 
-    // EXIT_STAGE
+    // Se for conjunto, pergunta parceiro antes de encerrar
+    if (ehConjunto) {
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: "restricao_parceiro",
+        severity: "info",
+        message: "Titular sem restrição; seguindo para restrição do parceiro"
+      });
+
+      return step(env, st,
+        [
+          "Perfeito! 👌",
+          "Agora me confirma do parceiro(a):",
+          "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
+        ],
+        "restricao_parceiro"
+      );
+    }
+
+    // EXIT_STAGE (solo)
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -9864,7 +9907,28 @@ case "restricao": {
       restricao: "incerto"
     });
 
-    // EXIT_STAGE
+    // Se for conjunto, pergunta parceiro antes de encerrar
+    if (ehConjunto) {
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: "restricao_parceiro",
+        severity: "warning",
+        message: "Titular com restrição incerta; seguindo para restrição do parceiro"
+      });
+
+      return step(env, st,
+        [
+          "Tranquilo, isso é bem comum 😊",
+          "Anotei como informação incerta no seu CPF.",
+          "Agora me confirma do parceiro(a): ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
+        ],
+        "restricao_parceiro"
+      );
+    }
+
+    // EXIT_STAGE (solo)
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -9905,6 +9969,157 @@ case "restricao": {
     "restricao"
   );
 }
+
+// =========================================================
+// 🧩 C34B — RESTRIÇÃO NO CPF (PARCEIRO)
+// =========================================================
+case "restricao_parceiro": {
+
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "enter_phase",
+    stage,
+    severity: "info",
+    message: "Entrando na fase: restricao_parceiro",
+    details: {
+      restricao_titular: st.restricao ?? null
+    }
+  });
+
+  const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(t);
+  const temTermoRestricao = hasRestricaoIndicador(t);
+
+  const sim =
+    !temNaoTenho && (
+      isYes(t) ||
+      (!isNo(t) && temTermoRestricao) ||
+      /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(t) ||
+      /\b(tenho|tem)\s+(restri[cç][aã]o|nome sujo|cpf sujo|d[ií]vida|divida|protesto)\b/i.test(t)
+    );
+
+  const nao =
+    isNo(t) ||
+    temNaoTenho ||
+    /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo)/i.test(t);
+
+  const incerto =
+    /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(t);
+
+  // Consolida titular + parceiro no campo restricao (sem criar coluna nova)
+  const restricaoTitular = st.restricao; // true | false | "incerto" | null
+  let restricaoFinal = restricaoTitular;
+
+  if (sim) {
+    restricaoFinal = true;
+  } else if (nao) {
+    if (restricaoTitular === true) restricaoFinal = true;
+    else if (restricaoTitular === "incerto") restricaoFinal = "incerto";
+    else restricaoFinal = false;
+  } else if (incerto) {
+    if (restricaoTitular === true) restricaoFinal = true;
+    else restricaoFinal = "incerto";
+  }
+
+  // ---------------------------------
+  // PARCEIRO COM RESTRIÇÃO
+  // ---------------------------------
+  if (sim) {
+    await upsertState(env, st.wa_id, {
+      restricao: restricaoFinal
+    });
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "restricao",
+      severity: "warning",
+      message: "Parceiro com restrição confirmado (consolidado em restricao)"
+    });
+
+    return step(env, st,
+      [
+        "Perfeito, anotei a restrição do parceiro(a) também 👍",
+        "Ótimo, por enquanto encerramos esta etapa em **restrição**."
+      ],
+      "restricao"
+    );
+  }
+
+  // ---------------------------------
+  // PARCEIRO SEM RESTRIÇÃO
+  // ---------------------------------
+  if (nao) {
+    await upsertState(env, st.wa_id, {
+      restricao: restricaoFinal
+    });
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "restricao",
+      severity: "info",
+      message: "Parceiro sem restrição confirmado (consolidado em restricao)"
+    });
+
+    return step(env, st,
+      [
+        "Perfeito! 👌",
+        "Anotei aqui a situação do parceiro(a).",
+        "Ótimo, por enquanto encerramos esta etapa em **restrição**."
+      ],
+      "restricao"
+    );
+  }
+
+  // ---------------------------------
+  // PARCEIRO INCERTO
+  // ---------------------------------
+  if (incerto) {
+    await upsertState(env, st.wa_id, {
+      restricao: restricaoFinal
+    });
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "restricao",
+      severity: "warning",
+      message: "Restrição do parceiro incerta (consolidado em restricao)"
+    });
+
+    return step(env, st,
+      [
+        "Tranquilo 😊",
+        "Anotei a situação do parceiro(a) como incerta.",
+        "Ótimo, por enquanto encerramos esta etapa em **restrição**."
+      ],
+      "restricao"
+    );
+  }
+
+  // ---------------------------------
+  // NÃO ENTENDIDO
+  // ---------------------------------
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "exit_stage",
+    stage,
+    next_stage: "restricao_parceiro",
+    severity: "warning",
+    message: "Resposta do parceiro não reconhecida — repetindo pergunta"
+  });
+
+  return step(env, st,
+    [
+      "Só pra confirmar rapidinho 😊",
+      "O parceiro(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
+    ],
+    "restricao_parceiro"
+  );
+}      
 
 // =========================================================
 // 🧩 C35 — REGULARIZAÇÃO DA RESTRIÇÃO

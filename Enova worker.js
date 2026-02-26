@@ -1954,6 +1954,7 @@ try {
   const metaType = msg?.type || null;
   const metaText = msg?.text?.body || null;
   const metaMessageId = messageId || null;
+  const type = metaType; // garante type definido p/ filtros e extração
 
   // captura status event (read, delivered, etc.)
   const metaStatus =
@@ -10193,13 +10194,13 @@ const segundaPerguntaParceiro =
     });
 
     return step(env, st,
-      [
-        "Perfeito! 👌",
-        "Anotei que o parceiro(a) está sem restrição no CPF.",
-        "Ótimo, por enquanto encerramos esta etapa em **restrição**."
-      ],
-      "restricao"
-    );
+  [
+    "Perfeito! 👌",
+    "Anotei que o parceiro(a) está sem restrição no CPF.",
+    "Fechado. Vamos seguir pra próxima etapa."
+  ],
+  "docs"
+);
   }
 
   // 1ª resposta (titular)
@@ -10227,13 +10228,13 @@ const segundaPerguntaParceiro =
   }
 
   return step(env, st,
-    [
-      "Perfeito! 👌",
-      "Isso ajuda bastante na análise.",
-      "Ótimo, por enquanto encerramos esta etapa em **restrição**."
-    ],
-    "restricao"
-  );
+  [
+    "Perfeito! 👌",
+    "Isso ajuda bastante na análise.",
+    "Fechado. Vamos seguir pra próxima etapa."
+  ],
+  "docs"
+);
 }
 
   // -----------------------------------------------------
@@ -10262,7 +10263,7 @@ if (incerto) {
         "Anotei como informação incerta para o parceiro(a).",
         "Ótimo, por enquanto encerramos esta etapa em **restrição**."
       ],
-      "restricao"
+      "docs"
     );
   }
 
@@ -10321,8 +10322,6 @@ if (incerto) {
     "restricao"
   );
 }
-
-
 
 // =========================================================
 // 🧩 C34B — RESTRIÇÃO NO CPF (PARCEIRO)
@@ -10420,13 +10419,13 @@ case "restricao_parceiro": {
     });
 
     return step(env, st,
-      [
-        "Perfeito! 👌",
-        "Anotei aqui a situação do parceiro(a).",
-        "Ótimo, por enquanto encerramos esta etapa em **restrição**."
-      ],
-      "restricao"
-    );
+  [
+    "Perfeito! 👌",
+    "Anotei que o parceiro(a) está sem restrição no CPF.",
+    "Fechado. Vamos seguir pra próxima etapa."
+  ],
+  "docs"
+);
   }
 
   // ---------------------------------
@@ -10447,13 +10446,13 @@ case "restricao_parceiro": {
     });
 
     return step(env, st,
-      [
-        "Tranquilo 😊",
-        "Anotei a situação do parceiro(a) como incerta.",
-        "Ótimo, por enquanto encerramos esta etapa em **restrição**."
-      ],
-      "restricao"
-    );
+  [
+    "Perfeito! 👌",
+    "Anotei que o parceiro(a) está sem restrição no CPF.",
+    "Fechado. Vamos seguir pra próxima etapa."
+  ],
+  "docs"
+);
   }
 
   // ---------------------------------

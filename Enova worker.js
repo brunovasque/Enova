@@ -10104,8 +10104,12 @@ const titularJaRespondeuRestricao =
   st.restricao === false ||
   st.restricao === "incerto";
 
+// 2ª pergunta é do parceiro quando titular já tem restrição registrada
+// e o parceiro ainda não foi registrado.
 const segundaPerguntaParceiro =
-  ehFluxoConjunto && titularJaRespondeuRestricao;
+  ehFluxoConjunto &&
+  titularJaRespondeuRestricao &&
+  (st.restricao_parceiro === null || typeof st.restricao_parceiro === "undefined");
 
   // -----------------------------------------------------
   // CPF COM RESTRIÇÃO

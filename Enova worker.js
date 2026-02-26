@@ -10082,6 +10082,7 @@ case "restricao": {
   const sim =
     !temNaoTenho && (
       isYes(t) ||
+      /^\s*tem\s*$/i.test(t) ||
       (!isNo(t) && temTermoRestricao) ||
       /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(t) ||
       /\b(tenho|tem)\s+(restri[cç][aã]o|nome sujo|cpf sujo|d[ií]vida|divida|protesto)\b/i.test(t)
@@ -10349,6 +10350,7 @@ case "restricao_parceiro": {
   const sim =
     !temNaoTenho && (
       isYes(t) ||
+      /^\s*tem\s*$/i.test(t) ||
       (!isNo(t) && temTermoRestricao) ||
       /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(t) ||
       /\b(tenho|tem)\s+(restri[cç][aã]o|nome sujo|cpf sujo|d[ií]vida|divida|protesto)\b/i.test(t)

@@ -4169,29 +4169,29 @@ async function runFunnel(env, st, userText) {
   // ============================================================
 
   // 1) Webhook duplicado (mesmo texto que já foi processado)
-// ✅ só bloqueia se repetir o mesmo texto NA MESMA FASE
-const prevProcessedStage = String(st.last_processed_stage || "");
-const currStage = String(stage || "");
-const sameStageProcessed = prevProcessedStage === currStage;
+  // ✅ NÃO BLOQUEIA O CLIENTE: repetição de "sim/não" é normal.
+  // Deduplicação real do webhook já acontece no handleMetaWebhook pelo messageId (wamid).
+  const prevProcessedStage = String(st.last_processed_stage || "");
+  const currStage = String(stage || "");
+  const sameStageProcessed = prevProcessedStage === currStage;
 
-if (sameStageProcessed && st.last_processed_text && st.last_processed_text === userText) {
-  await funnelTelemetry(env, {
-    wa_id: st.wa_id,
-    event: "duplicate_webhook",
-    stage,
-    severity: "warning",
-    message: "Webhook duplicado detectado — processamento BLOQUEADO",
-    details: {
-      last_processed_text: st.last_processed_text,
-      current_text: userText,
-      last_processed_stage: prevProcessedStage,
-      current_stage: currStage
-    }
-  });
+  if (sameStageProcessed && st.last_processed_text && st.last_processed_text === userText) {
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "duplicate_user_text_ignored",
+      stage,
+      severity: "info",
+      message: "Texto repetido na mesma fase — NÃO bloqueado (cliente pode repetir resposta)",
+      details: {
+        last_processed_text: st.last_processed_text,
+        current_text: userText,
+        last_processed_stage: prevProcessedStage,
+        current_stage: currStage
+      }
+    });
 
-  // corte: não reprocessa nem responde de novo
-  return new Response("OK_DUPLICATE", { status: 200 });
-}
+    // segue o fluxo normal (não retorna)
+  }
 
 // ============================================================
 // 🔄 RESET GLOBAL — funciona em QUALQUER FASE

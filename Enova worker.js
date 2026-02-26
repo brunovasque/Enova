@@ -4247,6 +4247,8 @@ if (isReset) {
 }
 
 // 2) Loop por repetição do cliente (comparar com a ÚLTIMA msg do cliente)
+// ✅ REGRA NOVA: NÃO bloquear o cliente. Repetição é válida (principalmente sim/não).
+// Mantemos só telemetria para diagnóstico.
 const nt_blockd = normalizeText(userText || "");
 const prev_nt_blockd = normalizeText(st.last_user_text || "");
 const prev_stage_user_blockd = String(st.last_user_stage || "");
@@ -4258,7 +4260,7 @@ const allowRepeatInStage_blockd = (
   stage === "somar_renda_familiar"
 );
 
-// ✅ só bloqueia repetição se for na MESMA fase
+// ✅ só detecta repetição se for na MESMA fase
 const sameStageRepeat_blockd = (prev_stage_user_blockd === String(stage || ""));
 
 if (
@@ -4269,9 +4271,6 @@ if (
   prev_nt_blockd &&
   prev_nt_blockd === nt_blockd
 ) {
-  // ✅ NÃO bloquear o cliente.
-  // Repetição do cliente é válida (principalmente em perguntas sim/não).
-  // Mantemos só a telemetria para diagnóstico.
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "user_repeat_detected_no_block",
@@ -4285,10 +4284,8 @@ if (
     }
   });
 
-  return step(env, st, [
-    "Acho que essa mensagem veio igual à anterior 🤔",
-    "Pode me mandar de outro jeitinho? Só pra eu garantir que entendi certinho."
-  ], stage);
+  // ❌ NÃO retornar step() aqui.
+  // Deixa o switch(stage) processar normalmente.
 }
 
 // 3) Registrar mensagem atual como última do cliente + última processada

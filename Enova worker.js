@@ -10130,16 +10130,20 @@ const segundaPerguntaParceiro =
       message: "Parceiro confirmou restrição no CPF (checkpoint em restricao)"
     });
 
-    return step(env, st,
+    const ambosComRestricao = st.restricao === true;
+
+return step(env, st,
   [
     "Entendi 👍",
     "Só pra eu te orientar certinho:",
-    "Você tem **possibilidade ou intenção de regularizar** essa restrição?",
+    ambosComRestricao
+      ? "Vocês têm **possibilidade ou intenção de regularizar** essas restrições?"
+      : "Quem está com restrição tem **possibilidade ou intenção de regularizar** essa restrição?",
     "Responda *sim* ou *não*."
   ],
   "regularizacao_restricao"
 );
-  }
+}
 
   // 1ª resposta (titular)
   await upsertState(env, st.wa_id, { restricao: true });
@@ -10196,7 +10200,20 @@ const segundaPerguntaParceiro =
       message: "Parceiro confirmou CPF limpo (checkpoint em restricao)"
     });
 
-    return step(env, st,
+    if (st.restricao === true) {
+  return step(env, st,
+    [
+      "Perfeito! 👌",
+      "Anotei que o parceiro(a) está sem restrição no CPF.",
+      "Só pra eu te orientar certinho:",
+      "Você tem **possibilidade ou intenção de regularizar** essa restrição?",
+      "Responda *sim* ou *não*."
+    ],
+    "regularizacao_restricao"
+  );
+}
+
+return step(env, st,
   [
     "Perfeito! 👌",
     "Anotei que o parceiro(a) está sem restrição no CPF.",

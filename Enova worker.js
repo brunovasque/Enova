@@ -4269,18 +4269,22 @@ if (
   prev_nt_blockd &&
   prev_nt_blockd === nt_blockd
 ) {
+  // ✅ NÃO bloquear o cliente.
+  // Repetição do cliente é válida (principalmente em perguntas sim/não).
+  // Mantemos só a telemetria para diagnóstico.
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
-    event: "loop_message_detected",
+    event: "user_repeat_detected_no_block",
     stage,
-    severity: "warning",
-    message: "Cliente enviou a mesma mensagem repetida — bloqueio de loop",
+    severity: "info",
+    message: "Cliente repetiu a mensagem na mesma fase — permitido (sem bloqueio).",
     details: {
       prev_stage_user: prev_stage_user_blockd,
       current_stage: String(stage || ""),
       normalized_text: nt_blockd
     }
   });
+}
 
   return step(env, st, [
     "Acho que essa mensagem veio igual à anterior 🤔",

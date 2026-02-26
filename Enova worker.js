@@ -2004,19 +2004,19 @@ if (msg && type !== "text" && type !== "interactive") {
   });
 
   return metaWebhookResponse(200, {
-    reason: "ignored_non_text_payload",
-    type
-  });
+  reason: "ignored_non_text_payload",
+  type
+});
 }
 
-  // Chave para futura deduplicação real
-  const dedupKey = `${metadata.phone_number_id || "no_phone"}:${
-    messageId || "no_message_id"
-  }`;
+// Chave para futura deduplicação real
+const dedupKey = (messageId ? `mid:${messageId}` : null);
 
-  // ============================================================
-  // 💠 ANTI-DUPLICAÇÃO META (janela de 10s, só em memória)
-  // ============================================================
+// ============================================================
+// 💠 ANTI-DUPLICAÇÃO META (janela de 10s, só em memória)
+// ✅ Só dedupa se tiver messageId (wamid)
+// ============================================================
+if (dedupKey) {
   try {
     const now = Date.now();
     const DEDUP_WINDOW_MS = 10000; // 10 segundos
@@ -2053,24 +2053,25 @@ if (msg && type !== "text" && type !== "interactive") {
     console.error("DEDUP-META-ERROR:", err);
     // se der qualquer erro aqui, NÃO quebramos o fluxo
   }
-  // ============================================================
+}
+// ============================================================
 
-  await telemetry(env, {
-    wa_id: waId,
-    event: "webhook_message_received",
-    stage: "meta_message",
-    severity: "info",
-    message: `Mensagem recebida da META (tipo=${type || "desconhecido"})`,
-    details: {
-      dedupKey,
-      messageId,
-      type,
-      phone_number_id: metadata.phone_number_id || null
-    }
-  });
+await telemetry(env, {
+  wa_id: waId,
+  event: "webhook_message_received",
+  stage: "meta_message",
+  severity: "info",
+  message: `Mensagem recebida da META (tipo=${type || "desconhecido"})`,
+  details: {
+    dedupKey,
+    messageId,
+    type,
+    phone_number_id: metadata.phone_number_id || null
+  }
+});
 
-  // 9) Extração do texto do cliente (para o funil)
-  let userText = null;
+// 9) Extração do texto do cliente (para o funil)
+let userText = null;
 
   if (type === "text") {
     userText = msg.text?.body || "";

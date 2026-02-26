@@ -10340,7 +10340,7 @@ if (incerto) {
   return step(env, st,
     [
       "Só pra confirmar rapidinho 😊",
-      "Tem alguma **restrição** no CPF? (Serasa, SPC)"
+      "Tem alguma **restrição** no CPF? (Serasa, SPC)",
       "Responda *sim*, *não* ou *não sei*."
     ],
     "restricao"

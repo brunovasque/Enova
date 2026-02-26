@@ -4284,7 +4284,6 @@ if (
       normalized_text: nt_blockd
     }
   });
-}
 
   return step(env, st, [
     "Acho que essa mensagem veio igual à anterior 🤔",

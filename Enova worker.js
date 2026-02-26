@@ -10072,9 +10072,7 @@ case "restricao": {
       somar_renda: st.somar_renda || null
     }
   });
-
-  const ehConjunto = !!(st.financiamento_conjunto || st.somar_renda);
-
+  
   // Exemplos cobertos: "nome sujo", "negativado no serasa", "cpf limpo", "não sei"
   const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(t);
   const temTermoRestricao = hasRestricaoIndicador(t);

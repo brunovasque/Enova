@@ -10163,7 +10163,8 @@ return step(env, st,
       [
         "Perfeito 👍",
         "Agora preciso confirmar o CPF do parceiro(a):",
-        "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
+        "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)",
+        "Responda *sim*, *não* ou *não sei*."
       ],
       "restricao_parceiro"
     );
@@ -10241,7 +10242,8 @@ return step(env, st,
       [
         "Perfeito! 👌",
         "Agora preciso confirmar o CPF do parceiro(a):",
-        "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
+        "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)",
+        "Responda *sim*, *não* ou *não sei*."
       ],
       "restricao_parceiro"
     );
@@ -10305,7 +10307,8 @@ if (incerto) {
       [
         "Tranquilo, isso é bem comum 😊",
         "Agora preciso confirmar o CPF do parceiro(a):",
-        "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
+        "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)",
+        "Responda *sim*, *não* ou *não sei*."
       ],
       "restricao_parceiro"
     );
@@ -10337,7 +10340,8 @@ if (incerto) {
   return step(env, st,
     [
       "Só pra confirmar rapidinho 😊",
-      "Tem alguma **restrição** no CPF? (Serasa, SPC)"
+      "Tem alguma **restrição** no CPF? (Serasa, SPC)",
+      "Responda *sim*, *não* ou *não sei*."
     ],
     "restricao"
   );

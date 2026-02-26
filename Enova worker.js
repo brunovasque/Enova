@@ -10126,13 +10126,14 @@ const segundaPerguntaParceiro =
     });
 
     return step(env, st,
-      [
-        "Perfeito 👍",
-        "Anotei que o parceiro(a) possui restrição no CPF.",
-        "Ótimo, por enquanto encerramos esta etapa em **restrição**."
-      ],
-      "restricao"
-    );
+  [
+    "Entendi 👍",
+    "Só pra eu te orientar certinho:",
+    "Você tem **possibilidade ou intenção de regularizar** essa restrição?",
+    "Responda *sim* ou *não*."
+  ],
+  "regularizacao_restricao"
+);
   }
 
   // 1ª resposta (titular)
@@ -10160,13 +10161,14 @@ const segundaPerguntaParceiro =
   }
 
   return step(env, st,
-    [
-      "Obrigado por avisar! 🙏",
-      "Anotei aqui que existe restrição no CPF.",
-      "Perfeito, por enquanto encerramos esta etapa em **restrição**."
-    ],
-    "restricao"
-  );
+  [
+    "Obrigado por avisar! 🙏",
+    "Só pra eu te orientar certinho:",
+    "Você tem **possibilidade ou intenção de regularizar** essa restrição?",
+    "Responda *sim* ou *não*."
+  ],
+  "regularizacao_restricao"
+);
 }
 
   // -----------------------------------------------------
@@ -10319,6 +10321,8 @@ if (incerto) {
   );
 }
 
+
+
 // =========================================================
 // 🧩 C34B — RESTRIÇÃO NO CPF (PARCEIRO)
 // =========================================================
@@ -10387,12 +10391,14 @@ case "restricao_parceiro": {
     });
 
     return step(env, st,
-      [
-        "Perfeito, anotei a restrição do parceiro(a) também 👍",
-        "Ótimo, por enquanto encerramos esta etapa em **restrição**."
-      ],
-      "restricao"
-    );
+  [
+    "Entendi 👍",
+    "Só pra eu te orientar certinho:",
+    "Você tem **possibilidade ou intenção de regularizar** essa restrição?",
+    "Responda *sim* ou *não*."
+  ],
+  "regularizacao_restricao"
+);
   }
 
   // ---------------------------------

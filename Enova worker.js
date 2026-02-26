@@ -10338,7 +10338,7 @@ if (incerto) {
   "2) Enviar pelo site",
   "3) Agendar uma visita presencial (decorado + simulação no plantão)"
 ],
-    "restricao"
+    "docs"
   );
 }
 

@@ -10161,7 +10161,7 @@ const segundaPerguntaParceiro =
         "Agora preciso confirmar o CPF do parceiro(a):",
         "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
       ],
-      "restricao"
+      "restricao_parceiro"
     );
   }
 
@@ -10226,7 +10226,7 @@ const segundaPerguntaParceiro =
         "Agora preciso confirmar o CPF do parceiro(a):",
         "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
       ],
-      "restricao"
+      "restricao_parceiro"
     );
   }
 
@@ -10290,7 +10290,7 @@ if (incerto) {
         "Agora preciso confirmar o CPF do parceiro(a):",
         "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
       ],
-      "restricao"
+      "restricao_parceiro"
     );
   }
 

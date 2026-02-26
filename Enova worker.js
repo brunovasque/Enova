@@ -10086,13 +10086,15 @@ case "restricao": {
       /\b(tenho|tem)\s+(restri[cç][aã]o|nome sujo|cpf sujo|d[ií]vida|divida|protesto)\b/i.test(t)
     );
 
-  const nao =
-    isNo(t) ||
-    temNaoTenho ||
-    /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo)/i.test(t);
-
   const incerto =
     /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(t);
+
+  const nao =
+    !incerto && (
+      isNo(t) ||
+      temNaoTenho ||
+      /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo)/i.test(t)
+    );
 
   const ehFluxoConjunto =
   st.financiamento_conjunto === true ||
@@ -10216,10 +10218,14 @@ return step(env, st,
 
 return step(env, st,
   [
-    "Perfeito! 👌",
-    "Anotei que o parceiro(a) está sem restrição no CPF.",
-    "Fechado. Vamos seguir pra próxima etapa."
-  ],
+  "Perfeito! 👌",
+  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
+  "",
+  "📌 Você prefere:",
+  "1) Enviar por aqui no WhatsApp",
+  "2) Enviar pelo site",
+  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+],
   "docs"
 );
   }
@@ -10251,10 +10257,14 @@ return step(env, st,
 
   return step(env, st,
   [
-    "Perfeito! 👌",
-    "Isso ajuda bastante na análise.",
-    "Fechado. Vamos seguir pra próxima etapa."
-  ],
+  "Perfeito! 👌",
+  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
+  "",
+  "📌 Você prefere:",
+  "1) Enviar por aqui no WhatsApp",
+  "2) Enviar pelo site",
+  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+],
   "docs"
 );
 }
@@ -10281,10 +10291,14 @@ if (incerto) {
 
     return step(env, st,
       [
-        "Tranquilo 😊",
-        "Anotei como informação incerta para o parceiro(a).",
-        "Ótimo, por enquanto encerramos esta etapa em **restrição**."
-      ],
+  "Perfeito! 👌",
+  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
+  "",
+  "📌 Você prefere:",
+  "1) Enviar por aqui no WhatsApp",
+  "2) Enviar pelo site",
+  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+],
       "docs"
     );
   }
@@ -10316,10 +10330,14 @@ if (incerto) {
 
   return step(env, st,
     [
-      "Tranquilo, isso é bem comum 😊",
-      "Anotei como informação incerta de restrição.",
-      "Perfeito, por enquanto encerramos esta etapa em **restrição**."
-    ],
+  "Perfeito! 👌",
+  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
+  "",
+  "📌 Você prefere:",
+  "1) Enviar por aqui no WhatsApp",
+  "2) Enviar pelo site",
+  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+],
     "restricao"
   );
 }
@@ -10375,13 +10393,15 @@ case "restricao_parceiro": {
       /\b(tenho|tem)\s+(restri[cç][aã]o|nome sujo|cpf sujo|d[ií]vida|divida|protesto)\b/i.test(t)
     );
 
-  const nao =
-    isNo(t) ||
-    temNaoTenho ||
-    /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo)/i.test(t);
-
   const incerto =
     /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(t);
+
+  const nao =
+    !incerto && (
+      isNo(t) ||
+      temNaoTenho ||
+      /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo)/i.test(t)
+    );
 
   // Consolida titular + parceiro no campo restricao (sem criar coluna nova)
   const restricaoTitular = st.restricao; // true | false | "incerto" | null
@@ -10445,10 +10465,14 @@ case "restricao_parceiro": {
 
     return step(env, st,
   [
-    "Perfeito! 👌",
-    "Anotei que o parceiro(a) está sem restrição no CPF.",
-    "Fechado. Vamos seguir pra próxima etapa."
-  ],
+  "Perfeito! 👌",
+  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
+  "",
+  "📌 Você prefere:",
+  "1) Enviar por aqui no WhatsApp",
+  "2) Enviar pelo site",
+  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+],
   "docs"
 );
   }
@@ -10472,10 +10496,14 @@ case "restricao_parceiro": {
 
     return step(env, st,
   [
-    "Perfeito! 👌",
-    "Anotei que o parceiro(a) está sem restrição no CPF.",
-    "Fechado. Vamos seguir pra próxima etapa."
-  ],
+  "Perfeito! 👌",
+  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
+  "",
+  "📌 Você prefere:",
+  "1) Enviar por aqui no WhatsApp",
+  "2) Enviar pelo site",
+  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+],
   "docs"
 );
   }

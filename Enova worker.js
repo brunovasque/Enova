@@ -10440,7 +10440,7 @@ case "restricao_parceiro": {
     "Entendi 👍",
     "Só pra eu te orientar certinho:",
     "Você tem **possibilidade ou intenção de regularizar** essa restrição?",
-    "Responda *sim* ou *não*."
+    "Responda *sim*, *não* ou *não sei*."
   ],
   "regularizacao_restricao"
 );
@@ -10524,6 +10524,7 @@ case "restricao_parceiro": {
     [
       "Só pra confirmar rapidinho 😊",
       "O parceiro(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
+      "Responda *sim*, *não* ou *não sei*."
     ],
     "restricao_parceiro"
   );

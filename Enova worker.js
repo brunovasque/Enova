@@ -4365,7 +4365,10 @@ if (isGreeting_global && stage !== "inicio" && stage !== "inicio_programa") {
   );
 }
 
-  const querIncluirP3Global = /(incluir mais|mais alguem|mais uma pessoa|somar mais|mais uma renda|colocar meu|colocar minha|incluir meu|incluir minha)/i.test(nt_global);
+  // ⚠️ P3 NÃO pode ter detector global: isso dispara falso positivo (ex.: "incluir minha renda da taxa").
+// P3 só deve abrir no pós-P2 (gate dedicado) ou por pedido explícito tratado no ponto correto do funil.
+const querIncluirP3Global = false;
+
 if (querIncluirP3Global) {
   return step(
     env,

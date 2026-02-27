@@ -10523,7 +10523,7 @@ case "restricao_parceiro": {
   return step(env, st,
     [
       "Só pra confirmar rapidinho 😊",
-      "O parceiro(a) tem alguma **restrição** no CPF? (Serasa, SPC)"
+      "O parceiro(a) tem alguma **restrição** no CPF? (Serasa, SPC)",
       "Responda *sim*, *não* ou *não sei*."
     ],
     "restricao_parceiro"

@@ -7697,8 +7697,8 @@ case "renda_parceiro_familiar_p3": {
     return step(env, st, ["Conseguiu confirmar o valor certinho?"], "renda_parceiro_familiar_p3");
   }
 
-  const rendaTitular = Number(st.renda || st.renda_titular || st.renda_total_para_fluxo || 0);
-  const rendaTotal = rendaTitular + valor;
+  const rendaBase = Number(st.renda_total_para_fluxo || st.renda || st.renda_titular || 0);
+  const rendaTotal = rendaBase + valor;
 
   await upsertState(env, st.wa_id, {
     p3_renda_mensal: valor,
@@ -7739,9 +7739,10 @@ case "restricao_parceiro_p3": {
     await upsertState(env, st.wa_id, { p3_restricao: nao ? false : null, p3_done: true });
     return step(env, st,
       [
-        "Perfeito! 👌"
+        "Perfeito! 👌",
+        "Agora me diga: essa pessoa tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
       ],
-      "docs"
+      "ctps_36_parceiro"
     );
   }
 
@@ -7758,9 +7759,10 @@ case "regularizacao_restricao_p3": {
     await upsertState(env, st.wa_id, { p3_regularizacao_intencao: sim ? true : (nao ? false : null), p3_done: true });
     return step(env, st,
       [
-        "Ótimo! 👏"
+        "Ótimo! 👏",
+        "Agora me diga: essa pessoa tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
       ],
-      "envio_docs"
+      "ctps_36_parceiro"
     );
   }
 

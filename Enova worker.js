@@ -679,6 +679,30 @@ function parseComposicaoRenda(text) {
   return null;
 }
 
+function parseP3Tipo(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  if (/\bpai\b|meu pai/.test(nt)) return "pai";
+  if (/\bmae\b|minha mae/.test(nt)) return "mae";
+  if (/irmao|irma/.test(nt)) return "irmao";
+  if (/namorad/.test(nt)) return /namorada/.test(nt) ? "namorada" : "namorado";
+  if (/sogr/.test(nt)) return /sogra/.test(nt) ? "sogra" : "sogro";
+  if (/familiar|familia|outro/.test(nt)) return "familiar";
+  return null;
+}
+
+function getP3TipoLabel(tipo) {
+  const t = normalizeText(tipo || "");
+  if (t === "pai") return "seu pai";
+  if (t === "mae") return "sua mãe";
+  if (t === "irmao") return "seu irmão/sua irmã";
+  if (t === "namorada") return "sua namorada";
+  if (t === "namorado") return "seu namorado";
+  if (t === "sogra") return "sua sogra";
+  if (t === "sogro") return "seu sogro";
+  return "esse familiar";
+}
+
 function buildSimulationFlags(st, userText) {
   const normalized = normalizeText(userText || "");
   return {
@@ -4341,7 +4365,20 @@ if (isGreeting_global && stage !== "inicio" && stage !== "inicio_programa") {
   );
 }
 
-  // ============================================================
+  // ⚠️ P3 NÃO pode ter detector global: isso dispara falso positivo (ex.: "incluir minha renda da taxa").
+// P3 só deve abrir no pós-P2 (gate dedicado) ou por pedido explícito tratado no ponto correto do funil.
+const querIncluirP3Global = false;
+
+if (querIncluirP3Global) {
+  return step(
+    env,
+    st,
+    ["Quem você quer incluir? (pai, mãe, irmão/irmã, namorada/namorado, sogro/sogra, outro familiar)"],
+    "p3_tipo_pergunta"
+  );
+}
+
+// ============================================================
   // A PARTIR DAQUI COMEÇA O SWITCH(stage)
   // ============================================================
   switch (stage) {
@@ -6095,22 +6132,21 @@ await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "regime_trabalho_parceiro_familiar",
+      next_stage: "pais_casados_civil_pergunta",
       severity: "info",
-      message: "Saindo da fase: somar_renda_familiar → regime_trabalho_parceiro_familiar (mae)",
+      message: "Saindo da fase: somar_renda_familiar → pais_casados_civil_pergunta (mae)",
       details: { userText, txt }
     });
 
-    await upsertState(env, st.wa_id, { familiar_tipo: "mae" });
+    await upsertState(env, st.wa_id, { familiar_tipo: "mae", p3_required: false, p3_done: false, p3_tipo: null });
 
     return step(
       env,
       st,
       [
-        "Perfeito 👌",
-        "Sua mãe trabalha com **carteira assinada**, é **autônoma** ou **servidora**?"
+        "Seus pais são casados no civil atualmente? (sim/não)"
       ],
-      "regime_trabalho_parceiro_familiar"
+      "pais_casados_civil_pergunta"
     );
   }
 
@@ -6124,22 +6160,21 @@ await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "regime_trabalho_parceiro_familiar",
+      next_stage: "pais_casados_civil_pergunta",
       severity: "info",
-      message: "Saindo da fase: somar_renda_familiar → regime_trabalho_parceiro_familiar (pai)",
+      message: "Saindo da fase: somar_renda_familiar → pais_casados_civil_pergunta (pai)",
       details: { userText, txt }
     });
 
-    await upsertState(env, st.wa_id, { familiar_tipo: "pai" });
+    await upsertState(env, st.wa_id, { familiar_tipo: "pai", p3_required: false, p3_done: false, p3_tipo: null });
 
     return step(
       env,
       st,
       [
-        "Ótimo! 👍",
-        "Seu pai trabalha com **carteira assinada**, é **autônomo** ou **servidor**?"
+        "Seus pais são casados no civil atualmente? (sim/não)"
       ],
-      "regime_trabalho_parceiro_familiar"
+      "pais_casados_civil_pergunta"
     );
   }
 
@@ -6312,6 +6347,59 @@ await funnelTelemetry(env, {
       "**Pai, mãe, irmão(ã), avô(ó), tio(a), primo(a)**…"
     ],
     "somar_renda_familiar"
+  );
+}
+
+// =========================================================
+// C10B — PAIS CASADOS NO CIVIL?
+// =========================================================
+case "pais_casados_civil_pergunta": {
+  const nt = normalizeText(userText || "");
+  const sim = isYes(nt) || /^sim$/i.test(nt);
+  const nao = isNo(nt) || /^(nao|não)$/i.test(nt);
+
+  if (!sim && !nao) {
+    return step(
+      env,
+      st,
+      [
+        "Só pra confirmar 😊",
+        "Seus pais são casados no civil atualmente? (sim/não)"
+      ],
+      "pais_casados_civil_pergunta"
+    );
+  }
+
+  const fam = normalizeText(st.familiar_tipo || "");
+  if (sim) {
+    const p3TipoDefinido = fam === "mae" ? "pai" : "mae";
+    st.p3_required = true;
+    st.p3_done = false;
+    st.p3_tipo = p3TipoDefinido;
+    await upsertState(env, st.wa_id, {
+      p3_required: true,
+      p3_done: false,
+      p3_tipo: p3TipoDefinido
+    });
+  } else {
+    st.p3_required = false;
+    st.p3_done = false;
+    await upsertState(env, st.wa_id, {
+      p3_required: false,
+      p3_done: false
+    });
+  }
+
+  return step(
+    env,
+    st,
+    [
+      "Perfeito 👌",
+      fam === "mae"
+        ? "Sua mãe trabalha com **carteira assinada**, é **autônoma** ou **servidora**?"
+        : "Seu pai trabalha com **carteira assinada**, é **autônomo** ou **servidor**?"
+    ],
+    "regime_trabalho_parceiro_familiar"
   );
 }
 
@@ -7467,6 +7555,42 @@ case "verificar_inventario": {
 // =========================================================
 // 🧩 C19 — REGIME_TRABALHO_PARCEIRO_FAMILIAR
 // =========================================================
+case "p3_tipo_pergunta": {
+  const tipo = parseP3Tipo(userText || "");
+  if (!tipo) {
+    return step(
+      env,
+      st,
+      [
+        "Quem você quer incluir? (pai, mãe, irmão/irmã, namorada/namorado, sogro/sogra, outro familiar)"
+      ],
+      "p3_tipo_pergunta"
+    );
+  }
+
+  st.p3_tipo = tipo;
+  st.p3_required = true;
+  st.p3_done = false;
+  await upsertState(env, st.wa_id, {
+    p3_tipo: tipo,
+    p3_required: true,
+    p3_done: false
+  });
+
+  return step(
+    env,
+    st,
+    [
+      "Perfeito!",
+      `Agora me diga o regime de trabalho de ${getP3TipoLabel(tipo)}.`
+    ],
+    "regime_trabalho_parceiro_familiar_p3"
+  );
+}
+
+// =========================================================
+// 🧩 C19P3 — REGIME DE TRABALHO DO P3
+// =========================================================
 case "regime_trabalho_parceiro_familiar": {
 
   await funnelTelemetry(env, {
@@ -7548,6 +7672,101 @@ case "finalizacao": {
     ],
     "finalizacao_processo"
   );
+}
+
+// =========================================================
+// 🧩 C23P3 — REGIME DO P3
+// =========================================================
+case "regime_trabalho_parceiro_familiar_p3": {
+  const nt = normalizeText(userText || "");
+  const regimeCanonicoP3 = parseRegimeTrabalho(nt);
+  const valido = Boolean(regimeCanonicoP3) && regimeCanonicoP3 !== "desempregado" && regimeCanonicoP3 !== "estudante";
+  const p3Label = getP3TipoLabel(st.p3_tipo);
+
+  if (!valido) {
+    return step(env, st, ["Qual é o regime de trabalho de " + p3Label + "?"], "regime_trabalho_parceiro_familiar_p3");
+  }
+
+  await upsertState(env, st.wa_id, { p3_regime_trabalho: regimeCanonicoP3 });
+  return step(env, st, ["Perfeito!", "Agora me diga o valor da renda mensal dessa pessoa."], "renda_parceiro_familiar_p3");
+}
+
+case "renda_parceiro_familiar_p3": {
+  const valor = parseMoneyBR(userText || "");
+  if (!valor || valor < 200) {
+    return step(env, st, ["Conseguiu confirmar o valor certinho?"], "renda_parceiro_familiar_p3");
+  }
+
+  const rendaBase = Number(st.renda_total_para_fluxo || st.renda || st.renda_titular || 0);
+  const rendaTotal = rendaBase + valor;
+
+  await upsertState(env, st.wa_id, {
+    p3_renda_mensal: valor,
+    renda_total_para_fluxo: rendaTotal
+  });
+
+  return step(env, st, ["Perfeito!", "Agora me diga: essa pessoa tem 36 meses de carteira assinada?"], "ctps_36_parceiro_p3");
+}
+
+case "ctps_36_parceiro_p3": {
+  const tNorm = normalizeText(userText || "");
+  const nao_sei = /(nao sei|não sei|talvez|acho|nao lembro)/i.test(tNorm);
+  const sim = !nao_sei && (/(^|\s)sim(\s|$)/i.test(tNorm) || /(tem sim|possui|possuo|completo|completa|mais de 36|3 anos ou mais)/i.test(tNorm));
+  const nao = !nao_sei && !sim && (/(^|\s)nao(\s|$)/i.test(tNorm) || /(menos de\s*36|menos de\s*3 anos)/i.test(tNorm));
+
+  if (!sim && !nao && !nao_sei) {
+    return step(env, st, ["Só pra confirmar: essa pessoa tem 36 meses ou mais de carteira assinada?"], "ctps_36_parceiro_p3");
+  }
+
+  await upsertState(env, st.wa_id, { p3_ctps_36: sim ? true : (nao ? false : null) });
+  return step(env, st, ["Agora preciso confirmar o CPF dessa pessoa:", "Tem alguma restrição?"], "restricao_parceiro_p3");
+}
+
+case "restricao_parceiro_p3": {
+  const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(t);
+  const temTermoRestricao = hasRestricaoIndicador(t);
+  const sim = !temNaoTenho && (isYes(t) || /^\s*tem\s*$/i.test(t) || (!isNo(t) && temTermoRestricao));
+  const incerto = /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(t);
+  const nao = !incerto && (isNo(t) || temNaoTenho || /(cpf limpo|sem restri[cç][aã]o|nome limpo)/i.test(t));
+
+  if (sim) {
+    await upsertState(env, st.wa_id, { p3_restricao: true });
+    return step(env, st, ["Você tem possibilidade ou intenção de regularizar essa restrição?"], "regularizacao_restricao_p3");
+  }
+
+  if (nao || incerto) {
+    st.p3_done = true;
+    await upsertState(env, st.wa_id, { p3_restricao: nao ? false : null, p3_done: true });
+    return step(env, st,
+      [
+        "Perfeito! 👌",
+        "Agora me diga: essa pessoa tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
+      ],
+      "ctps_36_parceiro"
+    );
+  }
+
+  return step(env, st, ["Só pra confirmar: essa pessoa tem alguma restrição no CPF?"], "restricao_parceiro_p3");
+}
+
+case "regularizacao_restricao_p3": {
+  const sim = isYes(t) || /(sim|ja estou|estou resolvendo|pagando|negociando|acordo|parcelando|renegociando|ja quitei|ja paguei)/i.test(t);
+  const nao = isNo(t) || /(ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|vou negociar depois)/i.test(t);
+  const talvez = /(talvez|acho|nao sei|não sei|pode ser)/i.test(t);
+
+  if (sim || nao || talvez) {
+    st.p3_done = true;
+    await upsertState(env, st.wa_id, { p3_regularizacao_intencao: sim ? true : (nao ? false : null), p3_done: true });
+    return step(env, st,
+      [
+        "Ótimo! 👏",
+        "Agora me diga: essa pessoa tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
+      ],
+      "ctps_36_parceiro"
+    );
+  }
+
+  return step(env, st, ["Você tem possibilidade ou intenção de regularizar essa restrição?"], "regularizacao_restricao_p3");
 }
 
 // --------------------------------------------------
@@ -8102,53 +8321,33 @@ case "renda_parceiro_familiar": {
   // ============================================================
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
-    event: "enter_phase",
+    event: "enter_stage",
     stage,
     severity: "info",
-    message: "Entrando na fase: renda_parceiro_familiar",
-    details: {
-      familiar_tipo: st.familiar_tipo || null,
-      renda_titular: st.renda_titular || null,
-      renda_total_atual: st.renda_total_para_fluxo || null
-    }
+    message: "Entrou na fase renda_parceiro_familiar",
+    details: { last_user_text: st.last_user_text }
   });
 
-  const valor = parseMoneyBR(userText || "");
+  const nt = normalizeText(userText || "");
 
-  // ============================================================
-  // VALOR INVÁLIDO
-  // ============================================================
-  if (!valor || valor < 200) {
+  // Captura valor (aceita "2500", "2.500", "R$ 2.500", etc.)
+  const valor = parseMoneyBR(userText);
 
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "exit_stage",
-      stage,
-      next_stage: "renda_parceiro_familiar",
-      severity: "warning",
-      message: "Valor inválido → permanecendo em renda_parceiro_familiar",
-      details: { userText }
-    });
-
+  if (!valor || valor <= 0) {
     return step(
       env,
       st,
       [
-        "Conseguiu confirmar pra mim o valor certinho? 🤔",
-        "Me diga aproximadamente quanto o(a) familiar ganha por mês."
+        "Entendi 👍",
+        "Me diga o valor aproximado da renda dessa pessoa (somente número).",
+        "Ex: 2500"
       ],
       "renda_parceiro_familiar"
     );
   }
 
-  // ============================================================
-  // VALOR VÁLIDO — SALVAR NO BANCO
-  // ============================================================
-  if (/autonom/.test(normalizeText(st.regime_trabalho_parceiro_familiar || "")) && st.ir_declarado === false) {
-    st.composicao_autonomo_sem_ir = true;
-  }
-
-  const rendaTitular = Number(st.renda || st.renda_titular || st.renda_total_para_fluxo || 0);
+  // Soma com renda do titular (fluxo composição)
+  const rendaTitular = Number(st.renda_total_para_fluxo || st.renda || 0);
   const rendaTotal = rendaTitular + valor;
 
   await upsertState(env, st.wa_id, {
@@ -8159,32 +8358,48 @@ case "renda_parceiro_familiar": {
   });
 
   // ============================================================
-  // EXIT → próxima fase = ctps_36_parceiro
+  // ✅ FIX: se P3 é obrigatório e ainda não foi coletado, desvia pro P3
+  // ============================================================
+  const p3Required = st.p3_required === true;
+  const p3Done = st.p3_done === true;
+
+  const nextStage = (p3Required && !p3Done)
+    ? "regime_trabalho_parceiro_familiar_p3"
+    : "ctps_36_parceiro";
+
+  const replyLines = (nextStage === "regime_trabalho_parceiro_familiar_p3")
+    ? [
+        "Perfeito! 👌",
+        "Ótimo! Já somei essa renda com a sua.",
+        "Agora vamos registrar também o cônjuge dessa pessoa (por ser casado(a) no civil).",
+        "Qual é o *regime de trabalho* do cônjuge? (CLT, autônomo, servidor, aposentado etc.)"
+      ]
+    : [
+        "Perfeito! 👌",
+        "Ótimo! Já somei essa renda com a sua.",
+        "Agora me diga: essa pessoa que está somando renda com você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
+      ];
+
+  // ============================================================
+  // EXIT → próxima fase dinâmica (P3 ou CTPS)
   // ============================================================
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
     stage,
-    next_stage: "ctps_36_parceiro",
+    next_stage: nextStage,
     severity: "info",
-    message: "Saindo da fase renda_parceiro_familiar → ctps_36_parceiro",
+    message: `Saindo da fase renda_parceiro_familiar → ${nextStage}`,
     details: {
       renda_familiar: valor,
       renda_titular: rendaTitular,
-      renda_total: rendaTotal
+      renda_total: rendaTotal,
+      p3_required: p3Required,
+      p3_done: p3Done
     }
   });
 
-  return step(
-    env,
-    st,
-    [
-      "Perfeito! 👌",
-      "Ótimo! Já somei essa renda com a sua.",
-      "Agora me diga: essa pessoa que está somando renda com você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
-    ],
-    "ctps_36_parceiro"
-  );
+  return step(env, st, replyLines, nextStage);
 }
 
 // =========================================================
@@ -10216,6 +10431,16 @@ return step(env, st,
   );
 }
 
+if (st.p3_required && st.p3_done !== true) {
+  return step(env, st,
+    [
+    "Perfeito! 👌",
+    "Antes de seguir, preciso coletar os dados da terceira pessoa da composição."
+  ],
+    "regime_trabalho_parceiro_familiar_p3"
+  );
+}
+
 return step(env, st,
   [
   "Perfeito! 👌",
@@ -10255,7 +10480,17 @@ return step(env, st,
     );
   }
 
+  if (st.p3_required && st.p3_done !== true) {
   return step(env, st,
+    [
+    "Perfeito! 👌",
+    "Antes de seguir, preciso coletar os dados da terceira pessoa da composição."
+  ],
+    "regime_trabalho_parceiro_familiar_p3"
+  );
+}
+
+return step(env, st,
   [
   "Perfeito! 👌",
   "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
@@ -10592,6 +10827,16 @@ case "regularizacao_restricao": {
       details: { userText }
     });
 
+    if (st.p3_required && st.p3_done !== true) {
+      return step(env, st,
+        [
+          "Ótimo! 👏",
+          "Antes de seguir, preciso coletar os dados da terceira pessoa da composição."
+        ],
+        "regime_trabalho_parceiro_familiar_p3"
+      );
+    }
+
     return step(env, st,
       [
         "Ótimo! 👏",
@@ -10654,6 +10899,16 @@ case "regularizacao_restricao": {
       message: "Cliente NÃO está regularizando a restrição",
       details: { userText, valorRestricao }
     });
+
+    if (st.p3_required && st.p3_done !== true) {
+      return step(env, st,
+        [
+          "Tranquilo, isso é bem comum 😊",
+          "Antes de seguir, preciso coletar os dados da terceira pessoa da composição."
+        ],
+        "regime_trabalho_parceiro_familiar_p3"
+      );
+    }
 
     return step(env, st,
       [

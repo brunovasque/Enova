@@ -8319,53 +8319,33 @@ case "renda_parceiro_familiar": {
   // ============================================================
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
-    event: "enter_phase",
+    event: "enter_stage",
     stage,
     severity: "info",
-    message: "Entrando na fase: renda_parceiro_familiar",
-    details: {
-      familiar_tipo: st.familiar_tipo || null,
-      renda_titular: st.renda_titular || null,
-      renda_total_atual: st.renda_total_para_fluxo || null
-    }
+    message: "Entrou na fase renda_parceiro_familiar",
+    details: { last_user_text: st.last_user_text }
   });
 
-  const valor = parseMoneyBR(userText || "");
+  const nt = normalizeText(userText || "");
 
-  // ============================================================
-  // VALOR INVÁLIDO
-  // ============================================================
-  if (!valor || valor < 200) {
+  // Captura valor (aceita "2500", "2.500", "R$ 2.500", etc.)
+  const valor = parseMoneyBR(userText);
 
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "exit_stage",
-      stage,
-      next_stage: "renda_parceiro_familiar",
-      severity: "warning",
-      message: "Valor inválido → permanecendo em renda_parceiro_familiar",
-      details: { userText }
-    });
-
+  if (!valor || valor <= 0) {
     return step(
       env,
       st,
       [
-        "Conseguiu confirmar pra mim o valor certinho? 🤔",
-        "Me diga aproximadamente quanto o(a) familiar ganha por mês."
+        "Entendi 👍",
+        "Me diga o valor aproximado da renda dessa pessoa (somente número).",
+        "Ex: 2500"
       ],
       "renda_parceiro_familiar"
     );
   }
 
-  // ============================================================
-  // VALOR VÁLIDO — SALVAR NO BANCO
-  // ============================================================
-  if (/autonom/.test(normalizeText(st.regime_trabalho_parceiro_familiar || "")) && st.ir_declarado === false) {
-    st.composicao_autonomo_sem_ir = true;
-  }
-
-  const rendaTitular = Number(st.renda || st.renda_titular || st.renda_total_para_fluxo || 0);
+  // Soma com renda do titular (fluxo composição)
+  const rendaTitular = Number(st.renda_total_para_fluxo || st.renda || 0);
   const rendaTotal = rendaTitular + valor;
 
   await upsertState(env, st.wa_id, {
@@ -8376,32 +8356,48 @@ case "renda_parceiro_familiar": {
   });
 
   // ============================================================
-  // EXIT → próxima fase = ctps_36_parceiro
+  // ✅ FIX: se P3 é obrigatório e ainda não foi coletado, desvia pro P3
+  // ============================================================
+  const p3Required = st.p3_required === true;
+  const p3Done = st.p3_done === true;
+
+  const nextStage = (p3Required && !p3Done)
+    ? "regime_trabalho_parceiro_familiar_p3"
+    : "ctps_36_parceiro";
+
+  const replyLines = (nextStage === "regime_trabalho_parceiro_familiar_p3")
+    ? [
+        "Perfeito! 👌",
+        "Ótimo! Já somei essa renda com a sua.",
+        "Agora vamos registrar também o cônjuge dessa pessoa (por ser casado(a) no civil).",
+        "Qual é o *regime de trabalho* do cônjuge? (CLT, autônomo, servidor, aposentado etc.)"
+      ]
+    : [
+        "Perfeito! 👌",
+        "Ótimo! Já somei essa renda com a sua.",
+        "Agora me diga: essa pessoa que está somando renda com você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
+      ];
+
+  // ============================================================
+  // EXIT → próxima fase dinâmica (P3 ou CTPS)
   // ============================================================
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
     stage,
-    next_stage: "ctps_36_parceiro",
+    next_stage: nextStage,
     severity: "info",
-    message: "Saindo da fase renda_parceiro_familiar → ctps_36_parceiro",
+    message: `Saindo da fase renda_parceiro_familiar → ${nextStage}`,
     details: {
       renda_familiar: valor,
       renda_titular: rendaTitular,
-      renda_total: rendaTotal
+      renda_total: rendaTotal,
+      p3_required: p3Required,
+      p3_done: p3Done
     }
   });
 
-  return step(
-    env,
-    st,
-    [
-      "Perfeito! 👌",
-      "Ótimo! Já somei essa renda com a sua.",
-      "Agora me diga: essa pessoa que está somando renda com você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
-    ],
-    "ctps_36_parceiro"
-  );
+  return step(env, st, replyLines, nextStage);
 }
 
 // =========================================================

@@ -8370,13 +8370,13 @@ case "renda_parceiro_familiar": {
   const replyLines = (nextStage === "regime_trabalho_parceiro_familiar_p3")
     ? [
         "Perfeito! 👌",
-        "Ótimo! Já somei essa renda com a sua.",
+        "Ótimo! Renda registrada ✅",
         "Agora vamos registrar também o cônjuge dessa pessoa (por ser casado(a) no civil).",
         "Qual é o *regime de trabalho* do cônjuge? (CLT, autônomo, servidor, aposentado etc.)"
       ]
     : [
         "Perfeito! 👌",
-        "Ótimo! Já somei essa renda com a sua.",
+        "Ótimo! Renda registrada ✅",
         "Agora me diga: essa pessoa que está somando renda com você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
       ];
 
@@ -8883,18 +8883,93 @@ case "quem_pode_somar": {
     );
   }
 
-  // ============================================================
+    // ============================================================
   // OPÇÃO — FAMILIAR
   // ============================================================
   if (familia) {
 
+    // Extrai familiar específico, se o texto já veio com "minha mãe", "meu pai" etc.
+    const fam =
+      /\b(mae|minha\s+mae|minha\s+m[aã]e)\b/i.test(tBase) ? "mae" :
+      /\b(pai|meu\s+pai)\b/i.test(tBase) ? "pai" :
+      /\b(irmao|meu\s+irmao|irma|minha\s+irma)\b/i.test(tBase) ? "irmao" :
+      /\b(tio|tia)\b/i.test(tBase) ? "tio" :
+      /\b(avo|avos|vo|vos|vovo|vovos)\b/i.test(tBase) ? "avo" :
+      /\b(primo|prima)\b/i.test(tBase) ? "primo" :
+      null;
+
+    // Se já identificou qual familiar é, pula a pergunta redundante
+    if (fam) {
+
+      // Define label "seu/sua" (simples e direto)
+      const famLabel =
+        fam === "mae" ? "sua mãe" :
+        fam === "pai" ? "seu pai" :
+        fam === "irmao" ? "seu irmão(ã)" :
+        fam === "tio" ? "seu tio(a)" :
+        fam === "avo" ? "seu avô/avó" :
+        fam === "primo" ? "seu primo(a)" :
+        "esse familiar";
+
+      // Se for mãe/pai, entra no gate do casamento civil (P3)
+      const nextStage = (fam === "mae" || fam === "pai")
+        ? "pais_casados_civil_pergunta"
+        : "regime_trabalho_parceiro_familiar";
+
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: nextStage,
+        severity: "info",
+        message: `Composição escolhida: familiar (${fam})`,
+        details: { userText, fam }
+      });
+
+      // Mantém padrão de state do familiar
+      // (mesmo padrão que você já faz no somar_renda_familiar)
+      if (fam === "mae" || fam === "pai") {
+        await upsertState(env, st.wa_id, {
+          familiar_tipo: fam,
+          p3_required: false,
+          p3_done: false,
+          p3_tipo: null
+        });
+
+        return step(
+          env,
+          st,
+          [
+            "Show! 👌",
+            `Beleza, vamos considerar ${famLabel}.`,
+            "Seus pais são casados no civil atualmente? (sim/não)"
+          ],
+          "pais_casados_civil_pergunta"
+        );
+      }
+
+      await upsertState(env, st.wa_id, { familiar_tipo: fam });
+
+      return step(
+        env,
+        st,
+        [
+          "Show! 👌",
+          `Beleza, vamos considerar ${famLabel}.`,
+          `${famLabel.charAt(0).toUpperCase() + famLabel.slice(1)} trabalha com **carteira assinada**, é **autônomo(a)** ou **servidor(a)**?`
+        ],
+        "regime_trabalho_parceiro_familiar"
+      );
+    }
+
+    // Se NÃO identificou qual familiar, mantém o fluxo atual perguntando
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
       next_stage: "somar_renda_familiar",
       severity: "info",
-      message: "Composição escolhida: familiar",
+      message: "Composição escolhida: familiar (genérico)",
       details: { userText }
     });
 

@@ -7760,7 +7760,7 @@ case "ctps_36_parceiro_p3": {
   }
 
   await upsertState(env, st.wa_id, { p3_ctps_36: sim ? true : (nao ? false : null) });
-  return step(env, st, ["Agora preciso confirmar o CPF dessa pessoa:", "Tem alguma restrição?"], "restricao_parceiro_p3");
+  return step(env, st, ["Agora preciso confirmar o CPF do(a) + getP3TipoLabel(st.p3_tipo) +", "Tem alguma restrição?"], "restricao_parceiro_p3");
 }
 
 case "restricao_parceiro_p3": {

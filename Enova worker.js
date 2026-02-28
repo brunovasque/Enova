@@ -5996,7 +5996,48 @@ case "somar_renda_solteiro": {
   // -----------------------------
   // QUER SOMAR COM FAMILIAR
   // -----------------------------
-  if (familiar) {
+    if (familiar) {
+
+    const base = String(t || userText || "").toLowerCase();
+
+    const famMae = /\b(mae|minha mae)\b/.test(base);
+    const famPai = /\b(pai|meu pai)\b/.test(base);
+
+    if (famMae || famPai) {
+      const familiarTipo = famMae ? "mae" : "pai";
+
+      // 🟩 EXIT_STAGE
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: "pais_casados_civil_pergunta",
+        severity: "info",
+        message:
+          "Saindo da fase: somar_renda_solteiro → pais_casados_civil_pergunta (familiar_tipo detectado)",
+        details: { userText, userText_normalized: t, familiar_tipo: familiarTipo }
+      });
+
+      await upsertState(env, st.wa_id, {
+        somar_renda: true,
+        financiamento_conjunto: false,
+        renda_familiar: true,
+        familiar_tipo: familiarTipo,
+        p3_required: false,
+        p3_done: false,
+        p3_tipo: null
+      });
+
+      return step(
+        env,
+        st,
+        [
+          "Show! 👍",
+          "Seus pais são casados no civil atualmente? (sim/não)"
+        ],
+        "pais_casados_civil_pergunta"
+      );
+    }
 
     // 🟩 EXIT_STAGE
     await funnelTelemetry(env, {
@@ -6006,7 +6047,7 @@ case "somar_renda_solteiro": {
       next_stage: "somar_renda_familiar",
       severity: "info",
       message:
-        "Saindo da fase: somar_renda_solteiro → somar_renda_familiar (familiar)",
+        "Saindo da fase: somar_renda_solteiro → somar_renda_familiar (familiar - sem tipo detectado)",
       details: { userText, userText_normalized: t }
     });
 
@@ -7737,13 +7778,14 @@ case "restricao_parceiro_p3": {
   if (nao || incerto) {
     st.p3_done = true;
     await upsertState(env, st.wa_id, { p3_restricao: nao ? false : null, p3_done: true });
-    return step(env, st,
-      [
-        "Perfeito! 👌",
-        "Agora me diga: essa pessoa tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
-      ],
-      "ctps_36_parceiro"
-    );
+return step(env, st,
+  [
+    "Perfeito! 👌",
+    "Agora vamos registrar **a sua renda** também.",
+    "Você trabalha com **carteira assinada (CLT)**, é **autônomo** ou **servidor**?"
+  ],
+  "regime_trabalho"
+);
   }
 
   return step(env, st, ["Só pra confirmar: essa pessoa tem alguma restrição no CPF?"], "restricao_parceiro_p3");
@@ -7757,13 +7799,14 @@ case "regularizacao_restricao_p3": {
   if (sim || nao || talvez) {
     st.p3_done = true;
     await upsertState(env, st.wa_id, { p3_regularizacao_intencao: sim ? true : (nao ? false : null), p3_done: true });
-    return step(env, st,
-      [
-        "Ótimo! 👏",
-        "Agora me diga: essa pessoa tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
-      ],
-      "ctps_36_parceiro"
-    );
+return step(env, st,
+  [
+    "Ótimo! 👏",
+    "Agora vamos registrar **a sua renda** também.",
+    "Você trabalha com **carteira assinada (CLT)**, é **autônomo** ou **servidor**?"
+  ],
+  "regime_trabalho"
+);
   }
 
   return step(env, st, ["Você tem possibilidade ou intenção de regularizar essa restrição?"], "regularizacao_restricao_p3");

@@ -7746,7 +7746,7 @@ case "renda_parceiro_familiar_p3": {
     renda_total_para_fluxo: rendaTotal
   });
 
-  return step(env, st, ["Perfeito!", "Agora me diga: essa pessoa tem 36 meses de carteira assinada?"], "ctps_36_parceiro_p3");
+  return step(env, st, ["Perfeito!", "Agora me diga: o(a) " + getP3TipoLabel(st.p3_tipo) + " tem 36 meses de carteira assinada (CTPS) nos últimos 3 anos? (sim/não)"], "ctps_36_parceiro_p3");
 }
 
 case "ctps_36_parceiro_p3": {
@@ -7788,7 +7788,7 @@ return step(env, st,
 );
   }
 
-  return step(env, st, ["Só pra confirmar: essa pessoa tem alguma restrição no CPF?"], "restricao_parceiro_p3");
+  return step(env, st, ["Só pra confirmar: + getP3TipoLabel(st.p3_tipo) + tem alguma restrição no CPF?"], "restricao_parceiro_p3");
 }
 
 case "regularizacao_restricao_p3": {

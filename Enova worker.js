@@ -7687,7 +7687,7 @@ case "regime_trabalho_parceiro_familiar": {
     st,
     [
       "Perfeito!",
-      "Agora me diga o valor da renda mensal dessa pessoa."
+      `Agora me diga o valor da renda mensal do(a) ${st.familiar_tipo === "pai" ? "seu pai" : st.familiar_tipo === "mae" ? "sua mãe" : "seu familiar"}.`
     ],
     "renda_parceiro_familiar"
   );
@@ -7729,7 +7729,7 @@ case "regime_trabalho_parceiro_familiar_p3": {
   }
 
   await upsertState(env, st.wa_id, { p3_regime_trabalho: regimeCanonicoP3 });
-  return step(env, st, ["Perfeito!", "Agora me diga o valor da renda mensal dessa pessoa."], "renda_parceiro_familiar_p3");
+  return step(env, st, ["Perfeito!", `Agora me diga o valor da renda mensal do(a) ${getP3TipoLabel(st.p3_tipo)}.`], "renda_parceiro_familiar_p3");
 }
 
 case "renda_parceiro_familiar_p3": {

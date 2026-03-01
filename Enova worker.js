@@ -7804,29 +7804,79 @@ case "ctps_36_parceiro_p3": {
 case "restricao_parceiro_p3": {
   const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(t);
   const temTermoRestricao = hasRestricaoIndicador(t);
-  const sim = !temNaoTenho && (isYes(t) || /^\s*tem\s*$/i.test(t) || (!isNo(t) && temTermoRestricao));
+  const sim =
+    !temNaoTenho && (
+      isYes(t) ||
+      /^\s*tem\s*$/i.test(t) ||
+      (!isNo(t) && temTermoRestricao) ||
+      /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(t)
+    );
   const incerto = /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(t);
-  const nao = !incerto && (isNo(t) || temNaoTenho || /(cpf limpo|sem restri[cç][aã]o|nome limpo)/i.test(t));
+  const nao =
+    !incerto && (
+      isNo(t) ||
+      temNaoTenho ||
+      /(cpf limpo|sem restri[cç][aã]o|nome limpo)/i.test(t)
+    );
+
+  // label correto do P3 (cônjuge do pai/mãe)
+  const p3Label =
+    st.familiar_tipo === "pai"
+      ? "sua mãe"
+      : st.familiar_tipo === "mae"
+        ? "seu pai"
+        : "o cônjuge desse familiar";
 
   if (sim) {
     await upsertState(env, st.wa_id, { p3_restricao: true });
-    return step(env, st, ["Você tem possibilidade ou intenção de regularizar essa restrição?"], "regularizacao_restricao_p3");
+    return step(env, st,
+      [
+        "Entendi 👍",
+        `Você tem possibilidade ou intenção de regularizar essa restrição do(a) ${p3Label}?`,
+        "Responda *sim* ou *não*."
+      ],
+      "regularizacao_restricao_p3"
+    );
   }
 
   if (nao || incerto) {
-    st.p3_done = true;
     await upsertState(env, st.wa_id, { p3_restricao: nao ? false : null, p3_done: true });
-return step(env, st,
-  [
-    "Perfeito! 👌",
-    "Agora vamos registrar **a sua renda** também.",
-    "Você trabalha com **carteira assinada (CLT)**, é **autônomo** ou **servidor**?"
-  ],
-  "regime_trabalho"
-);
+
+    // ✅ Se já estamos na fase “pós-renda” (fluxo já chegou em restrição/docs), segue pra docs
+    if (st.renda_total_para_fluxo !== null && typeof st.renda_total_para_fluxo !== "undefined") {
+      return step(env, st,
+        [
+          "Perfeito! 👌",
+          "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
+          "",
+          "📌 Você prefere:",
+          "1) Enviar por aqui no WhatsApp",
+          "2) Enviar pelo site",
+          "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+        ],
+        "docs"
+      );
+    }
+
+    // ✅ Caso ainda esteja antes da renda do titular (seu funil antigo), volta pra renda
+    return step(env, st,
+      [
+        "Perfeito! 👌",
+        "Agora vamos registrar **a sua renda** também.",
+        "Você trabalha com **carteira assinada (CLT)**, é **autônomo** ou **servidor**?"
+      ],
+      "regime_trabalho"
+    );
   }
 
-  return step(env, st, ["Só pra confirmar: + getP3TipoLabel(st.p3_tipo) + tem alguma restrição no CPF?"], "restricao_parceiro_p3");
+  return step(env, st,
+    [
+      `Só pra confirmar rapidinho 😊`,
+      `${p3Label} tem alguma *restrição* no CPF? (Serasa, SPC)`,
+      "Responda *sim*, *não* ou *não sei*."
+    ],
+    "restricao_parceiro_p3"
+  );
 }
 
 case "regularizacao_restricao_p3": {
@@ -7840,10 +7890,14 @@ case "regularizacao_restricao_p3": {
 return step(env, st,
   [
     "Ótimo! 👏",
-    "Agora vamos registrar **a sua renda** também.",
-    "Você trabalha com **carteira assinada (CLT)**, é **autônomo** ou **servidor**?"
+    "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
+    "",
+    "📌 Você prefere:",
+    "1) Enviar por aqui no WhatsApp",
+    "2) Enviar pelo site",
+    "3) Agendar uma visita presencial (decorado + simulação no plantão)"
   ],
-  "regime_trabalho"
+  "docs"
 );
   }
 
@@ -10817,6 +10871,25 @@ case "restricao_parceiro": {
       message: "Parceiro com restrição confirmado (consolidado em restricao)"
     });
 
+    // ✅ Se existe P3, confirmar restrição do P3 antes de seguir
+if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restricao === "undefined")) {
+  const p3Label =
+    st.familiar_tipo === "pai"
+      ? "sua mãe"
+      : st.familiar_tipo === "mae"
+        ? "seu pai"
+        : "o cônjuge desse familiar";
+
+  return step(env, st,
+    [
+      `Agora preciso confirmar o CPF de ${p3Label}:`,
+      "Ele(a) tem alguma *restrição* no CPF? (Serasa, SPC)",
+      "Responda *sim*, *não* ou *não sei*."
+    ],
+    "restricao_parceiro_p3"
+  );
+}
+
     return step(env, st,
   [
     "Entendi 👍",
@@ -10844,6 +10917,25 @@ case "restricao_parceiro": {
       severity: "info",
       message: "Parceiro sem restrição confirmado (consolidado em restricao)"
     });
+
+    // ✅ Se existe P3, confirmar restrição do P3 antes de seguir
+if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restricao === "undefined")) {
+  const p3Label =
+    st.familiar_tipo === "pai"
+      ? "sua mãe"
+      : st.familiar_tipo === "mae"
+        ? "seu pai"
+        : "o cônjuge desse familiar";
+
+  return step(env, st,
+    [
+      `Agora preciso confirmar o CPF de ${p3Label}:`,
+      "Ele(a) tem alguma *restrição* no CPF? (Serasa, SPC)",
+      "Responda *sim*, *não* ou *não sei*."
+    ],
+    "restricao_parceiro_p3"
+  );
+}
 
     return step(env, st,
   [
@@ -10875,6 +10967,25 @@ case "restricao_parceiro": {
       severity: "warning",
       message: "Restrição do parceiro incerta (consolidado em restricao)"
     });
+
+    // ✅ Se existe P3, confirmar restrição do P3 antes de seguir
+if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restricao === "undefined")) {
+  const p3Label =
+    st.familiar_tipo === "pai"
+      ? "sua mãe"
+      : st.familiar_tipo === "mae"
+        ? "seu pai"
+        : "o cônjuge desse familiar";
+
+  return step(env, st,
+    [
+      `Agora preciso confirmar o CPF de ${p3Label}:`,
+      "Ele(a) tem alguma *restrição* no CPF? (Serasa, SPC)",
+      "Responda *sim*, *não* ou *não sei*."
+    ],
+    "restricao_parceiro_p3"
+  );
+}
 
     return step(env, st,
   [

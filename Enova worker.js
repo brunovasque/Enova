@@ -7769,10 +7769,9 @@ case "regime_trabalho_parceiro_familiar": {
 
   const nt = normalizeText(userText || "");
   const parceiroAutonomoSemIr = /autonom/.test(nt) && /\b(sem|nao)\b/.test(nt) && /\bir\b/.test(nt);
-  const regimeCanonico = parseRegimeTrabalho(nt);
+  let regimeCanonico = parseRegimeTrabalho(nt);
+  
   // ✅ fallback explícito: aceita "clt"/"carteira" como CLT (evita loop no regime_trabalho)
-let nt2 = nt;
-let regimeCanonico = parseRegimeTrabalho(nt2);
 if (!regimeCanonico) {
   if (/\bclt\b/i.test(userText || "") || /(carteira\s*assinada|carteira)/i.test(userText || "")) {
     regimeCanonico = "clt";

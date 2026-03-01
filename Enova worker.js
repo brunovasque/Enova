@@ -9834,38 +9834,35 @@ case "ctps_36_parceiro": {
   const t = String(userText || "").trim();
   const tNorm = normalizeText(t);
 
-  const ehFinanciamentoConjunto = (
-  st.financiamento_conjunto === true ||
-  st.somar_renda === true
-);
-
-  if (!ehFinanciamentoConjunto) {
+  // ✅ GATE: se já tem 36m em qualquer outro (titular ou P3), não pergunta parceiro
+  if (st.ctps_36 === true || st.p3_ctps_36 === true) {
     await upsertState(env, st.wa_id, { ctps_36_parceiro: null });
 
-// ✅ GATE: se P3 já tem 36m, não pergunta CTPS aqui
-if (st.p3_ctps_36 === true) {
-  await upsertState(env, st.wa_id, { ctps_36_parceiro: null });
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "restricao",
+      severity: "info",
+      message: "CTPS parceiro pulado: já confirmado 36m em outro participante",
+      details: { ctps_36: st.ctps_36 ?? null, p3_ctps_36: st.p3_ctps_36 ?? null }
+    });
 
-  await funnelTelemetry(env, {
-    wa_id: st.wa_id,
-    event: "exit_stage",
-    stage,
-    next_stage: "restricao",
-    severity: "info",
-    message: "CTPS parceiro/familiar pulado: P3 já confirmado 36m",
-    details: { p3_ctps_36: st.p3_ctps_36 ?? null }
-  });
+    return step(
+      env,
+      st,
+      [
+        "Perfeito! 👏",
+        "Agora vou confirmar primeiro o **seu CPF**: tem alguma restrição?"
+      ],
+      "restricao"
+    );
+  }
 
-  return step(
-    env,
-    st,
-    [
-      "Perfeito! 👏",
-      "Agora vou confirmar primeiro o **seu CPF**: tem alguma restrição?"
-    ],
-    "restricao"
+  const ehFinanciamentoConjunto = (
+    st.financiamento_conjunto === true ||
+    st.somar_renda === true
   );
-}
 
   const temNegacao36Parceiro =
     /(nao)\s+(tem|tenho|possui|possuo|completei|completo|completa)/i.test(tNorm) ||
@@ -9892,38 +9889,6 @@ if (st.p3_ctps_36 === true) {
     );
 
   const nextStageInformativo = "restricao";
-
-  if (st.ctps_36 === true) {
-    await upsertState(env, st.wa_id, {
-      dependente: true,
-      tem_dependente: true,
-      dependentes_qtd: 1,
-      fator_social: true
-    });
-
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "exit_stage",
-      stage,
-      next_stage: "restricao",
-      severity: "warning",
-      message: "CTPS parceiro ignorado porque titular já possui 36 meses",
-      details: {
-        ctps_36_cliente: st.ctps_36,
-        financiamento_conjunto: st.financiamento_conjunto || null
-      }
-    });
-
-    return step(
-      env,
-      st,
-      [
-  "Perfeito! 👏",
-  "Agora vou confirmar primeiro o **seu CPF**: tem alguma restrição?",
-   ],
-      "restricao"
-    );
-  }
 
   if (sim) {
 

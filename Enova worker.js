@@ -6756,7 +6756,7 @@ case "inicio_multi_renda_pergunta": {
         "Perfeito 👌",
         "Agora me confirma uma coisa importante:",
         "Somando todos os seus empregos registrados na carteira de trabalho, você tem *36 meses ou mais de carteira assinada* (considerando todos os períodos)?",
-        "Responda *sim* ou *não*."
+        "Responda *sim*, *não* ou não sei."
       ],
       "ctps_36"
     );
@@ -7751,16 +7751,54 @@ case "renda_parceiro_familiar_p3": {
 
 case "ctps_36_parceiro_p3": {
   const tNorm = normalizeText(userText || "");
+  const p3Label = getP3TipoLabel(st.p3_tipo);
+
+  // ✅ GATE: se já existe 36m em alguém, não pergunta CTPS do P3
+  if (st.ctps_36 === true || st.ctps_36_parceiro === true) {
+    await upsertState(env, st.wa_id, { p3_ctps_36: null });
+    return step(
+      env,
+      st,
+      [
+        "Perfeito! 👌",
+        `Agora preciso confirmar o CPF do(a) ${p3Label}:`,
+        "Tem alguma restrição?"
+      ],
+      "restricao_parceiro_p3"
+    );
+  }
+
   const nao_sei = /(nao sei|não sei|talvez|acho|nao lembro)/i.test(tNorm);
-  const sim = !nao_sei && (/(^|\s)sim(\s|$)/i.test(tNorm) || /(tem sim|possui|possuo|completo|completa|mais de 36|3 anos ou mais)/i.test(tNorm));
-  const nao = !nao_sei && !sim && (/(^|\s)nao(\s|$)/i.test(tNorm) || /(menos de\s*36|menos de\s*3 anos)/i.test(tNorm));
+  const sim =
+    !nao_sei &&
+    (/(^|\s)sim(\s|$)/i.test(tNorm) ||
+      /(tem sim|possui|possuo|completo|completa|mais de 36|3 anos ou mais)/i.test(tNorm));
+  const nao =
+    !nao_sei &&
+    !sim &&
+    (/(^|\s)nao(\s|$)/i.test(tNorm) ||
+      /(menos de\s*36|menos de\s*3 anos)/i.test(tNorm));
 
   if (!sim && !nao && !nao_sei) {
-    return step(env, st, ["Só pra confirmar: essa pessoa tem 36 meses ou mais de carteira assinada?"], "ctps_36_parceiro_p3");
+    return step(
+      env,
+      st,
+      [`Só pra confirmar: o(a) ${p3Label} tem 36 meses ou mais de carteira assinada (CTPS) nos últimos 3 anos? (sim/não)`],
+      "ctps_36_parceiro_p3"
+    );
   }
 
   await upsertState(env, st.wa_id, { p3_ctps_36: sim ? true : (nao ? false : null) });
-  return step(env, st, ["Agora preciso confirmar o CPF do(a) + getP3TipoLabel(st.p3_tipo) +", "Tem alguma restrição?"], "restricao_parceiro_p3");
+
+  return step(
+    env,
+    st,
+    [
+      `Agora preciso confirmar o CPF do(a) ${p3Label}:`,
+      "Tem alguma restrição?"
+    ],
+    "restricao_parceiro_p3"
+  );
 }
 
 case "restricao_parceiro_p3": {
@@ -9450,18 +9488,30 @@ case "ctps_36": {
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "ctps_36"
   // ============================================================
+  // ✅ GATE: se já tem 36 em qualquer um, não pergunta de novo
+if (st.ctps_36_parceiro === true || st.p3_ctps_36 === true) {
+  await upsertState(env, st.wa_id, { ctps_36: null }); // opcional: não precisa forçar true aqui
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
-    event: "enter_phase",
+    event: "exit_stage",
     stage,
+    next_stage: "restricao",
     severity: "info",
-    message: "Entrando na fase: ctps_36",
-    details: {
-      somar_renda: st.somar_renda || null,
-      renda_total: st.renda_total_para_fluxo || null,
-      regime: st.regime || null
-    }
+    message: "CTPS titular pulado: já confirmado 36m em outro participante",
+    details: { ctps_36_parceiro: st.ctps_36_parceiro ?? null, p3_ctps_36: st.p3_ctps_36 ?? null }
   });
+
+  return step(
+    env,
+    st,
+    [
+      "Perfeito! 👏",
+      "Agora só preciso confirmar:",
+      "Você está com **alguma restrição no CPF**?"
+    ],
+    "restricao"
+  );
+}
 
   // Texto bruto + normalizado (centralizado no helper global)
 const t = String(userText || "").trim();
@@ -9792,26 +9842,30 @@ case "ctps_36_parceiro": {
   if (!ehFinanciamentoConjunto) {
     await upsertState(env, st.wa_id, { ctps_36_parceiro: null });
 
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "exit_stage",
-      stage,
-      next_stage: "restricao",
-      severity: "warning",
-      message: "ctps_36_parceiro acionado fora de fluxo conjunto — seguindo para restrição"
-    });
+// ✅ GATE: se P3 já tem 36m, não pergunta CTPS aqui
+if (st.p3_ctps_36 === true) {
+  await upsertState(env, st.wa_id, { ctps_36_parceiro: null });
 
-    return step(
-      env,
-      st,
-      [
-        "Sem problema 👍",
-        "Vou seguir aqui sem travar.",
-        "Você está com **alguma restrição no CPF**, como negativação?"
-      ],
-      "restricao"
-    );
-  }
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "exit_stage",
+    stage,
+    next_stage: "restricao",
+    severity: "info",
+    message: "CTPS parceiro/familiar pulado: P3 já confirmado 36m",
+    details: { p3_ctps_36: st.p3_ctps_36 ?? null }
+  });
+
+  return step(
+    env,
+    st,
+    [
+      "Perfeito! 👏",
+      "Agora vou confirmar primeiro o **seu CPF**: tem alguma restrição?"
+    ],
+    "restricao"
+  );
+}
 
   const temNegacao36Parceiro =
     /(nao)\s+(tem|tenho|possui|possuo|completei|completo|completa)/i.test(tNorm) ||

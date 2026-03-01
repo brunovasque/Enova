@@ -7783,7 +7783,7 @@ case "ctps_36_parceiro_p3": {
     return step(
       env,
       st,
-      [`Só pra confirmar: o(a) ${p3Label} tem 36 meses ou mais de carteira assinada (CTPS) nos últimos 3 anos? (sim/não)`],
+      [`Só pra confirmar: o cônjuge do(a) ${st.familiar_tipo === "pai" ? "seu pai" : st.familiar_tipo === "mae" ? "sua mãe" : "seu familiar"} tem 36 meses ou mais de carteira assinada (CTPS) nos últimos 3 anos? (sim/não)`],
       "ctps_36_parceiro_p3"
     );
   }
@@ -10464,6 +10464,16 @@ const segundaPerguntaParceiro =
   titularJaRespondeuRestricao &&
   (st.restricao_parceiro === null || typeof st.restricao_parceiro === "undefined");
 
+  // 🔤 Label da "2ª pessoa" da restrição (casal x familiar/P3)
+const pessoa2Label =
+  st.financiamento_conjunto === true
+    ? "parceiro(a)"
+    : (st.familiar_tipo === "pai"
+        ? "sua mãe"
+        : st.familiar_tipo === "mae"
+          ? "seu pai"
+          : "cônjuge desse familiar");
+
   // -----------------------------------------------------
   // CPF COM RESTRIÇÃO
   // -----------------------------------------------------
@@ -10516,8 +10526,8 @@ return step(env, st,
     return step(env, st,
       [
         "Perfeito 👍",
-        "Agora preciso confirmar o CPF do parceiro(a):",
-        "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)",
+        `Agora preciso confirmar o CPF de ${pessoa2Label}:`,
+        `Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)`,
         "Responda *sim*, *não* ou *não sei*."
       ],
       "restricao_parceiro"
@@ -10559,7 +10569,7 @@ return step(env, st,
   return step(env, st,
     [
       "Perfeito! 👌",
-      "Anotei que o parceiro(a) está sem restrição no CPF.",
+      `Anotei que ${pessoa2Label} está sem restrição no CPF.`,
       "Só pra eu te orientar certinho:",
       "Você tem **possibilidade ou intenção de regularizar** essa restrição?",
       "Responda *sim* ou *não*."
@@ -10609,8 +10619,8 @@ return step(env, st,
     return step(env, st,
       [
         "Perfeito! 👌",
-        "Agora preciso confirmar o CPF do parceiro(a):",
-        "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)",
+        `Agora preciso confirmar o CPF de ${pessoa2Label}:`,
+        `Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)`,
         "Responda *sim*, *não* ou *não sei*."
       ],
       "restricao_parceiro"
@@ -10692,8 +10702,8 @@ if (incerto) {
     return step(env, st,
       [
         "Tranquilo, isso é bem comum 😊",
-        "Agora preciso confirmar o CPF do parceiro(a):",
-        "Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)",
+        `Agora preciso confirmar o CPF de ${pessoa2Label}:`,
+        `Ele(a) tem alguma **restrição** no CPF? (Serasa, SPC)`,
         "Responda *sim*, *não* ou *não sei*."
       ],
       "restricao_parceiro"

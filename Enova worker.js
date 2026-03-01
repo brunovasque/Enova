@@ -1105,6 +1105,15 @@ async function resetTotal(env, wa_id) {
     casamento_civil: null,
     coletas_casal: null,
 
+    // ✅ Trilho familiar/P3 (zera tudo do P3)
+    familiar_tipo: null,
+    p3_required: null,
+    p3_done: null,
+    p3_regime_trabalho: null,
+    p3_renda_mensal: null,
+    p3_restricao: null,
+    p3_regularizacao_intencao: null,
+
     // Regimes / renda (colunas válidas do schema)
     regime: null,
     regime_parceiro: null,
@@ -1131,6 +1140,7 @@ async function resetTotal(env, wa_id) {
     // CTPS
     ctps_36: null,
     ctps_36_parceiro: null,
+    p3_ctps_36: null,
     ctps_parceiro: null,
 
     // Elegibilidade
@@ -1221,6 +1231,15 @@ function createSimulationState(wa_id, startStage) {
     casamento_civil: null,
     coletas_casal: null,
 
+    // ✅ Trilho familiar/P3 (espelho do reset real)
+    familiar_tipo: null,
+    p3_required: null,
+    p3_done: null,
+    p3_regime_trabalho: null,
+    p3_renda_mensal: null,
+    p3_restricao: null,
+    p3_regularizacao_intencao: null,
+
     // Regimes / renda
     regime: null,
     regime_parceiro: null,
@@ -1247,6 +1266,7 @@ function createSimulationState(wa_id, startStage) {
     // CTPS
     ctps_36: null,
     ctps_36_parceiro: null,
+    p3_ctps_36: null,
     ctps_parceiro: null,
 
     // Elegibilidade

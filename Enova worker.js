@@ -10682,6 +10682,32 @@ const pessoa2Label =
           ? "seu pai"
           : "cônjuge desse familiar");
 
+// ✅ MODO FAMILIAR: não repetir restrição do familiar/P3 se já foram coletadas
+const modoFamiliar =
+  (st.composicao_pessoa === "familiar") || (st.familiar_tipo !== null && typeof st.familiar_tipo !== "undefined");
+
+if (modoFamiliar) {
+  const familiarJa = (st.restricao_parceiro !== null && typeof st.restricao_parceiro !== "undefined");
+  const p3Precisa = (st.p3_required === true);
+  const p3Ja = (st.p3_restricao !== null && typeof st.p3_restricao !== "undefined");
+
+  // Se já tenho restrição do familiar e (se precisar) do P3, finaliza
+  if (familiarJa && (!p3Precisa || p3Ja)) {
+    return step(env, st,
+      [
+        "Perfeito! 👌",
+        "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
+        "",
+        "📌 Você prefere:",
+        "1) Enviar por aqui no WhatsApp",
+        "2) Enviar pelo site",
+        "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+      ],
+      "docs"
+    );
+  }
+}
+
   // -----------------------------------------------------
   // CPF COM RESTRIÇÃO
   // -----------------------------------------------------

@@ -467,7 +467,6 @@ async function upsertState(env, wa_id, payload) {
   }
 
   // Sanitize: não escrever coluna que não existe no Supabase
-if ("renda_familiar" in patch) delete patch.renda_familiar;
 
   try {
     // 1) Verifica se já existe registro para esse wa_id

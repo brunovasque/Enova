@@ -7299,7 +7299,7 @@ case "inicio_multi_renda_coletar_parceiro": {
 
   const txt = String(userText || "").trim();
 
-  const matchCompleto = txt.match(/(.+?)\s*[-–—]\s*(r\$\s*)?([\d\.,kK]+)/i);
+  const matchCompleto = txt.match(/^\s*([^\d]+?)\s*(?:[-–—]|:|\s+|\ba\b|\bà\b)\s*(r\$\s*)?([\d\.,kK]+)\s*$/i);
   const matchSomenteValor = txt.match(/^(r\$\s*)?([\d\.,kK]+)$/i);
 
   let tipo = "";

@@ -9092,7 +9092,7 @@ case "quem_pode_somar": {
     /(filho|filha|filhos|filhas|dependente|dependentes|crianca|criancas|bebe|bebes)/i.test(tBase);
 
   const sozinho =
-    /(so\s*(a\s*)?minha(\s+renda)?|so\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|ninguem para somar|ninguem pra somar|sem ninguem)/i.test(tBase);
+    /(so\s*(a\s*)?minha(\s+renda)?|so\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|ninguem(\s*(para|pra)\s*somar)?|sem ninguem)/i.test(tBase);
 
   const parceiro =
     composicaoSignal === "parceiro" ||

@@ -11381,7 +11381,7 @@ case "regularizacao_restricao": {
     }
 
     // ✅ Se estou regularizando o parceiro (P2) e o titular NÃO tem restrição, não chama regularizacao_restricao
-    if (isParceiro && st.restricao !== true) {
+    if (stage === "regularizacao_restricao_parceiro" && st.restricao !== true) {
       // segue direto para docs, respeitando o gate (que pode pedir restrição do P3/familiar se for o caso)
       const gateRes2 = gateAntesEnvioDocs();
       if (gateRes2) return gateRes2;

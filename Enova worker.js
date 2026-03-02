@@ -467,7 +467,6 @@ async function upsertState(env, wa_id, payload) {
   }
 
   // Sanitize: não escrever coluna que não existe no Supabase
-if ("renda_familiar" in patch) delete patch.renda_familiar;
 
   try {
     // 1) Verifica se já existe registro para esse wa_id
@@ -701,6 +700,15 @@ function getP3TipoLabel(tipo) {
   if (t === "sogra") return "sua sogra";
   if (t === "sogro") return "seu sogro";
   return "esse familiar";
+}
+
+function isModoFamiliar(st) {
+  return st?.composicao_pessoa === "familiar" || st?.familiar_tipo != null;
+}
+
+function appendOwned(list, payload, owner) {
+  const base = Array.isArray(list) ? list : [];
+  return [...base, { owner, ...payload }];
 }
 
 function buildSimulationFlags(st, userText) {
@@ -6884,6 +6892,7 @@ case "inicio_multi_renda_coletar": {
   // -------------------------------
   let lista = Array.isArray(st.multi_renda_lista) ? st.multi_renda_lista : [];
   lista.push({
+    owner: "titular",
     tipo,
     valor: valorNumerico,
     ts: Date.now()
@@ -6915,6 +6924,97 @@ case "inicio_multi_renda_coletar": {
     ],
     "inicio_multi_renda_pergunta"
   );
+}
+
+
+
+// --------------------------------------------------
+// 🧩 C14F - INÍCIO_MULTI_REGIME_FAMILIAR_PERGUNTA
+// --------------------------------------------------
+case "inicio_multi_regime_familiar_pergunta": {
+  const nt = normalizeText(userText || "");
+  const famLabel = st.familiar_tipo === "pai" ? "seu pai" : st.familiar_tipo === "mae" ? "sua mãe" : "seu familiar";
+
+  if (isYes(nt)) {
+    return step(env, st, ["Perfeito! 👍", `Me diga qual é o outro regime de trabalho de ${famLabel}.`], "inicio_multi_regime_familiar_loop");
+  }
+
+  if (isNo(nt)) {
+    return step(env, st, ["Certo! 😊", `Agora me diga o valor da renda mensal de ${famLabel}.`], "renda_parceiro_familiar");
+  }
+
+  return step(env, st, ["Só para confirmar 😊", `${famLabel} tem mais algum regime de trabalho além desse?`, "Responda sim ou não."], "inicio_multi_regime_familiar_pergunta");
+}
+
+// --------------------------------------------------
+// 🧩 C14F2 - INÍCIO_MULTI_REGIME_FAMILIAR_LOOP
+// --------------------------------------------------
+case "inicio_multi_regime_familiar_loop": {
+  const nt = normalizeText(userText || "");
+  const regimeMulti = parseRegimeTrabalho(nt);
+  const famLabel = st.familiar_tipo === "pai" ? "seu pai" : st.familiar_tipo === "mae" ? "sua mãe" : "seu familiar";
+
+  if (!regimeMulti || regimeMulti === "desempregado" || regimeMulti === "estudante") {
+    return step(env, st, ["Acho que não entendi certinho 😅", `Me diga apenas o regime de ${famLabel}, como CLT, autônomo ou servidor.`], "inicio_multi_regime_familiar_loop");
+  }
+
+  const regimeFinal = regimeMulti === "aposentadoria" ? "aposentado" : regimeMulti;
+  await upsertState(env, st.wa_id, {
+    multi_regime_lista: appendOwned(st.multi_regime_lista, { regime: regimeFinal, ts: Date.now() }, "familiar")
+  });
+
+  return step(env, st, ["Ótimo! 👍", `${famLabel} tem mais algum emprego/regime?`, "Responda sim ou não."], "inicio_multi_regime_familiar_pergunta");
+}
+
+// --------------------------------------------------
+// 🧩 C14F3 - INÍCIO_MULTI_RENDA_FAMILIAR_PERGUNTA
+// --------------------------------------------------
+case "inicio_multi_renda_familiar_pergunta": {
+  const nt = normalizeText(userText || "");
+  const famLabel = st.familiar_tipo === "pai" ? "seu pai" : st.familiar_tipo === "mae" ? "sua mãe" : "seu familiar";
+
+  if (isYes(nt)) {
+    await upsertState(env, st.wa_id, { multi_renda_flag: true });
+    return step(env, st, ["Perfeito! 👍", `Me diga a outra renda de ${famLabel} e o valor bruto.`, "Exemplo: Bico - 1200"], "inicio_multi_renda_familiar_loop");
+  }
+
+  if (isNo(nt)) {
+    await upsertState(env, st.wa_id, { multi_renda_flag: false });
+    return step(env, st, ["Perfeito 👌", `Agora me confirma: ${famLabel} tem 36 meses ou mais de CTPS nos últimos 3 anos?`], "ctps_36_parceiro");
+  }
+
+  return step(env, st, ["Só pra confirmar 🙂", `${famLabel} possui mais alguma renda além dessa?`, "Responda sim ou não."], "inicio_multi_renda_familiar_pergunta");
+}
+
+// --------------------------------------------------
+// 🧩 C14F4 - INÍCIO_MULTI_RENDA_FAMILIAR_LOOP
+// --------------------------------------------------
+case "inicio_multi_renda_familiar_loop": {
+  const txt = String(userText || "").trim();
+  const matchCompleto = txt.match(/(.+?)\s*[-–—]\s*(r\$\s*)?([\d\.,kK]+)/i);
+  const matchSomenteValor = txt.match(/^(r\$\s*)?([\d\.,kK]+)$/i);
+  let tipo = "";
+  let valorNumerico = 0;
+
+  if (matchCompleto) {
+    tipo = normalizeText(matchCompleto[1].trim());
+    valorNumerico = parseMoneyBR(matchCompleto[3]) || 0;
+  } else if (matchSomenteValor) {
+    tipo = "renda extra";
+    valorNumerico = parseMoneyBR(matchSomenteValor[2]) || 0;
+  } else {
+    return step(env, st, ["Não consegui entender certinho 😅", "Envie no formato: tipo - valor", "Exemplo: Bico - 1000"], "inicio_multi_renda_familiar_loop");
+  }
+
+  if (!valorNumerico || valorNumerico <= 0) {
+    return step(env, st, ["Não consegui identificar o valor 😅", "Pode me enviar novamente?"], "inicio_multi_renda_familiar_loop");
+  }
+
+  await upsertState(env, st.wa_id, {
+    multi_renda_lista: appendOwned(st.multi_renda_lista, { tipo, valor: valorNumerico, ts: Date.now() }, "familiar")
+  });
+
+  return step(env, st, ["Ótimo! 👌", "Quer adicionar mais alguma renda desse familiar?", "Responda sim ou não."], "inicio_multi_renda_familiar_pergunta");
 }
 
 // --------------------------------------------------
@@ -7199,7 +7299,7 @@ case "inicio_multi_renda_coletar_parceiro": {
 
   const txt = String(userText || "").trim();
 
-  const matchCompleto = txt.match(/(.+?)\s*[-–—]\s*(r\$\s*)?([\d\.,kK]+)/i);
+  const matchCompleto = txt.match(/^\s*([^\d]+?)\s*(?:[-–—]|:|\s+|\ba\b|\bà\b)\s*(r\$\s*)?([\d\.,kK]+)\s*$/i);
   const matchSomenteValor = txt.match(/^(r\$\s*)?([\d\.,kK]+)$/i);
 
   let tipo = "";
@@ -7668,7 +7768,15 @@ case "regime_trabalho_parceiro_familiar": {
 
   const nt = normalizeText(userText || "");
   const parceiroAutonomoSemIr = /autonom/.test(nt) && /\b(sem|nao)\b/.test(nt) && /\bir\b/.test(nt);
-  const valido = /(clt|autonomo|autônomo|servidor|publico|público|aposentado|pensionista|informal|bico|bicos)/i.test(nt);
+  let regimeCanonico = parseRegimeTrabalho(nt);
+  
+  // ✅ fallback explícito: aceita "clt"/"carteira" como CLT (evita loop no regime_trabalho)
+if (!regimeCanonico) {
+  if (/\bclt\b/i.test(userText || "") || /(carteira\s*assinada|carteira)/i.test(userText || "")) {
+    regimeCanonico = "clt";
+  }
+}
+  const valido = Boolean(regimeCanonico) && regimeCanonico !== "desempregado" && regimeCanonico !== "estudante";
 
   if (parceiroAutonomoSemIr) {
     st.composicao_autonomo_sem_ir = true;
@@ -7687,8 +7795,12 @@ case "regime_trabalho_parceiro_familiar": {
     );
   }
 
+  const regimeFinal = regimeCanonico === "aposentadoria" ? "aposentado" : regimeCanonico;
+  const multiRegimes = appendOwned(st.multi_regime_lista, { regime: regimeFinal, ts: Date.now() }, "familiar");
+
   await upsertState(env, st.wa_id, {
-    regime_trabalho_parceiro_familiar: nt
+    regime_trabalho_parceiro_familiar: regimeFinal,
+    multi_regime_lista: multiRegimes
   });
 
   if (parceiroAutonomoSemIr) {
@@ -7707,9 +7819,9 @@ case "regime_trabalho_parceiro_familiar": {
     st,
     [
       "Perfeito!",
-      `Agora me diga o valor da renda mensal do(a) ${st.familiar_tipo === "pai" ? "seu pai" : st.familiar_tipo === "mae" ? "sua mãe" : "seu familiar"}.`
+      `Seu ${st.familiar_tipo === "pai" ? "pai" : st.familiar_tipo === "mae" ? "mãe" : "familiar"} tem mais algum regime de trabalho além desse?`
     ],
-    "renda_parceiro_familiar"
+    "inicio_multi_regime_familiar_pergunta"
   );
 }
 
@@ -7742,31 +7854,94 @@ case "regime_trabalho_parceiro_familiar_p3": {
   const nt = normalizeText(userText || "");
   const regimeCanonicoP3 = parseRegimeTrabalho(nt);
   const valido = Boolean(regimeCanonicoP3) && regimeCanonicoP3 !== "desempregado" && regimeCanonicoP3 !== "estudante";
-  const p3Label = getP3TipoLabel(st.p3_tipo);
+  const p3Label = st.familiar_tipo === "pai" ? "cônjuge do seu pai" : st.familiar_tipo === "mae" ? "cônjuge da sua mãe" : "cônjuge do seu familiar";
 
   if (!valido) {
-    return step(env, st, ["Qual é o regime de trabalho de " + p3Label + "?"], "regime_trabalho_parceiro_familiar_p3");
+    return step(env, st, ["Qual é o regime de trabalho do(a) " + p3Label + "?"], "regime_trabalho_parceiro_familiar_p3");
   }
 
-  await upsertState(env, st.wa_id, { p3_regime_trabalho: regimeCanonicoP3 });
-  return step(env, st, ["Perfeito!", `Agora me diga o valor da renda mensal do(a) ${getP3TipoLabel(st.p3_tipo)}.`], "renda_parceiro_familiar_p3");
+  const regimeFinal = regimeCanonicoP3 === "aposentadoria" ? "aposentado" : regimeCanonicoP3;
+  await upsertState(env, st.wa_id, {
+    p3_regime_trabalho: regimeFinal,
+    multi_regime_lista: appendOwned(st.multi_regime_lista, { regime: regimeFinal, ts: Date.now() }, "p3")
+  });
+  return step(env, st, ["Perfeito!", `O(a) ${p3Label} tem mais algum regime de trabalho?`], "inicio_multi_regime_p3_pergunta");
 }
 
 case "renda_parceiro_familiar_p3": {
   const valor = parseMoneyBR(userText || "");
+  const p3Label = st.familiar_tipo === "pai" ? "cônjuge do seu pai" : st.familiar_tipo === "mae" ? "cônjuge da sua mãe" : "cônjuge do seu familiar";
   if (!valor || valor < 200) {
     return step(env, st, ["Conseguiu confirmar o valor certinho?"], "renda_parceiro_familiar_p3");
   }
 
-  const rendaBase = Number(st.renda_total_para_fluxo || st.renda || st.renda_titular || 0);
-  const rendaTotal = rendaBase + valor;
-
   await upsertState(env, st.wa_id, {
     p3_renda_mensal: valor,
-    renda_total_para_fluxo: rendaTotal
+    multi_renda_lista: appendOwned(st.multi_renda_lista, { tipo: "renda base", valor, ts: Date.now() }, "p3")
   });
 
-  return step(env, st, ["Perfeito!", "Agora me diga: o(a) " + getP3TipoLabel(st.p3_tipo) + " tem 36 meses de carteira assinada (CTPS) nos últimos 3 anos? (sim/não)"], "ctps_36_parceiro_p3");
+  return step(env, st, ["Perfeito!", `O(a) ${p3Label} possui mais alguma renda além dessa?`], "inicio_multi_renda_p3_pergunta");
+}
+
+
+case "inicio_multi_regime_p3_pergunta": {
+  const nt = normalizeText(userText || "");
+  const p3Label = st.familiar_tipo === "pai" ? "cônjuge do seu pai" : st.familiar_tipo === "mae" ? "cônjuge da sua mãe" : "cônjuge do seu familiar";
+  if (isYes(nt)) {
+    return step(env, st, ["Perfeito! 👍", `Me diga o outro regime de trabalho do(a) ${p3Label}.`], "inicio_multi_regime_p3_loop");
+  }
+  if (isNo(nt)) {
+    return step(env, st, ["Certo! 😊", `Agora me diga o valor da renda mensal do(a) ${p3Label}.`], "renda_parceiro_familiar_p3");
+  }
+  return step(env, st, ["Só para confirmar 😊", `O(a) ${p3Label} tem mais algum regime de trabalho?`, "Responda sim ou não."], "inicio_multi_regime_p3_pergunta");
+}
+
+case "inicio_multi_regime_p3_loop": {
+  const nt = normalizeText(userText || "");
+  const regimeMulti = parseRegimeTrabalho(nt);
+  if (!regimeMulti || regimeMulti === "desempregado" || regimeMulti === "estudante") {
+    return step(env, st, ["Acho que não entendi certinho 😅", "Me diga apenas o regime, como CLT, autônomo ou servidor."], "inicio_multi_regime_p3_loop");
+  }
+  const regimeFinal = regimeMulti === "aposentadoria" ? "aposentado" : regimeMulti;
+  await upsertState(env, st.wa_id, {
+    multi_regime_lista: appendOwned(st.multi_regime_lista, { regime: regimeFinal, ts: Date.now() }, "p3")
+  });
+  return step(env, st, ["Ótimo! 👍", "Tem mais algum regime de trabalho?", "Responda sim ou não."], "inicio_multi_regime_p3_pergunta");
+}
+
+case "inicio_multi_renda_p3_pergunta": {
+  const nt = normalizeText(userText || "");
+  if (isYes(nt)) {
+    return step(env, st, ["Perfeito! 👍", "Me diga a outra renda e o valor bruto.", "Exemplo: Bico - 1200"], "inicio_multi_renda_p3_loop");
+  }
+  if (isNo(nt)) {
+    return step(env, st, ["Perfeito 👌", "Agora me diga: esse cônjuge tem 36 meses de carteira assinada (CTPS) nos últimos 3 anos? (sim/não)"], "ctps_36_parceiro_p3");
+  }
+  return step(env, st, ["Só pra confirmar 🙂", "Esse cônjuge possui mais alguma renda além dessa?", "Responda sim ou não."], "inicio_multi_renda_p3_pergunta");
+}
+
+case "inicio_multi_renda_p3_loop": {
+  const txt = String(userText || "").trim();
+  const matchCompleto = txt.match(/(.+?)\s*[-–—]\s*(r\$\s*)?([\d\.,kK]+)/i);
+  const matchSomenteValor = txt.match(/^(r\$\s*)?([\d\.,kK]+)$/i);
+  let tipo = "";
+  let valorNumerico = 0;
+  if (matchCompleto) {
+    tipo = normalizeText(matchCompleto[1].trim());
+    valorNumerico = parseMoneyBR(matchCompleto[3]) || 0;
+  } else if (matchSomenteValor) {
+    tipo = "renda extra";
+    valorNumerico = parseMoneyBR(matchSomenteValor[2]) || 0;
+  } else {
+    return step(env, st, ["Não consegui entender certinho 😅", "Envie no formato: tipo - valor", "Exemplo: Bico - 1000"], "inicio_multi_renda_p3_loop");
+  }
+  if (!valorNumerico || valorNumerico <= 0) {
+    return step(env, st, ["Não consegui identificar o valor 😅", "Pode me enviar novamente?"], "inicio_multi_renda_p3_loop");
+  }
+  await upsertState(env, st.wa_id, {
+    multi_renda_lista: appendOwned(st.multi_renda_lista, { tipo, valor: valorNumerico, ts: Date.now() }, "p3")
+  });
+  return step(env, st, ["Ótimo! 👌", "Quer adicionar mais alguma renda?", "Responda sim ou não."], "inicio_multi_renda_p3_pergunta");
 }
 
 case "ctps_36_parceiro_p3": {
@@ -7862,28 +8037,11 @@ case "restricao_parceiro_p3": {
   if (nao || incerto) {
     await upsertState(env, st.wa_id, { p3_restricao: nao ? false : null, p3_done: true });
 
-    // ✅ Se já estamos na fase “pós-renda” (fluxo já chegou em restrição/docs), segue pra docs
-    if (st.renda_total_para_fluxo !== null && typeof st.renda_total_para_fluxo !== "undefined") {
-      return step(env, st,
-        [
-          "Perfeito! 👌",
-          "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
-          "",
-          "📌 Você prefere:",
-          "1) Enviar por aqui no WhatsApp",
-          "2) Enviar pelo site",
-          "3) Agendar uma visita presencial (decorado + simulação no plantão)"
-        ],
-        "docs"
-      );
-    }
-
-    // ✅ Caso ainda esteja antes da renda do titular (seu funil antigo), volta pra renda
     return step(env, st,
       [
         "Perfeito! 👌",
-        "Agora vamos registrar **a sua renda** também.",
-        "Você trabalha com **carteira assinada (CLT)**, é **autônomo** ou **servidor**?"
+        "Agora vamos continuar com você.",
+        "Qual é o seu regime de trabalho?"
       ],
       "regime_trabalho"
     );
@@ -7906,19 +8064,35 @@ case "regularizacao_restricao_p3": {
 
   if (sim || nao || talvez) {
     st.p3_done = true;
-    await upsertState(env, st.wa_id, { p3_regularizacao_intencao: sim ? true : (nao ? false : null), p3_done: true });
-return step(env, st,
-  [
-    "Ótimo! 👏",
-    "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
-    "",
-    "📌 Você prefere:",
-    "1) Enviar por aqui no WhatsApp",
-    "2) Enviar pelo site",
-    "3) Agendar uma visita presencial (decorado + simulação no plantão)"
-  ],
-  "docs"
-);
+
+    await upsertState(env, st.wa_id, {
+      p3_regularizacao_intencao: sim ? true : (nao ? false : null),
+      p3_done: true
+    });
+
+    // ✅ GATE: se o titular já estiver "fechado", ir direto pra DOCS
+    const titularFechado =
+      (st.restricao === true || st.restricao === false || st.restricao === "incerto") &&
+      (st.renda_total_para_fluxo != null);
+
+    if (titularFechado) {
+      return step(env, st,
+        [
+          "Ótimo! 👏",
+          "Como o seu cadastro principal já está fechado, já vamos pra etapa de documentos 😊"
+        ],
+        "docs"
+      );
+    }
+
+    return step(env, st,
+      [
+        "Ótimo! 👏",
+        "Agora seguimos com você.",
+        "Qual é o seu regime de trabalho?"
+      ],
+      "regime_trabalho"
+    );
   }
 
   return step(env, st, ["Você tem possibilidade ou intenção de regularizar essa restrição?"], "regularizacao_restricao_p3");
@@ -8483,9 +8657,7 @@ case "renda_parceiro_familiar": {
     details: { last_user_text: st.last_user_text }
   });
 
-  const nt = normalizeText(userText || "");
-
-  // Captura valor (aceita "2500", "2.500", "R$ 2.500", etc.)
+  const modoFamiliar = isModoFamiliar(st);
   const valor = parseMoneyBR(userText);
 
   if (!valor || valor <= 0) {
@@ -8501,7 +8673,26 @@ case "renda_parceiro_familiar": {
     );
   }
 
-  // Soma com renda do titular (fluxo composição)
+  if (modoFamiliar) {
+    await upsertState(env, st.wa_id, {
+      renda_parceiro: valor,
+      multi_renda_lista: appendOwned(st.multi_renda_lista, { tipo: "renda base", valor, ts: Date.now() }, "familiar")
+    });
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "inicio_multi_renda_familiar_pergunta",
+      severity: "info",
+      message: "Saindo da fase renda_parceiro_familiar (modo familiar) → inicio_multi_renda_familiar_pergunta",
+      details: { renda_familiar: valor }
+    });
+
+    return step(env, st, ["Perfeito! 👌", "Esse familiar possui mais alguma renda além dessa?"], "inicio_multi_renda_familiar_pergunta");
+  }
+
+  // Soma com renda do titular (fluxo composição legado fora do modo_familiar)
   const rendaTitular = Number(st.renda_total_para_fluxo || st.renda || 0);
   const rendaTotal = rendaTitular + valor;
 
@@ -8512,49 +8703,11 @@ case "renda_parceiro_familiar": {
     financiamento_conjunto: true
   });
 
-  // ============================================================
-  // ✅ FIX: se P3 é obrigatório e ainda não foi coletado, desvia pro P3
-  // ============================================================
   const p3Required = st.p3_required === true;
   const p3Done = st.p3_done === true;
+  const nextStage = (p3Required && !p3Done) ? "regime_trabalho_parceiro_familiar_p3" : "ctps_36_parceiro";
 
-  const nextStage = (p3Required && !p3Done)
-    ? "regime_trabalho_parceiro_familiar_p3"
-    : "ctps_36_parceiro";
-
-  const replyLines = (nextStage === "regime_trabalho_parceiro_familiar_p3")
-    ? [
-        "Perfeito! 👌",
-        "Ótimo! Renda registrada ✅",
-        "Agora vamos registrar também o cônjuge dessa pessoa (por ser casado(a) no civil).",
-        "Qual é o *regime de trabalho* do cônjuge? (CLT, autônomo, servidor, aposentado etc.)"
-      ]
-    : [
-        "Perfeito! 👌",
-        "Ótimo! Renda registrada ✅",
-        "Agora me diga: essa pessoa que está somando renda com você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
-      ];
-
-  // ============================================================
-  // EXIT → próxima fase dinâmica (P3 ou CTPS)
-  // ============================================================
-  await funnelTelemetry(env, {
-    wa_id: st.wa_id,
-    event: "exit_stage",
-    stage,
-    next_stage: nextStage,
-    severity: "info",
-    message: `Saindo da fase renda_parceiro_familiar → ${nextStage}`,
-    details: {
-      renda_familiar: valor,
-      renda_titular: rendaTitular,
-      renda_total: rendaTotal,
-      p3_required: p3Required,
-      p3_done: p3Done
-    }
-  });
-
-  return step(env, st, replyLines, nextStage);
+  return step(env, st, ["Perfeito! 👌", "Ótimo! Renda registrada ✅"], nextStage);
 }
 
 // =========================================================
@@ -8939,7 +9092,7 @@ case "quem_pode_somar": {
     /(filho|filha|filhos|filhas|dependente|dependentes|crianca|criancas|bebe|bebes)/i.test(tBase);
 
   const sozinho =
-    /(so\s*(a\s*)?minha(\s+renda)?|so\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|ninguem para somar|ninguem pra somar|sem ninguem)/i.test(tBase);
+    /(so\s*(a\s*)?minha(\s+renda)?|so\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|ninguem(\s*(para|pra)\s*somar)?|sem ninguem)/i.test(tBase);
 
   const parceiro =
     composicaoSignal === "parceiro" ||
@@ -9916,7 +10069,7 @@ case "ctps_36_parceiro": {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "restricao",
+      next_stage: isModoFamiliar(st) ? "restricao_parceiro" : "restricao",
       severity: "info",
       message: "CTPS parceiro pulado: já confirmado 36m em outro participante",
       details: { ctps_36: st.ctps_36 ?? null, p3_ctps_36: st.p3_ctps_36 ?? null }
@@ -9929,7 +10082,7 @@ case "ctps_36_parceiro": {
         "Perfeito! 👏",
         "Agora vou confirmar primeiro o **seu CPF**: tem alguma restrição?"
       ],
-      "restricao"
+      isModoFamiliar(st) ? "restricao_parceiro" : "restricao"
     );
   }
 
@@ -9997,7 +10150,7 @@ case "ctps_36_parceiro": {
         "Agora vamos só confirmar uma coisinha rápida:",
         "Você está com **alguma restrição no CPF**, como negativação?"
       ],
-      "restricao"
+      isModoFamiliar(st) ? "restricao_parceiro" : "restricao"
     );
   }
 
@@ -10026,7 +10179,7 @@ case "ctps_36_parceiro": {
         "Mesmo sem ter o tempo certinho de carteira, isso não impede a análise.",
         "Agora vou confirmar primeiro o **seu CPF**: possui alguma restrição?"
       ],
-      "restricao"
+      isModoFamiliar(st) ? "restricao_parceiro" : "restricao"
     );
   }
 
@@ -10063,7 +10216,7 @@ case "ctps_36_parceiro": {
         "Agora só mais uma coisinha:",
         "Você possui **alguma restrição no CPF**?"
       ],
-      "restricao"
+      isModoFamiliar(st) ? "restricao_parceiro" : "restricao"
     );
   }
 
@@ -10548,6 +10701,32 @@ const pessoa2Label =
           ? "seu pai"
           : "cônjuge desse familiar");
 
+// ✅ MODO FAMILIAR: não repetir restrição do familiar/P3 se já foram coletadas
+const modoFamiliar =
+  (st.composicao_pessoa === "familiar") || (st.familiar_tipo !== null && typeof st.familiar_tipo !== "undefined");
+
+if (modoFamiliar) {
+  const familiarJa = (st.restricao_parceiro !== null && typeof st.restricao_parceiro !== "undefined");
+  const p3Precisa = (st.p3_required === true);
+  const p3Ja = (st.p3_restricao !== null && typeof st.p3_restricao !== "undefined");
+
+  // Se já tenho restrição do familiar e (se precisar) do P3, finaliza
+  if (familiarJa && (!p3Precisa || p3Ja)) {
+    return step(env, st,
+      [
+        "Perfeito! 👌",
+        "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
+        "",
+        "📌 Você prefere:",
+        "1) Enviar por aqui no WhatsApp",
+        "2) Enviar pelo site",
+        "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+      ],
+      "docs"
+    );
+  }
+}
+
   // -----------------------------------------------------
   // CPF COM RESTRIÇÃO
   // -----------------------------------------------------
@@ -10859,6 +11038,33 @@ case "restricao_parceiro": {
       /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo)/i.test(t)
     );
 
+  if (isModoFamiliar(st)) {
+    if (!sim && !nao && !incerto) {
+      return step(env, st,
+        [
+          "Só pra confirmar rapidinho 😊",
+          "Esse familiar tem alguma restrição no CPF? (Serasa, SPC)",
+          "Responda sim, não ou não sei."
+        ],
+        "restricao_parceiro"
+      );
+    }
+
+    await upsertState(env, st.wa_id, {
+      restricao_parceiro: sim ? true : (nao ? false : null)
+    });
+
+    const nextStage = (st.p3_required === true && st.p3_done !== true)
+      ? "regime_trabalho_parceiro_familiar_p3"
+      : "regime_trabalho";
+
+    const nextMsg = nextStage === "regime_trabalho_parceiro_familiar_p3"
+      ? ["Perfeito! 👌", "Agora vamos seguir com o cônjuge desse familiar.", "Qual é o regime de trabalho dele(a)?"]
+      : ["Perfeito! 👌", "Agora seguimos com você.", "Qual é o seu regime de trabalho?"];
+
+    return step(env, st, nextMsg, nextStage);
+  }
+
   // Consolida titular + parceiro no campo restricao (sem criar coluna nova)
   const restricaoTitular = st.restricao; // true | false | "incerto" | null
   let restricaoFinal = restricaoTitular;
@@ -10917,7 +11123,7 @@ if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restric
     "Você tem **possibilidade ou intenção de regularizar** essa restrição?",
     "Responda *sim*, *não* ou *não sei*."
   ],
-  "regularizacao_restricao"
+  "regularizacao_restricao_parceiro"
 );
   }
 
@@ -11046,6 +11252,7 @@ if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restric
 // =========================================================
 // 🧩 C35 — REGULARIZAÇÃO DA RESTRIÇÃO
 // =========================================================
+case "regularizacao_restricao_parceiro":
 case "regularizacao_restricao": {
 
   // ============================================================
@@ -11085,6 +11292,64 @@ case "regularizacao_restricao": {
   const nao = isNo(t) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|pretendo negociar|vou negociar depois)/i.test(t);
   const talvez = /(talvez|acho|nao sei|não sei|pode ser)/i.test(t);
 
+  // ============================================================
+  // ✅ GATE ÚNICO — antes de QUALQUER "envio_docs"
+  // ============================================================
+  const gateAntesEnvioDocs = () => {
+    const isParceiro = (stage === "regularizacao_restricao_parceiro");
+    const parceiroSemRestricao =
+      (st.restricao_parceiro === null || typeof st.restricao_parceiro === "undefined");
+
+    const p3SemRestricao =
+      (st.p3_required === true) &&
+      (st.p3_restricao === null || typeof st.p3_restricao === "undefined");
+
+    // (b) Casal (P2): se é conjunto e não coletou restrição do parceiro, volta
+    if (st.financiamento_conjunto === true && parceiroSemRestricao) {
+      return step(env, st,
+        [
+          "Antes de eu te mandar os documentos, preciso só confirmar uma coisa 😊",
+          "O parceiro(a) tem alguma *restrição* no CPF? (Serasa, SPC)",
+          "Responda *sim*, *não* ou *não sei*."
+        ],
+        "restricao_parceiro"
+      );
+    }
+        
+    // (a) Familiar (P3): se ainda falta restrição do parceiro do titular (quando aplicável), volta
+    if (st.p3_required === true && parceiroSemRestricao) {
+      return step(env, st,
+        [
+          "Antes de eu te mandar os documentos, preciso só confirmar uma coisa 😊",
+          "O parceiro(a) tem alguma *restrição* no CPF? (Serasa, SPC)",
+          "Responda *sim*, *não* ou *não sei*."
+        ],
+        "restricao_parceiro"
+      );
+    }
+
+    // (a) Familiar (P3): se falta restrição do P3, vai pra restricao_parceiro_p3
+    if (p3SemRestricao) {
+      const p3Label =
+        st.familiar_tipo === "pai"
+          ? "sua mãe"
+          : st.familiar_tipo === "mae"
+            ? "seu pai"
+            : "o cônjuge desse familiar";
+
+      return step(env, st,
+        [
+          `Agora preciso confirmar o CPF de ${p3Label}:`,
+          "Ele(a) tem alguma *restrição* no CPF? (Serasa, SPC)",
+          "Responda *sim*, *não* ou *não sei*."
+        ],
+        "restricao_parceiro_p3"
+      );
+    }
+
+    return null; // passou no gate
+  };
+
   // -----------------------------------------------------
   // JÁ ESTÁ REGULARIZANDO
   // -----------------------------------------------------
@@ -11114,6 +11379,29 @@ case "regularizacao_restricao": {
         "regime_trabalho_parceiro_familiar_p3"
       );
     }
+
+    // ✅ Se estou regularizando o parceiro (P2) e o titular NÃO tem restrição, não chama regularizacao_restricao
+    if (stage === "regularizacao_restricao_parceiro" && st.restricao !== true) {
+      // segue direto para docs, respeitando o gate (que pode pedir restrição do P3/familiar se for o caso)
+      const gateRes2 = gateAntesEnvioDocs();
+      if (gateRes2) return gateRes2;
+      return step(env, st,
+        [
+          "Ótimo! 👏",
+          "Fechado. Vou te passar a lista de **documentos** pra darmos sequência.",
+          "",
+          "📌 Você prefere:",
+          "1) Enviar por aqui no WhatsApp",
+          "2) Enviar pelo site",
+          "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+        ],
+        "docs"
+      );
+    }
+
+    // ✅ GATE antes de envio_docs
+    const gateRes = gateAntesEnvioDocs();
+    if (gateRes) return gateRes;
 
     return step(env, st,
       [
@@ -11188,6 +11476,10 @@ case "regularizacao_restricao": {
       );
     }
 
+    // ✅ GATE antes de envio_docs
+    const gateRes = gateAntesEnvioDocs();
+    if (gateRes) return gateRes;
+
     return step(env, st,
       [
         "Tranquilo, isso é bem comum 😊",
@@ -11218,6 +11510,10 @@ case "regularizacao_restricao": {
       message: "Cliente incerto sobre regularização",
       details: { userText }
     });
+
+    // ✅ GATE antes de envio_docs
+    const gateRes = gateAntesEnvioDocs();
+    if (gateRes) return gateRes;
 
     return step(env, st,
       [

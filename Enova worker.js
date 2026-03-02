@@ -8065,7 +8065,27 @@ case "regularizacao_restricao_p3": {
 
   if (sim || nao || talvez) {
     st.p3_done = true;
-    await upsertState(env, st.wa_id, { p3_regularizacao_intencao: sim ? true : (nao ? false : null), p3_done: true });
+
+    await upsertState(env, st.wa_id, {
+      p3_regularizacao_intencao: sim ? true : (nao ? false : null),
+      p3_done: true
+    });
+
+    // ✅ GATE: se o titular já estiver "fechado", ir direto pra DOCS
+    const titularFechado =
+      (st.restricao === true || st.restricao === false || st.restricao === "incerto") &&
+      (st.renda_total_para_fluxo != null);
+
+    if (titularFechado) {
+      return step(env, st,
+        [
+          "Ótimo! 👏",
+          "Como o seu cadastro principal já está fechado, já vamos pra etapa de documentos 😊"
+        ],
+        "docs"
+      );
+    }
+
     return step(env, st,
       [
         "Ótimo! 👏",
@@ -11104,7 +11124,7 @@ if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restric
     "Você tem **possibilidade ou intenção de regularizar** essa restrição?",
     "Responda *sim*, *não* ou *não sei*."
   ],
-  "regularizacao_restricao"
+  "regularizacao_restricao_parceiro"
 );
   }
 
@@ -11233,6 +11253,7 @@ if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restric
 // =========================================================
 // 🧩 C35 — REGULARIZAÇÃO DA RESTRIÇÃO
 // =========================================================
+case "regularizacao_restricao_parceiro":
 case "regularizacao_restricao": {
 
   // ============================================================
@@ -11272,6 +11293,63 @@ case "regularizacao_restricao": {
   const nao = isNo(t) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|pretendo negociar|vou negociar depois)/i.test(t);
   const talvez = /(talvez|acho|nao sei|não sei|pode ser)/i.test(t);
 
+  // ============================================================
+  // ✅ GATE ÚNICO — antes de QUALQUER "envio_docs"
+  // ============================================================
+  const gateAntesEnvioDocs = () => {
+    const parceiroSemRestricao =
+      (st.restricao_parceiro === null || typeof st.restricao_parceiro === "undefined");
+
+    const p3SemRestricao =
+      (st.p3_required === true) &&
+      (st.p3_restricao === null || typeof st.p3_restricao === "undefined");
+
+    // (b) Casal (P2): se é conjunto e não coletou restrição do parceiro, volta
+    if (st.financiamento_conjunto === true && parceiroSemRestricao) {
+      return step(env, st,
+        [
+          "Antes de eu te mandar os documentos, preciso só confirmar uma coisa 😊",
+          "O parceiro(a) tem alguma *restrição* no CPF? (Serasa, SPC)",
+          "Responda *sim*, *não* ou *não sei*."
+        ],
+        "restricao_parceiro"
+      );
+    }
+
+    // (a) Familiar (P3): se ainda falta restrição do parceiro do titular (quando aplicável), volta
+    if (st.p3_required === true && parceiroSemRestricao) {
+      return step(env, st,
+        [
+          "Antes de eu te mandar os documentos, preciso só confirmar uma coisa 😊",
+          "O parceiro(a) tem alguma *restrição* no CPF? (Serasa, SPC)",
+          "Responda *sim*, *não* ou *não sei*."
+        ],
+        "restricao_parceiro"
+      );
+    }
+
+    // (a) Familiar (P3): se falta restrição do P3, vai pra restricao_parceiro_p3
+    if (p3SemRestricao) {
+      const p3Label =
+        st.familiar_tipo === "pai"
+          ? "sua mãe"
+          : st.familiar_tipo === "mae"
+            ? "seu pai"
+            : "o cônjuge desse familiar";
+
+      return step(env, st,
+        [
+          `Agora preciso confirmar o CPF de ${p3Label}:`,
+          "Ele(a) tem alguma *restrição* no CPF? (Serasa, SPC)",
+          "Responda *sim*, *não* ou *não sei*."
+        ],
+        "restricao_parceiro_p3"
+      );
+    }
+
+    return null; // passou no gate
+  };
+
   // -----------------------------------------------------
   // JÁ ESTÁ REGULARIZANDO
   // -----------------------------------------------------
@@ -11301,6 +11379,10 @@ case "regularizacao_restricao": {
         "regime_trabalho_parceiro_familiar_p3"
       );
     }
+
+    // ✅ GATE antes de envio_docs
+    const gateRes = gateAntesEnvioDocs();
+    if (gateRes) return gateRes;
 
     return step(env, st,
       [
@@ -11375,6 +11457,10 @@ case "regularizacao_restricao": {
       );
     }
 
+    // ✅ GATE antes de envio_docs
+    const gateRes = gateAntesEnvioDocs();
+    if (gateRes) return gateRes;
+
     return step(env, st,
       [
         "Tranquilo, isso é bem comum 😊",
@@ -11405,6 +11491,10 @@ case "regularizacao_restricao": {
       message: "Cliente incerto sobre regularização",
       details: { userText }
     });
+
+    // ✅ GATE antes de envio_docs
+    const gateRes = gateAntesEnvioDocs();
+    if (gateRes) return gateRes;
 
     return step(env, st,
       [

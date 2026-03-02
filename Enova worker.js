@@ -11297,6 +11297,7 @@ case "regularizacao_restricao": {
   // ✅ GATE ÚNICO — antes de QUALQUER "envio_docs"
   // ============================================================
   const gateAntesEnvioDocs = () => {
+    const isParceiro = (stage === "regularizacao_restricao_parceiro");
     const parceiroSemRestricao =
       (st.restricao_parceiro === null || typeof st.restricao_parceiro === "undefined");
 
@@ -11315,7 +11316,7 @@ case "regularizacao_restricao": {
         "restricao_parceiro"
       );
     }
-
+        
     // (a) Familiar (P3): se ainda falta restrição do parceiro do titular (quando aplicável), volta
     if (st.p3_required === true && parceiroSemRestricao) {
       return step(env, st,
@@ -11377,6 +11378,25 @@ case "regularizacao_restricao": {
           "Antes de seguir, preciso coletar os dados da terceira pessoa da composição."
         ],
         "regime_trabalho_parceiro_familiar_p3"
+      );
+    }
+
+    // ✅ Se estou regularizando o parceiro (P2) e o titular NÃO tem restrição, não chama regularizacao_restricao
+    if (isParceiro && st.restricao !== true) {
+      // segue direto para docs, respeitando o gate (que pode pedir restrição do P3/familiar se for o caso)
+      const gateRes2 = gateAntesEnvioDocs();
+      if (gateRes2) return gateRes2;
+      return step(env, st,
+        [
+          "Ótimo! 👏",
+          "Fechado. Vou te passar a lista de **documentos** pra darmos sequência.",
+          "",
+          "📌 Você prefere:",
+          "1) Enviar por aqui no WhatsApp",
+          "2) Enviar pelo site",
+          "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+        ],
+        "docs"
       );
     }
 

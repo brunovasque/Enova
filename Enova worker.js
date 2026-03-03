@@ -7645,7 +7645,7 @@ case "autonomo_sem_ir_ir_este_ano": {
 
 case "autonomo_sem_ir_caminho": {
   // FASE 1 — decidir composição (parceiro/familiar/ninguém)
-  const parceiro = /\b(parceir|c[oô]njuge|espos|marid|namorad)\b/i.test(t);
+  const parceiro = /\b(parceir\w*|c[oô]njuge|espos\w*|marid\w*|namorad\w*)\b/i.test(t);
   const familiar = /\b(familiar|pai|m[aã]e|mae|irm[aã]o|irma|av[oó]|tia|tio|primo|prima)\b/i.test(t);
   const ninguem = /\b(ningu[eé]m|sozinh|s[oó]\s*eu|apenas eu|somente eu)\b/i.test(t);
 

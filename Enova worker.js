@@ -11454,6 +11454,8 @@ case "regularizacao_restricao": {
     }
   });
 
+  const isParceiro = (stage === "regularizacao_restricao_parceiro");
+
   // 🔢 Valor aproximado da restrição (se existir em memória)
   const valorRestricaoRaw =
     (st.valor_restricao != null ? st.valor_restricao : null) ??
@@ -11472,16 +11474,60 @@ case "regularizacao_restricao": {
     }
   }
 
+  // -----------------------------------------------------
+  // ✅ Interpreta "valor" (ex: 1500) sem quebrar o stage
+  // -----------------------------------------------------
+  const parseValorRestricaoFromText = (txt) => {
+    if (!txt) return 0;
+    // pega algo tipo "1500", "1.500", "1500,00", "R$ 1500"
+    const m = String(txt).match(/(\d[\d\.\,]*)/);
+    if (!m) return 0;
+    const raw = m[1].replace(/\./g, "").replace(",", ".");
+    const v = parseFloat(raw);
+    return Number.isFinite(v) ? v : 0;
+  };
+
   // Exemplos cobertos: "já tô negociando", "estou pagando acordo", "ainda não fiz nada", "já quitei"
   const sim = isYes(t) || /(sim|já estou|ja estou|estou vendo|to vendo|estou resolvendo|tô resolvendo|pagando|negociando|acordo|parcelando|renegociando|ja quitei|já quitei|ja paguei|já paguei)/i.test(t);
   const nao = isNo(t) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|pretendo negociar|vou negociar depois)/i.test(t);
   const talvez = /(talvez|acho|nao sei|não sei|pode ser)/i.test(t);
 
+  // Se não veio sim/não/talvez, tenta capturar VALOR e repetir a pergunta no mesmo stage
+  if (!sim && !nao && !talvez) {
+    const v = parseValorRestricaoFromText(userText);
+
+    if (v > 0) {
+      await upsertState(env, st.wa_id, {
+        // ✅ Sem criar colunas novas: usa o mesmo campo para habilitar o gate >1000
+        // (se no futuro você quiser separar titular/parceiro, aí sim criamos *_parceiro)
+        valor_restricao_aproximado: v
+      });
+
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: stage,
+        severity: "info",
+        message: "Capturado valor de restrição — repetindo pergunta de regularização no mesmo stage",
+        details: { userText, valorRestricaoCapturado: v }
+      });
+
+      return step(env, st,
+        [
+          "Fechado 👍",
+          `Só pra eu te orientar certo: você tem **possibilidade ou intenção de regularizar** essa restrição?`,
+          "Responda *sim*, *não* ou *não sei*."
+        ],
+        stage
+      );
+    }
+  }
+
   // ============================================================
   // ✅ GATE ÚNICO — antes de QUALQUER "envio_docs"
   // ============================================================
   const gateAntesEnvioDocs = () => {
-    const isParceiro = (stage === "regularizacao_restricao_parceiro");
     const parceiroSemRestricao =
       (st.restricao_parceiro === null || typeof st.restricao_parceiro === "undefined");
 
@@ -11500,7 +11546,7 @@ case "regularizacao_restricao": {
         "restricao_parceiro"
       );
     }
-        
+
     // (a) Familiar (P3): se ainda falta restrição do parceiro do titular (quando aplicável), volta
     if (st.p3_required === true && parceiroSemRestricao) {
       return step(env, st,
@@ -11544,7 +11590,6 @@ case "regularizacao_restricao": {
       regularizacao_restricao: "em_andamento"
     });
 
-    // EXIT_STAGE
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -11565,9 +11610,7 @@ case "regularizacao_restricao": {
       );
     }
 
-    // ✅ Se estou regularizando o parceiro (P2) e o titular NÃO tem restrição, não chama regularizacao_restricao
     if (stage === "regularizacao_restricao_parceiro" && st.restricao !== true) {
-      // segue direto para docs, respeitando o gate (que pode pedir restrição do P3/familiar se for o caso)
       const gateRes2 = gateAntesEnvioDocs();
       if (gateRes2) return gateRes2;
       return step(env, st,
@@ -11584,7 +11627,6 @@ case "regularizacao_restricao": {
       );
     }
 
-    // ✅ GATE antes de envio_docs
     const gateRes = gateAntesEnvioDocs();
     if (gateRes) return gateRes;
 
@@ -11615,7 +11657,6 @@ case "regularizacao_restricao": {
         funil_status: "ineligivel"
       });
 
-      // EXIT_STAGE → fim_ineligivel
       await funnelTelemetry(env, {
         wa_id: st.wa_id,
         event: "exit_stage",
@@ -11625,7 +11666,8 @@ case "regularizacao_restricao": {
         message: "Cliente NÃO está regularizando restrição alta (> 1000) — encaminhando para fim_ineligivel",
         details: {
           userText,
-          valorRestricao
+          valorRestricao,
+          isParceiro
         }
       });
 
@@ -11639,8 +11681,6 @@ case "regularizacao_restricao": {
       );
     }
 
-    // Fluxo original (restrição menor ou valor desconhecido)
-    // EXIT_STAGE
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -11648,7 +11688,7 @@ case "regularizacao_restricao": {
       next_stage: "envio_docs",
       severity: "warning",
       message: "Cliente NÃO está regularizando a restrição",
-      details: { userText, valorRestricao }
+      details: { userText, valorRestricao, isParceiro }
     });
 
     if (st.p3_required && st.p3_done !== true) {
@@ -11661,7 +11701,6 @@ case "regularizacao_restricao": {
       );
     }
 
-    // ✅ GATE antes de envio_docs
     const gateRes = gateAntesEnvioDocs();
     if (gateRes) return gateRes;
 
@@ -11685,7 +11724,6 @@ case "regularizacao_restricao": {
       regularizacao_restricao: "incerto"
     });
 
-    // EXIT_STAGE
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -11693,10 +11731,9 @@ case "regularizacao_restricao": {
       next_stage: "envio_docs",
       severity: "warning",
       message: "Cliente incerto sobre regularização",
-      details: { userText }
+      details: { userText, isParceiro }
     });
 
-    // ✅ GATE antes de envio_docs
     const gateRes = gateAntesEnvioDocs();
     if (gateRes) return gateRes;
 
@@ -11713,23 +11750,23 @@ case "regularizacao_restricao": {
   // -----------------------------------------------------
   // NÃO ENTENDIDO
   // -----------------------------------------------------
-
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
     stage,
-    next_stage: "regularizacao_restricao",
+    next_stage: stage, // ✅ volta pro mesmo stage (titular/parceiro)
     severity: "warning",
     message: "Resposta não reconhecida — repetindo pergunta",
-    details: { userText }
+    details: { userText, isParceiro }
   });
 
   return step(env, st,
     [
       "Conseguiu me confirmar certinho? 😊",
-      "Você está **regularizando** a restrição ou ainda não?"
+      "Você tem **possibilidade ou intenção de regularizar** essa restrição?",
+      "Responda *sim*, *não* ou *não sei*."
     ],
-    "regularizacao_restricao"
+    stage // ✅ não cai no titular quando é parceiro
   );
 }
 

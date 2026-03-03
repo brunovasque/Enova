@@ -7653,8 +7653,7 @@ case "autonomo_sem_ir_caminho": {
   const entradaNao = /\b(n[aã]o|nao|sem entrada|nao tenho entrada|não tenho entrada|entrada n[aã]o)\b/i.test(t);
 
   const lastBot = normalizeText(st.last_bot_msg || "");
-  const aguardandoEntrada =
-    lastBot.includes("voce tem entrada") && (lastBot.includes("sim nao") || lastBot.includes("simnao"));
+const aguardandoEntrada = lastBot.includes("voce tem entrada");
 
   if (!aguardandoEntrada) {
     if (parceiro) {

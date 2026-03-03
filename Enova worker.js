@@ -7650,7 +7650,7 @@ case "autonomo_sem_ir_caminho": {
   const nao = /\b(n[aã]o|nao)\b/i.test(t);
   const sim = /\b(sim|yes)\b/i.test(t);
   const entradaSim = /\b(tenho entrada|com entrada|entrada sim)\b/i.test(t);
-  const entradaNao = /\b(sem entrada|nao tenho entrada|não tenho entrada|entrada n[aã]o)\b/i.test(t);
+  const entradaNao = /\b(n[aã]o|nao|sem entrada|nao tenho entrada|não tenho entrada|entrada n[aã]o)\b/i.test(t);
 
   const lastBot = normalizeText(st.last_bot_msg || "");
   const aguardandoEntrada =

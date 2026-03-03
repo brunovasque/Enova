@@ -7435,14 +7435,14 @@ case "regime_trabalho": {
       regime: "autonomo"
     });
 
-    // EXIT_STAGE → vai direto para renda
+    // EXIT_STAGE → pergunta de IR para autônomo
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "renda",
+      next_stage: "autonomo_ir_pergunta",
       severity: "info",
-      message: "Saindo da fase regime_trabalho → renda (AUTONOMO)",
+      message: "Saindo da fase regime_trabalho → autonomo_ir_pergunta (AUTONOMO)",
       details: { userText }
     });
 
@@ -7451,9 +7451,9 @@ case "regime_trabalho": {
       st,
       [
         "Perfeito. 👍",
-        "Agora me diga qual é a sua **renda mensal média** com esse trabalho como autônomo."
+        "Você declara Imposto de Renda (IR)? (sim/não)"
       ],
-      "renda"
+      "autonomo_ir_pergunta"
     );
   }
 
@@ -7541,6 +7541,191 @@ case "regime_trabalho": {
     ],
     "regime_trabalho"
   );
+}
+
+case "autonomo_ir_pergunta": {
+  const nao = /\b(n[aã]o|nao)\b/i.test(t);
+  const sim = /\b(sim|yes)\b/i.test(t);
+
+  if (nao) {
+    await upsertState(env, st.wa_id, { autonomo_ir: false });
+
+    const estadoCivil = String(st.estado_civil || "").toLowerCase();
+    const casadoCivil = estadoCivil === "casado_civil" || st.casado_civil === true;
+    const financiamentoConjunto = st.financiamento_conjunto === true;
+    const somarRendaTxt = String(st.somar_renda || "").toLowerCase();
+    const somarRendaComParceiroOuFamiliar =
+      st.somar_renda === true || /(parceiro|familiar)/i.test(somarRendaTxt);
+    const ehConjunto = casadoCivil || financiamentoConjunto || somarRendaComParceiroOuFamiliar;
+
+    if (ehConjunto) {
+      return step(
+        env,
+        st,
+        [
+          "Perfeito.",
+          "Agora me diga qual é a sua **renda mensal média** com esse trabalho como autônomo."
+        ],
+        "renda"
+      );
+    }
+
+    return step(
+      env,
+      st,
+      [
+        "Entendi.",
+        "Normalmente, quem recebe acima de ~R$ 2.380 por mês entra na faixa de obrigatoriedade de declaração.",
+        "Você pretende declarar IR este ano? (sim/não)"
+      ],
+      "autonomo_sem_ir_ir_este_ano"
+    );
+  }
+
+  if (sim) {
+    await upsertState(env, st.wa_id, { autonomo_ir: true });
+    return step(
+      env,
+      st,
+      [
+        "Perfeito! 👍",
+        "Agora me diga qual é a sua **renda mensal média** com esse trabalho como autônomo."
+      ],
+      "renda"
+    );
+  }
+
+  return step(
+    env,
+    st,
+    ["Você declara Imposto de Renda (IR)? (sim/não)"],
+    "autonomo_ir_pergunta"
+  );
+}
+
+case "autonomo_sem_ir_ir_este_ano": {
+  const sim = /\b(sim|pretendo|vou|declarar)\b/i.test(t);
+  const nao = /\b(n[aã]o|nao|não)\b/i.test(t);
+
+  if (sim) {
+    return step(
+      env,
+      st,
+      [
+        "Perfeito.",
+        "Na visita, o atendimento te ajuda com a declaração de IR.",
+        "Agora me diga qual é a sua **renda mensal média** com esse trabalho como autônomo."
+      ],
+      "renda"
+    );
+  }
+
+  if (nao) {
+    return step(
+      env,
+      st,
+      [
+        "Sem problemas.",
+        "Você vai compor renda com alguém? (parceiro/familiar/ninguém)"
+      ],
+      "autonomo_sem_ir_caminho"
+    );
+  }
+
+  return step(
+    env,
+    st,
+    [
+      "Normalmente, quem recebe acima de ~R$ 2.380 por mês entra na faixa de obrigatoriedade de declaração.",
+      "Você pretende declarar IR este ano? (sim/não)"
+    ],
+    "autonomo_sem_ir_ir_este_ano"
+  );
+}
+
+case "autonomo_sem_ir_caminho": {
+  // FASE 1 — decidir composição (parceiro/familiar/ninguém)
+  const parceiro = /\b(parceir\w*|c[oô]njuge|espos\w*|marid\w*|namorad\w*)\b/i.test(t);
+  const familiar = /\b(familiar|pai|m[aã]e|mae|irm[aã]o|irma|av[oó]|tia|tio|primo|prima)\b/i.test(t);
+  const ninguem = /\b(ningu[eé]m|sozinh|s[oó]\s*eu|apenas eu|somente eu)\b/i.test(t);
+
+  // “não” aqui significa “não vou compor” => tratar como “ninguém”
+  const nao = /\b(n[aã]o|nao)\b/i.test(t);
+
+  if (parceiro) {
+    return step(
+      env,
+      st,
+      [
+        "Perfeito! 👏",
+        "Vamos considerar renda com parceiro(a).",
+        "Ele(a) trabalha com **CLT, autônomo(a) ou servidor(a)?**"
+      ],
+      "regime_trabalho_parceiro"
+    );
+  }
+
+  if (familiar) {
+    return step(
+      env,
+      st,
+      [
+        "Show! 👏",
+        "Vamos compor renda com familiar.",
+        "Qual familiar você quer usar? (pai, mãe, irmão, irmã, tio, tia, avô, avó...)"
+      ],
+      "somar_renda_familiar"
+    );
+  }
+
+  if (ninguem || nao) {
+    // SAÍDA GARANTIDA: vai para a fase de entrada (sem depender de last_bot_msg)
+    return step(env, st, ["Você tem entrada? (sim/não)"], "autonomo_sem_ir_entrada");
+  }
+
+  // fallback (pergunta de novo, mas sem loop de entrada)
+  return step(
+    env,
+    st,
+    ["Você vai compor renda com alguém? (parceiro/familiar/ninguém)"],
+    "autonomo_sem_ir_caminho"
+  );
+}
+
+case "autonomo_sem_ir_entrada": {
+  // FASE 2 — decidir entrada (sim/não)
+  const sim = /\b(sim|yes)\b/i.test(t) || /\b(tenho entrada|com entrada|entrada sim)\b/i.test(t);
+  const nao = /\b(n[aã]o|nao)\b/i.test(t) || /\b(sem entrada|nao tenho entrada|não tenho entrada|entrada n[aã]o)\b/i.test(t);
+
+  if (sim) {
+    return step(
+      env,
+      st,
+      [
+        "Perfeito.",
+        "Agora me diga qual é a sua **renda mensal média** com esse trabalho como autônomo."
+      ],
+      "renda"
+    );
+  }
+
+  if (nao) {
+    return step(
+      env,
+      st,
+      [
+        "Entendi.",
+        "Neste momento, sem composição de renda e sem entrada, não consigo seguir com a simulação."
+      ],
+      "fim_inelegivel"
+    );
+  }
+
+  return step(env, st, ["Você tem entrada? (sim/não)"], "autonomo_sem_ir_entrada");
+}
+
+case "fim_inelegivel": {
+  return step(env, st, ["Tudo bem."], "fim_ineligivel");
 }
 
 // =========================================================

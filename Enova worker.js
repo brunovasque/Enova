@@ -5692,7 +5692,11 @@ case "parceiro_tem_renda": {
   });
 
     // Exemplos cobertos: "ele trabalha", "não tem renda", "só eu trabalho"
-  const rawParceiro = String(userText || "").trim();
+  const rawParceiro = String(
+    (userText && String(userText).trim()) ||
+    (st.last_user_text && String(st.last_user_text).trim()) ||
+    ""
+  ).trim();
 
   // Versão simplificada (sem acento/ruído) para regex mais robusto
   const tParceiroBase = rawParceiro

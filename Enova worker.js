@@ -5710,8 +5710,10 @@ case "parceiro_tem_renda": {
 
   const sim =
     !nao && (
+      // pega "sim" mesmo com vírgula/ponto e frases tipo "sim, ele trabalha"
+      /\b(sim)\b/i.test(tParceiroBase) ||
       isYes(rawParceiro) ||
-      /\b(sim|tem|tem sim|possui|possui renda|ganha|trabalha|tem renda)\b/i.test(tParceiroBase) ||
+      /\b(tem|tem sim|possui|possui renda|ganha|trabalha|tem renda)\b/i.test(tParceiroBase) ||
       /\b(ele|ela)\s+(trabalha|tem renda|ganha)\b/i.test(tParceiroBase) ||
       /\b(ele|ela)\s+e\s+(clt|autonom[oa]|servidor[oa]?|mei|registrad[oa])\b/i.test(tParceiroBase) ||
       /\b(clt|autonom[oa]|servidor[oa]?|mei)\b/i.test(tParceiroBase)

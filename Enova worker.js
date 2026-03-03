@@ -7712,7 +7712,8 @@ case "autonomo_sem_ir_caminho": {
     );
   }
 
-  if (entradaNao || nao) {
+  // ✅ CORREÇÃO: NÃO usar "nao" genérico aqui, senão duplica/encerra errado.
+  if (entradaNao) {
     return step(
       env,
       st,

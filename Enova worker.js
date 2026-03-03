@@ -7644,62 +7644,60 @@ case "autonomo_sem_ir_ir_este_ano": {
 }
 
 case "autonomo_sem_ir_caminho": {
+  // FASE 1 — decidir composição (parceiro/familiar/ninguém)
   const parceiro = /\b(parceir|c[oô]njuge|espos|marid|namorad)\b/i.test(t);
-  const familiar = /\b(familiar|pai|m[aã]e|mae|irm[aã]|av[oó]|tia|tio|primo|prima)\b/i.test(t);
+  const familiar = /\b(familiar|pai|m[aã]e|mae|irm[aã]o|irma|av[oó]|tia|tio|primo|prima)\b/i.test(t);
   const ninguem = /\b(ningu[eé]m|sozinh|s[oó]\s*eu|apenas eu|somente eu)\b/i.test(t);
+
+  // “não” aqui significa “não vou compor” => tratar como “ninguém”
   const nao = /\b(n[aã]o|nao)\b/i.test(t);
-  const sim = /\b(sim|yes)\b/i.test(t);
-  const entradaSim = /\b(tenho entrada|com entrada|entrada sim)\b/i.test(t);
-  const entradaNao = /\b(n[aã]o|nao|sem entrada|nao tenho entrada|não tenho entrada|entrada n[aã]o)\b/i.test(t);
 
-  const lastBot = normalizeText(st.last_bot_msg || "");
-const aguardandoEntrada = lastBot.includes("voce tem entrada");
-
-  if (!aguardandoEntrada) {
-    if (parceiro) {
-      return step(
-        env,
-        st,
-        [
-          "Perfeito! 👏",
-          "Vamos considerar renda com parceiro(a).",
-          "Ele(a) trabalha com **CLT, autônomo(a) ou servidor(a)?**"
-        ],
-        "regime_trabalho_parceiro"
-      );
-    }
-
-    if (familiar) {
-      return step(
-        env,
-        st,
-        [
-          "Show! 👏",
-          "Vamos compor renda com familiar.",
-          "Qual familiar você quer usar? (pai, mãe, irmão, irmã, tio, tia, avô, avó...)"
-        ],
-        "somar_renda_familiar"
-      );
-    }
-
-    if (ninguem || nao) {
-      return step(
-        env,
-        st,
-        ["Você tem entrada? (sim/não)"],
-        "autonomo_sem_ir_caminho"
-      );
-    }
-
+  if (parceiro) {
     return step(
       env,
       st,
-      ["Você vai compor renda com alguém? (parceiro/familiar/ninguém)"],
-      "autonomo_sem_ir_caminho"
+      [
+        "Perfeito! 👏",
+        "Vamos considerar renda com parceiro(a).",
+        "Ele(a) trabalha com **CLT, autônomo(a) ou servidor(a)?**"
+      ],
+      "regime_trabalho_parceiro"
     );
   }
 
-  if (entradaSim || sim) {
+  if (familiar) {
+    return step(
+      env,
+      st,
+      [
+        "Show! 👏",
+        "Vamos compor renda com familiar.",
+        "Qual familiar você quer usar? (pai, mãe, irmão, irmã, tio, tia, avô, avó...)"
+      ],
+      "somar_renda_familiar"
+    );
+  }
+
+  if (ninguem || nao) {
+    // SAÍDA GARANTIDA: vai para a fase de entrada (sem depender de last_bot_msg)
+    return step(env, st, ["Você tem entrada? (sim/não)"], "autonomo_sem_ir_entrada");
+  }
+
+  // fallback (pergunta de novo, mas sem loop de entrada)
+  return step(
+    env,
+    st,
+    ["Você vai compor renda com alguém? (parceiro/familiar/ninguém)"],
+    "autonomo_sem_ir_caminho"
+  );
+}
+
+case "autonomo_sem_ir_entrada": {
+  // FASE 2 — decidir entrada (sim/não)
+  const sim = /\b(sim|yes)\b/i.test(t) || /\b(tenho entrada|com entrada|entrada sim)\b/i.test(t);
+  const nao = /\b(n[aã]o|nao)\b/i.test(t) || /\b(sem entrada|nao tenho entrada|não tenho entrada|entrada n[aã]o)\b/i.test(t);
+
+  if (sim) {
     return step(
       env,
       st,
@@ -7711,8 +7709,7 @@ const aguardandoEntrada = lastBot.includes("voce tem entrada");
     );
   }
 
-  // ✅ CORREÇÃO: NÃO usar "nao" genérico aqui, senão duplica/encerra errado.
-  if (entradaNao) {
+  if (nao) {
     return step(
       env,
       st,
@@ -7724,12 +7721,7 @@ const aguardandoEntrada = lastBot.includes("voce tem entrada");
     );
   }
 
-  return step(
-    env,
-    st,
-    ["Você tem entrada? (sim/não)"],
-    "autonomo_sem_ir_caminho"
-  );
+  return step(env, st, ["Você tem entrada? (sim/não)"], "autonomo_sem_ir_entrada");
 }
 
 case "fim_inelegivel": {

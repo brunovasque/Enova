@@ -977,19 +977,55 @@ url += "?" + usp.toString();
   const sendBody =
     method === "GET" || method === "HEAD" ? undefined : finalBody;
 
-    // ========== DEBUG TEMPORÁRIO: HEADERS SUPABASE ==========
-try {
-  console.log("DEBUG-SBREQUEST:", JSON.stringify({
-    url,
-    method,
-    headers: finalHeaders,
-    bodyPreview: typeof finalBody === "string"
-      ? finalBody.slice(0, 200)
-      : finalBody,
-  }));
-} catch (err) {
-  console.log("DEBUG-SBREQUEST-ERROR:", err);
-}
+      // ========== DEBUG (CONTROLADO) — SUPABASE PROXY ==========
+  // ✅ Ative apenas no TEST (env var SB_PROXY_DEBUG="true")
+  const SB_DEBUG_ON = String(env.SB_PROXY_DEBUG || "").toLowerCase() === "true";
+
+  if (SB_DEBUG_ON) {
+    try {
+      // Redact de secrets
+      const safeHeaders = { ...finalHeaders };
+      if (safeHeaders.Authorization) safeHeaders.Authorization = "REDACTED";
+      if (safeHeaders.apikey) safeHeaders.apikey = "REDACTED";
+      if (safeHeaders["x-enova-admin-key"]) safeHeaders["x-enova-admin-key"] = "REDACTED";
+
+      console.log("DEBUG-SBREQUEST:", JSON.stringify({
+        url,
+        method,
+        headers: safeHeaders,
+        bodyPreview: typeof finalBody === "string"
+          ? finalBody.slice(0, 200)
+          : (finalBody ? "[non-string-body]" : null),
+      }));
+    } catch (err) {
+      console.log("DEBUG-SBREQUEST-ERROR:", String(err));
+    }
+
+    // ⚠️ Proxy-echo é caro (fetch extra). Deixe OFF por padrão.
+    const SB_ECHO_ON = String(env.SB_PROXY_ECHO || "").toLowerCase() === "true";
+    if (SB_ECHO_ON) {
+      try {
+        const safeHeaders = { ...finalHeaders };
+        if (safeHeaders.Authorization) safeHeaders.Authorization = "REDACTED";
+        if (safeHeaders.apikey) safeHeaders.apikey = "REDACTED";
+
+        const echo = await fetch(base + "/api/supabase-proxy-debug", {
+          method,
+          headers: safeHeaders
+        });
+
+        const echoJson = await echo.json();
+
+        console.log("DEBUG-PROXY-ECHO:", JSON.stringify({
+          sentHeaders: safeHeaders,
+          proxyReceivedHeaders: echoJson?.received_headers || null
+        }));
+      } catch (err) {
+        console.log("DEBUG-PROXY-ECHO-ERROR:", String(err));
+      }
+    }
+  }
+  // ========== FIM DEBUG ==========
 // ========== FIM DO DEBUG TEMPORÁRIO ==========
 
 // ========== DEBUG TEMP PROXY-ECHO ==========
@@ -1509,11 +1545,26 @@ function pickParser(type) {
 
   // restricao: hasRestricaoIndicador + isYes/isNo -> {hasRestricao, intent}
   if (t === "restricao") {
-    return (text) => ({
-      hasRestricao: hasRestricaoIndicador(text) === true,
+  return (text) => {
+    const nt = normalizeText(text);
+
+    const negacao =
+      /\b(nao|não)\b/.test(nt) &&
+      /\b(tenho|tem|possuo|estou)\b/.test(nt) &&
+      /\b(restricao|spc|serasa|negativad|nome sujo|cpf sujo|pendencia|protesto|divida)\b/.test(nt);
+
+    const semRestricao =
+      /\bsem\b/.test(nt) &&
+      /\b(restricao|spc|serasa|negativad|nome sujo|cpf sujo|pendencia|protesto|divida)\b/.test(nt);
+
+    const has = (hasRestricaoIndicador(text) === true) && !(negacao || semRestricao);
+
+    return {
+      hasRestricao: has,
       intent: isYes(text) ? "YES" : isNo(text) ? "NO" : "UNKNOWN"
-    });
-  }
+    };
+  };
+}
 
   // existentes
   if (t === "composicao") return (text) => parseComposicaoRenda(text);
@@ -1923,7 +1974,7 @@ if (isAdminPath && envMode !== "test") {
         const parsed = parsedRaw == null ? null : parsedRaw;
         const matched = [];
         if (type === "composicao" && parsed) matched.push(String(parsed));
-        if (type === "restricao" && parsed?.has_restricao) matched.push("restricao_indicador");
+        if (type === "restricao" && parsed?.hasRestricao === true) matched.push("restricao_indicador");
         if (type === "estado_civil" && parsed) matched.push(String(parsed));
         if (type === "regime" && parsed) matched.push(String(parsed));
         if (type === "renda" && parsed != null) matched.push("money_br");

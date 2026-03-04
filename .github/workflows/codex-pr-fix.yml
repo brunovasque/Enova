@@ -33,18 +33,18 @@ jobs:
           echo "PR_NUMBER=$PR_NUMBER"
 
           # Descobre o head branch e se a PR é cross-repo (fork) — sinal oficial
-HEAD_REF="$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName)"
-IS_CROSS="$(gh pr view "$PR_NUMBER" --json isCrossRepository -q .isCrossRepository)"
+          HEAD_REF="$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName)"
+          IS_CROSS="$(gh pr view "$PR_NUMBER" --json isCrossRepository -q .isCrossRepository)"
 
-echo "HEAD_REF=$HEAD_REF"
-echo "IS_CROSS=$IS_CROSS"
+          echo "HEAD_REF=$HEAD_REF"
+          echo "IS_CROSS=$IS_CROSS"
 
-if [ "$IS_CROSS" = "true" ]; then
-  echo "IS_FORK=1" >> $GITHUB_ENV
-  echo "::warning::PR is cross-repository (fork). Push may be blocked."
-else
-  echo "IS_FORK=0" >> $GITHUB_ENV
-fi
+          if [ "$IS_CROSS" = "true" ]; then
+            echo "IS_FORK=1" >> "$GITHUB_ENV"
+            echo "::warning::PR is cross-repository (fork). Push may be blocked."
+          else
+            echo "IS_FORK=0" >> "$GITHUB_ENV"
+          fi
 
           # Faz checkout do branch da PR
           gh pr checkout "$PR_NUMBER" --force

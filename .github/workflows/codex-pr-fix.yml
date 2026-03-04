@@ -18,29 +18,63 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout PR HEAD
+      - name: Checkout repo (base)
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
-      - name: Fetch PR refs
+      - name: Resolve PR head branch + checkout
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Descobre o número da PR a partir do Issue Comment
+          set -euo pipefail
+
           PR_NUMBER="${{ github.event.issue.number }}"
           echo "PR_NUMBER=$PR_NUMBER"
 
-          # Puxa refs da PR e faz checkout no HEAD (branch do autor)
+          # Descobre o head branch e o owner/repo do head (pra detectar fork)
+          HEAD_REF="$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName)"
+          HEAD_REPO="$(gh pr view "$PR_NUMBER" --json headRepository -q .headRepository.nameWithOwner)"
+          BASE_REPO="${{ github.repository }}"
+
+          echo "HEAD_REF=$HEAD_REF"
+          echo "HEAD_REPO=$HEAD_REPO"
+          echo "BASE_REPO=$BASE_REPO"
+
+          # Se PR vier de fork, o push pode ser bloqueado por segurança.
+          # Vamos marcar isso e ainda permitir o Codex rodar (pra você ver output),
+          # mas o push pode ser "skip".
+          if [ "$HEAD_REPO" != "$BASE_REPO" ]; then
+            echo "IS_FORK=1" >> $GITHUB_ENV
+            echo "::warning::PR is from a fork ($HEAD_REPO). Push may be blocked."
+          else
+            echo "IS_FORK=0" >> $GITHUB_ENV
+          fi
+
+          # Faz checkout do branch da PR
           gh pr checkout "$PR_NUMBER" --force
+
+          # Garante que estamos em um branch (não detached) e com upstream configurado
+          # (isso evita 'no remote push destination configured').
+          CURRENT_BRANCH="$(git branch --show-current || true)"
+          if [ -z "$CURRENT_BRANCH" ]; then
+            git checkout -B "$HEAD_REF"
+          fi
+
+          git remote -v
           git status
+          git branch --show-current
+
+          # Tenta configurar upstream para origin/<branch>
+          git branch --set-upstream-to="origin/$HEAD_REF" "$HEAD_REF" 2>/dev/null || true
+
+          echo "HEAD_REF=$HEAD_REF" >> $GITHUB_ENV
 
       - name: Run Codex (apply changes)
         id: run_codex
         uses: openai/codex-action@v1
         with:
           openai-api-key: ${{ secrets.OPENAI_API_KEY }}
-          # O próprio comentário vira o prompt (tira o @codex pra evitar ruído)
           prompt: |
             You are working in a GitHub Actions runner on the PR branch already checked out.
             Follow the instruction below (from the PR comment) and make the minimal safe changes.
@@ -48,7 +82,6 @@ jobs:
 
             --- PR COMMENT INSTRUCTION ---
             ${{ github.event.comment.body }}
-
           safety-strategy: drop-sudo
           sandbox: workspace-write
           output-file: codex-output.md
@@ -56,22 +89,51 @@ jobs:
       - name: Commit & push if changed
         env:
           GH_TOKEN: ${{ github.token }}
+          IS_FORK: ${{ env.IS_FORK }}
+          HEAD_REF: ${{ env.HEAD_REF }}
         run: |
-          set -e
+          set -euo pipefail
+
+          echo "IS_FORK=$IS_FORK"
+          echo "HEAD_REF=$HEAD_REF"
+
+          # Se o Codex criar output-file, não vamos versionar isso pra não poluir PR
+          if [ -f codex-output.md ]; then
+            echo "::notice::codex-output.md generated (will not be committed)."
+          fi
 
           if [ -n "$(git status --porcelain)" ]; then
-            git config user.name "codex-action"
+            git config user.name "codex-bot"
             git config user.email "codex-action@users.noreply.github.com"
 
-            git add -A
-            git commit -m "codex: apply requested fixes"
+            # add tudo, menos o codex-output.md
+            git add -A ':!codex-output.md'
 
-            # push direto no branch da PR (já está checado via gh pr checkout)
-            git push
+            # Se sobrou nada pra commitar (ex.: só codex-output.md mudou), sai limpo
+            if git diff --cached --quiet; then
+              echo "Only codex-output.md changed. Skipping commit."
+              echo "CHANGED=0" >> $GITHUB_ENV
+              exit 0
+            fi
+
+            git commit -m "codex: apply requested fixes"
             echo "CHANGED=1" >> $GITHUB_ENV
+
+            if [ "$IS_FORK" = "1" ]; then
+              echo "::warning::Skipping push because PR is from a fork."
+              echo "PUSHED=0" >> $GITHUB_ENV
+              exit 0
+            fi
+
+            # Garante upstream + push explícito no origin
+            git branch --set-upstream-to="origin/$HEAD_REF" "$HEAD_REF" 2>/dev/null || true
+            git push -u origin HEAD
+
+            echo "PUSHED=1" >> $GITHUB_ENV
           else
             echo "No changes to commit."
             echo "CHANGED=0" >> $GITHUB_ENV
+            echo "PUSHED=0" >> $GITHUB_ENV
           fi
 
       - name: Comment result back to PR
@@ -82,16 +144,32 @@ jobs:
           script: |
             const pr = context.payload.issue.number;
             const changed = process.env.CHANGED === "1";
-            const body = [
-              "✅ Codex job finished.",
-              changed ? "📦 Changes were committed & pushed to the PR branch." : "ℹ️ No file changes detected (nothing to commit).",
-              "",
-              "If you expected changes and got none, re-run with a more explicit instruction (file + anchor + expected behavior)."
-            ].join("\n");
+            const pushed = process.env.PUSHED === "1";
+            const isFork = process.env.IS_FORK === "1";
+            const headRef = process.env.HEAD_REF || "(unknown)";
+            const sha = process.env.GITHUB_SHA; // SHA do workflow, não necessariamente do commit; ok como referência
+
+            const lines = [];
+            lines.push("✅ Codex job finished.");
+            lines.push(`• Branch alvo: \`${headRef}\``);
+
+            if (!changed) {
+              lines.push("ℹ️ No file changes detected (nothing to commit).");
+            } else if (changed && pushed) {
+              lines.push("📦 Changes were committed & pushed to the PR branch.");
+            } else if (changed && !pushed && isFork) {
+              lines.push("⚠️ Changes were committed localmente, mas push foi pulado (PR de fork).");
+              lines.push("   Se esse repo não usa forks, isso não deve acontecer.");
+            } else if (changed && !pushed) {
+              lines.push("⚠️ Changes were committed, mas push não foi confirmado. Veja logs do job.");
+            }
+
+            lines.push("");
+            lines.push("Se você esperava mudança e não veio, reenvie com: arquivo + âncora + comportamento esperado (sem pedido vago).");
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: pr,
-              body
+              body: lines.join("\n")
             });

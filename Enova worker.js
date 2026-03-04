@@ -637,10 +637,22 @@ function isYes(text) {
 function isNo(text) {
   const nt = normalizeText(text);
   if (!nt) return false;
-  const noTerms = [
-    "nao", "n", "nn", "negativo", "nunca", "jamais", "ainda nao", "agora nao", "talvez depois"
+
+  // respostas curtas: só EXATO
+  const exact = new Set(["nao", "n", "nn", "negativo"]);
+
+  // frases: pode usar includes (com espaço, pra não pegar "no cpf" como "não")
+  const phrases = [
+    "nunca",
+    "jamais",
+    "ainda nao",
+    "agora nao",
+    "talvez depois"
   ];
-  return noTerms.some((term) => nt === term || nt.includes(term));
+
+  if (exact.has(nt)) return true;
+
+  return phrases.some((term) => nt.includes(term));
 }
 
 function parseMoneyBR(text) {

@@ -1,3 +1,4 @@
+// codex ping
 # Enova
 
 # BINDINGS

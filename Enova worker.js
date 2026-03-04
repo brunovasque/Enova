@@ -1520,27 +1520,65 @@ export default {
       return new Response("BUILD=GIT_FULL_9K", { status: 200 });
     }
 
-    // ---------------------------------------------
+        // ---------------------------------------------
     // A8.2 — Validation Engine antes de QUALQUER coisa
     // ---------------------------------------------
-    try {
-      const validation = await validateEnv(env);
+    // ✅ Regra: rotas /__admin__/... devem continuar acessíveis (com admin-key)
+    // mesmo se o worker estiver "misconfigured", para diagnóstico e replay dry-run.
+    const isAdminPathEarly = pathname.startsWith("/__admin__/");
+    const reqKeyEarly = request.headers.get("x-enova-admin-key");
+    const envKeyEarly = env.ENOVA_ADMIN_KEY;
+    const isAdminAuthorizedEarly = Boolean(reqKeyEarly && envKeyEarly && reqKeyEarly === envKeyEarly);
 
-      if (!validation?.ok) {
+    if (!(isAdminPathEarly && isAdminAuthorizedEarly)) {
+      try {
+        const validation = await validateEnv(env);
+
+        if (!validation?.ok) {
+          await telemetry(env, {
+            wa_id: null,
+            event: "worker_validation_fail",
+            stage: "bootstrap",
+            severity: "critical",
+            message: "Falha na validação inicial do Worker",
+            details: validation || {}
+          });
+
+          return new Response(
+            JSON.stringify({
+              ok: false,
+              error: "Worker misconfigured",
+              details: validation || {}
+            }),
+            {
+              status: 500,
+              headers: { "content-type": "application/json" }
+            }
+          );
+        }
+      } catch (err) {
+        // Se até a validação quebrar, loga e responde 500
         await telemetry(env, {
           wa_id: null,
-          event: "worker_validation_fail",
+          event: "worker_validation_exception",
           stage: "bootstrap",
           severity: "critical",
-          message: "Falha na validação inicial do Worker",
-          details: validation || {}
+          message: "Exceção ao rodar validationEngine",
+          details: {
+            name: err?.name || "Error",
+            message: err?.message || String(err),
+            stack: err?.stack || null
+          }
         });
 
         return new Response(
           JSON.stringify({
             ok: false,
             error: "Worker misconfigured",
-            details: validation || {}
+            details: {
+              name: err?.name || "Error",
+              message: err?.message || String(err)
+            }
           }),
           {
             status: 500,
@@ -1548,31 +1586,6 @@ export default {
           }
         );
       }
-    } catch (err) {
-      // Se até a validação quebrar, loga e responde 500
-      await telemetry(env, {
-        wa_id: null,
-        event: "worker_validation_exception",
-        stage: "bootstrap",
-        severity: "critical",
-        message: "Exceção ao rodar validationEngine",
-        details: {
-          name: err?.name || "Error",
-          message: err?.message || String(err),
-          stack: err?.stack || null
-        }
-      });
-
-      return new Response(
-        JSON.stringify({
-          ok: false,
-          error: "Worker validation exception"
-        }),
-        {
-          status: 500,
-          headers: { "content-type": "application/json" }
-        }
-      );
     }
 
     function adminJson(status, body) {
@@ -1938,7 +1951,7 @@ if (isAdminPath && envMode !== "test") {
         messageLog: [],
         writeLog: [],
         writesByWaId: {},
-        suppressExternalSend: dryRun,
+        suppressExternalSend: true, // ✅ replay sempre safe: NUNCA envia Whats real
         wouldSend: false,
         sendPreview: null
       };

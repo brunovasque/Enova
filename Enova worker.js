@@ -1487,11 +1487,32 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
 
 function pickParser(type) {
   const t = String(type || "").trim().toLowerCase();
+
+  // yesno: isYes/isNo -> intent
+  if (t === "yesno") {
+    return (text) => ({
+      intent: isYes(text) ? "YES" : isNo(text) ? "NO" : "UNKNOWN"
+    });
+  }
+
+  // restricao: hasRestricaoIndicador + isYes/isNo -> {hasRestricao, intent}
+  if (t === "restricao") {
+    return (text) => ({
+      hasRestricao: hasRestricaoIndicador(text) === true,
+      intent: isYes(text) ? "YES" : isNo(text) ? "NO" : "UNKNOWN"
+    });
+  }
+
+  // existentes
   if (t === "composicao") return (text) => parseComposicaoRenda(text);
-  if (t === "restricao") return (text) => ({ has_restricao: hasRestricaoIndicador(text) });
   if (t === "estado_civil") return (text) => parseEstadoCivil(text);
   if (t === "regime") return (text) => parseRegimeTrabalho(text);
   if (t === "renda") return (text) => parseMoneyBR(text);
+
+  // multi_*: só se existir no worker (não criar parser novo)
+  if (t === "multi_regime" && typeof parseMultiRegime === "function") return (text) => parseMultiRegime(text);
+  if (t === "multi_renda" && typeof parseMultiRenda === "function") return (text) => parseMultiRenda(text);
+
   return null;
 }
 
@@ -1870,15 +1891,21 @@ if (isAdminPath && envMode !== "test") {
         const parser = pickParser(type);
 
         if (!parser) {
-          return {
-            name,
-            type,
-            text,
-            parsed: null,
-            matched: [],
-            notes: "parser_not_available_in_worker"
-          };
-        }
+  const tt = String(type || "").trim().toLowerCase();
+  let missing = tt;
+
+  if (tt === "multi_regime") missing = "parseMultiRegime";
+  if (tt === "multi_renda") missing = "parseMultiRenda";
+
+  return {
+    name,
+    type,
+    text,
+    parsed: null,
+    matched: [],
+    notes: `parser_missing:${missing}`
+  };
+}
 
         const parsedRaw = parser(text);
         const parsed = parsedRaw == null ? null : parsedRaw;

@@ -1991,7 +1991,7 @@ if (isAdminPath && envMode !== "test") {
       const stageAfter = finalState?.fase_conversa || stageBefore;
       const writes = wa_id ? (env.__enovaSimulationCtx?.writesByWaId?.[wa_id] || null) : null;
       const lastReply = env.__enovaSimulationCtx?.messageLog?.[env.__enovaSimulationCtx.messageLog.length - 1]?.messages || null;
-      const wouldSend = Boolean(env.__enovaSimulationCtx?.wouldSend || (Array.isArray(lastReply) && lastReply.length));
+      const wouldSend = false; // ✅ replay nunca envia
       const sendPayloadPreview = env.__enovaSimulationCtx?.sendPreview || null;
       env.__enovaSimulationCtx = previousCtx;
 

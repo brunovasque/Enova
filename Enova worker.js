@@ -1699,6 +1699,32 @@ if (isAdminPath && envMode !== "test") {
     ts: new Date().toISOString()
   });
 }
+
+// ---------------------------------------------
+// 🔐 Admin PROD (controlado) — dry-run via PS
+// ---------------------------------------------
+const isAdminProdPath = pathname.startsWith("/__admin_prod__/");
+
+if (isAdminProdPath) {
+  const allowProdAdmin = String(env.ALLOW_ADMIN_PROD || "").toLowerCase() === "true";
+  if (!allowProdAdmin) {
+    return adminJson(403, {
+      ok: false,
+      error: "forbidden_prod_admin_disabled",
+      build: ENOVA_BUILD,
+      ts: new Date().toISOString()
+    });
+  }
+
+  if (!isAdminAuthorized()) {
+    return adminJson(401, {
+      ok: false,
+      error: "unauthorized",
+      build: ENOVA_BUILD,
+      ts: new Date().toISOString()
+    });
+  }
+}
     
     if (request.method === "GET" && pathname === "/__admin__/health") {
       if (!isAdminAuthorized()) {
@@ -1772,6 +1798,48 @@ if (isAdminPath && envMode !== "test") {
         ts: new Date().toISOString()
       });
     }
+
+    if (request.method === "POST" && pathname === "/__admin_prod__/simulate-funnel") {
+  // auth + allow já garantidos pelo gate isAdminProdPath
+
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return adminJson(400, {
+      ok: false,
+      error: "invalid_json",
+      build: ENOVA_BUILD,
+      ts: new Date().toISOString()
+    });
+  }
+
+  const wa_id = String(payload?.wa_id || "").trim();
+  const startStage = String(payload?.start_stage || "inicio").trim() || "inicio";
+  const script = Array.isArray(payload?.script) ? payload.script : [];
+
+  // ✅ PROD-ADMIN: dry-run SEMPRE (ignora payload.dry_run)
+  const dryRun = true;
+
+  if (!wa_id || !script.length || !script.every((s) => typeof s === "string")) {
+    return adminJson(400, {
+      ok: false,
+      error: "invalid_payload",
+      details: "wa_id e script(string[]) são obrigatórios",
+      build: ENOVA_BUILD,
+      ts: new Date().toISOString()
+    });
+  }
+
+  const result = await simulateFunnel(env, {
+    wa_id,
+    startStage,
+    script,
+    dryRun
+  });
+
+  return adminJson(result.ok ? 200 : 500, result);
+}
 
     if (request.method === "POST" && pathname === "/__admin__/simulate-funnel") {
      
@@ -1914,6 +1982,60 @@ if (isAdminPath && envMode !== "test") {
         ts: new Date().toISOString()
       });
     }
+
+    if (request.method === "POST" && pathname === "/__admin_prod__/test-parsers") {
+  // auth + allow já garantidos pelo gate isAdminProdPath
+
+  let payload;
+  try {
+    payload = await request.json();
+  } catch {
+    return adminJson(400, {
+      ok: false,
+      error: "invalid_json",
+      build: ENOVA_BUILD,
+      ts: new Date().toISOString()
+    });
+  }
+
+  const cases = Array.isArray(payload?.cases) ? payload.cases : [];
+
+  await telemetry(env, {
+    wa_id: null,
+    event: "admin_prod_test_parsers",
+    stage: "admin_prod",
+    severity: "info",
+    message: "Admin PROD test-parsers acionado",
+    details: { cases: cases.length }
+  });
+
+  const results = cases.map((c) => {
+    const name = String(c?.name || "").trim();
+    const type = String(c?.type || "").trim();
+    const text = String(c?.text || "");
+    const parser = pickParser(type);
+
+    if (!parser) {
+      const tt = String(type || "").trim().toLowerCase();
+      let missing = tt;
+      if (tt === "multi_regime") missing = "parseMultiRegime";
+      if (tt === "multi_renda") missing = "parseMultiRenda";
+
+      return { name, type, text, parsed: null, matched: [], notes: `parser_missing:${missing}` };
+    }
+
+    const parsedRaw = parser(text);
+    const parsed = parsedRaw == null ? null : parsedRaw;
+    return { name, type, text, parsed, matched: [], notes: "ok" };
+  });
+
+  return adminJson(200, {
+    ok: true,
+    results,
+    build: ENOVA_BUILD,
+    ts: new Date().toISOString()
+  });
+}
 
     if (request.method === "POST" && pathname === "/__admin__/test-parsers") {
       if (!isAdminAuthorized()) {

@@ -1028,24 +1028,6 @@ url += "?" + usp.toString();
   // ========== FIM DEBUG ==========
 // ========== FIM DO DEBUG TEMPORÁRIO ==========
 
-// ========== DEBUG TEMP PROXY-ECHO ==========
-try {
-  const echo = await fetch(env.VERCEL_PROXY_URL + "/api/supabase-proxy-debug", {
-    method,
-    headers: finalHeaders
-  });
-
-  const echoJson = await echo.json();
-
-  console.log("DEBUG-PROXY-ECHO:", JSON.stringify({
-    sentHeaders: finalHeaders,
-    proxyReceivedHeaders: echoJson.received_headers
-  }));
-} catch (err) {
-  console.log("DEBUG-PROXY-ECHO-ERROR:", String(err));
-}
-// ========== FIM DEBUG ==========
-
   let res;
   try {
     res = await fetch(url, {
@@ -1604,12 +1586,14 @@ export default {
       return new Response("BUILD=GIT_FULL_9K", { status: 200 });
     }
 
-        // ---------------------------------------------
+    // ---------------------------------------------
     // A8.2 — Validation Engine antes de QUALQUER coisa
     // ---------------------------------------------
     // ✅ Regra: rotas /__admin__/... devem continuar acessíveis (com admin-key)
     // mesmo se o worker estiver "misconfigured", para diagnóstico e replay dry-run.
-    const isAdminPathEarly = pathname.startsWith("/__admin__/");
+    const isAdminPathEarly =
+      pathname.startsWith("/__admin__/") ||
+      pathname.startsWith("/__admin_prod__/");
     const reqKeyEarly = request.headers.get("x-enova-admin-key");
     const envKeyEarly = env.ENOVA_ADMIN_KEY;
     const isAdminAuthorizedEarly = Boolean(reqKeyEarly && envKeyEarly && reqKeyEarly === envKeyEarly);

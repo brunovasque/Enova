@@ -1,0 +1,97 @@
+name: Codex PR Fix (comment-driven)
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  codex_fix:
+    # Só roda se o comentário for numa PR e tiver "@codex"
+    if: >
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '@codex')
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR HEAD
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Fetch PR refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Descobre o número da PR a partir do Issue Comment
+          PR_NUMBER="${{ github.event.issue.number }}"
+          echo "PR_NUMBER=$PR_NUMBER"
+
+          # Puxa refs da PR e faz checkout no HEAD (branch do autor)
+          gh pr checkout "$PR_NUMBER" --force
+          git status
+
+      - name: Run Codex (apply changes)
+        id: run_codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          # O próprio comentário vira o prompt (tira o @codex pra evitar ruído)
+          prompt: |
+            You are working in a GitHub Actions runner on the PR branch already checked out.
+            Follow the instruction below (from the PR comment) and make the minimal safe changes.
+            Do not refactor. Do not touch unrelated files. Keep scope tight.
+
+            --- PR COMMENT INSTRUCTION ---
+            ${{ github.event.comment.body }}
+
+          safety-strategy: drop-sudo
+          sandbox: workspace-write
+          output-file: codex-output.md
+
+      - name: Commit & push if changed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name "codex-action"
+            git config user.email "codex-action@users.noreply.github.com"
+
+            git add -A
+            git commit -m "codex: apply requested fixes"
+
+            # push direto no branch da PR (já está checado via gh pr checkout)
+            git push
+            echo "CHANGED=1" >> $GITHUB_ENV
+          else
+            echo "No changes to commit."
+            echo "CHANGED=0" >> $GITHUB_ENV
+          fi
+
+      - name: Comment result back to PR
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const pr = context.payload.issue.number;
+            const changed = process.env.CHANGED === "1";
+            const body = [
+              "✅ Codex job finished.",
+              changed ? "📦 Changes were committed & pushed to the PR branch." : "ℹ️ No file changes detected (nothing to commit).",
+              "",
+              "If you expected changes and got none, re-run with a more explicit instruction (file + anchor + expected behavior)."
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr,
+              body
+            });

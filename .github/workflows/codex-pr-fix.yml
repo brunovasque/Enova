@@ -32,24 +32,19 @@ jobs:
           PR_NUMBER="${{ github.event.issue.number }}"
           echo "PR_NUMBER=$PR_NUMBER"
 
-          # Descobre o head branch e o owner/repo do head (pra detectar fork)
-          HEAD_REF="$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName)"
-          HEAD_REPO="$(gh pr view "$PR_NUMBER" --json headRepository -q .headRepository.nameWithOwner)"
-          BASE_REPO="${{ github.repository }}"
+          # Descobre o head branch e se a PR é cross-repo (fork) — sinal oficial
+HEAD_REF="$(gh pr view "$PR_NUMBER" --json headRefName -q .headRefName)"
+IS_CROSS="$(gh pr view "$PR_NUMBER" --json isCrossRepository -q .isCrossRepository)"
 
-          echo "HEAD_REF=$HEAD_REF"
-          echo "HEAD_REPO=$HEAD_REPO"
-          echo "BASE_REPO=$BASE_REPO"
+echo "HEAD_REF=$HEAD_REF"
+echo "IS_CROSS=$IS_CROSS"
 
-          # Se PR vier de fork, o push pode ser bloqueado por segurança.
-          # Vamos marcar isso e ainda permitir o Codex rodar (pra você ver output),
-          # mas o push pode ser "skip".
-          if [ "$HEAD_REPO" != "$BASE_REPO" ]; then
-            echo "IS_FORK=1" >> $GITHUB_ENV
-            echo "::warning::PR is from a fork ($HEAD_REPO). Push may be blocked."
-          else
-            echo "IS_FORK=0" >> $GITHUB_ENV
-          fi
+if [ "$IS_CROSS" = "true" ]; then
+  echo "IS_FORK=1" >> $GITHUB_ENV
+  echo "::warning::PR is cross-repository (fork). Push may be blocked."
+else
+  echo "IS_FORK=0" >> $GITHUB_ENV
+fi
 
           # Faz checkout do branch da PR
           gh pr checkout "$PR_NUMBER" --force

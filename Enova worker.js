@@ -25,6 +25,16 @@ async function step(env, st, messages, nextStage) {
   // 🔥 AQUI: aplica modo humano (somente se ativo)
   const msgs = modoHumanoRender(st, arr);
 
+  if (isSim) {
+    simCtx.messageLog = Array.isArray(simCtx.messageLog) ? simCtx.messageLog : [];
+    simCtx.messageLog.push({
+      wa_id: st?.wa_id || null,
+      stage_before: st?.fase_conversa || "inicio",
+      stage_after: nextStage || st?.fase_conversa || null,
+      messages: msgs
+    });
+  }
+
   try {
     // ============================================================
     // 🛰 TELEMETRIA — Saída / transição de estágio (geral)
@@ -181,6 +191,31 @@ async function step(env, st, messages, nextStage) {
 // 🧱 A7 — sendMessage() com blindagem total + telemetria META
 // =============================================================
 async function sendMessage(env, wa_id, text, options = {}) {
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.suppressExternalSend) {
+    const preview = {
+      messaging_product: "whatsapp",
+      to: wa_id,
+      type: "text",
+      text: { body: text }
+    };
+
+    simCtx.sendPreview = preview;
+    simCtx.wouldSend = true;
+
+    if (options.returnMeta) {
+      return {
+        ok: true,
+        meta_status: 200,
+        message_id: "dry_run_suppressed",
+        suppressed: true,
+        send_payload_preview: preview
+      };
+    }
+
+    return true;
+  }
+
   const url = `https://graph.facebook.com/${env.META_API_VERSION}/${env.PHONE_NUMBER_ID}/messages`;
 
   const payload = {
@@ -454,6 +489,11 @@ async function upsertState(env, wa_id, payload) {
   };
 
   if (simCtx?.active) {
+    simCtx.writeLog = Array.isArray(simCtx.writeLog) ? simCtx.writeLog : [];
+    simCtx.writeLog.push({ wa_id, patch });
+    simCtx.writesByWaId = simCtx.writesByWaId || {};
+    simCtx.writesByWaId[wa_id] = { ...(simCtx.writesByWaId[wa_id] || {}), ...patch };
+
     const current = simCtx.stateByWaId?.[wa_id] || { wa_id };
     const merged = { ...current, ...patch, wa_id };
 
@@ -1345,7 +1385,13 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
   env.__enovaSimulationCtx = {
     active: true,
     dryRun: dryRun !== false,
-    stateByWaId
+    stateByWaId,
+    messageLog: [],
+    writeLog: [],
+    writesByWaId: {},
+    suppressExternalSend: true,
+    wouldSend: false,
+    sendPreview: null
   };
 
   const steps = [];
@@ -1437,6 +1483,22 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
   } finally {
     env.__enovaSimulationCtx = previousCtx;
   }
+}
+
+function pickParser(type) {
+  const t = String(type || "").trim().toLowerCase();
+  if (t === "composicao") return (text) => parseComposicaoRenda(text);
+  if (t === "restricao") return (text) => ({ has_restricao: hasRestricaoIndicador(text) });
+  if (t === "estado_civil") return (text) => parseEstadoCivil(text);
+  if (t === "regime") return (text) => parseRegimeTrabalho(text);
+  if (t === "renda") return (text) => parseMoneyBR(text);
+  return null;
+}
+
+function extractWaIdFromWebhookEvent(event) {
+  const msgWa = event?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.from;
+  const statusWa = event?.entry?.[0]?.changes?.[0]?.value?.statuses?.[0]?.recipient_id;
+  return String(msgWa || statusWa || "").trim() || null;
 }
 
 // =============================================================
@@ -1660,6 +1722,279 @@ if (isAdminPath && envMode !== "test") {
       });
 
       return adminJson(result.ok ? 200 : 500, result);
+    }
+
+    if (request.method === "POST" && pathname === "/__admin__/simulate-from-state") {
+      if (!isAdminAuthorized()) {
+        return adminJson(401, {
+          ok: false,
+          error: "unauthorized",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_json",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const wa_id = String(payload?.wa_id || "").trim();
+      const forcedStage = String(payload?.stage || "").trim();
+      const text = String(payload?.text || "");
+      const stOverrides = payload?.st_overrides && typeof payload.st_overrides === "object" ? payload.st_overrides : {};
+      const dryRun = payload?.dry_run !== false;
+      const maxSteps = Math.max(1, Math.min(3, Number(payload?.max_steps) || 1));
+
+      if (!wa_id || !forcedStage) {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_payload",
+          details: "wa_id e stage são obrigatórios",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      await telemetry(env, {
+        wa_id,
+        event: "admin_simulate_from_state",
+        stage: forcedStage,
+        severity: "info",
+        message: "Admin simulate-from-state acionado",
+        details: { dryRun, maxSteps }
+      });
+
+      const current = (await getState(env, wa_id)) || { wa_id, fase_conversa: forcedStage };
+      const seeded = { ...current, ...stOverrides, wa_id, fase_conversa: forcedStage };
+      const previousCtx = env.__enovaSimulationCtx;
+      env.__enovaSimulationCtx = {
+        active: true,
+        dryRun,
+        stateByWaId: { [wa_id]: seeded },
+        messageLog: [],
+        writeLog: [],
+        writesByWaId: {},
+        suppressExternalSend: true,
+        wouldSend: false,
+        sendPreview: null
+      };
+
+      let runErr = null;
+      for (let i = 0; i < maxSteps; i++) {
+        try {
+          const stNow = env.__enovaSimulationCtx?.stateByWaId?.[wa_id] || seeded;
+          await runFunnel(env, stNow, text);
+        } catch (err) {
+          runErr = err;
+          break;
+        }
+      }
+
+      const finalState = env.__enovaSimulationCtx?.stateByWaId?.[wa_id] || seeded;
+      const lastReply = env.__enovaSimulationCtx?.messageLog?.[env.__enovaSimulationCtx.messageLog.length - 1]?.messages || null;
+      const writes = env.__enovaSimulationCtx?.writesByWaId?.[wa_id] || null;
+      env.__enovaSimulationCtx = previousCtx;
+
+      return adminJson(runErr ? 500 : 200, {
+        ok: !runErr,
+        wa_id,
+        stage_before: forcedStage,
+        stage_after: finalState?.fase_conversa || forcedStage,
+        writes,
+        reply_text: Array.isArray(lastReply) ? lastReply.join("\n") : null,
+        telemetry: runErr ? { error: runErr?.message || String(runErr) } : null,
+        dry_run: dryRun,
+        max_steps: maxSteps,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
+
+    if (request.method === "POST" && pathname === "/__admin__/test-parsers") {
+      if (!isAdminAuthorized()) {
+        return adminJson(401, {
+          ok: false,
+          error: "unauthorized",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_json",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const cases = Array.isArray(payload?.cases) ? payload.cases : [];
+      await telemetry(env, {
+        wa_id: null,
+        event: "admin_test_parsers",
+        stage: "admin",
+        severity: "info",
+        message: "Admin test-parsers acionado",
+        details: { cases: cases.length }
+      });
+
+      const results = cases.map((c) => {
+        const name = String(c?.name || "").trim();
+        const type = String(c?.type || "").trim();
+        const text = String(c?.text || "");
+        const parser = pickParser(type);
+
+        if (!parser) {
+          return {
+            name,
+            type,
+            text,
+            parsed: null,
+            matched: [],
+            notes: "parser_not_available_in_worker"
+          };
+        }
+
+        const parsedRaw = parser(text);
+        const parsed = parsedRaw == null ? null : parsedRaw;
+        const matched = [];
+        if (type === "composicao" && parsed) matched.push(String(parsed));
+        if (type === "restricao" && parsed?.has_restricao) matched.push("restricao_indicador");
+        if (type === "estado_civil" && parsed) matched.push(String(parsed));
+        if (type === "regime" && parsed) matched.push(String(parsed));
+        if (type === "renda" && parsed != null) matched.push("money_br");
+
+        return {
+          name,
+          type,
+          text,
+          parsed: parsed && typeof parsed === "object" ? parsed : parsed == null ? null : { value: parsed },
+          matched,
+          notes: "ok"
+        };
+      });
+
+      return adminJson(200, {
+        ok: true,
+        results,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
+
+    if (request.method === "POST" && pathname === "/__admin__/replay-webhook") {
+      if (!isAdminAuthorized()) {
+        return adminJson(401, {
+          ok: false,
+          error: "unauthorized",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_json",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const event = payload?.event;
+      const dryRun = payload?.dry_run !== false;
+      if (!event || typeof event !== "object") {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_payload",
+          details: "event é obrigatório",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const wa_id = extractWaIdFromWebhookEvent(event);
+      const stageBefore = wa_id ? ((await getState(env, wa_id))?.fase_conversa || "inicio") : null;
+      const previousCtx = env.__enovaSimulationCtx;
+      env.__enovaSimulationCtx = {
+        active: true,
+        dryRun,
+        stateByWaId: {},
+        messageLog: [],
+        writeLog: [],
+        writesByWaId: {},
+        suppressExternalSend: dryRun,
+        wouldSend: false,
+        sendPreview: null
+      };
+
+      await telemetry(env, {
+        wa_id,
+        event: "admin_replay_webhook",
+        stage: stageBefore || "inicio",
+        severity: "info",
+        message: "Admin replay-webhook acionado",
+        details: { dryRun }
+      });
+
+      const replayReq = new Request("https://enova.local/webhook/meta", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify(event)
+      });
+
+      let replayResp;
+      try {
+        replayResp = await handleMetaWebhook(replayReq, env, ctx);
+      } catch (err) {
+        env.__enovaSimulationCtx = previousCtx;
+        return adminJson(500, {
+          ok: false,
+          error: "replay_failed",
+          details: err?.message || String(err),
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const finalState = wa_id ? env.__enovaSimulationCtx?.stateByWaId?.[wa_id] : null;
+      const stageAfter = finalState?.fase_conversa || stageBefore;
+      const writes = wa_id ? (env.__enovaSimulationCtx?.writesByWaId?.[wa_id] || null) : null;
+      const lastReply = env.__enovaSimulationCtx?.messageLog?.[env.__enovaSimulationCtx.messageLog.length - 1]?.messages || null;
+      const wouldSend = Boolean(env.__enovaSimulationCtx?.wouldSend || (Array.isArray(lastReply) && lastReply.length));
+      const sendPayloadPreview = env.__enovaSimulationCtx?.sendPreview || null;
+      env.__enovaSimulationCtx = previousCtx;
+
+      return adminJson(200, {
+        ok: replayResp?.ok !== false,
+        wa_id,
+        stage_before: stageBefore,
+        stage_after: stageAfter,
+        writes,
+        reply_text: Array.isArray(lastReply) ? lastReply.join("\n") : null,
+        would_send: wouldSend,
+        send_payload_preview: sendPayloadPreview,
+        dry_run: dryRun,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
     }
 
     // ---------------------------------------------
@@ -3958,6 +4293,18 @@ async function enviarParaCorrespondente(env, st, dossie) {
 // 🔧 Helper — enviar mensagem de texto pro correspondente
 // =========================================================
 async function sendWhatsToCorrespondente(env, to, body) {
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.suppressExternalSend) {
+    simCtx.sendPreview = {
+      messaging_product: "whatsapp",
+      to,
+      type: "text",
+      text: { body }
+    };
+    simCtx.wouldSend = true;
+    return true;
+  }
+
   const url = `https://graph.facebook.com/v20.0/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 
   const payload = {

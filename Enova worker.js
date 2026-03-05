@@ -4891,9 +4891,9 @@ async function runFunnel(env, st, userText) {
   const stage = st.fase_conversa || "inicio";
   const t = (userText || "").trim().toLowerCase();
 
-  // ============================================================
-  // 🧠 OFFTRACK GUARD — IA apertador (funciona no Whats e no PS)
-  //  Regra: se for pergunta fora do trilho -> NÃO MUDA FASE
+    // ============================================================
+  // 🧠 OFFTRACK GUARD — IA apertador (SIM + REAL) — NÃO MUDA FASE
+  //  Importante: precisa retornar via step() para o simulate capturar reply_text
   // ============================================================
   try {
     const guard = await offtrackGuard(env, {
@@ -4908,7 +4908,7 @@ async function runFunnel(env, st, userText) {
         event: "offtrack_signal",
         stage,
         severity: "info",
-        message: "Cliente perguntou fora do trilho — guard manteve fase",
+        message: "Pergunta fora do trilho — mantendo fase",
         details: {
           label: guard.label || null,
           confidence: guard.confidence ?? null,
@@ -4916,18 +4916,20 @@ async function runFunnel(env, st, userText) {
         }
       });
 
-      // Resposta padrão (sem inventar nada / sem pular etapa)
-      const msg =
-        "Certo. Vou analisar seu perfil primeiro e, no final, tiro todas suas dúvidas, combinado?\n" +
-        "Pra eu seguir aqui, me responde só a pergunta anterior direitinho. 🙏";
-
-      // Importante: runFunnel deve devolver essa resposta sem avançar stage
-      return msg;
+      return step(
+        env,
+        st,
+        [
+          "Certo. Vou analisar seu perfil primeiro e, no final, tiro todas suas dúvidas, combinado?",
+          "Pra eu seguir aqui, me responde só a pergunta anterior direitinho. 🙏"
+        ],
+        stage // mantém a mesma fase (não pula etapa)
+      );
     }
   } catch (e) {
-    console.error("OFFTRACK-GUARD-RUNFUNNEL-ERROR:", e);
+    console.error("OFFTRACK_GUARD_RUNFUNNEL_ERROR:", e);
   }
-
+  
   // ============================================================
   // 🛰 ENTER_STAGE
   // ============================================================

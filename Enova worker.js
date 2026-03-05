@@ -7194,9 +7194,9 @@ await funnelTelemetry(env, {
 // C10B — PAIS CASADOS NO CIVIL?
 // =========================================================
 case "pais_casados_civil_pergunta": {
-  const nt = normalizeText(userText || "");
+  const nt = normalizeText(userText || "").trim();
   const sim = isYes(nt) || /^sim$/i.test(nt);
-  const nao = isNo(nt) || /^(nao|não)$/i.test(nt);
+  const nao = isNo(nt) || /^(nao|não)(\s+(sei|tenho))?$/i.test(nt);
 
   if (!sim && !nao) {
     return step(

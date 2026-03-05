@@ -4891,7 +4891,41 @@ async function runFunnel(env, st, userText) {
   const stage = st.fase_conversa || "inicio";
   const t = (userText || "").trim().toLowerCase();
 
-    // ============================================================
+  // ============================================================
+  // 🧷 OFFTRACK DETERMINÍSTICO (YES/NO stages)
+  // Se a fase atual espera SIM/NÃO e o texto não é SIM/NÃO → OFFTRACK (sem IA)
+  // ============================================================
+  const yesNoStages = new Set([
+    "dependente",
+    "restricao",
+    "ctps_36",
+    "ctps_36_parceiro",
+    "restricao_parceiro",
+    "restricao_familiar",
+    "restricao_p3"
+  ]);
+
+  if (yesNoStages.has(stage)) {
+    const txt = (userText || "").trim();
+    const ehSim = isYes(txt);
+    const ehNao = isNo(txt);
+    const ehTalvez = /\b(talvez|nao\s+sei|não\s+sei|depende|acho\s+que)\b/i.test(txt);
+
+    // não é resposta direta esperada → trava e pede responder a pergunta anterior
+    if (!ehSim && !ehNao && !ehTalvez) {
+      return step(
+        env,
+        st,
+        [
+          "Certo. Vou analisar seu perfil primeiro e, no final, tiro todas suas dúvidas, combinado?",
+          "Pra eu seguir aqui, me responde só a pergunta anterior direitinho. 🙏"
+        ],
+        stage
+      );
+    }
+  }
+
+  // ============================================================
   // 🧠 OFFTRACK GUARD — IA apertador (SIM + REAL) — NÃO MUDA FASE
   //  Importante: precisa retornar via step() para o simulate capturar reply_text
   // ============================================================

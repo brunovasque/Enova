@@ -4892,6 +4892,43 @@ async function runFunnel(env, st, userText) {
   const t = (userText || "").trim().toLowerCase();
 
   // ============================================================
+  // 🧠 OFFTRACK GUARD — IA apertador (funciona no Whats e no PS)
+  //  Regra: se for pergunta fora do trilho -> NÃO MUDA FASE
+  // ============================================================
+  try {
+    const guard = await offtrackGuard(env, {
+      wa_id: st.wa_id,
+      stage,
+      text: userText
+    });
+
+    if (guard?.offtrack === true) {
+      await telemetry(env, {
+        wa_id: st.wa_id,
+        event: "offtrack_signal",
+        stage,
+        severity: "info",
+        message: "Cliente perguntou fora do trilho — guard manteve fase",
+        details: {
+          label: guard.label || null,
+          confidence: guard.confidence ?? null,
+          raw: userText
+        }
+      });
+
+      // Resposta padrão (sem inventar nada / sem pular etapa)
+      const msg =
+        "Certo. Vou analisar seu perfil primeiro e, no final, tiro todas suas dúvidas, combinado?\n" +
+        "Pra eu seguir aqui, me responde só a pergunta anterior direitinho. 🙏";
+
+      // Importante: runFunnel deve devolver essa resposta sem avançar stage
+      return msg;
+    }
+  } catch (e) {
+    console.error("OFFTRACK-GUARD-RUNFUNNEL-ERROR:", e);
+  }
+
+  // ============================================================
   // 🛰 ENTER_STAGE
   // ============================================================
   await funnelTelemetry(env, {

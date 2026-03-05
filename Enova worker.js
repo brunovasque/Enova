@@ -742,6 +742,109 @@ function parseP3Tipo(text) {
   return null;
 }
 
+// =============================================================
+// 🧠 OFFTRACK GUARD — IA simples (classifica pergunta fora do trilho)
+//  - Só decide: OFFTRACK ou ONTRACK
+//  - Se OFFTRACK, dá um label (FGTS, PRECO, REGIAO, COMPOR_RENDA, CASA, OUTRO)
+//  - NÃO muda fase. Só orienta responder padrão.
+// =============================================================
+function shouldConsiderOfftrack(text) {
+  const nt = normalizeText(text || "");
+  if (!nt) return false;
+
+  // Heurística barata: só chama IA quando parece pergunta/assunto paralelo
+  if (nt.includes("?")) return true;
+
+  return (
+    /\b(fgts|valor|preco|parcela|entrada|onde|bairro|regiao|cidade|casa|namorad|espos|marid|restric|spc|serasa|negativ|sem registro|sem clt|nao tenho registro)\b/.test(nt)
+  );
+}
+
+async function offtrackGuard(env, { wa_id, stage, text }) {
+  // Desligável por env (segurança)
+  const enabled = String(env.OFFTRACK_AI_ENABLED || "true").toLowerCase() !== "false";
+  if (!enabled) return { offtrack: false };
+
+  if (!shouldConsiderOfftrack(text)) return { offtrack: false };
+
+  // Se não tiver key, não faz nada (não quebra atendimento)
+  // Se não tiver key, não faz nada (não quebra atendimento)
+const envMode = String(env.ENV_MODE || env.ENOVA_ENV || "").toLowerCase();
+const apiKey =
+  envMode === "prod"
+    ? env.OPENAI_API_KEY_PROD
+    : env.OPENAI_API_KEY_TEST;
+
+if (!apiKey) return { offtrack: false };
+
+// Modelo (você já criou OFFTRACK_AI_MODEL nos 2 ambientes)
+const model = String(env.OFFTRACK_AI_MODEL || "gpt-4.1-mini");
+  const labels = ["ONTRACK", "FGTS", "PRECO", "REGIAO", "COMPOR_RENDA", "CASA", "RESTRICAO", "OUTRO"];
+
+  const system =
+    "Você é um roteador. Sua única tarefa é dizer se a mensagem do cliente é uma PERGUNTA FORA DO TRILHO (OFFTRACK) " +
+    "ou uma RESPOSTA DIRETA à pergunta atual (ONTRACK). " +
+    "Você NÃO pode inventar etapas, NÃO pode orientar financiamento, NÃO pode responder conteúdo. " +
+    "Responda APENAS JSON válido.";
+
+  const user =
+    JSON.stringify({
+      stage_atual: stage,
+      texto_cliente: String(text || ""),
+      labels_validos: labels
+    });
+
+  const body = {
+    model,
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user }
+    ]
+  };
+
+  let resp;
+  try {
+    resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+  } catch {
+    return { offtrack: false };
+  }
+
+  if (!resp.ok) return { offtrack: false };
+
+  let data;
+  try {
+    data = await resp.json();
+  } catch {
+    return { offtrack: false };
+  }
+
+  const content = data?.choices?.[0]?.message?.content || "{}";
+
+  let parsed = null;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    parsed = null;
+  }
+
+  const labelRaw = String(parsed?.label || parsed?.result || "").toUpperCase().trim();
+  const confidence = Number(parsed?.confidence ?? 0);
+
+  const label = labels.includes(labelRaw) ? labelRaw : "OUTRO";
+  const offtrack = label !== "ONTRACK";
+
+  return { offtrack, label, confidence: Number.isFinite(confidence) ? confidence : null };
+}
+
 function getP3TipoLabel(tipo) {
   const t = normalizeText(tipo || "");
   if (t === "pai") return "seu pai";
@@ -2776,6 +2879,43 @@ let userText = null;
         fase_conversa: st?.fase_conversa || "inicio"
       })
     );
+
+// ============================================================
+// 🧠 OFFTRACK GUARD (IA apertador de botão) — NÃO MUDA FASE
+// ============================================================
+try {
+  const guard = await offtrackGuard(env, {
+    wa_id: waId,
+    stage: st?.fase_conversa || "inicio",
+    text: userText
+  });
+
+  if (guard?.offtrack === true) {
+    await telemetry(env, {
+      wa_id: waId,
+      event: "offtrack_signal",
+      stage: st?.fase_conversa || "inicio",
+      severity: "info",
+      message: "Cliente perguntou fora do trilho — guard respondeu padrão e manteve fase",
+      details: {
+        label: guard.label || null,
+        confidence: guard.confidence ?? null,
+        textPreview: userText.length > 120 ? userText.slice(0, 120) + "...(truncado)" : userText
+      }
+    });
+
+    // Resposta padrão (sem inventar nada / sem pular etapa)
+    const msg =
+      "Certo. Vou analisar seu perfil primeiro e, no final, tiro todas suas dúvidas, combinado?\n" +
+      "Pra eu seguir aqui, me responde só a pergunta anterior direitinho. 🙏";
+
+    await sendMessage(env, waId, msg);
+    return metaWebhookResponse(200, { reason: "offtrack_guard", type });
+  }
+} catch (e) {
+  // Guard nunca pode derrubar o funil
+  console.error("OFFTRACK-GUARD-ERROR:", e);
+}
 
     // ============================================================
     // 2) CHAMADA CORRETA DO FUNIL

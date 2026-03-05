@@ -4898,6 +4898,8 @@ async function runFunnel(env, st, userText) {
   const yesNoStages = new Set([
     "dependente",
     "restricao",
+    "confirmar_casamento",
+    "regularizacao_restricao",
     "ctps_36",
     "ctps_36_parceiro",
     "restricao_parceiro",

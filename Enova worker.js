@@ -9123,7 +9123,7 @@ case "regime_trabalho": {
 }
 
 case "autonomo_ir_pergunta": {
-  const nao = /\b(n[aã]o|nao)\b/i.test(t);
+ const nao = /^(n[aã]o|nao)$/i.test(String(t || "").trim());
   const sim = /\b(sim|yes)\b/i.test(t);
 
   if (nao) {
@@ -9229,7 +9229,7 @@ case "autonomo_sem_ir_caminho": {
   const ninguem = /\b(ningu[eé]m|sozinh|s[oó]\s*eu|apenas eu|somente eu)\b/i.test(t);
 
   // “não” aqui significa “não vou compor” => tratar como “ninguém”
-  const nao = /\b(n[aã]o|nao)\b/i.test(t);
+  const nao = /^(n[aã]o|nao)$/i.test(String(t || "").trim());
 
   if (parceiro) {
     return step(

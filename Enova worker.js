@@ -1917,11 +1917,16 @@ result.expected_raw =
   null;
 
 // docs continua banido como stage inicial inválido,
-// mas NÃO pode gerar FAIL_ALIAS_BANIDO quando já foi canonicalizado para envio_docs.
-if (bannedAliases.has(stageReturnedCanonical)) {
+// mas retorno canonicalizado para envio_docs é válido na suíte.
+const stageReturnedIsBannedAlias =
+  stageReturnedCanonical &&
+  bannedAliases.has(stageReturnedCanonical) &&
+  stageReturnedCanonical !== "envio_docs";
+
+if (stageReturnedIsBannedAlias) {
   result.status = "FAIL";
   result.classification = "FAIL_ALIAS_BANIDO";
-  result.motivo = "alias_banido:stage_retorno";
+  result.motivo = `alias_banido:stage_retorno:${stageReturnedCanonical}`;
   results.push(result);
   continue;
 }

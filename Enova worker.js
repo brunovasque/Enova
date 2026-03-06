@@ -1660,6 +1660,17 @@ function enovaV1FixturePatch(id) {
         regime_trabalho: "clt"
       };
 
+    case "fx_parceiro_v1":
+      return {
+        financiamento_conjunto: true,
+        somar_renda: true,
+        composicao_pessoa: "casal",
+        parceiro_tem_renda: true,
+        renda: 4200,
+        renda_total_para_fluxo: 4200,
+        regime_trabalho: "clt"
+      };
+
     case "fx_p3_v1":
       return {
         p3_required: true,
@@ -1843,6 +1854,36 @@ function enovaV1Scenarios(modeOverride = null) {
 
     { id: "multi_renda_coletar_valido", grupo: "multi", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_renda_v1", start_stage: "inicio_multi_renda_coletar", input: "1200", expected: { type: "single", equals: "inicio_multi_renda_pergunta" } },
     { id: "multi_renda_coletar_invalido", grupo: "multi", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_renda_v1", start_stage: "inicio_multi_renda_coletar", input: "quase nada", expected: { type: "single", equals: "inicio_multi_renda_coletar" }, assert_stayed: true },
+    { id: "parceiro_tem_renda_sim", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "parceiro_tem_renda", input: "sim", expected: { type: "single", equals: "regime_trabalho_parceiro" } },
+    { id: "parceiro_tem_renda_nao_com_titular_ok", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "parceiro_tem_renda", input: "não", expected: { type: "single", equals: "ctps_36" } },
+    { id: "parceiro_tem_renda_fallback", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "parceiro_tem_renda", input: "talvez", expected: { type: "single", equals: "parceiro_tem_renda" }, assert_stayed: true },
+
+    { id: "parceiro_regime_clt", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "regime_trabalho_parceiro", input: "clt", expected: { type: "single", equals: "inicio_multi_regime_pergunta_parceiro" } },
+    { id: "parceiro_regime_autonomo", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "regime_trabalho_parceiro", input: "autônomo", expected: { type: "single", equals: "inicio_multi_regime_pergunta_parceiro" } },
+    { id: "parceiro_regime_servidor", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "regime_trabalho_parceiro", input: "servidor", expected: { type: "single", equals: "inicio_multi_regime_pergunta_parceiro" } },
+    { id: "parceiro_regime_aposentado", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "regime_trabalho_parceiro", input: "aposentado", expected: { type: "single", equals: "inicio_multi_regime_pergunta_parceiro" } },
+    { id: "parceiro_regime_fallback", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "regime_trabalho_parceiro", input: "banana", expected: { type: "single", equals: "regime_trabalho_parceiro" }, assert_stayed: true },
+
+    { id: "parceiro_multi_regime_pergunta_sim", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_regime_pergunta_parceiro", input: "sim", expected: { type: "single", equals: "inicio_multi_regime_coletar_parceiro" } },
+    { id: "parceiro_multi_regime_pergunta_nao", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_regime_pergunta_parceiro", input: "não", expected: { type: "multiple", in: ["renda_parceiro","ctps_36","regime_trabalho"] } },
+    { id: "parceiro_multi_regime_pergunta_fallback", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_regime_pergunta_parceiro", input: "talvez", expected: { type: "single", equals: "inicio_multi_regime_pergunta_parceiro" }, assert_stayed: true },
+
+    { id: "parceiro_multi_regime_coletar_valido", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_regime_coletar_parceiro", input: "autônomo", expected: { type: "single", equals: "inicio_multi_regime_pergunta_parceiro" } },
+    { id: "parceiro_multi_regime_coletar_invalido", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_regime_coletar_parceiro", input: "batata", expected: { type: "single", equals: "inicio_multi_regime_coletar_parceiro" }, assert_stayed: true },
+
+    { id: "parceiro_renda_valida", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "renda_parceiro", input: "2500", expected: { type: "single", equals: "inicio_multi_renda_pergunta_parceiro" } },
+    { id: "parceiro_renda_invalida", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "renda_parceiro", input: "mais ou menos", expected: { type: "single", equals: "renda_parceiro" }, assert_stayed: true },
+
+    { id: "parceiro_multi_renda_pergunta_sim", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_renda_pergunta_parceiro", input: "sim", expected: { type: "single", equals: "inicio_multi_renda_coletar_parceiro" } },
+    { id: "parceiro_multi_renda_pergunta_nao", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_renda_pergunta_parceiro", input: "não", expected: { type: "multiple", in: ["ir_declarado","regime_trabalho","ctps_36"] } },
+    { id: "parceiro_multi_renda_pergunta_fallback", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_renda_pergunta_parceiro", input: "não sei", expected: { type: "single", equals: "inicio_multi_renda_pergunta_parceiro" }, assert_stayed: true },
+
+    { id: "parceiro_multi_renda_coletar_valido", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_renda_coletar_parceiro", input: "1200", expected: { type: "single", equals: "inicio_multi_renda_pergunta_parceiro" } },
+    { id: "parceiro_multi_renda_coletar_invalido", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_renda_coletar_parceiro", input: "quase nada", expected: { type: "single", equals: "inicio_multi_renda_coletar_parceiro" }, assert_stayed: true },
+
+    { id: "parceiro_ctps_36_sim", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "ctps_36_parceiro", input: "sim", expected: { type: "multiple", in: ["restricao_parceiro","restricao"] } },
+    { id: "parceiro_ctps_36_nao", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "ctps_36_parceiro", input: "não", expected: { type: "multiple", in: ["restricao_parceiro","restricao"] } },
+    { id: "parceiro_ctps_36_fallback", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "ctps_36_parceiro", input: "talvez", expected: { type: "single", equals: "ctps_36_parceiro" }, assert_stayed: true },
     { id: "docs_media_pendente", grupo: "docs", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", input: "segue", expected: { type: "multiple", in: ["envio_docs","finalizacao"] } },
     { id: "docs_media_completa", grupo: "docs", mode: "simulate-funnel", allowed_modes: ["simulate-funnel"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", script: ["enviei tudo"], expected: { type: "multiple", in: ["envio_docs","finalizacao"] } },
     { id: "regressao_docs_envio_docs", grupo: "regressao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_restricao_v1", start_stage: "regularizacao_restricao", input: "sim", expected: { type: "single", equals: "envio_docs" } },

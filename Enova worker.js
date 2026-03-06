@@ -1671,6 +1671,28 @@ function enovaV1FixturePatch(id) {
         regime_trabalho: "clt"
       };
 
+    case "fx_familiar_v1":
+      return {
+        somar_renda: true,
+        composicao_pessoa: "familiar",
+        familiar_tipo: "pai",
+        renda: 4200,
+        renda_total_para_fluxo: 4200,
+        regime_trabalho: "clt"
+      };
+
+    case "fx_familiar_p3_v1":
+      return {
+        somar_renda: true,
+        composicao_pessoa: "familiar",
+        familiar_tipo: "pai",
+        p3_required: true,
+        p3_done: false,
+        renda: 4200,
+        renda_total_para_fluxo: 4200,
+        regime_trabalho: "clt"
+      };
+
     case "fx_p3_v1":
       return {
         p3_required: true,

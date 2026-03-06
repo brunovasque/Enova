@@ -1693,6 +1693,93 @@ function enovaV1FixturePatch(id) {
         regime_trabalho: "clt"
       };
 
+   case "fx_gate_renda_solo_v1":
+      return {
+        somar_renda: false,
+        financiamento_conjunto: false,
+        parceiro_tem_renda: false,
+        regime_trabalho: "clt",
+        renda_total_para_fluxo: 0
+      };
+
+    case "fx_gate_renda_parceiro_v1":
+      return {
+        somar_renda: true,
+        financiamento_conjunto: true,
+        composicao_pessoa: "casal",
+        parceiro_tem_renda: true,
+        regime_trabalho: "clt",
+        regime_trabalho_parceiro: "clt",
+        renda_total_para_fluxo: 4200
+      };
+
+    case "fx_gate_ir_autonomo_v1":
+      return {
+        somar_renda: false,
+        financiamento_conjunto: false,
+        parceiro_tem_renda: false,
+        regime_trabalho: "autonomo",
+        renda_total_para_fluxo: 3200
+      };
+
+    case "fx_gate_ir_parceiro_v1":
+      return {
+        somar_renda: true,
+        financiamento_conjunto: true,
+        composicao_pessoa: "casal",
+        parceiro_tem_renda: true,
+        regime_trabalho: "clt",
+        regime_trabalho_parceiro: "autonomo",
+        renda_total_para_fluxo: 6200
+      };
+
+    case "fx_gate_quem_somar_v1":
+      return {
+        somar_renda: true,
+        financiamento_conjunto: false,
+        composicao_pessoa: null,
+        regime_trabalho: "autonomo",
+        renda_total_para_fluxo: 1800
+      };
+
+    case "fx_gate_ctps_solo_v1":
+      return {
+        somar_renda: false,
+        financiamento_conjunto: false,
+        parceiro_tem_renda: false,
+        renda_total_para_fluxo: 3200,
+        regime_trabalho: "clt"
+      };
+
+    case "fx_gate_ctps_solo_alta_v1":
+      return {
+        somar_renda: false,
+        financiamento_conjunto: false,
+        parceiro_tem_renda: false,
+        renda_total_para_fluxo: 5200,
+        regime_trabalho: "clt"
+      };
+
+    case "fx_gate_ctps_conjunto_v1":
+      return {
+        somar_renda: true,
+        financiamento_conjunto: true,
+        composicao_pessoa: "casal",
+        parceiro_tem_renda: true,
+        renda_total_para_fluxo: 6500,
+        regime_trabalho: "clt",
+        regime_trabalho_parceiro: "clt"
+      };
+
+    case "fx_gate_dependente_v1":
+      return {
+        somar_renda: false,
+        financiamento_conjunto: false,
+        parceiro_tem_renda: false,
+        renda_total_para_fluxo: 3200,
+        regime_trabalho: "clt"
+      };
+
     case "fx_p3_v1":
       return {
         p3_required: true,
@@ -1973,6 +2060,36 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "p3_regularizacao_nao", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "regularizacao_restricao_p3", input: "não", expected: { type: "multiple", in: ["regime_trabalho","envio_docs","regularizacao_restricao_p3"] } },
     { id: "p3_regularizacao_fallback", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "regularizacao_restricao_p3", input: "talvez", expected: { type: "single", equals: "regularizacao_restricao_p3" }, assert_stayed: true },
 
+        { id: "gates_renda_solo_valida", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_renda_solo_v1", start_stage: "renda", input: "3500", expected: { type: "multiple", in: ["inicio_multi_renda_pergunta","quem_pode_somar"] } },
+    { id: "gates_renda_parceiro_valida", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_renda_parceiro_v1", start_stage: "renda", input: "3500", expected: { type: "multiple", in: ["renda_parceiro","quem_pode_somar","inicio_multi_renda_pergunta"] } },
+    { id: "gates_renda_invalida", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_renda_solo_v1", start_stage: "renda", input: "mais ou menos", expected: { type: "single", equals: "renda" }, assert_stayed: true },
+
+    { id: "gates_ir_declarado_autonomo_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ir_autonomo_v1", start_stage: "ir_declarado", input: "sim", expected: { type: "multiple", in: ["renda","ctps_36"] } },
+    { id: "gates_ir_declarado_autonomo_nao", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ir_autonomo_v1", start_stage: "ir_declarado", input: "não", expected: { type: "multiple", in: ["autonomo_compor_renda","renda","ctps_36"] } },
+    { id: "gates_ir_declarado_parceiro_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ir_parceiro_v1", start_stage: "ir_declarado", input: "sim", expected: { type: "multiple", in: ["renda_parceiro","ctps_36","renda"] } },
+    { id: "gates_ir_declarado_parceiro_nao", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ir_parceiro_v1", start_stage: "ir_declarado", input: "não", expected: { type: "multiple", in: ["autonomo_compor_renda","renda_parceiro","ctps_36"] } },
+    { id: "gates_ir_declarado_fallback", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ir_autonomo_v1", start_stage: "ir_declarado", input: "talvez", expected: { type: "single", equals: "ir_declarado" }, assert_stayed: true },
+
+    { id: "gates_autonomo_compor_renda_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ir_autonomo_v1", start_stage: "autonomo_compor_renda", input: "sim", expected: { type: "multiple", in: ["interpretar_composicao","renda"] } },
+    { id: "gates_autonomo_compor_renda_nao", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ir_autonomo_v1", start_stage: "autonomo_compor_renda", input: "não", expected: { type: "multiple", in: ["renda","interpretar_composicao"] } },
+    { id: "gates_autonomo_compor_renda_fallback", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ir_autonomo_v1", start_stage: "autonomo_compor_renda", input: "não sei", expected: { type: "single", equals: "autonomo_compor_renda" }, assert_stayed: true },
+
+    { id: "gates_quem_pode_somar_parceiro", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_quem_somar_v1", start_stage: "quem_pode_somar", input: "minha esposa", expected: { type: "single", equals: "regime_trabalho_parceiro" } },
+    { id: "gates_quem_pode_somar_pai", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_quem_somar_v1", start_stage: "quem_pode_somar", input: "meu pai", expected: { type: "single", equals: "pais_casados_civil_pergunta" } },
+    { id: "gates_quem_pode_somar_familiar_generico", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_quem_somar_v1", start_stage: "quem_pode_somar", input: "minha irmã", expected: { type: "multiple", in: ["regime_trabalho_parceiro_familiar","somar_renda_familiar"] } },
+    { id: "gates_quem_pode_somar_ninguem", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_quem_somar_v1", start_stage: "quem_pode_somar", input: "não tenho ninguém", expected: { type: "single", equals: "fim_ineligivel" } },
+    { id: "gates_quem_pode_somar_fallback", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_quem_somar_v1", start_stage: "quem_pode_somar", input: "talvez", expected: { type: "single", equals: "quem_pode_somar" }, assert_stayed: true },
+
+    { id: "gates_ctps_36_solo_baixa_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_solo_v1", start_stage: "ctps_36", input: "sim", expected: { type: "multiple", in: ["dependente","restricao"] } },
+    { id: "gates_ctps_36_solo_baixa_nao", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_solo_v1", start_stage: "ctps_36", input: "não", expected: { type: "multiple", in: ["dependente","restricao"] } },
+    { id: "gates_ctps_36_solo_alta_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_solo_alta_v1", start_stage: "ctps_36", input: "sim", expected: { type: "single", equals: "restricao" } },
+    { id: "gates_ctps_36_conjunto_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_conjunto_v1", start_stage: "ctps_36", input: "sim", expected: { type: "multiple", in: ["ctps_36_parceiro","restricao","dependente"] } },
+    { id: "gates_ctps_36_fallback", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_solo_v1", start_stage: "ctps_36", input: "talvez", expected: { type: "single", equals: "ctps_36" }, assert_stayed: true },
+
+    { id: "gates_dependente_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_dependente_v1", start_stage: "dependente", input: "sim", expected: { type: "single", equals: "restricao" } },
+    { id: "gates_dependente_nao", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_dependente_v1", start_stage: "dependente", input: "não", expected: { type: "single", equals: "restricao" } },
+    { id: "gates_dependente_fallback", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_dependente_v1", start_stage: "dependente", input: "não sei", expected: { type: "single", equals: "dependente" }, assert_stayed: true },
+    
     { id: "docs_textual_stay", grupo: "docs", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_docs_text_v1", start_stage: "envio_docs", input: "ainda não tenho todos", expected: { type: "single", equals: "envio_docs" }, assert_stayed: true },
    
     { id: "docs_media_pendente", grupo: "docs", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", input: "segue", expected: { type: "multiple", in: ["envio_docs","finalizacao"] } },

@@ -10591,7 +10591,7 @@ case "possui_renda_extra": {
   });
 
   const sim = /(sim|tenho|faço|faco|uber|ifood|extra|bico)/i.test(t);
-  const nao = /(nao|não|n\s?tem|nenhuma|zero)/i.test(t);
+  const nao = /^(nao|não|n\s?tem|nenhuma|zero)$/i.test(String(t || "").trim());
 
   // ============================================================
   // SIM — possui renda extra → vai para renda_mista_detalhe

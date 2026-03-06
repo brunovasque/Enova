@@ -1812,6 +1812,21 @@ async function runEnovaCanonicalSuiteV1(env, ctx, options = {}) {
 
   const results = [];
 
+  if (options.list === true) {
+  return {
+    ok: true,
+    suite: "enova_worker_canonical_v1",
+    scenarios: scenarios.map((s) => ({
+      scenario_id: s.id,
+      grupo: s.grupo,
+      mode: s.mode,
+      start_stage: s.start_stage,
+      fixture: s.fixture
+    })),
+    ts: new Date().toISOString()
+  };
+}
+
   for (const s of items) {
     const result = {
       scenario_id: s.id,

@@ -2112,7 +2112,7 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "gates_ctps_36_solo_baixa_nao", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_solo_v1", start_stage: "ctps_36", input: "não", expected: { type: "multiple", in: ["dependente","restricao"] } },
     { id: "gates_ctps_36_solo_alta_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_solo_alta_v1", start_stage: "ctps_36", input: "sim", expected: { type: "single", equals: "restricao" } },
     { id: "gates_ctps_36_conjunto_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_conjunto_v1", start_stage: "ctps_36", input: "sim", expected: { type: "multiple", in: ["ctps_36_parceiro","restricao","dependente"] } },
-    { id: "gates_ctps_36_fallback", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_solo_v1", start_stage: "ctps_36", input: "talvez", expected: { type: "single", equals: "ctps_36" }, assert_stayed: true },
+    { id: "gates_ctps_36_fallback", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_solo_v1", start_stage: "ctps_36", input: "banana", expected: { type: "single", equals: "ctps_36" }, assert_stayed: true },
 
     { id: "gates_dependente_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_dependente_v1", start_stage: "dependente", input: "sim", expected: { type: "single", equals: "restricao" } },
     { id: "gates_dependente_nao", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_dependente_v1", start_stage: "dependente", input: "não", expected: { type: "single", equals: "restricao" } },
@@ -11379,7 +11379,7 @@ case "autonomo_compor_renda": {
     /(sim|pode|consigo|consigo sim|tenho|comprovo|declaro|faço|faco|faço declaração|emit[oó] nota|emito nota|rpa|recibo)/i.test(t);
 
   const nao =
-    /(n[aã]o|não consigo|nao consigo|não tenho|nao tenho|sem comprovante|nao declaro|não declaro)/i.test(t);
+    /^(n[aã]o|não consigo|nao consigo|não tenho|nao tenho|sem comprovante|nao declaro|não declaro)$/i.test(String(t || "").trim());
 
   // ============================================================
   // AUTÔNOMO CONSEGUE COMPROVAR
@@ -12275,7 +12275,7 @@ case "dependente": {
     isYes(txt) || /(sim|tenho|filho|filha|filhos|crian[cç]a|menor|dependente|dependentes)/i.test(txt);
 
   const nao =
-    isNo(txt) || /(nao|não|nao tenho|não tenho|sem dependente|sem dependentes|só eu|somente eu|nenhum filho)/i.test(txt);
+    isNo(txt) || /^(nao|não|nao tenho|não tenho|sem dependente|sem dependentes|só eu|somente eu|nenhum filho)$/i.test(String(txt || "").trim());
 
   const talvez =
     /(não sei|nao sei|talvez|acho|não lembro|nao lembro)/i.test(txt);

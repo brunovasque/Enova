@@ -742,6 +742,109 @@ function parseP3Tipo(text) {
   return null;
 }
 
+// =============================================================
+// 🧠 OFFTRACK GUARD — IA simples (classifica pergunta fora do trilho)
+//  - Só decide: OFFTRACK ou ONTRACK
+//  - Se OFFTRACK, dá um label (FGTS, PRECO, REGIAO, COMPOR_RENDA, CASA, OUTRO)
+//  - NÃO muda fase. Só orienta responder padrão.
+// =============================================================
+function shouldConsiderOfftrack(text) {
+  const nt = normalizeText(text || "");
+  if (!nt) return false;
+
+  // Heurística barata: só chama IA quando parece pergunta/assunto paralelo
+  if (nt.includes("?")) return true;
+
+  return (
+    /\b(fgts|valor|preco|parcela|entrada|onde|bairro|regiao|cidade|casa|namorad|espos|marid|restric|spc|serasa|negativ|sem registro|sem clt|nao tenho registro)\b/.test(nt)
+  );
+}
+
+async function offtrackGuard(env, { wa_id, stage, text }) {
+  // Desligável por env (segurança)
+  const enabled = String(env.OFFTRACK_AI_ENABLED || "true").toLowerCase() !== "false";
+  if (!enabled) return { offtrack: false };
+
+  if (!shouldConsiderOfftrack(text)) return { offtrack: false };
+
+  // Se não tiver key, não faz nada (não quebra atendimento)
+  // Se não tiver key, não faz nada (não quebra atendimento)
+const envMode = String(env.ENV_MODE || env.ENOVA_ENV || "").toLowerCase();
+const apiKey =
+  envMode === "prod"
+    ? env.OPENAI_API_KEY_PROD
+    : env.OPENAI_API_KEY_TEST;
+
+if (!apiKey) return { offtrack: false };
+
+// Modelo (você já criou OFFTRACK_AI_MODEL nos 2 ambientes)
+const model = String(env.OFFTRACK_AI_MODEL || "gpt-4.1-mini");
+  const labels = ["ONTRACK", "FGTS", "PRECO", "REGIAO", "COMPOR_RENDA", "CASA", "RESTRICAO", "OUTRO"];
+
+  const system =
+    "Você é um roteador. Sua única tarefa é dizer se a mensagem do cliente é uma PERGUNTA FORA DO TRILHO (OFFTRACK) " +
+    "ou uma RESPOSTA DIRETA à pergunta atual (ONTRACK). " +
+    "Você NÃO pode inventar etapas, NÃO pode orientar financiamento, NÃO pode responder conteúdo. " +
+    "Responda APENAS JSON válido.";
+
+  const user =
+    JSON.stringify({
+      stage_atual: stage,
+      texto_cliente: String(text || ""),
+      labels_validos: labels
+    });
+
+  const body = {
+    model,
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user }
+    ]
+  };
+
+  let resp;
+  try {
+    resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+  } catch {
+    return { offtrack: false };
+  }
+
+  if (!resp.ok) return { offtrack: false };
+
+  let data;
+  try {
+    data = await resp.json();
+  } catch {
+    return { offtrack: false };
+  }
+
+  const content = data?.choices?.[0]?.message?.content || "{}";
+
+  let parsed = null;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    parsed = null;
+  }
+
+  const labelRaw = String(parsed?.label || parsed?.result || "").toUpperCase().trim();
+  const confidence = Number(parsed?.confidence ?? 0);
+
+  const label = labels.includes(labelRaw) ? labelRaw : "OUTRO";
+  const offtrack = label !== "ONTRACK";
+
+  return { offtrack, label, confidence: Number.isFinite(confidence) ? confidence : null };
+}
+
 function getP3TipoLabel(tipo) {
   const t = normalizeText(tipo || "");
   if (t === "pai") return "seu pai";
@@ -2777,6 +2880,43 @@ let userText = null;
       })
     );
 
+// ============================================================
+// 🧠 OFFTRACK GUARD (IA apertador de botão) — NÃO MUDA FASE
+// ============================================================
+try {
+  const guard = await offtrackGuard(env, {
+    wa_id: waId,
+    stage: st?.fase_conversa || "inicio",
+    text: userText
+  });
+
+  if (guard?.offtrack === true) {
+    await telemetry(env, {
+      wa_id: waId,
+      event: "offtrack_signal",
+      stage: st?.fase_conversa || "inicio",
+      severity: "info",
+      message: "Cliente perguntou fora do trilho — guard respondeu padrão e manteve fase",
+      details: {
+        label: guard.label || null,
+        confidence: guard.confidence ?? null,
+        textPreview: userText.length > 120 ? userText.slice(0, 120) + "...(truncado)" : userText
+      }
+    });
+
+    // Resposta padrão (sem inventar nada / sem pular etapa)
+    const msg =
+      "Certo. Vou analisar seu perfil primeiro e, no final, tiro todas suas dúvidas, combinado?\n" +
+      "Pra eu seguir aqui, me responde só a pergunta anterior direitinho. 🙏";
+
+    await sendMessage(env, waId, msg);
+    return metaWebhookResponse(200, { reason: "offtrack_guard", type });
+  }
+} catch (e) {
+  // Guard nunca pode derrubar o funil
+  console.error("OFFTRACK-GUARD-ERROR:", e);
+}
+
     // ============================================================
     // 2) CHAMADA CORRETA DO FUNIL
     // ============================================================
@@ -4751,6 +4891,81 @@ async function runFunnel(env, st, userText) {
   const stage = st.fase_conversa || "inicio";
   const t = (userText || "").trim().toLowerCase();
 
+  // ============================================================
+  // 🧷 OFFTRACK DETERMINÍSTICO (YES/NO stages)
+  // Se a fase atual espera SIM/NÃO e o texto não é SIM/NÃO → OFFTRACK (sem IA)
+  // ============================================================
+  const yesNoStages = new Set([
+    "dependente",
+    "restricao",
+    "confirmar_casamento",
+    "regularizacao_restricao",
+    "ctps_36",
+    "ctps_36_parceiro",
+    "restricao_parceiro",
+    "restricao_familiar",
+    "restricao_p3"
+  ]);
+
+  if (yesNoStages.has(stage)) {
+    const txt = (userText || "").trim();
+    const ehSim = isYes(txt);
+    const ehNao = isNo(txt);
+    const ehTalvez = /\b(talvez|nao\s+sei|não\s+sei|depende|acho\s+que)\b/i.test(txt);
+
+    // não é resposta direta esperada → trava e pede responder a pergunta anterior
+    if (!ehSim && !ehNao && !ehTalvez) {
+      return step(
+        env,
+        st,
+        [
+          "Certo. Vou analisar seu perfil primeiro e, no final, tiro todas suas dúvidas, combinado?",
+          "Pra eu seguir aqui, me responde só a pergunta anterior direitinho. 🙏"
+        ],
+        stage
+      );
+    }
+  }
+
+  // ============================================================
+  // 🧠 OFFTRACK GUARD — IA apertador (SIM + REAL) — NÃO MUDA FASE
+  //  Importante: precisa retornar via step() para o simulate capturar reply_text
+  // ============================================================
+  try {
+    const guard = await offtrackGuard(env, {
+      wa_id: st.wa_id,
+      stage,
+      text: userText
+    });
+
+    if (guard?.offtrack === true) {
+      await telemetry(env, {
+        wa_id: st.wa_id,
+        event: "offtrack_signal",
+        stage,
+        severity: "info",
+        message: "Pergunta fora do trilho — mantendo fase",
+        details: {
+          label: guard.label || null,
+          confidence: guard.confidence ?? null,
+          raw: userText
+        }
+      });
+
+      return step(
+        env,
+        st,
+        [
+          "Certo. Vou analisar seu perfil primeiro e, no final, tiro todas suas dúvidas, combinado?",
+          "Pra eu seguir aqui, me responde só a pergunta anterior direitinho. 🙏"
+        ],
+        stage // mantém a mesma fase (não pula etapa)
+      );
+    }
+  } catch (e) {
+    console.error("OFFTRACK_GUARD_RUNFUNNEL_ERROR:", e);
+  }
+  
   // ============================================================
   // 🛰 ENTER_STAGE
   // ============================================================
@@ -6979,9 +7194,9 @@ await funnelTelemetry(env, {
 // C10B — PAIS CASADOS NO CIVIL?
 // =========================================================
 case "pais_casados_civil_pergunta": {
-  const nt = normalizeText(userText || "");
+  const nt = normalizeText(userText || "").trim();
   const sim = isYes(nt) || /^sim$/i.test(nt);
-  const nao = isNo(nt) || /^(nao|não)$/i.test(nt);
+  const nao = isNo(nt) || /^n[aã]o(\s+(sei|tenho))?$/i.test(nt);
 
   if (!sim && !nao) {
     return step(
@@ -7490,14 +7705,22 @@ case "inicio_multi_renda_coletar": {
 case "inicio_multi_regime_familiar_pergunta": {
   const nt = normalizeText(userText || "");
   const famLabel = st.familiar_tipo === "pai" ? "seu pai" : st.familiar_tipo === "mae" ? "sua mãe" : "seu familiar";
+  const negativoFlex =
+    isNo(nt) ||
+    /\bnao\s+sei\b/i.test(nt) ||
+    /\bn[aã]o\s+sei\b/i.test(String(userText || ""));
 
   if (isYes(nt)) {
-    return step(env, st, ["Perfeito! 👍", `Me diga qual é o outro regime de trabalho de ${famLabel}.`], "inicio_multi_regime_familiar_loop");
-  }
+  return step(env, st, ["Perfeito! 👍", `Me diga qual é o outro regime de trabalho de ${famLabel}.`], "inicio_multi_regime_familiar_loop");
+}
 
-  if (isNo(nt)) {
-    return step(env, st, ["Certo! 😊", `Agora me diga o valor da renda mensal de ${famLabel}.`], "renda_parceiro_familiar");
-  }
+if (
+  negativoFlex ||
+  /^(nao|não)$/i.test(String(userText || "").trim()) ||
+  /^(nao|não)$/i.test(nt)
+) {
+  return step(env, st, ["Certo! 😊", `Agora me diga o valor da renda mensal de ${famLabel}.`], "renda_parceiro_familiar");
+}
 
   return step(env, st, ["Só para confirmar 😊", `${famLabel} tem mais algum regime de trabalho além desse?`, "Responda sim ou não."], "inicio_multi_regime_familiar_pergunta");
 }

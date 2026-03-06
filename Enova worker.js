@@ -1780,6 +1780,35 @@ function enovaV1FixturePatch(id) {
         regime_trabalho: "clt"
       };
 
+    case "fx_contexto_extra_v1":
+      return {
+        somar_renda: true,
+        financiamento_conjunto: false,
+        composicao_pessoa: null,
+        renda: 1800,
+        renda_total_para_fluxo: 1800,
+        regime_trabalho: "clt"
+      };
+
+    case "fx_contexto_mista_v1":
+      return {
+        somar_renda: false,
+        financiamento_conjunto: false,
+        renda: 1800,
+        renda_total_para_fluxo: 1800,
+        regime_trabalho: "clt",
+        renda_mista: false
+      };
+
+    case "fx_autonomo_sem_ir_v1":
+      return {
+        somar_renda: false,
+        financiamento_conjunto: false,
+        parceiro_tem_renda: false,
+        regime_trabalho: "autonomo",
+        renda_total_para_fluxo: 2200
+      };
+
     case "fx_p3_v1":
       return {
         p3_required: true,
@@ -2089,6 +2118,31 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "gates_dependente_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_dependente_v1", start_stage: "dependente", input: "sim", expected: { type: "single", equals: "restricao" } },
     { id: "gates_dependente_nao", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_dependente_v1", start_stage: "dependente", input: "não", expected: { type: "single", equals: "restricao" } },
     { id: "gates_dependente_fallback", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_dependente_v1", start_stage: "dependente", input: "não sei", expected: { type: "single", equals: "dependente" }, assert_stayed: true },
+    
+    { id: "contexto_interpretar_composicao_parceiro", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_extra_v1", start_stage: "interpretar_composicao", input: "com meu parceiro", expected: { type: "single", equals: "regime_trabalho_parceiro" } },
+    { id: "contexto_interpretar_composicao_familiar", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_extra_v1", start_stage: "interpretar_composicao", input: "com minha mãe", expected: { type: "single", equals: "somar_renda_familiar" } },
+    { id: "contexto_interpretar_composicao_sozinho", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_extra_v1", start_stage: "interpretar_composicao", input: "só eu mesmo", expected: { type: "single", equals: "ir_declarado" } },
+    { id: "contexto_interpretar_composicao_fallback", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_extra_v1", start_stage: "interpretar_composicao", input: "talvez", expected: { type: "single", equals: "interpretar_composicao" }, assert_stayed: true },
+
+    { id: "contexto_possui_renda_extra_sim", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_mista_v1", start_stage: "possui_renda_extra", input: "sim, faço uber", expected: { type: "single", equals: "renda_mista_detalhe" } },
+    { id: "contexto_possui_renda_extra_nao", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_mista_v1", start_stage: "possui_renda_extra", input: "não", expected: { type: "single", equals: "ir_declarado" } },
+    { id: "contexto_possui_renda_extra_fallback", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_mista_v1", start_stage: "possui_renda_extra", input: "não sei", expected: { type: "single", equals: "possui_renda_extra" }, assert_stayed: true },
+
+    { id: "contexto_renda_mista_valida", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_mista_v1", start_stage: "renda_mista_detalhe", input: "2000 clt + 1200 uber", expected: { type: "single", equals: "ir_declarado" } },
+    { id: "contexto_renda_mista_invalida", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_mista_v1", start_stage: "renda_mista_detalhe", input: "mais ou menos", expected: { type: "single", equals: "renda_mista_detalhe" }, assert_stayed: true },
+
+    { id: "contexto_sugerir_composicao_mista_parceiro", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_mista_v1", start_stage: "sugerir_composicao_mista", input: "com meu parceiro", expected: { type: "single", equals: "regime_trabalho_parceiro" } },
+    { id: "contexto_sugerir_composicao_mista_familiar", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_mista_v1", start_stage: "sugerir_composicao_mista", input: "com minha mãe", expected: { type: "single", equals: "regime_trabalho_parceiro_familiar" } },
+    { id: "contexto_sugerir_composicao_mista_fallback", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_mista_v1", start_stage: "sugerir_composicao_mista", input: "talvez", expected: { type: "single", equals: "sugerir_composicao_mista" }, assert_stayed: true },
+
+    { id: "contexto_autonomo_sem_ir_caminho_parceiro", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_autonomo_sem_ir_v1", start_stage: "autonomo_sem_ir_caminho", input: "com meu parceiro", expected: { type: "single", equals: "regime_trabalho_parceiro" } },
+    { id: "contexto_autonomo_sem_ir_caminho_familiar", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_autonomo_sem_ir_v1", start_stage: "autonomo_sem_ir_caminho", input: "com minha mãe", expected: { type: "single", equals: "somar_renda_familiar" } },
+    { id: "contexto_autonomo_sem_ir_caminho_ninguem", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_autonomo_sem_ir_v1", start_stage: "autonomo_sem_ir_caminho", input: "não", expected: { type: "single", equals: "autonomo_sem_ir_entrada" } },
+    { id: "contexto_autonomo_sem_ir_caminho_fallback", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_autonomo_sem_ir_v1", start_stage: "autonomo_sem_ir_caminho", input: "talvez", expected: { type: "single", equals: "autonomo_sem_ir_caminho" }, assert_stayed: true },
+
+    { id: "contexto_autonomo_sem_ir_entrada_sim", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_autonomo_sem_ir_v1", start_stage: "autonomo_sem_ir_entrada", input: "sim", expected: { type: "single", equals: "renda" } },
+    { id: "contexto_autonomo_sem_ir_entrada_nao", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_autonomo_sem_ir_v1", start_stage: "autonomo_sem_ir_entrada", input: "não", expected: { type: "single", equals: "fim_inelegivel" } },
+    { id: "contexto_autonomo_sem_ir_entrada_fallback", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_autonomo_sem_ir_v1", start_stage: "autonomo_sem_ir_entrada", input: "talvez", expected: { type: "single", equals: "autonomo_sem_ir_entrada" }, assert_stayed: true },
     
     { id: "docs_textual_stay", grupo: "docs", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_docs_text_v1", start_stage: "envio_docs", input: "ainda não tenho todos", expected: { type: "single", equals: "envio_docs" }, assert_stayed: true },
    

@@ -9045,7 +9045,7 @@ case "regularizacao_restricao_p3": {
           "Ótimo! 👏",
           "Como o seu cadastro principal já está fechado, já vamos pra etapa de documentos 😊"
         ],
-        "docs"
+        "envio_docs"
       );
     }
 
@@ -11686,7 +11686,7 @@ if (modoFamiliar) {
         "2) Enviar pelo site",
         "3) Agendar uma visita presencial (decorado + simulação no plantão)"
       ],
-      "docs"
+      "envio_docs"
     );
   }
 }
@@ -11815,7 +11815,7 @@ return step(env, st,
   "2) Enviar pelo site",
   "3) Agendar uma visita presencial (decorado + simulação no plantão)"
 ],
-  "docs"
+  "envio_docs"
 );
   }
 
@@ -11864,7 +11864,7 @@ return step(env, st,
   "2) Enviar pelo site",
   "3) Agendar uma visita presencial (decorado + simulação no plantão)"
 ],
-  "docs"
+  "envio_docs"
 );
 }
 
@@ -11898,7 +11898,7 @@ if (incerto) {
   "2) Enviar pelo site",
   "3) Agendar uma visita presencial (decorado + simulação no plantão)"
 ],
-      "docs"
+      "envio_docs"
     );
   }
 
@@ -11937,7 +11937,7 @@ if (incerto) {
   "2) Enviar pelo site",
   "3) Agendar uma visita presencial (decorado + simulação no plantão)"
 ],
-    "docs"
+    "envio_docs"
   );
 }
 
@@ -12137,7 +12137,7 @@ if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restric
   "2) Enviar pelo site",
   "3) Agendar uma visita presencial (decorado + simulação no plantão)"
 ],
-  "docs"
+  "envio_docs"
 );
   }
 
@@ -12187,7 +12187,7 @@ if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restric
   "2) Enviar pelo site",
   "3) Agendar uma visita presencial (decorado + simulação no plantão)"
 ],
-  "docs"
+  "envio_docs"
 );
   }
 
@@ -12402,7 +12402,7 @@ case "regularizacao_restricao": {
           "2) Enviar pelo site",
           "3) Agendar uma visita presencial (decorado + simulação no plantão)"
         ],
-        "docs"
+        "envio_docs"
       );
     }
 

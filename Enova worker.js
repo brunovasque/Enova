@@ -1803,10 +1803,6 @@ function enovaV1Scenarios(modeOverride = null) {
     : common;
 }
 
-  if (!modeOverride) return common;
-  return common.map((s) => ({ ...s, mode: modeOverride }));
-}
-
 async function runEnovaCanonicalSuiteV1(env, ctx, options = {}) {
   const startedAt = Date.now();
   const scenarios = enovaV1Scenarios(options.mode_override);

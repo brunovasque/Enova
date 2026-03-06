@@ -1618,6 +1618,775 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
   }
 }
 
+
+const ENOVA_V1_VALID_STAGES = Object.freeze([
+  "inicio","inicio_decisao","inicio_programa","inicio_nome","inicio_nacionalidade","inicio_rnm","inicio_rnm_validade","estado_civil","confirmar_casamento","financiamento_conjunto","parceiro_tem_renda","somar_renda_solteiro","somar_renda_familiar","pais_casados_civil_pergunta","confirmar_avo_familiar","renda_familiar_valor","inicio_multi_renda_pergunta","inicio_multi_renda_coletar","inicio_multi_regime_familiar_pergunta","inicio_multi_regime_familiar_loop","inicio_multi_renda_familiar_pergunta","inicio_multi_renda_familiar_loop","inicio_multi_regime_pergunta_parceiro","inicio_multi_regime_coletar_parceiro","inicio_multi_renda_pergunta_parceiro","inicio_multi_renda_coletar_parceiro","regime_trabalho","autonomo_ir_pergunta","autonomo_sem_ir_ir_este_ano","autonomo_sem_ir_caminho","autonomo_sem_ir_entrada","fim_inelegivel","fim_ineligivel","verificar_averbacao","verificar_inventario","p3_tipo_pergunta","regime_trabalho_parceiro_familiar","finalizacao","regime_trabalho_parceiro_familiar_p3","renda_parceiro_familiar_p3","inicio_multi_regime_p3_pergunta","inicio_multi_regime_p3_loop","inicio_multi_renda_p3_pergunta","inicio_multi_renda_p3_loop","ctps_36_parceiro_p3","restricao_parceiro_p3","regularizacao_restricao_p3","inicio_multi_regime_pergunta","inicio_multi_regime_coletar","regime_trabalho_parceiro","renda","renda_parceiro","renda_parceiro_familiar","renda_mista_detalhe","possui_renda_extra","interpretar_composicao","quem_pode_somar","sugerir_composicao_mista","ir_declarado","autonomo_compor_renda","ctps_36","ctps_36_parceiro","dependente","restricao","restricao_parceiro","regularizacao_restricao_parceiro","regularizacao_restricao","envio_docs","agendamento_visita","finalizacao_processo","aguardando_retorno_correspondente"
+]);
+
+const ENOVA_V1_BANNED_ALIASES = Object.freeze([
+  "envio_docs",
+  "regularizacao_restricao(_parceiro)",
+  "regularizacao_restricao_parceiro|regularizacao_restricao"
+]);
+
+function enovaV1FixturePatch(id) {
+  switch (id) {
+    case "fx_base_topo_v1":
+      return {
+        ultima_interacao: new Date().toISOString()
+      };
+
+    case "fx_composicao_v1":
+      return {
+        financiamento_conjunto: true,
+        somar_renda: true,
+        composicao_pessoa: "casal"
+      };
+
+    case "fx_restricao_parceiro_v1":
+      return {
+        financiamento_conjunto: true,
+        somar_renda: true,
+        composicao_pessoa: "casal",
+        restricao_parceiro: false,
+        renda_total_para_fluxo: 7200,
+        regime_trabalho: "clt"
+      };
+
+    case "fx_renda_v1":
+      return {
+        renda_total_para_fluxo: 6500,
+        renda_bruta: 6500,
+        regime_trabalho: "clt"
+      };
+
+    case "fx_parceiro_v1":
+      return {
+        financiamento_conjunto: true,
+        somar_renda: true,
+        composicao_pessoa: "casal",
+        parceiro_tem_renda: true,
+        renda: 4200,
+        renda_total_para_fluxo: 4200,
+        regime_trabalho: "clt"
+      };
+
+    case "fx_familiar_v1":
+      return {
+        somar_renda: true,
+        composicao_pessoa: "familiar",
+        familiar_tipo: "pai",
+        renda: 4200,
+        renda_total_para_fluxo: 4200,
+        regime_trabalho: "clt"
+      };
+
+    case "fx_familiar_p3_v1":
+      return {
+        somar_renda: true,
+        composicao_pessoa: "familiar",
+        familiar_tipo: "pai",
+        p3_required: true,
+        p3_done: false,
+        renda: 4200,
+        renda_total_para_fluxo: 4200,
+        regime_trabalho: "clt"
+      };
+
+   case "fx_gate_renda_solo_v1":
+      return {
+        somar_renda: false,
+        financiamento_conjunto: false,
+        parceiro_tem_renda: false,
+        regime_trabalho: "clt",
+        renda_total_para_fluxo: 0
+      };
+
+    case "fx_gate_renda_parceiro_v1":
+      return {
+        somar_renda: true,
+        financiamento_conjunto: true,
+        composicao_pessoa: "casal",
+        parceiro_tem_renda: true,
+        regime_trabalho: "clt",
+        regime_trabalho_parceiro: "clt",
+        renda_total_para_fluxo: 4200
+      };
+
+    case "fx_gate_ir_autonomo_v1":
+      return {
+        somar_renda: false,
+        financiamento_conjunto: false,
+        parceiro_tem_renda: false,
+        regime_trabalho: "autonomo",
+        renda_total_para_fluxo: 3200
+      };
+
+    case "fx_gate_ir_parceiro_v1":
+      return {
+        somar_renda: true,
+        financiamento_conjunto: true,
+        composicao_pessoa: "casal",
+        parceiro_tem_renda: true,
+        regime_trabalho: "clt",
+        regime_trabalho_parceiro: "autonomo",
+        renda_total_para_fluxo: 6200
+      };
+
+    case "fx_gate_quem_somar_v1":
+      return {
+        somar_renda: true,
+        financiamento_conjunto: false,
+        composicao_pessoa: null,
+        regime_trabalho: "autonomo",
+        renda_total_para_fluxo: 1800
+      };
+
+    case "fx_gate_ctps_solo_v1":
+      return {
+        somar_renda: false,
+        financiamento_conjunto: false,
+        parceiro_tem_renda: false,
+        renda_total_para_fluxo: 3200,
+        regime_trabalho: "clt"
+      };
+
+    case "fx_gate_ctps_solo_alta_v1":
+      return {
+        somar_renda: false,
+        financiamento_conjunto: false,
+        parceiro_tem_renda: false,
+        renda_total_para_fluxo: 5200,
+        regime_trabalho: "clt"
+      };
+
+    case "fx_gate_ctps_conjunto_v1":
+      return {
+        somar_renda: true,
+        financiamento_conjunto: true,
+        composicao_pessoa: "casal",
+        parceiro_tem_renda: true,
+        renda_total_para_fluxo: 6500,
+        regime_trabalho: "clt",
+        regime_trabalho_parceiro: "clt"
+      };
+
+    case "fx_gate_dependente_v1":
+      return {
+        somar_renda: false,
+        financiamento_conjunto: false,
+        parceiro_tem_renda: false,
+        renda_total_para_fluxo: 3200,
+        regime_trabalho: "clt"
+      };
+
+    case "fx_contexto_extra_v1":
+      return {
+        somar_renda: true,
+        financiamento_conjunto: false,
+        composicao_pessoa: null,
+        renda: 1800,
+        renda_total_para_fluxo: 1800,
+        regime_trabalho: "clt"
+      };
+
+    case "fx_contexto_mista_v1":
+      return {
+        somar_renda: false,
+        financiamento_conjunto: false,
+        renda: 1800,
+        renda_total_para_fluxo: 1800,
+        regime_trabalho: "clt",
+        renda_mista: false
+      };
+
+    case "fx_autonomo_sem_ir_v1":
+      return {
+        somar_renda: false,
+        financiamento_conjunto: false,
+        parceiro_tem_renda: false,
+        regime_trabalho: "autonomo",
+        renda_total_para_fluxo: 2200
+      };
+
+    case "fx_p3_v1":
+      return {
+        p3_required: true,
+        p3_done: false,
+        familiar_tipo: "pai",
+        composicao_pessoa: "familiar"
+      };
+
+    case "fx_restricao_v1":
+      return {
+        restricao: true,
+        valor_restricao_aproximado: 500,
+        renda_total_para_fluxo: 7200
+      };
+
+    case "fx_docs_text_v1":
+      return {
+        fase_conversa: "envio_docs",
+        docs_faltantes: ["rg", "cpf"],
+        docs_status_geral: "pendente",
+        docs_lista_enviada: true
+      };
+
+    case "fx_docs_media_v1":
+      return {
+        fase_conversa: "envio_docs",
+        docs_faltantes: ["comprovante_renda"],
+        docs_status_geral: "parcial",
+        docs_itens_recebidos: ["rg", "cpf"]
+      };
+
+    default:
+      return null;
+  }
+}
+
+function enovaBuildReplayTextEvent(wa_id, text) {
+  return {
+    object: "whatsapp_business_account",
+    entry: [{ changes: [{ value: { messages: [{ from: wa_id, id: `wamid.${Date.now()}`, timestamp: String(Math.floor(Date.now()/1000)), type: "text", text: { body: text } }], contacts: [{ wa_id }], metadata: { phone_number_id: "test" } } }] }]
+  };
+}
+
+async function enovaExecuteScenarioMode(env, ctx, scenario) {
+  const wa_id = `canon_${scenario.id}`;
+  const startStage = scenario.start_stage;
+  const fixturePatch = enovaV1FixturePatch(scenario.fixture);
+
+  if (!fixturePatch) return { ok: false, error: "fixture_not_found" };
+
+  if (scenario.mode === "simulate-funnel") {
+    return await simulateFunnel(env, { wa_id, startStage, script: scenario.script || [scenario.input || ""], dryRun: true });
+  }
+
+  const previousCtx = env.__enovaSimulationCtx;
+  env.__enovaSimulationCtx = {
+    active: true,
+    dryRun: true,
+    stateByWaId: {},
+    messageLog: [],
+    writeLog: [],
+    writesByWaId: {},
+    suppressExternalSend: true,
+    wouldSend: false,
+    sendPreview: null
+  };
+
+  try {
+    const base = createSimulationState(wa_id, startStage);
+    env.__enovaSimulationCtx.stateByWaId[wa_id] = { ...base, ...fixturePatch, fase_conversa: startStage, wa_id };
+
+    if (scenario.mode === "simulate-from-state") {
+      const st = env.__enovaSimulationCtx.stateByWaId[wa_id];
+      const runResult = await runFunnel(env, st, scenario.input || "");
+      const after = env.__enovaSimulationCtx.stateByWaId[wa_id]?.fase_conversa || st.fase_conversa;
+      return {
+        ok: true,
+        stage_after: after,
+        run_result: runResult,
+        writes: env.__enovaSimulationCtx.writesByWaId[wa_id] || null,
+        trace: env.__enovaSimulationCtx.messageLog || []
+      };
+    }
+
+    if (scenario.mode === "replay-webhook") {
+      const event = scenario.webhook_event || enovaBuildReplayTextEvent(wa_id, scenario.input || "ok");
+      const req = new Request("https://enova.local/webhook/meta", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(event) });
+      const resp = await handleMetaWebhook(req, env, ctx);
+      return {
+        ok: resp?.ok !== false,
+        stage_after: env.__enovaSimulationCtx.stateByWaId[wa_id]?.fase_conversa || startStage,
+        writes: env.__enovaSimulationCtx.writesByWaId[wa_id] || null,
+        trace: env.__enovaSimulationCtx.messageLog || []
+      };
+    }
+
+    return { ok: false, error: "mode_not_implemented" };
+  } finally {
+    env.__enovaSimulationCtx = previousCtx;
+  }
+}
+
+function enovaClassifyFailure(reason) {
+  if (reason.includes("stage_invalido")) return "FAIL_STAGE_INVALIDO";
+  if (reason.includes("alias_banido")) return "FAIL_ALIAS_BANIDO";
+  if (reason.includes("modo_invalido")) return "FAIL_MODO_INVALIDO";
+  if (reason.includes("fixture")) return "FAIL_FIXTURE";
+  if (reason.includes("cenario_malformado")) return "FAIL_CENARIO_MALFORMADO";
+  if (reason.includes("expected")) return "FAIL_EXPECTED";
+  return "FAIL_FUNIL";
+}
+
+function enovaV1Scenarios(modeOverride = null) {
+  const common = [
+    { id: "topo_inicio", grupo: "topo", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "inicio", input: "oi", expected: { type: "multiple", in: ["inicio_programa","inicio_decisao"] } },
+    { id: "topo_inicio_programa", grupo: "topo", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "inicio_programa", input: "sim", expected: { type: "multiple", in: ["inicio_nome","inicio_programa"] } },
+    { id: "topo_inicio_nome", grupo: "topo", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "inicio_nome", input: "João Teste", expected: { type: "single", equals: "inicio_nacionalidade" }, assert_state_write: ["nome"] },
+    { id: "topo_inicio_nacionalidade", grupo: "topo", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "inicio_nacionalidade", input: "sou estrangeiro", expected: { type: "single", equals: "inicio_rnm" } },
+    { id: "topo_inicio_rnm", grupo: "topo", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "inicio_rnm", input: "sim", expected: { type: "single", equals: "inicio_rnm_validade" } },
+    { id: "topo_inicio_rnm_validade", grupo: "topo", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "inicio_rnm_validade", input: "12/2030", expected: { type: "multiple", in: ["estado_civil","inicio_rnm_validade"] } },
+
+    { id: "civil_estado_civil_solteiro", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "solteiro", expected: { type: "single", equals: "somar_renda_solteiro" } },
+    { id: "civil_estado_civil_casado", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "casado", expected: { type: "single", equals: "confirmar_casamento" } },
+    { id: "civil_estado_civil_uniao_estavel", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "moro junto, união estável", expected: { type: "single", equals: "financiamento_conjunto" } },
+    { id: "civil_estado_civil_divorciado", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "divorciado", expected: { type: "single", equals: "verificar_averbacao" } },
+    { id: "civil_estado_civil_viuvo", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "viúvo", expected: { type: "single", equals: "verificar_inventario" } },
+    { id: "civil_estado_civil_fallback", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "não entendi", expected: { type: "single", equals: "estado_civil" }, assert_stayed: true },
+
+    { id: "civil_confirmar_casamento_civil", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_composicao_v1", start_stage: "confirmar_casamento", input: "sim", expected: { type: "single", equals: "regime_trabalho" } },
+    { id: "civil_confirmar_casamento_uniao", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_composicao_v1", start_stage: "confirmar_casamento", input: "não", expected: { type: "single", equals: "financiamento_conjunto" } },
+    { id: "civil_confirmar_casamento_fallback", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_composicao_v1", start_stage: "confirmar_casamento", input: "talvez", expected: { type: "single", equals: "confirmar_casamento" }, assert_stayed: true },
+
+    { id: "civil_financiamento_conjunto_juntos", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_composicao_v1", start_stage: "financiamento_conjunto", input: "vamos comprar juntos", expected: { type: "single", equals: "regime_trabalho" } },
+    { id: "civil_financiamento_conjunto_somente_titular", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_composicao_v1", start_stage: "financiamento_conjunto", input: "só eu", expected: { type: "single", equals: "regime_trabalho" } },
+    { id: "civil_financiamento_conjunto_se_precisar", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_composicao_v1", start_stage: "financiamento_conjunto", input: "se precisar", expected: { type: "single", equals: "regime_trabalho" } },
+    { id: "civil_financiamento_conjunto_fallback", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_composicao_v1", start_stage: "financiamento_conjunto", input: "talvez", expected: { type: "single", equals: "financiamento_conjunto" }, assert_stayed: true },
+    { id: "composicao_solo_sem_composicao", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "somar_renda_solteiro", input: "só minha renda", expected: { type: "single", equals: "regime_trabalho" } },
+    { id: "composicao_solo_parceiro", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "somar_renda_solteiro", input: "quero somar com minha esposa", expected: { type: "single", equals: "regime_trabalho_parceiro" } },
+    { id: "composicao_solo_familiar_pai", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "somar_renda_solteiro", input: "quero somar com meu pai", expected: { type: "single", equals: "pais_casados_civil_pergunta" } },
+    { id: "composicao_solo_familiar_generico", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "somar_renda_solteiro", input: "quero somar com um familiar", expected: { type: "single", equals: "somar_renda_familiar" } },
+    { id: "composicao_solo_fallback", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "somar_renda_solteiro", input: "talvez depois", expected: { type: "single", equals: "somar_renda_solteiro" }, assert_stayed: true },
+
+    { id: "composicao_familiar_pai", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_composicao_v1", start_stage: "somar_renda_familiar", input: "meu pai", expected: { type: "single", equals: "pais_casados_civil_pergunta" } },
+    { id: "composicao_familiar_avo", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_composicao_v1", start_stage: "somar_renda_familiar", input: "minha avó", expected: { type: "single", equals: "confirmar_avo_familiar" } },
+    { id: "composicao_familiar_irmao", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_composicao_v1", start_stage: "somar_renda_familiar", input: "meu irmão", expected: { type: "single", equals: "regime_trabalho_parceiro_familiar" } },
+    { id: "composicao_familiar_fallback", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_composicao_v1", start_stage: "somar_renda_familiar", input: "não sei ainda", expected: { type: "single", equals: "somar_renda_familiar" }, assert_stayed: true },
+
+    { id: "composicao_pais_casados_sim", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_p3_v1", start_stage: "pais_casados_civil_pergunta", input: "sim", expected: { type: "single", equals: "regime_trabalho_parceiro_familiar" } },
+    { id: "composicao_pais_casados_nao", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_p3_v1", start_stage: "pais_casados_civil_pergunta", input: "não", expected: { type: "single", equals: "regime_trabalho_parceiro_familiar" } },
+    { id: "composicao_pais_casados_fallback", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_p3_v1", start_stage: "pais_casados_civil_pergunta", input: "talvez", expected: { type: "single", equals: "pais_casados_civil_pergunta" }, assert_stayed: true },
+
+    { id: "composicao_avo_beneficio_rural", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_p3_v1", start_stage: "confirmar_avo_familiar", input: "aposentadoria rural", expected: { type: "single", equals: "regime_trabalho_parceiro_familiar" } },
+    { id: "composicao_avo_nao_sabe", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_p3_v1", start_stage: "confirmar_avo_familiar", input: "não sei informar", expected: { type: "single", equals: "regime_trabalho_parceiro_familiar" } },
+    { id: "composicao_avo_fallback", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_p3_v1", start_stage: "confirmar_avo_familiar", input: "banana", expected: { type: "single", equals: "confirmar_avo_familiar" }, assert_stayed: true },
+    { id: "renda_regime_clt", grupo: "renda_ir", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "regime_trabalho", input: "clt", expected: { type: "single", equals: "inicio_multi_regime_pergunta" } },
+    { id: "renda_regime_servidor", grupo: "renda_ir", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "regime_trabalho", input: "servidor", expected: { type: "single", equals: "inicio_multi_regime_pergunta" } },
+    { id: "renda_regime_aposentado", grupo: "renda_ir", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "regime_trabalho", input: "aposentado", expected: { type: "single", equals: "inicio_multi_regime_pergunta" } },
+    { id: "renda_regime_autonomo", grupo: "renda_ir", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "regime_trabalho", input: "autônomo", expected: { type: "single", equals: "autonomo_ir_pergunta" } },
+    { id: "renda_regime_fallback", grupo: "renda_ir", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "regime_trabalho", input: "talvez", expected: { type: "single", equals: "regime_trabalho" }, assert_stayed: true },
+
+    { id: "renda_autonomo_ir_sim", grupo: "renda_ir", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "autonomo_ir_pergunta", input: "sim", expected: { type: "single", equals: "renda" } },
+    { id: "renda_autonomo_ir_nao", grupo: "renda_ir", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "autonomo_ir_pergunta", input: "não", expected: { type: "single", equals: "autonomo_sem_ir_ir_este_ano" } },
+    { id: "renda_autonomo_ir_fallback", grupo: "renda_ir", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "autonomo_ir_pergunta", input: "não sei", expected: { type: "single", equals: "autonomo_ir_pergunta" }, assert_stayed: true },
+
+    { id: "renda_autonomo_sem_ir_ano_sim", grupo: "renda_ir", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "autonomo_sem_ir_ir_este_ano", input: "sim", expected: { type: "single", equals: "renda" } },
+    { id: "renda_autonomo_sem_ir_ano_nao", grupo: "renda_ir", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "autonomo_sem_ir_ir_este_ano", input: "não", expected: { type: "single", equals: "autonomo_sem_ir_caminho" } },
+    { id: "renda_autonomo_sem_ir_ano_fallback", grupo: "renda_ir", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "autonomo_sem_ir_ir_este_ano", input: "talvez", expected: { type: "single", equals: "autonomo_sem_ir_ir_este_ano" }, assert_stayed: true },
+
+    { id: "multi_regime_pergunta_sim", grupo: "multi", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_renda_v1", start_stage: "inicio_multi_regime_pergunta", input: "sim", expected: { type: "single", equals: "inicio_multi_regime_coletar" } },
+    { id: "multi_regime_pergunta_nao", grupo: "multi", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_renda_v1", start_stage: "inicio_multi_regime_pergunta", input: "não", expected: { type: "single", equals: "renda" } },
+    { id: "multi_regime_pergunta_fallback", grupo: "multi", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_renda_v1", start_stage: "inicio_multi_regime_pergunta", input: "talvez", expected: { type: "single", equals: "inicio_multi_regime_pergunta" }, assert_stayed: true },
+
+    { id: "multi_regime_coletar_valido", grupo: "multi", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_renda_v1", start_stage: "inicio_multi_regime_coletar", input: "autônomo", expected: { type: "single", equals: "inicio_multi_regime_pergunta" } },
+    { id: "multi_regime_coletar_invalido", grupo: "multi", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_renda_v1", start_stage: "inicio_multi_regime_coletar", input: "banana", expected: { type: "single", equals: "inicio_multi_regime_coletar" }, assert_stayed: true },
+
+    { id: "multi_renda_pergunta_sim", grupo: "multi", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_renda_v1", start_stage: "inicio_multi_renda_pergunta", input: "sim", expected: { type: "single", equals: "inicio_multi_renda_coletar" } },
+    { id: "multi_renda_pergunta_nao", grupo: "multi", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_renda_v1", start_stage: "inicio_multi_renda_pergunta", input: "não", expected: { type: "single", equals: "ctps_36" } },
+    { id: "multi_renda_pergunta_fallback", grupo: "multi", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_renda_v1", start_stage: "inicio_multi_renda_pergunta", input: "não sei", expected: { type: "single", equals: "inicio_multi_renda_pergunta" }, assert_stayed: true },
+
+    { id: "multi_renda_coletar_valido", grupo: "multi", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_renda_v1", start_stage: "inicio_multi_renda_coletar", input: "1200", expected: { type: "single", equals: "inicio_multi_renda_pergunta" } },
+    { id: "multi_renda_coletar_invalido", grupo: "multi", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_renda_v1", start_stage: "inicio_multi_renda_coletar", input: "quase nada", expected: { type: "single", equals: "inicio_multi_renda_coletar" }, assert_stayed: true },
+    { id: "parceiro_tem_renda_sim", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "parceiro_tem_renda", input: "sim", expected: { type: "single", equals: "regime_trabalho_parceiro" } },
+    { id: "parceiro_tem_renda_nao_com_titular_ok", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "parceiro_tem_renda", input: "não", expected: { type: "single", equals: "ctps_36" } },
+    { id: "parceiro_tem_renda_fallback", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "parceiro_tem_renda", input: "talvez", expected: { type: "single", equals: "parceiro_tem_renda" }, assert_stayed: true },
+
+    { id: "parceiro_regime_clt", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "regime_trabalho_parceiro", input: "clt", expected: { type: "single", equals: "inicio_multi_regime_pergunta_parceiro" } },
+    { id: "parceiro_regime_autonomo", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "regime_trabalho_parceiro", input: "autônomo", expected: { type: "single", equals: "inicio_multi_regime_pergunta_parceiro" } },
+    { id: "parceiro_regime_servidor", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "regime_trabalho_parceiro", input: "servidor", expected: { type: "single", equals: "inicio_multi_regime_pergunta_parceiro" } },
+    { id: "parceiro_regime_aposentado", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "regime_trabalho_parceiro", input: "aposentado", expected: { type: "single", equals: "inicio_multi_regime_pergunta_parceiro" } },
+    { id: "parceiro_regime_fallback", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "regime_trabalho_parceiro", input: "banana", expected: { type: "single", equals: "regime_trabalho_parceiro" }, assert_stayed: true },
+
+    { id: "parceiro_multi_regime_pergunta_sim", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_regime_pergunta_parceiro", input: "sim", expected: { type: "single", equals: "inicio_multi_regime_coletar_parceiro" } },
+    { id: "parceiro_multi_regime_pergunta_nao", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_regime_pergunta_parceiro", input: "não", expected: { type: "multiple", in: ["renda_parceiro","ctps_36","regime_trabalho"] } },
+    { id: "parceiro_multi_regime_pergunta_fallback", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_regime_pergunta_parceiro", input: "talvez", expected: { type: "single", equals: "inicio_multi_regime_pergunta_parceiro" }, assert_stayed: true },
+
+    { id: "parceiro_multi_regime_coletar_valido", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_regime_coletar_parceiro", input: "autônomo", expected: { type: "single", equals: "inicio_multi_regime_pergunta_parceiro" } },
+    { id: "parceiro_multi_regime_coletar_invalido", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_regime_coletar_parceiro", input: "batata", expected: { type: "single", equals: "inicio_multi_regime_coletar_parceiro" }, assert_stayed: true },
+
+    { id: "parceiro_renda_valida", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "renda_parceiro", input: "2500", expected: { type: "single", equals: "inicio_multi_renda_pergunta_parceiro" } },
+    { id: "parceiro_renda_invalida", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "renda_parceiro", input: "mais ou menos", expected: { type: "single", equals: "renda_parceiro" }, assert_stayed: true },
+
+    { id: "parceiro_multi_renda_pergunta_sim", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_renda_pergunta_parceiro", input: "sim", expected: { type: "single", equals: "inicio_multi_renda_coletar_parceiro" } },
+    { id: "parceiro_multi_renda_pergunta_nao", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_renda_pergunta_parceiro", input: "não", expected: { type: "multiple", in: ["ir_declarado","regime_trabalho","ctps_36"] } },
+    { id: "parceiro_multi_renda_pergunta_fallback", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_renda_pergunta_parceiro", input: "não sei", expected: { type: "single", equals: "inicio_multi_renda_pergunta_parceiro" }, assert_stayed: true },
+
+    { id: "parceiro_multi_renda_coletar_valido", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_renda_coletar_parceiro", input: "1200", expected: { type: "single", equals: "inicio_multi_renda_pergunta_parceiro" } },
+    { id: "parceiro_multi_renda_coletar_invalido", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "inicio_multi_renda_coletar_parceiro", input: "quase nada", expected: { type: "single", equals: "inicio_multi_renda_coletar_parceiro" }, assert_stayed: true },
+
+    { id: "parceiro_ctps_36_sim", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "ctps_36_parceiro", input: "sim", expected: { type: "multiple", in: ["restricao_parceiro","restricao"] } },
+    { id: "parceiro_ctps_36_nao", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "ctps_36_parceiro", input: "não", expected: { type: "multiple", in: ["restricao_parceiro","restricao"] } },
+    { id: "parceiro_ctps_36_fallback", grupo: "parceiro", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_parceiro_v1", start_stage: "ctps_36_parceiro", input: "banana", expected: { type: "single", equals: "ctps_36_parceiro" }, assert_stayed: true },
+    
+    { id: "familiar_regime_clt", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "regime_trabalho_parceiro_familiar", input: "clt", expected: { type: "multiple", in: ["inicio_multi_regime_familiar_pergunta","renda_parceiro_familiar"] } },
+    { id: "familiar_regime_autonomo", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "regime_trabalho_parceiro_familiar", input: "autônomo", expected: { type: "multiple", in: ["inicio_multi_regime_familiar_pergunta","renda_parceiro_familiar"] } },
+    { id: "familiar_regime_servidor", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "regime_trabalho_parceiro_familiar", input: "servidor", expected: { type: "multiple", in: ["inicio_multi_regime_familiar_pergunta","renda_parceiro_familiar"] } },
+    { id: "familiar_regime_aposentado", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "regime_trabalho_parceiro_familiar", input: "aposentado", expected: { type: "multiple", in: ["inicio_multi_regime_familiar_pergunta","renda_parceiro_familiar"] } },
+    { id: "familiar_regime_fallback", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "regime_trabalho_parceiro_familiar", input: "banana", expected: { type: "single", equals: "regime_trabalho_parceiro_familiar" }, assert_stayed: true },
+
+    { id: "familiar_multi_regime_pergunta_sim", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "inicio_multi_regime_familiar_pergunta", input: "sim", expected: { type: "single", equals: "inicio_multi_regime_familiar_loop" } },
+    { id: "familiar_multi_regime_pergunta_nao", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "inicio_multi_regime_familiar_pergunta", input: "não", expected: { type: "single", equals: "renda_parceiro_familiar" } },
+    { id: "familiar_multi_regime_pergunta_fallback", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "inicio_multi_regime_familiar_pergunta", input: "talvez", expected: { type: "single", equals: "inicio_multi_regime_familiar_pergunta" }, assert_stayed: true },
+
+    { id: "familiar_multi_regime_loop_valido", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "inicio_multi_regime_familiar_loop", input: "autônomo", expected: { type: "single", equals: "inicio_multi_regime_familiar_pergunta" } },
+    { id: "familiar_multi_regime_loop_invalido", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "inicio_multi_regime_familiar_loop", input: "batata", expected: { type: "single", equals: "inicio_multi_regime_familiar_loop" }, assert_stayed: true },
+
+    { id: "familiar_renda_valida", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "renda_parceiro_familiar", input: "2500", expected: { type: "single", equals: "inicio_multi_renda_familiar_pergunta" } },
+    { id: "familiar_renda_invalida", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "renda_parceiro_familiar", input: "mais ou menos", expected: { type: "single", equals: "renda_parceiro_familiar" }, assert_stayed: true },
+
+    { id: "familiar_multi_renda_pergunta_sim", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "inicio_multi_renda_familiar_pergunta", input: "sim", expected: { type: "single", equals: "inicio_multi_renda_familiar_loop" } },
+    { id: "familiar_multi_renda_pergunta_nao", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "inicio_multi_renda_familiar_pergunta", input: "não", expected: { type: "single", equals: "ctps_36_parceiro" } },
+    { id: "familiar_multi_renda_pergunta_fallback", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "inicio_multi_renda_familiar_pergunta", input: "não sei", expected: { type: "single", equals: "inicio_multi_renda_familiar_pergunta" }, assert_stayed: true },
+
+    { id: "familiar_multi_renda_loop_valido", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "inicio_multi_renda_familiar_loop", input: "1200", expected: { type: "single", equals: "inicio_multi_renda_familiar_pergunta" } },
+    { id: "familiar_multi_renda_loop_invalido", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "inicio_multi_renda_familiar_loop", input: "quase nada", expected: { type: "single", equals: "inicio_multi_renda_familiar_loop" }, assert_stayed: true },
+
+    { id: "familiar_ctps_36_sim", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "ctps_36_parceiro", input: "sim", expected: { type: "multiple", in: ["restricao_parceiro","p3_tipo_pergunta"] } },
+    { id: "familiar_ctps_36_nao", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "ctps_36_parceiro", input: "não", expected: { type: "multiple", in: ["restricao_parceiro","p3_tipo_pergunta"] } },
+    { id: "familiar_ctps_36_fallback", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_v1", start_stage: "ctps_36_parceiro", input: "banana", expected: { type: "single", equals: "ctps_36_parceiro" }, assert_stayed: true },
+
+    { id: "p3_tipo_pai", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "p3_tipo_pergunta", input: "pai", expected: { type: "single", equals: "regime_trabalho_parceiro_familiar_p3" } },
+    { id: "p3_tipo_mae", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "p3_tipo_pergunta", input: "mãe", expected: { type: "single", equals: "regime_trabalho_parceiro_familiar_p3" } },
+    { id: "p3_tipo_irmao", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "p3_tipo_pergunta", input: "irmão", expected: { type: "single", equals: "regime_trabalho_parceiro_familiar_p3" } },
+    { id: "p3_tipo_fallback", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "p3_tipo_pergunta", input: "talvez", expected: { type: "single", equals: "p3_tipo_pergunta" }, assert_stayed: true },
+
+    { id: "p3_regime_clt", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "regime_trabalho_parceiro_familiar_p3", input: "clt", expected: { type: "multiple", in: ["inicio_multi_regime_p3_pergunta","renda_parceiro_familiar_p3"] } },
+    { id: "p3_regime_autonomo", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "regime_trabalho_parceiro_familiar_p3", input: "autônomo", expected: { type: "multiple", in: ["inicio_multi_regime_p3_pergunta","renda_parceiro_familiar_p3"] } },
+    { id: "p3_regime_servidor", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "regime_trabalho_parceiro_familiar_p3", input: "servidor", expected: { type: "multiple", in: ["inicio_multi_regime_p3_pergunta","renda_parceiro_familiar_p3"] } },
+    { id: "p3_regime_aposentado", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "regime_trabalho_parceiro_familiar_p3", input: "aposentado", expected: { type: "multiple", in: ["inicio_multi_regime_p3_pergunta","renda_parceiro_familiar_p3"] } },
+    { id: "p3_regime_fallback", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "regime_trabalho_parceiro_familiar_p3", input: "banana", expected: { type: "single", equals: "regime_trabalho_parceiro_familiar_p3" }, assert_stayed: true },
+
+    { id: "p3_multi_regime_pergunta_sim", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "inicio_multi_regime_p3_pergunta", input: "sim", expected: { type: "single", equals: "inicio_multi_regime_p3_loop" } },
+    { id: "p3_multi_regime_pergunta_nao", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "inicio_multi_regime_p3_pergunta", input: "não", expected: { type: "single", equals: "renda_parceiro_familiar_p3" } },
+    { id: "p3_multi_regime_pergunta_fallback", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "inicio_multi_regime_p3_pergunta", input: "não sei", expected: { type: "single", equals: "inicio_multi_regime_p3_pergunta" }, assert_stayed: true },
+
+    { id: "p3_multi_regime_loop_valido", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "inicio_multi_regime_p3_loop", input: "autônomo", expected: { type: "single", equals: "inicio_multi_regime_p3_pergunta" } },
+    { id: "p3_multi_regime_loop_invalido", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "inicio_multi_regime_p3_loop", input: "batata", expected: { type: "single", equals: "inicio_multi_regime_p3_loop" }, assert_stayed: true },
+
+    { id: "p3_renda_valida", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "renda_parceiro_familiar_p3", input: "2500", expected: { type: "single", equals: "inicio_multi_renda_p3_pergunta" } },
+    { id: "p3_renda_invalida", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "renda_parceiro_familiar_p3", input: "mais ou menos", expected: { type: "single", equals: "renda_parceiro_familiar_p3" }, assert_stayed: true },
+
+    { id: "p3_multi_renda_pergunta_sim", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "inicio_multi_renda_p3_pergunta", input: "sim", expected: { type: "single", equals: "inicio_multi_renda_p3_loop" } },
+    { id: "p3_multi_renda_pergunta_nao", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "inicio_multi_renda_p3_pergunta", input: "não", expected: { type: "single", equals: "ctps_36_parceiro_p3" } },
+    { id: "p3_multi_renda_pergunta_fallback", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "inicio_multi_renda_p3_pergunta", input: "talvez", expected: { type: "single", equals: "inicio_multi_renda_p3_pergunta" }, assert_stayed: true },
+
+    { id: "p3_multi_renda_loop_valido", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "inicio_multi_renda_p3_loop", input: "1200", expected: { type: "single", equals: "inicio_multi_renda_p3_pergunta" } },
+    { id: "p3_multi_renda_loop_invalido", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "inicio_multi_renda_p3_loop", input: "quase nada", expected: { type: "single", equals: "inicio_multi_renda_p3_loop" }, assert_stayed: true },
+
+    { id: "p3_ctps_36_sim", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "ctps_36_parceiro_p3", input: "sim", expected: { type: "single", equals: "restricao_parceiro_p3" } },
+    { id: "p3_ctps_36_nao", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "ctps_36_parceiro_p3", input: "não", expected: { type: "single", equals: "restricao_parceiro_p3" } },
+    { id: "p3_ctps_36_fallback", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "ctps_36_parceiro_p3", input: "banana", expected: { type: "single", equals: "ctps_36_parceiro_p3" }, assert_stayed: true },
+
+    { id: "p3_restricao_sim", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "restricao_parceiro_p3", input: "sim", expected: { type: "single", equals: "regularizacao_restricao_p3" } },
+    { id: "p3_restricao_nao", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "restricao_parceiro_p3", input: "não", expected: { type: "single", equals: "regime_trabalho" } },
+    { id: "p3_restricao_fallback", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "restricao_parceiro_p3", input: "banana", expected: { type: "single", equals: "restricao_parceiro_p3" }, assert_stayed: true },
+
+    { id: "p3_regularizacao_sim", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "regularizacao_restricao_p3", input: "sim", expected: { type: "multiple", in: ["regime_trabalho","envio_docs"] } },
+    { id: "p3_regularizacao_nao", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "regularizacao_restricao_p3", input: "não", expected: { type: "multiple", in: ["regime_trabalho","envio_docs","regularizacao_restricao_p3"] } },
+    { id: "p3_regularizacao_fallback", grupo: "familiar_p3", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_familiar_p3_v1", start_stage: "regularizacao_restricao_p3", input: "banana", expected: { type: "single", equals: "regularizacao_restricao_p3" }, assert_stayed: true },
+
+        { id: "gates_renda_solo_valida", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_renda_solo_v1", start_stage: "renda", input: "3500", expected: { type: "multiple", in: ["inicio_multi_renda_pergunta","quem_pode_somar"] } },
+    { id: "gates_renda_parceiro_valida", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_renda_parceiro_v1", start_stage: "renda", input: "3500", expected: { type: "multiple", in: ["renda_parceiro","quem_pode_somar","inicio_multi_renda_pergunta"] } },
+    { id: "gates_renda_invalida", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_renda_solo_v1", start_stage: "renda", input: "mais ou menos", expected: { type: "single", equals: "renda" }, assert_stayed: true },
+
+    { id: "gates_ir_declarado_autonomo_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ir_autonomo_v1", start_stage: "ir_declarado", input: "sim", expected: { type: "multiple", in: ["renda","ctps_36"] } },
+    { id: "gates_ir_declarado_autonomo_nao", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ir_autonomo_v1", start_stage: "ir_declarado", input: "não", expected: { type: "multiple", in: ["autonomo_compor_renda","renda","ctps_36"] } },
+    { id: "gates_ir_declarado_parceiro_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ir_parceiro_v1", start_stage: "ir_declarado", input: "sim", expected: { type: "multiple", in: ["renda_parceiro","ctps_36","renda"] } },
+    { id: "gates_ir_declarado_parceiro_nao", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ir_parceiro_v1", start_stage: "ir_declarado", input: "não", expected: { type: "multiple", in: ["autonomo_compor_renda","renda_parceiro","ctps_36"] } },
+    { id: "gates_ir_declarado_fallback", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ir_autonomo_v1", start_stage: "ir_declarado", input: "talvez", expected: { type: "single", equals: "ir_declarado" }, assert_stayed: true },
+
+    { id: "gates_autonomo_compor_renda_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ir_autonomo_v1", start_stage: "autonomo_compor_renda", input: "sim", expected: { type: "multiple", in: ["interpretar_composicao","renda"] } },
+    { id: "gates_autonomo_compor_renda_nao", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ir_autonomo_v1", start_stage: "autonomo_compor_renda", input: "não", expected: { type: "multiple", in: ["renda","interpretar_composicao"] } },
+    { id: "gates_autonomo_compor_renda_fallback", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ir_autonomo_v1", start_stage: "autonomo_compor_renda", input: "não sei", expected: { type: "single", equals: "autonomo_compor_renda" }, assert_stayed: true },
+
+    { id: "gates_quem_pode_somar_parceiro", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_quem_somar_v1", start_stage: "quem_pode_somar", input: "minha esposa", expected: { type: "single", equals: "regime_trabalho_parceiro" } },
+    { id: "gates_quem_pode_somar_pai", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_quem_somar_v1", start_stage: "quem_pode_somar", input: "meu pai", expected: { type: "single", equals: "pais_casados_civil_pergunta" } },
+    { id: "gates_quem_pode_somar_familiar_generico", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_quem_somar_v1", start_stage: "quem_pode_somar", input: "minha irmã", expected: { type: "multiple", in: ["regime_trabalho_parceiro_familiar","somar_renda_familiar"] } },
+    { id: "gates_quem_pode_somar_ninguem", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_quem_somar_v1", start_stage: "quem_pode_somar", input: "não tenho ninguém", expected: { type: "single", equals: "fim_ineligivel" } },
+    { id: "gates_quem_pode_somar_fallback", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_quem_somar_v1", start_stage: "quem_pode_somar", input: "talvez", expected: { type: "single", equals: "quem_pode_somar" }, assert_stayed: true },
+
+    { id: "gates_ctps_36_solo_baixa_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_solo_v1", start_stage: "ctps_36", input: "sim", expected: { type: "multiple", in: ["dependente","restricao"] } },
+    { id: "gates_ctps_36_solo_baixa_nao", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_solo_v1", start_stage: "ctps_36", input: "não", expected: { type: "multiple", in: ["dependente","restricao"] } },
+    { id: "gates_ctps_36_solo_alta_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_solo_alta_v1", start_stage: "ctps_36", input: "sim", expected: { type: "single", equals: "restricao" } },
+    { id: "gates_ctps_36_conjunto_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_conjunto_v1", start_stage: "ctps_36", input: "sim", expected: { type: "multiple", in: ["ctps_36_parceiro","restricao","dependente"] } },
+    { id: "gates_ctps_36_fallback", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_solo_v1", start_stage: "ctps_36", input: "banana", expected: { type: "single", equals: "ctps_36" }, assert_stayed: true },
+
+    { id: "gates_dependente_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_dependente_v1", start_stage: "dependente", input: "sim", expected: { type: "single", equals: "restricao" } },
+    { id: "gates_dependente_nao", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_dependente_v1", start_stage: "dependente", input: "não", expected: { type: "single", equals: "restricao" } },
+    { id: "gates_dependente_fallback", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_dependente_v1", start_stage: "dependente", input: "não sei", expected: { type: "single", equals: "dependente" }, assert_stayed: true },
+    
+    { id: "contexto_interpretar_composicao_parceiro", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_extra_v1", start_stage: "interpretar_composicao", input: "com meu parceiro", expected: { type: "single", equals: "regime_trabalho_parceiro" } },
+    { id: "contexto_interpretar_composicao_familiar", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_extra_v1", start_stage: "interpretar_composicao", input: "com minha mãe", expected: { type: "single", equals: "somar_renda_familiar" } },
+    { id: "contexto_interpretar_composicao_sozinho", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_extra_v1", start_stage: "interpretar_composicao", input: "só eu mesmo", expected: { type: "single", equals: "ir_declarado" } },
+    { id: "contexto_interpretar_composicao_fallback", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_extra_v1", start_stage: "interpretar_composicao", input: "talvez", expected: { type: "single", equals: "interpretar_composicao" }, assert_stayed: true },
+
+    { id: "contexto_possui_renda_extra_sim", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_mista_v1", start_stage: "possui_renda_extra", input: "sim, faço uber", expected: { type: "single", equals: "renda_mista_detalhe" } },
+    { id: "contexto_possui_renda_extra_nao", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_mista_v1", start_stage: "possui_renda_extra", input: "não", expected: { type: "single", equals: "ir_declarado" } },
+    { id: "contexto_possui_renda_extra_fallback", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_mista_v1", start_stage: "possui_renda_extra", input: "não sei", expected: { type: "single", equals: "possui_renda_extra" }, assert_stayed: true },
+
+    { id: "contexto_renda_mista_valida", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_mista_v1", start_stage: "renda_mista_detalhe", input: "2000 clt + 1200 uber", expected: { type: "single", equals: "ir_declarado" } },
+    { id: "contexto_renda_mista_invalida", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_mista_v1", start_stage: "renda_mista_detalhe", input: "mais ou menos", expected: { type: "single", equals: "renda_mista_detalhe" }, assert_stayed: true },
+
+    { id: "contexto_sugerir_composicao_mista_parceiro", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_mista_v1", start_stage: "sugerir_composicao_mista", input: "com meu parceiro", expected: { type: "single", equals: "regime_trabalho_parceiro" } },
+    { id: "contexto_sugerir_composicao_mista_familiar", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_mista_v1", start_stage: "sugerir_composicao_mista", input: "com minha mãe", expected: { type: "single", equals: "regime_trabalho_parceiro_familiar" } },
+    { id: "contexto_sugerir_composicao_mista_fallback", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_contexto_mista_v1", start_stage: "sugerir_composicao_mista", input: "talvez", expected: { type: "single", equals: "sugerir_composicao_mista" }, assert_stayed: true },
+
+    { id: "contexto_autonomo_sem_ir_caminho_parceiro", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_autonomo_sem_ir_v1", start_stage: "autonomo_sem_ir_caminho", input: "com meu parceiro", expected: { type: "single", equals: "regime_trabalho_parceiro" } },
+    { id: "contexto_autonomo_sem_ir_caminho_familiar", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_autonomo_sem_ir_v1", start_stage: "autonomo_sem_ir_caminho", input: "com minha mãe", expected: { type: "single", equals: "somar_renda_familiar" } },
+    { id: "contexto_autonomo_sem_ir_caminho_ninguem", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_autonomo_sem_ir_v1", start_stage: "autonomo_sem_ir_caminho", input: "não", expected: { type: "single", equals: "autonomo_sem_ir_entrada" } },
+    { id: "contexto_autonomo_sem_ir_caminho_fallback", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_autonomo_sem_ir_v1", start_stage: "autonomo_sem_ir_caminho", input: "talvez", expected: { type: "single", equals: "autonomo_sem_ir_caminho" }, assert_stayed: true },
+
+    { id: "contexto_autonomo_sem_ir_entrada_sim", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_autonomo_sem_ir_v1", start_stage: "autonomo_sem_ir_entrada", input: "sim", expected: { type: "single", equals: "renda" } },
+    { id: "contexto_autonomo_sem_ir_entrada_nao", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_autonomo_sem_ir_v1", start_stage: "autonomo_sem_ir_entrada", input: "não", expected: { type: "single", equals: "fim_inelegivel" } },
+    { id: "contexto_autonomo_sem_ir_entrada_fallback", grupo: "contexto_extra", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_autonomo_sem_ir_v1", start_stage: "autonomo_sem_ir_entrada", input: "talvez", expected: { type: "single", equals: "autonomo_sem_ir_entrada" }, assert_stayed: true },
+    
+    { id: "docs_textual_stay", grupo: "docs", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_docs_text_v1", start_stage: "envio_docs", input: "ainda não tenho todos", expected: { type: "single", equals: "envio_docs" }, assert_stayed: true },
+   
+    { id: "docs_media_pendente", grupo: "docs", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", input: "segue", expected: { type: "multiple", in: ["envio_docs","finalizacao"] } },
+    { id: "docs_media_completa", grupo: "docs", mode: "simulate-funnel", allowed_modes: ["simulate-funnel"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", script: ["enviei tudo"], expected: { type: "multiple", in: ["envio_docs","finalizacao"] } },
+    { id: "regressao_docs_envio_docs", grupo: "regressao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_restricao_v1", start_stage: "regularizacao_restricao", input: "sim", expected: { type: "single", equals: "envio_docs" } },
+    { id: "stage_alias_docs_banido", grupo: "docs", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_docs_text_v1", start_stage: "docs", input: "oi", expected: { type: "single", equals: "envio_docs" } },
+
+    { id: "restricao_solo", grupo: "restricao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_restricao_v1", start_stage: "restricao", input: "sim", expected: { type: "single", equals: "regularizacao_restricao" } },
+    { id: "restricao_parceiro", grupo: "restricao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_restricao_parceiro_v1", start_stage: "restricao_parceiro", input: "não", expected: { type: "multiple", in: ["regularizacao_restricao_parceiro","envio_docs","restricao_parceiro_p3"] } },
+    { id: "restricao_p3", grupo: "restricao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_p3_v1", start_stage: "restricao_parceiro_p3", input: "sim", expected: { type: "single", equals: "regularizacao_restricao_p3" } },
+
+    { id: "terminal_finalizacao_processo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_renda_v1", start_stage: "finalizacao", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "terminal_fim_inelegivel_redirect", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "fim_inelegivel", input: "ok", expected: { type: "context", in: ["fim_ineligivel","fim_inelegivel"], terminal_canonical: "fim_ineligivel" } },
+    { id: "terminal_aguardando_retorno_replay", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_base_topo_v1", start_stage: "aguardando_retorno_correspondente", input: "oi", expected: { type: "multiple", in: ["aguardando_retorno_correspondente","finalizacao_processo"] } },
+
+    { id: "modo_contextual_invalido", grupo: "contrato", mode: "simulate-from-state", allowed_modes: ["replay-webhook"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", input: "arquivo", expected: { type: "multiple", in: ["envio_docs","finalizacao"] } }
+  ];
+
+  return modeOverride
+    ? common.map((s) => ({ ...s, mode: modeOverride }))
+    : common;
+}
+
+async function runEnovaCanonicalSuiteV1(env, ctx, options = {}) {
+  const startedAt = Date.now();
+  const scenarios = enovaV1Scenarios(options.mode_override);
+  const validStages = new Set(ENOVA_V1_VALID_STAGES);
+  const bannedAliases = new Set(ENOVA_V1_BANNED_ALIASES);
+  const items = scenarios.filter((s) => (!options.scenario_id || s.id === options.scenario_id) && (!options.group || s.grupo === options.group));
+
+  const results = [];
+
+  if (options.list === true) {
+  return {
+    ok: true,
+    suite: "enova_worker_canonical_v1",
+    scenarios: scenarios.map((s) => ({
+      scenario_id: s.id,
+      grupo: s.grupo,
+      mode: s.mode,
+      start_stage: s.start_stage,
+      fixture: s.fixture
+    })),
+    ts: new Date().toISOString()
+  };
+}
+
+  for (const s of items) {
+    const result = {
+      scenario_id: s.id,
+      grupo: s.grupo,
+      modo: s.mode,
+      fixture: s.fixture,
+      stage_inicial: s.start_stage,
+      input: s.input || s.script || null,
+      expected_type: s.expected?.type || "single",
+      stage_retornado: null,
+      writes_relevantes: null,
+      status: "PASS",
+      classification: "PASS",
+      motivo: "ok",
+      evidencias: []
+    };
+
+    if (!s.id || !s.fixture || !s.start_stage) {
+      result.status = "FAIL";
+      result.classification = "FAIL_CENARIO_MALFORMADO";
+      result.motivo = "cenario_malformado:campos_obrigatorios";
+      results.push(result);
+      continue;
+    }
+
+    if (bannedAliases.has(s.start_stage) || s.start_stage === "docs") {
+      result.status = "FAIL";
+      result.classification = "FAIL_STAGE_INVALIDO";
+      result.motivo = "stage_invalido:alias_banido";
+      results.push(result);
+      continue;
+    }
+
+    if (!validStages.has(s.start_stage)) {
+      result.status = "FAIL";
+      result.classification = "FAIL_STAGE_INVALIDO";
+      result.motivo = "stage_invalido:fora_catalogo";
+      results.push(result);
+      continue;
+    }
+
+    if (!Array.isArray(s.allowed_modes) || !s.allowed_modes.includes(s.mode)) {
+      result.status = "FAIL";
+      result.classification = "FAIL_MODO_INVALIDO";
+      result.motivo = "modo_invalido:nao_permitido_no_cenario";
+      results.push(result);
+      continue;
+    }
+
+    if (!enovaV1FixturePatch(s.fixture)) {
+      result.status = "FAIL";
+      result.classification = "FAIL_FIXTURE";
+      result.motivo = "fixture_not_found";
+      results.push(result);
+      continue;
+    }
+
+    let execResult;
+    try {
+      execResult = await enovaExecuteScenarioMode(env, ctx, s);
+    } catch (err) {
+      result.status = "FAIL";
+      result.classification = "FAIL_FUNIL";
+      result.motivo = `funil_exception:${err?.message || String(err)}`;
+      results.push(result);
+      continue;
+    }
+
+   if (!execResult?.ok) {
+  result.status = "FAIL";
+  result.classification = enovaClassifyFailure(execResult?.error || "funil_exec_error");
+  result.motivo = execResult?.error || "funil_exec_error";
+  results.push(result);
+  continue;
+}
+
+const stageReturnedRaw =
+  execResult?.end_stage ||
+  execResult?.stage_after ||
+  execResult?.steps?.[execResult.steps.length - 1]?.stage_after ||
+  null;
+
+const writes = execResult?.writes || null;
+const phaseAfter = writes?.fase_conversa || null;
+
+// Canonicalização operacional da suíte:
+// - docs nunca é stage canônico de teste
+// - se o retorno bruto ou a fase gravada vier como docs, comparar como envio_docs
+const stageReturnedCanonical =
+  stageReturnedRaw === "docs" || phaseAfter === "docs"
+    ? "envio_docs"
+    : stageReturnedRaw;
+
+result.stage_before = s.start_stage;
+result.stage_after = phaseAfter || stageReturnedRaw || null;
+result.stage_retornado = stageReturnedRaw;
+result.stage_retornado_canonico = stageReturnedCanonical;
+result.writes_relevantes = writes;
+result.expected_raw =
+  s.expected?.equals ??
+  s.expected?.in ??
+  s.expected?.terminal_canonical ??
+  null;
+
+// docs continua banido como stage inicial inválido,
+// mas retorno canonicalizado para envio_docs é válido na suíte.
+const stageReturnedIsBannedAlias =
+  stageReturnedCanonical &&
+  bannedAliases.has(stageReturnedCanonical) &&
+  stageReturnedCanonical !== "envio_docs";
+
+if (stageReturnedIsBannedAlias) {
+  result.status = "FAIL";
+  result.classification = "FAIL_ALIAS_BANIDO";
+  result.motivo = `alias_banido:stage_retorno:${stageReturnedCanonical}`;
+  results.push(result);
+  continue;
+}
+
+if (s.assert_stayed && stageReturnedCanonical !== s.start_stage) {
+  result.status = "FAIL";
+  result.classification = "FAIL_EXPECTED";
+  result.motivo = "expected_stayed_in_stage";
+  results.push(result);
+  continue;
+}
+
+if (Array.isArray(s.assert_state_write) && s.assert_state_write.length) {
+  const missing = s.assert_state_write.filter((k) => typeof writes?.[k] === "undefined");
+  if (missing.length) {
+    result.status = "FAIL";
+    result.classification = "FAIL_FIXTURE";
+    result.motivo = `fixture_missing_write:${missing.join(",")}`;
+    results.push(result);
+    continue;
+  }
+}
+
+const expected = s.expected || {};
+
+if (expected.type === "single" && stageReturnedCanonical !== expected.equals) {
+  result.status = "FAIL";
+  result.classification = "FAIL_EXPECTED";
+  result.motivo = `expected_single:${expected.equals}|got:${stageReturnedCanonical}`;
+  results.push(result);
+  continue;
+}
+
+if (
+  (expected.type === "multiple" || expected.type === "context") &&
+  Array.isArray(expected.in) &&
+  !expected.in.includes(stageReturnedCanonical)
+) {
+  result.status = "FAIL";
+  result.classification = "FAIL_EXPECTED";
+  result.motivo = `expected_in:${expected.in.join(",")}|got:${stageReturnedCanonical}`;
+  results.push(result);
+  continue;
+}
+
+if (expected.terminal_canonical) {
+  if (
+    stageReturnedRaw === "fim_inelegivel" &&
+    writes?.fase_conversa === expected.terminal_canonical
+  ) {
+    result.evidencias.push("terminal_redirect_detected");
+  } else if (stageReturnedCanonical !== expected.terminal_canonical) {
+    result.status = "FAIL";
+    result.classification = "FAIL_EXPECTED";
+    result.motivo = `expected_terminal_canonical:${expected.terminal_canonical}|got:${stageReturnedCanonical}`;
+    results.push(result);
+    continue;
+  }
+}
+
+    if (Array.isArray(execResult?.trace) && execResult.trace.length) {
+      result.evidencias.push("trace_present");
+    }
+
+    results.push(result);
+  }
+
+  const summary = {
+    total: results.length,
+    pass: results.filter((r) => r.classification === "PASS").length,
+    fail_funil: results.filter((r) => r.classification === "FAIL_FUNIL").length,
+    fail_teste: results.filter((r) => r.classification === "FAIL_EXPECTED" || r.classification === "FAIL_CENARIO_MALFORMADO").length,
+    fail_fixture: results.filter((r) => r.classification === "FAIL_FIXTURE").length,
+    fail_stage_invalido: results.filter((r) => r.classification === "FAIL_STAGE_INVALIDO").length,
+    fail_alias: results.filter((r) => r.classification === "FAIL_ALIAS_BANIDO").length,
+    fail_modo: results.filter((r) => r.classification === "FAIL_MODO_INVALIDO").length,
+    duracao_ms: Date.now() - startedAt
+  };
+
+  return { ok: true, suite: "enova_worker_canonical_v1", summary, results };
+}
+
 function pickParser(type) {
   const t = String(type || "").trim().toLowerCase();
 
@@ -1825,6 +2594,37 @@ if (isAdminProdPath) {
 
       return adminJson(200, {
         ok: true,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
+
+    if (request.method === "POST" && pathname === "/__admin__/run-canonical-suite-v1") {
+      if (!isAdminAuthorized()) {
+        return adminJson(401, {
+          ok: false,
+          error: "unauthorized",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        payload = {};
+      }
+
+      const result = await runEnovaCanonicalSuiteV1(env, ctx, {
+  list: payload?.list === true,
+  scenario_id: payload?.scenario_id ? String(payload.scenario_id) : null,
+  group: payload?.group ? String(payload.group) : null,
+  mode_override: payload?.mode_override ? String(payload.mode_override) : null
+});
+
+      return adminJson(200, {
+        ...result,
         build: ENOVA_BUILD,
         ts: new Date().toISOString()
       });
@@ -6320,7 +7120,7 @@ case "financiamento_conjunto": {
   });
 
   // Exemplos cobertos: "vamos comprar juntos", "só eu", "apenas se faltar renda"
-  const somente_se_precisar = /(se precisar|talvez|depende|s[oó] se precisar|apenas se precisar|se faltar a gente soma|s[oó] se faltar)/i.test(t);
+  const somente_se_precisar = /(se precisar|s[oó] se precisar|apenas se precisar|se faltar a gente soma|s[oó] se faltar)/i.test(t);
   const nao = !somente_se_precisar && (isNo(t) || /(n[aã]o|s[oó] eu|apenas eu|somente eu|sozinh[oa])/i.test(t));
   const sim = !somente_se_precisar && !nao && (isYes(t) || /(sim|isso|claro|vamos juntos|comprar juntos|juntos|somar renda com (minha|meu)|com minha esposa|com meu marido)/i.test(t));
 
@@ -6960,7 +7760,7 @@ await funnelTelemetry(env, {
   const tio = /\b(tio|tia)\b/i.test(txt);
   const irmao = /\b(irmao|irmaos|irma|minha irma|meu irmao)\b/i.test(txt);
   const primo = /\b(primo|prima)\b/i.test(txt);
-  const qualquer = /\b(familia|familiar|qualquer|nao sei)\b/i.test(txt);
+  const qualquer = /\b(familia|familiar|qualquer)\b/i.test(txt);
 
   // --------------------------------------------------
   // MÃE
@@ -8323,7 +9123,7 @@ case "regime_trabalho": {
 }
 
 case "autonomo_ir_pergunta": {
-  const nao = /\b(n[aã]o|nao)\b/i.test(t);
+ const nao = /^(n[aã]o|nao)$/i.test(String(t || "").trim());
   const sim = /\b(sim|yes)\b/i.test(t);
 
   if (nao) {
@@ -8429,7 +9229,7 @@ case "autonomo_sem_ir_caminho": {
   const ninguem = /\b(ningu[eé]m|sozinh|s[oó]\s*eu|apenas eu|somente eu)\b/i.test(t);
 
   // “não” aqui significa “não vou compor” => tratar como “ninguém”
-  const nao = /\b(n[aã]o|nao)\b/i.test(t);
+  const nao = /^(n[aã]o|nao)$/i.test(String(t || "").trim());
 
   if (parceiro) {
     return step(
@@ -9791,7 +10591,7 @@ case "possui_renda_extra": {
   });
 
   const sim = /(sim|tenho|faço|faco|uber|ifood|extra|bico)/i.test(t);
-  const nao = /(nao|não|n\s?tem|nenhuma|zero)/i.test(t);
+  const nao = /^(nao|não|n\s?tem|nenhuma|zero)$/i.test(String(t || "").trim());
 
   // ============================================================
   // SIM — possui renda extra → vai para renda_mista_detalhe
@@ -10579,7 +11379,7 @@ case "autonomo_compor_renda": {
     /(sim|pode|consigo|consigo sim|tenho|comprovo|declaro|faço|faco|faço declaração|emit[oó] nota|emito nota|rpa|recibo)/i.test(t);
 
   const nao =
-    /(n[aã]o|não consigo|nao consigo|não tenho|nao tenho|sem comprovante|nao declaro|não declaro)/i.test(t);
+    /^(n[aã]o|não consigo|nao consigo|não tenho|nao tenho|sem comprovante|nao declaro|não declaro)$/i.test(String(t || "").trim());
 
   // ============================================================
   // AUTÔNOMO CONSEGUE COMPROVAR
@@ -11475,7 +12275,7 @@ case "dependente": {
     isYes(txt) || /(sim|tenho|filho|filha|filhos|crian[cç]a|menor|dependente|dependentes)/i.test(txt);
 
   const nao =
-    isNo(txt) || /(nao|não|nao tenho|não tenho|sem dependente|sem dependentes|só eu|somente eu|nenhum filho)/i.test(txt);
+    isNo(txt) || /^(nao|não|nao tenho|não tenho|sem dependente|sem dependentes|só eu|somente eu|nenhum filho)$/i.test(String(txt || "").trim());
 
   const talvez =
     /(não sei|nao sei|talvez|acho|não lembro|nao lembro)/i.test(txt);

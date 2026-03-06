@@ -1962,7 +1962,7 @@ function enovaV1Scenarios(modeOverride = null) {
 
     { id: "composicao_avo_beneficio_rural", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_p3_v1", start_stage: "confirmar_avo_familiar", input: "aposentadoria rural", expected: { type: "single", equals: "regime_trabalho_parceiro_familiar" } },
     { id: "composicao_avo_nao_sabe", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_p3_v1", start_stage: "confirmar_avo_familiar", input: "não sei informar", expected: { type: "single", equals: "regime_trabalho_parceiro_familiar" } },
-    { id: "composicao_avo_fallback", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_p3_v1", start_stage: "confirmar_avo_familiar", input: "talvez", expected: { type: "single", equals: "confirmar_avo_familiar" }, assert_stayed: true },
+    { id: "composicao_avo_fallback", grupo: "composicao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_p3_v1", start_stage: "confirmar_avo_familiar", input: "banana", expected: { type: "single", equals: "confirmar_avo_familiar" }, assert_stayed: true },
     { id: "renda_regime_clt", grupo: "renda_ir", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "regime_trabalho", input: "clt", expected: { type: "single", equals: "inicio_multi_regime_pergunta" } },
     { id: "renda_regime_servidor", grupo: "renda_ir", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "regime_trabalho", input: "servidor", expected: { type: "single", equals: "inicio_multi_regime_pergunta" } },
     { id: "renda_regime_aposentado", grupo: "renda_ir", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "regime_trabalho", input: "aposentado", expected: { type: "single", equals: "inicio_multi_regime_pergunta" } },
@@ -7760,7 +7760,7 @@ await funnelTelemetry(env, {
   const tio = /\b(tio|tia)\b/i.test(txt);
   const irmao = /\b(irmao|irmaos|irma|minha irma|meu irmao)\b/i.test(txt);
   const primo = /\b(primo|prima)\b/i.test(txt);
-  const qualquer = /\b(familia|familiar|qualquer|nao sei)\b/i.test(txt);
+  const qualquer = /\b(familia|familiar|qualquer)\b/i.test(txt);
 
   // --------------------------------------------------
   // MÃE

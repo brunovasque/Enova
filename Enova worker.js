@@ -2239,10 +2239,11 @@ if (isAdminProdPath) {
       }
 
       const result = await runEnovaCanonicalSuiteV1(env, ctx, {
-        scenario_id: payload?.scenario_id ? String(payload.scenario_id) : null,
-        group: payload?.group ? String(payload.group) : null,
-        mode_override: payload?.mode_override ? String(payload.mode_override) : null
-      });
+  list: payload?.list === true,
+  scenario_id: payload?.scenario_id ? String(payload.scenario_id) : null,
+  group: payload?.group ? String(payload.group) : null,
+  mode_override: payload?.mode_override ? String(payload.mode_override) : null
+});
 
       return adminJson(200, {
         ...result,

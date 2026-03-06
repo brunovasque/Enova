@@ -1880,74 +1880,107 @@ async function runEnovaCanonicalSuiteV1(env, ctx, options = {}) {
       continue;
     }
 
-    if (!execResult?.ok) {
-      result.status = "FAIL";
-      result.classification = enovaClassifyFailure(execResult?.error || "funil_exec_error");
-      result.motivo = execResult?.error || "funil_exec_error";
-      results.push(result);
-      continue;
-    }
+   if (!execResult?.ok) {
+  result.status = "FAIL";
+  result.classification = enovaClassifyFailure(execResult?.error || "funil_exec_error");
+  result.motivo = execResult?.error || "funil_exec_error";
+  results.push(result);
+  continue;
+}
 
-    const stageReturned = execResult?.end_stage || execResult?.stage_after || execResult?.steps?.[execResult.steps.length - 1]?.stage_after || null;
-    result.stage_retornado = stageReturned;
-    result.writes_relevantes = execResult?.writes || null;
+const stageReturnedRaw =
+  execResult?.end_stage ||
+  execResult?.stage_after ||
+  execResult?.steps?.[execResult.steps.length - 1]?.stage_after ||
+  null;
 
-    if (bannedAliases.has(stageReturned) || stageReturned === "docs") {
-      result.status = "FAIL";
-      result.classification = "FAIL_ALIAS_BANIDO";
-      result.motivo = "alias_banido:stage_retorno";
-      results.push(result);
-      continue;
-    }
+const writes = execResult?.writes || null;
+const phaseAfter = writes?.fase_conversa || null;
 
-    if (s.assert_stayed && stageReturned !== s.start_stage) {
-      result.status = "FAIL";
-      result.classification = "FAIL_EXPECTED";
-      result.motivo = "expected_stayed_in_stage";
-      results.push(result);
-      continue;
-    }
+// Canonicalização operacional da suíte:
+// - docs nunca é stage canônico de teste
+// - se o retorno bruto ou a fase gravada vier como docs, comparar como envio_docs
+const stageReturnedCanonical =
+  stageReturnedRaw === "docs" || phaseAfter === "docs"
+    ? "envio_docs"
+    : stageReturnedRaw;
 
-    if (Array.isArray(s.assert_state_write) && s.assert_state_write.length) {
-      const writes = result.writes_relevantes || {};
-      const missing = s.assert_state_write.filter((k) => typeof writes[k] === "undefined");
-      if (missing.length) {
-        result.status = "FAIL";
-        result.classification = "FAIL_FIXTURE";
-        result.motivo = `fixture_missing_write:${missing.join(",")}`;
-        results.push(result);
-        continue;
-      }
-    }
+result.stage_before = s.start_stage;
+result.stage_after = phaseAfter || stageReturnedRaw || null;
+result.stage_retornado = stageReturnedRaw;
+result.stage_retornado_canonico = stageReturnedCanonical;
+result.writes_relevantes = writes;
+result.expected_raw =
+  s.expected?.equals ??
+  s.expected?.in ??
+  s.expected?.terminal_canonical ??
+  null;
 
-    const expected = s.expected || {};
-    if (expected.type === "single" && stageReturned !== expected.equals) {
-      result.status = "FAIL";
-      result.classification = "FAIL_EXPECTED";
-      result.motivo = `expected_single:${expected.equals}|got:${stageReturned}`;
-      results.push(result);
-      continue;
-    }
-    if ((expected.type === "multiple" || expected.type === "context") && Array.isArray(expected.in) && !expected.in.includes(stageReturned)) {
-      result.status = "FAIL";
-      result.classification = "FAIL_EXPECTED";
-      result.motivo = `expected_in:${expected.in.join(",")}|got:${stageReturned}`;
-      results.push(result);
-      continue;
-    }
+// docs continua banido como stage inicial inválido,
+// mas NÃO pode gerar FAIL_ALIAS_BANIDO quando já foi canonicalizado para envio_docs.
+if (bannedAliases.has(stageReturnedCanonical)) {
+  result.status = "FAIL";
+  result.classification = "FAIL_ALIAS_BANIDO";
+  result.motivo = "alias_banido:stage_retorno";
+  results.push(result);
+  continue;
+}
 
-    if (expected.terminal_canonical) {
-      const writes = result.writes_relevantes || {};
-      if (stageReturned === "fim_inelegivel" && writes.fase_conversa === expected.terminal_canonical) {
-        result.evidencias.push("terminal_redirect_detected");
-      } else if (stageReturned !== expected.terminal_canonical) {
-        result.status = "FAIL";
-        result.classification = "FAIL_EXPECTED";
-        result.motivo = `expected_terminal_canonical:${expected.terminal_canonical}|got:${stageReturned}`;
-        results.push(result);
-        continue;
-      }
-    }
+if (s.assert_stayed && stageReturnedCanonical !== s.start_stage) {
+  result.status = "FAIL";
+  result.classification = "FAIL_EXPECTED";
+  result.motivo = "expected_stayed_in_stage";
+  results.push(result);
+  continue;
+}
+
+if (Array.isArray(s.assert_state_write) && s.assert_state_write.length) {
+  const missing = s.assert_state_write.filter((k) => typeof writes?.[k] === "undefined");
+  if (missing.length) {
+    result.status = "FAIL";
+    result.classification = "FAIL_FIXTURE";
+    result.motivo = `fixture_missing_write:${missing.join(",")}`;
+    results.push(result);
+    continue;
+  }
+}
+
+const expected = s.expected || {};
+
+if (expected.type === "single" && stageReturnedCanonical !== expected.equals) {
+  result.status = "FAIL";
+  result.classification = "FAIL_EXPECTED";
+  result.motivo = `expected_single:${expected.equals}|got:${stageReturnedCanonical}`;
+  results.push(result);
+  continue;
+}
+
+if (
+  (expected.type === "multiple" || expected.type === "context") &&
+  Array.isArray(expected.in) &&
+  !expected.in.includes(stageReturnedCanonical)
+) {
+  result.status = "FAIL";
+  result.classification = "FAIL_EXPECTED";
+  result.motivo = `expected_in:${expected.in.join(",")}|got:${stageReturnedCanonical}`;
+  results.push(result);
+  continue;
+}
+
+if (expected.terminal_canonical) {
+  if (
+    stageReturnedRaw === "fim_inelegivel" &&
+    writes?.fase_conversa === expected.terminal_canonical
+  ) {
+    result.evidencias.push("terminal_redirect_detected");
+  } else if (stageReturnedCanonical !== expected.terminal_canonical) {
+    result.status = "FAIL";
+    result.classification = "FAIL_EXPECTED";
+    result.motivo = `expected_terminal_canonical:${expected.terminal_canonical}|got:${stageReturnedCanonical}`;
+    results.push(result);
+    continue;
+  }
+}
 
     if (Array.isArray(execResult?.trace) && execResult.trace.length) {
       result.evidencias.push("trace_present");

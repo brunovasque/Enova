@@ -7714,6 +7714,10 @@ case "inicio_multi_regime_familiar_pergunta": {
     return step(env, st, ["Perfeito! 👍", `Me diga qual é o outro regime de trabalho de ${famLabel}.`], "inicio_multi_regime_familiar_loop");
   }
 
+  if (String(userText || "").trim().toLowerCase() === "não") {
+  return step(env, st, ["Certo! 😊", `Agora me diga o valor da renda mensal de ${famLabel}.`], "renda_parceiro_familiar");
+}
+
   if (negativoFlex) {
     return step(env, st, ["Certo! 😊", `Agora me diga o valor da renda mensal de ${famLabel}.`], "renda_parceiro_familiar");
   }

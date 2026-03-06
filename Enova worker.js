@@ -1618,6 +1618,312 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
   }
 }
 
+
+const ENOVA_V1_VALID_STAGES = Object.freeze([
+  "inicio","inicio_decisao","inicio_programa","inicio_nome","inicio_nacionalidade","inicio_rnm","inicio_rnm_validade","estado_civil","confirmar_casamento","financiamento_conjunto","parceiro_tem_renda","somar_renda_solteiro","somar_renda_familiar","pais_casados_civil_pergunta","confirmar_avo_familiar","renda_familiar_valor","inicio_multi_renda_pergunta","inicio_multi_renda_coletar","inicio_multi_regime_familiar_pergunta","inicio_multi_regime_familiar_loop","inicio_multi_renda_familiar_pergunta","inicio_multi_renda_familiar_loop","inicio_multi_regime_pergunta_parceiro","inicio_multi_regime_coletar_parceiro","inicio_multi_renda_pergunta_parceiro","inicio_multi_renda_coletar_parceiro","regime_trabalho","autonomo_ir_pergunta","autonomo_sem_ir_ir_este_ano","autonomo_sem_ir_caminho","autonomo_sem_ir_entrada","fim_inelegivel","fim_ineligivel","verificar_averbacao","verificar_inventario","p3_tipo_pergunta","regime_trabalho_parceiro_familiar","finalizacao","regime_trabalho_parceiro_familiar_p3","renda_parceiro_familiar_p3","inicio_multi_regime_p3_pergunta","inicio_multi_regime_p3_loop","inicio_multi_renda_p3_pergunta","inicio_multi_renda_p3_loop","ctps_36_parceiro_p3","restricao_parceiro_p3","regularizacao_restricao_p3","inicio_multi_regime_pergunta","inicio_multi_regime_coletar","regime_trabalho_parceiro","renda","renda_parceiro","renda_parceiro_familiar","renda_mista_detalhe","possui_renda_extra","interpretar_composicao","quem_pode_somar","sugerir_composicao_mista","ir_declarado","autonomo_compor_renda","ctps_36","ctps_36_parceiro","dependente","restricao","restricao_parceiro","regularizacao_restricao_parceiro","regularizacao_restricao","envio_docs","agendamento_visita","finalizacao_processo","aguardando_retorno_correspondente"
+]);
+
+const ENOVA_V1_BANNED_ALIASES = Object.freeze([
+  "docs",
+  "regularizacao_restricao(_parceiro)",
+  "regularizacao_restricao_parceiro|regularizacao_restricao"
+]);
+
+function enovaV1FixturePatch(id) {
+  switch (id) {
+    case "fx_base_topo_v1":
+      return { ultima_interacao: new Date().toISOString() };
+    case "fx_composicao_v1":
+      return { financiamento_conjunto: true, somar_renda: true, composicao_pessoa: "casal" };
+    case "fx_renda_v1":
+      return { renda_total_para_fluxo: 6500, renda_bruta: 6500, regime_trabalho: "clt" };
+    case "fx_p3_v1":
+      return { p3_required: true, p3_done: false, familiar_tipo: "pai", composicao_pessoa: "familiar" };
+    case "fx_restricao_v1":
+      return { restricao: true, valor_restricao_aproximado: 500, renda_total_para_fluxo: 7200 };
+    case "fx_docs_text_v1":
+      return { fase_conversa: "envio_docs", docs_faltantes: ["rg", "cpf"], docs_status_geral: "pendente", docs_lista_enviada: true };
+    case "fx_docs_media_v1":
+      return { fase_conversa: "envio_docs", docs_faltantes: ["comprovante_renda"], docs_status_geral: "parcial", docs_itens_recebidos: ["rg", "cpf"] };
+    default:
+      return null;
+  }
+}
+
+function enovaBuildReplayTextEvent(wa_id, text) {
+  return {
+    object: "whatsapp_business_account",
+    entry: [{ changes: [{ value: { messages: [{ from: wa_id, id: `wamid.${Date.now()}`, timestamp: String(Math.floor(Date.now()/1000)), type: "text", text: { body: text } }], contacts: [{ wa_id }], metadata: { phone_number_id: "test" } } }] }]
+  };
+}
+
+async function enovaExecuteScenarioMode(env, ctx, scenario) {
+  const wa_id = `canon_${scenario.id}`;
+  const startStage = scenario.start_stage;
+  const fixturePatch = enovaV1FixturePatch(scenario.fixture);
+
+  if (!fixturePatch) return { ok: false, error: "fixture_not_found" };
+
+  if (scenario.mode === "simulate-funnel") {
+    return await simulateFunnel(env, { wa_id, startStage, script: scenario.script || [scenario.input || ""], dryRun: true });
+  }
+
+  const previousCtx = env.__enovaSimulationCtx;
+  env.__enovaSimulationCtx = {
+    active: true,
+    dryRun: true,
+    stateByWaId: {},
+    messageLog: [],
+    writeLog: [],
+    writesByWaId: {},
+    suppressExternalSend: true,
+    wouldSend: false,
+    sendPreview: null
+  };
+
+  try {
+    const base = createSimulationState(wa_id, startStage);
+    env.__enovaSimulationCtx.stateByWaId[wa_id] = { ...base, ...fixturePatch, fase_conversa: startStage, wa_id };
+
+    if (scenario.mode === "simulate-from-state") {
+      const st = env.__enovaSimulationCtx.stateByWaId[wa_id];
+      const runResult = await runFunnel(env, st, scenario.input || "");
+      const after = env.__enovaSimulationCtx.stateByWaId[wa_id]?.fase_conversa || st.fase_conversa;
+      return {
+        ok: true,
+        stage_after: after,
+        run_result: runResult,
+        writes: env.__enovaSimulationCtx.writesByWaId[wa_id] || null,
+        trace: env.__enovaSimulationCtx.messageLog || []
+      };
+    }
+
+    if (scenario.mode === "replay-webhook") {
+      const event = scenario.webhook_event || enovaBuildReplayTextEvent(wa_id, scenario.input || "ok");
+      const req = new Request("https://enova.local/webhook/meta", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(event) });
+      const resp = await handleMetaWebhook(req, env, ctx);
+      return {
+        ok: resp?.ok !== false,
+        stage_after: env.__enovaSimulationCtx.stateByWaId[wa_id]?.fase_conversa || startStage,
+        writes: env.__enovaSimulationCtx.writesByWaId[wa_id] || null,
+        trace: env.__enovaSimulationCtx.messageLog || []
+      };
+    }
+
+    return { ok: false, error: "mode_not_implemented" };
+  } finally {
+    env.__enovaSimulationCtx = previousCtx;
+  }
+}
+
+function enovaClassifyFailure(reason) {
+  if (reason.includes("stage_invalido")) return "FAIL_STAGE_INVALIDO";
+  if (reason.includes("alias_banido")) return "FAIL_ALIAS_BANIDO";
+  if (reason.includes("modo_invalido")) return "FAIL_MODO_INVALIDO";
+  if (reason.includes("fixture")) return "FAIL_FIXTURE";
+  if (reason.includes("cenario_malformado")) return "FAIL_CENARIO_MALFORMADO";
+  if (reason.includes("expected")) return "FAIL_EXPECTED";
+  return "FAIL_FUNIL";
+}
+
+function enovaV1Scenarios(modeOverride = null) {
+  const common = [
+    { id: "topo_inicio", grupo: "topo", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "inicio", input: "oi", expected: { type: "multiple", in: ["inicio_programa","inicio_decisao"] } },
+    { id: "topo_inicio_programa", grupo: "topo", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "inicio_programa", input: "sim", expected: { type: "multiple", in: ["inicio_nome","inicio_programa"] } },
+    { id: "topo_inicio_nome", grupo: "topo", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "inicio_nome", input: "João Teste", expected: { type: "single", equals: "inicio_nacionalidade" }, assert_state_write: ["nome"] },
+    { id: "topo_inicio_nacionalidade", grupo: "topo", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "inicio_nacionalidade", input: "sou estrangeiro", expected: { type: "single", equals: "inicio_rnm" } },
+    { id: "topo_inicio_rnm", grupo: "topo", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "inicio_rnm", input: "RNM123456", expected: { type: "single", equals: "inicio_rnm_validade" } },
+    { id: "topo_inicio_rnm_validade", grupo: "topo", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "inicio_rnm_validade", input: "12/2030", expected: { type: "multiple", in: ["estado_civil","inicio_rnm_validade"] } },
+
+    { id: "docs_textual_stay", grupo: "docs", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_docs_text_v1", start_stage: "envio_docs", input: "ainda não tenho todos", expected: { type: "single", equals: "envio_docs" }, assert_stayed: true },
+    { id: "docs_media_pendente", grupo: "docs", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", input: "segue", expected: { type: "multiple", in: ["envio_docs","finalizacao"] } },
+    { id: "docs_media_completa", grupo: "docs", mode: "simulate-funnel", allowed_modes: ["simulate-funnel"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", script: ["enviei tudo"], expected: { type: "multiple", in: ["envio_docs","finalizacao"] } },
+    { id: "regressao_docs_envio_docs", grupo: "regressao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_restricao_v1", start_stage: "regularizacao_restricao", input: "sim", expected: { type: "single", equals: "envio_docs" } },
+    { id: "stage_alias_docs_banido", grupo: "docs", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_docs_text_v1", start_stage: "docs", input: "oi", expected: { type: "single", equals: "envio_docs" } },
+
+    { id: "restricao_solo", grupo: "restricao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_restricao_v1", start_stage: "restricao", input: "sim", expected: { type: "single", equals: "regularizacao_restricao" } },
+    { id: "restricao_parceiro", grupo: "restricao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_composicao_v1", start_stage: "restricao_parceiro", input: "não", expected: { type: "multiple", in: ["regularizacao_restricao_parceiro","envio_docs","restricao_parceiro_p3"] } },
+    { id: "restricao_p3", grupo: "restricao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_p3_v1", start_stage: "restricao_parceiro_p3", input: "sim", expected: { type: "single", equals: "regularizacao_restricao_p3" } },
+
+    { id: "terminal_finalizacao_processo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_renda_v1", start_stage: "finalizacao", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "terminal_fim_inelegivel_redirect", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "fim_inelegivel", input: "ok", expected: { type: "context", in: ["fim_ineligivel","fim_inelegivel"], terminal_canonical: "fim_ineligivel" } },
+    { id: "terminal_aguardando_retorno_replay", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_base_topo_v1", start_stage: "aguardando_retorno_correspondente", input: "oi", expected: { type: "multiple", in: ["aguardando_retorno_correspondente","finalizacao_processo"] } },
+
+    { id: "modo_contextual_invalido", grupo: "contrato", mode: "simulate-from-state", allowed_modes: ["replay-webhook"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", input: "arquivo" , expected: { type: "multiple", in: ["envio_docs","finalizacao"] } }
+  ];
+
+  if (!modeOverride) return common;
+  return common.map((s) => ({ ...s, mode: modeOverride }));
+}
+
+async function runEnovaCanonicalSuiteV1(env, ctx, options = {}) {
+  const startedAt = Date.now();
+  const scenarios = enovaV1Scenarios(options.mode_override);
+  const validStages = new Set(ENOVA_V1_VALID_STAGES);
+  const bannedAliases = new Set(ENOVA_V1_BANNED_ALIASES);
+  const items = scenarios.filter((s) => (!options.scenario_id || s.id === options.scenario_id) && (!options.group || s.grupo === options.group));
+
+  const results = [];
+
+  for (const s of items) {
+    const result = {
+      scenario_id: s.id,
+      grupo: s.grupo,
+      modo: s.mode,
+      fixture: s.fixture,
+      stage_inicial: s.start_stage,
+      input: s.input || s.script || null,
+      expected_type: s.expected?.type || "single",
+      stage_retornado: null,
+      writes_relevantes: null,
+      status: "PASS",
+      classification: "PASS",
+      motivo: "ok",
+      evidencias: []
+    };
+
+    if (!s.id || !s.fixture || !s.start_stage) {
+      result.status = "FAIL";
+      result.classification = "FAIL_CENARIO_MALFORMADO";
+      result.motivo = "cenario_malformado:campos_obrigatorios";
+      results.push(result);
+      continue;
+    }
+
+    if (bannedAliases.has(s.start_stage) || s.start_stage === "docs") {
+      result.status = "FAIL";
+      result.classification = "FAIL_STAGE_INVALIDO";
+      result.motivo = "stage_invalido:alias_banido";
+      results.push(result);
+      continue;
+    }
+
+    if (!validStages.has(s.start_stage)) {
+      result.status = "FAIL";
+      result.classification = "FAIL_STAGE_INVALIDO";
+      result.motivo = "stage_invalido:fora_catalogo";
+      results.push(result);
+      continue;
+    }
+
+    if (!Array.isArray(s.allowed_modes) || !s.allowed_modes.includes(s.mode)) {
+      result.status = "FAIL";
+      result.classification = "FAIL_MODO_INVALIDO";
+      result.motivo = "modo_invalido:nao_permitido_no_cenario";
+      results.push(result);
+      continue;
+    }
+
+    if (!enovaV1FixturePatch(s.fixture)) {
+      result.status = "FAIL";
+      result.classification = "FAIL_FIXTURE";
+      result.motivo = "fixture_not_found";
+      results.push(result);
+      continue;
+    }
+
+    let execResult;
+    try {
+      execResult = await enovaExecuteScenarioMode(env, ctx, s);
+    } catch (err) {
+      result.status = "FAIL";
+      result.classification = "FAIL_FUNIL";
+      result.motivo = `funil_exception:${err?.message || String(err)}`;
+      results.push(result);
+      continue;
+    }
+
+    if (!execResult?.ok) {
+      result.status = "FAIL";
+      result.classification = enovaClassifyFailure(execResult?.error || "funil_exec_error");
+      result.motivo = execResult?.error || "funil_exec_error";
+      results.push(result);
+      continue;
+    }
+
+    const stageReturned = execResult?.end_stage || execResult?.stage_after || execResult?.steps?.[execResult.steps.length - 1]?.stage_after || null;
+    result.stage_retornado = stageReturned;
+    result.writes_relevantes = execResult?.writes || null;
+
+    if (bannedAliases.has(stageReturned) || stageReturned === "docs") {
+      result.status = "FAIL";
+      result.classification = "FAIL_ALIAS_BANIDO";
+      result.motivo = "alias_banido:stage_retorno";
+      results.push(result);
+      continue;
+    }
+
+    if (s.assert_stayed && stageReturned !== s.start_stage) {
+      result.status = "FAIL";
+      result.classification = "FAIL_EXPECTED";
+      result.motivo = "expected_stayed_in_stage";
+      results.push(result);
+      continue;
+    }
+
+    if (Array.isArray(s.assert_state_write) && s.assert_state_write.length) {
+      const writes = result.writes_relevantes || {};
+      const missing = s.assert_state_write.filter((k) => typeof writes[k] === "undefined");
+      if (missing.length) {
+        result.status = "FAIL";
+        result.classification = "FAIL_FIXTURE";
+        result.motivo = `fixture_missing_write:${missing.join(",")}`;
+        results.push(result);
+        continue;
+      }
+    }
+
+    const expected = s.expected || {};
+    if (expected.type === "single" && stageReturned !== expected.equals) {
+      result.status = "FAIL";
+      result.classification = "FAIL_EXPECTED";
+      result.motivo = `expected_single:${expected.equals}|got:${stageReturned}`;
+      results.push(result);
+      continue;
+    }
+    if ((expected.type === "multiple" || expected.type === "context") && Array.isArray(expected.in) && !expected.in.includes(stageReturned)) {
+      result.status = "FAIL";
+      result.classification = "FAIL_EXPECTED";
+      result.motivo = `expected_in:${expected.in.join(",")}|got:${stageReturned}`;
+      results.push(result);
+      continue;
+    }
+
+    if (expected.terminal_canonical) {
+      const writes = result.writes_relevantes || {};
+      if (stageReturned === "fim_inelegivel" && writes.fase_conversa === expected.terminal_canonical) {
+        result.evidencias.push("terminal_redirect_detected");
+      } else if (stageReturned !== expected.terminal_canonical) {
+        result.status = "FAIL";
+        result.classification = "FAIL_EXPECTED";
+        result.motivo = `expected_terminal_canonical:${expected.terminal_canonical}|got:${stageReturned}`;
+        results.push(result);
+        continue;
+      }
+    }
+
+    if (Array.isArray(execResult?.trace) && execResult.trace.length) {
+      result.evidencias.push("trace_present");
+    }
+
+    results.push(result);
+  }
+
+  const summary = {
+    total: results.length,
+    pass: results.filter((r) => r.classification === "PASS").length,
+    fail_funil: results.filter((r) => r.classification === "FAIL_FUNIL").length,
+    fail_teste: results.filter((r) => r.classification === "FAIL_EXPECTED" || r.classification === "FAIL_CENARIO_MALFORMADO").length,
+    fail_fixture: results.filter((r) => r.classification === "FAIL_FIXTURE").length,
+    fail_stage_invalido: results.filter((r) => r.classification === "FAIL_STAGE_INVALIDO").length,
+    fail_alias: results.filter((r) => r.classification === "FAIL_ALIAS_BANIDO").length,
+    fail_modo: results.filter((r) => r.classification === "FAIL_MODO_INVALIDO").length,
+    duracao_ms: Date.now() - startedAt
+  };
+
+  return { ok: true, suite: "enova_worker_canonical_v1", summary, results };
+}
+
 function pickParser(type) {
   const t = String(type || "").trim().toLowerCase();
 
@@ -1825,6 +2131,36 @@ if (isAdminProdPath) {
 
       return adminJson(200, {
         ok: true,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
+
+    if (request.method === "POST" && pathname === "/__admin__/run-canonical-suite-v1") {
+      if (!isAdminAuthorized()) {
+        return adminJson(401, {
+          ok: false,
+          error: "unauthorized",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        payload = {};
+      }
+
+      const result = await runEnovaCanonicalSuiteV1(env, ctx, {
+        scenario_id: payload?.scenario_id ? String(payload.scenario_id) : null,
+        group: payload?.group ? String(payload.group) : null,
+        mode_override: payload?.mode_override ? String(payload.mode_override) : null
+      });
+
+      return adminJson(200, {
+        ...result,
         build: ENOVA_BUILD,
         ts: new Date().toISOString()
       });

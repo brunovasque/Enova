@@ -7120,7 +7120,7 @@ case "financiamento_conjunto": {
   });
 
   // Exemplos cobertos: "vamos comprar juntos", "só eu", "apenas se faltar renda"
-  const somente_se_precisar = /(se precisar|talvez|depende|s[oó] se precisar|apenas se precisar|se faltar a gente soma|s[oó] se faltar)/i.test(t);
+  const somente_se_precisar = /(se precisar|s[oó] se precisar|apenas se precisar|se faltar a gente soma|s[oó] se faltar)/i.test(t);
   const nao = !somente_se_precisar && (isNo(t) || /(n[aã]o|s[oó] eu|apenas eu|somente eu|sozinh[oa])/i.test(t));
   const sim = !somente_se_precisar && !nao && (isYes(t) || /(sim|isso|claro|vamos juntos|comprar juntos|juntos|somar renda com (minha|meu)|com minha esposa|com meu marido)/i.test(t));
 

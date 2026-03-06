@@ -7711,16 +7711,16 @@ case "inicio_multi_regime_familiar_pergunta": {
     /\bn[aã]o\s+sei\b/i.test(String(userText || ""));
 
   if (isYes(nt)) {
-    return step(env, st, ["Perfeito! 👍", `Me diga qual é o outro regime de trabalho de ${famLabel}.`], "inicio_multi_regime_familiar_loop");
-  }
-
-  if (String(userText || "").trim().toLowerCase() === "não") {
-  return step(env, st, ["Certo! 😊", `Agora me diga o valor da renda mensal de ${famLabel}.`], "renda_parceiro_familiar");
+  return step(env, st, ["Perfeito! 👍", `Me diga qual é o outro regime de trabalho de ${famLabel}.`], "inicio_multi_regime_familiar_loop");
 }
 
-  if (negativoFlex) {
-    return step(env, st, ["Certo! 😊", `Agora me diga o valor da renda mensal de ${famLabel}.`], "renda_parceiro_familiar");
-  }
+if (
+  negativoFlex ||
+  /^(nao|não)$/i.test(String(userText || "").trim()) ||
+  /^(nao|não)$/i.test(nt)
+) {
+  return step(env, st, ["Certo! 😊", `Agora me diga o valor da renda mensal de ${famLabel}.`], "renda_parceiro_familiar");
+}
 
   return step(env, st, ["Só para confirmar 😊", `${famLabel} tem mais algum regime de trabalho além desse?`, "Responda sim ou não."], "inicio_multi_regime_familiar_pergunta");
 }

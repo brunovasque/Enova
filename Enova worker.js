@@ -7705,12 +7705,16 @@ case "inicio_multi_renda_coletar": {
 case "inicio_multi_regime_familiar_pergunta": {
   const nt = normalizeText(userText || "");
   const famLabel = st.familiar_tipo === "pai" ? "seu pai" : st.familiar_tipo === "mae" ? "sua mãe" : "seu familiar";
+  const negativoFlex =
+    isNo(nt) ||
+    /\bnao\s+sei\b/i.test(nt) ||
+    /\bn[aã]o\s+sei\b/i.test(String(userText || ""));
 
   if (isYes(nt)) {
     return step(env, st, ["Perfeito! 👍", `Me diga qual é o outro regime de trabalho de ${famLabel}.`], "inicio_multi_regime_familiar_loop");
   }
 
-  if (isNo(nt)) {
+  if (negativoFlex) {
     return step(env, st, ["Certo! 😊", `Agora me diga o valor da renda mensal de ${famLabel}.`], "renda_parceiro_familiar");
   }
 

@@ -1624,7 +1624,7 @@ const ENOVA_V1_VALID_STAGES = Object.freeze([
 ]);
 
 const ENOVA_V1_BANNED_ALIASES = Object.freeze([
-  "docs",
+  "envio_docs",
   "regularizacao_restricao(_parceiro)",
   "regularizacao_restricao_parceiro|regularizacao_restricao"
 ]);
@@ -1632,19 +1632,65 @@ const ENOVA_V1_BANNED_ALIASES = Object.freeze([
 function enovaV1FixturePatch(id) {
   switch (id) {
     case "fx_base_topo_v1":
-      return { ultima_interacao: new Date().toISOString() };
+      return {
+        ultima_interacao: new Date().toISOString()
+      };
+
     case "fx_composicao_v1":
-      return { financiamento_conjunto: true, somar_renda: true, composicao_pessoa: "casal" };
+      return {
+        financiamento_conjunto: true,
+        somar_renda: true,
+        composicao_pessoa: "casal"
+      };
+
+    case "fx_restricao_parceiro_v1":
+      return {
+        financiamento_conjunto: true,
+        somar_renda: true,
+        composicao_pessoa: "casal",
+        restricao_parceiro: false,
+        renda_total_para_fluxo: 7200,
+        regime_trabalho: "clt"
+      };
+
     case "fx_renda_v1":
-      return { renda_total_para_fluxo: 6500, renda_bruta: 6500, regime_trabalho: "clt" };
+      return {
+        renda_total_para_fluxo: 6500,
+        renda_bruta: 6500,
+        regime_trabalho: "clt"
+      };
+
     case "fx_p3_v1":
-      return { p3_required: true, p3_done: false, familiar_tipo: "pai", composicao_pessoa: "familiar" };
+      return {
+        p3_required: true,
+        p3_done: false,
+        familiar_tipo: "pai",
+        composicao_pessoa: "familiar"
+      };
+
     case "fx_restricao_v1":
-      return { restricao: true, valor_restricao_aproximado: 500, renda_total_para_fluxo: 7200 };
+      return {
+        restricao: true,
+        valor_restricao_aproximado: 500,
+        renda_total_para_fluxo: 7200
+      };
+
     case "fx_docs_text_v1":
-      return { fase_conversa: "envio_docs", docs_faltantes: ["rg", "cpf"], docs_status_geral: "pendente", docs_lista_enviada: true };
+      return {
+        fase_conversa: "envio_docs",
+        docs_faltantes: ["rg", "cpf"],
+        docs_status_geral: "pendente",
+        docs_lista_enviada: true
+      };
+
     case "fx_docs_media_v1":
-      return { fase_conversa: "envio_docs", docs_faltantes: ["comprovante_renda"], docs_status_geral: "parcial", docs_itens_recebidos: ["rg", "cpf"] };
+      return {
+        fase_conversa: "envio_docs",
+        docs_faltantes: ["comprovante_renda"],
+        docs_status_geral: "parcial",
+        docs_itens_recebidos: ["rg", "cpf"]
+      };
+
     default:
       return null;
   }
@@ -1742,15 +1788,20 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "stage_alias_docs_banido", grupo: "docs", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_docs_text_v1", start_stage: "docs", input: "oi", expected: { type: "single", equals: "envio_docs" } },
 
     { id: "restricao_solo", grupo: "restricao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_restricao_v1", start_stage: "restricao", input: "sim", expected: { type: "single", equals: "regularizacao_restricao" } },
-    { id: "restricao_parceiro", grupo: "restricao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_composicao_v1", start_stage: "restricao_parceiro", input: "não", expected: { type: "multiple", in: ["regularizacao_restricao_parceiro","envio_docs","restricao_parceiro_p3"] } },
+    { id: "restricao_parceiro", grupo: "restricao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_restricao_parceiro_v1", start_stage: "restricao_parceiro", input: "não", expected: { type: "multiple", in: ["regularizacao_restricao_parceiro","envio_docs","restricao_parceiro_p3"] } },
     { id: "restricao_p3", grupo: "restricao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_p3_v1", start_stage: "restricao_parceiro_p3", input: "sim", expected: { type: "single", equals: "regularizacao_restricao_p3" } },
 
     { id: "terminal_finalizacao_processo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_renda_v1", start_stage: "finalizacao", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_fim_inelegivel_redirect", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "fim_inelegivel", input: "ok", expected: { type: "context", in: ["fim_ineligivel","fim_inelegivel"], terminal_canonical: "fim_ineligivel" } },
     { id: "terminal_aguardando_retorno_replay", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_base_topo_v1", start_stage: "aguardando_retorno_correspondente", input: "oi", expected: { type: "multiple", in: ["aguardando_retorno_correspondente","finalizacao_processo"] } },
 
-    { id: "modo_contextual_invalido", grupo: "contrato", mode: "simulate-from-state", allowed_modes: ["replay-webhook"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", input: "arquivo" , expected: { type: "multiple", in: ["envio_docs","finalizacao"] } }
+    { id: "modo_contextual_invalido", grupo: "contrato", mode: "simulate-from-state", allowed_modes: ["replay-webhook"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", input: "arquivo", expected: { type: "multiple", in: ["envio_docs","finalizacao"] } }
   ];
+
+  return modeOverride
+    ? common.map((s) => ({ ...s, mode: modeOverride }))
+    : common;
+}
 
   if (!modeOverride) return common;
   return common.map((s) => ({ ...s, mode: modeOverride }));
@@ -12022,7 +12073,7 @@ if (modoFamiliar) {
         "2) Enviar pelo site",
         "3) Agendar uma visita presencial (decorado + simulação no plantão)"
       ],
-      "docs"
+      "envio_docs"
     );
   }
 }
@@ -12151,7 +12202,7 @@ return step(env, st,
   "2) Enviar pelo site",
   "3) Agendar uma visita presencial (decorado + simulação no plantão)"
 ],
-  "docs"
+  "envio_docs"
 );
   }
 
@@ -12200,7 +12251,7 @@ return step(env, st,
   "2) Enviar pelo site",
   "3) Agendar uma visita presencial (decorado + simulação no plantão)"
 ],
-  "docs"
+  "envio_docs"
 );
 }
 
@@ -12234,7 +12285,7 @@ if (incerto) {
   "2) Enviar pelo site",
   "3) Agendar uma visita presencial (decorado + simulação no plantão)"
 ],
-      "docs"
+      "envio_docs"
     );
   }
 
@@ -12273,7 +12324,7 @@ if (incerto) {
   "2) Enviar pelo site",
   "3) Agendar uma visita presencial (decorado + simulação no plantão)"
 ],
-    "docs"
+    "envio_docs"
   );
 }
 
@@ -12473,7 +12524,7 @@ if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restric
   "2) Enviar pelo site",
   "3) Agendar uma visita presencial (decorado + simulação no plantão)"
 ],
-  "docs"
+  "envio_docs"
 );
   }
 
@@ -12523,7 +12574,7 @@ if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restric
   "2) Enviar pelo site",
   "3) Agendar uma visita presencial (decorado + simulação no plantão)"
 ],
-  "docs"
+  "envio_docs"
 );
   }
 
@@ -12738,7 +12789,7 @@ case "regularizacao_restricao": {
           "2) Enviar pelo site",
           "3) Agendar uma visita presencial (decorado + simulação no plantão)"
         ],
-        "docs"
+        "envio_docs"
       );
     }
 

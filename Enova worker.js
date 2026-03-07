@@ -742,6 +742,259 @@ function parseP3Tipo(text) {
   return null;
 }
 
+const COGNITIVE_V1_ALLOWED_STAGES = new Set([
+  "estado_civil",
+  "quem_pode_somar",
+  "interpretar_composicao",
+  "renda",
+  "ir_declarado"
+]);
+
+const COGNITIVE_V1_CONFIDENCE_MIN = 0.66;
+
+const COGNITIVE_PLAYBOOK_V1 = {
+  style_rules: [
+    "Tom acolhedor + profissional/firme + consultivo/didático.",
+    "Responder parcialmente dúvidas fora de hora e trazer de volta ao trilho.",
+    "Variar linguagem de forma natural, sem roboticidade."
+  ],
+  hard_limits: [
+    "Nunca prometer aprovação.",
+    "Nunca antecipar valor/parcela/entrada/resultado sem análise.",
+    "Sempre usar a palavra imóvel (não induzir casa).",
+    "Reforçar que aprovação depende da análise de perfil e avaliação bancária.",
+    "Simulação detalhada e escolha do imóvel só após aprovação, no plantão."
+  ],
+  intents_by_stage: {
+    estado_civil: ["estado_civil_hibrido", "duvida_composicao", "duvida_imovel_pre_analise", "objecao"],
+    quem_pode_somar: ["composicao_familiar", "composicao_parceiro", "duvida_conjuge", "objecao"],
+    interpretar_composicao: ["composicao_familiar", "composicao_parceiro", "sozinho", "objecao"],
+    renda: ["renda_hibrida", "autonomo_ir", "duvida_valor_sem_analise", "objecao"],
+    ir_declarado: ["ir_sim", "ir_nao", "autonomo_ir", "objecao"]
+  },
+  entities_supported: [
+    "estado_civil",
+    "composicao_tipo",
+    "familiar_tipo",
+    "familiar_casado_civil",
+    "regime_trabalho",
+    "ir_possible",
+    "duvida_imovel_antes_analise"
+  ]
+};
+
+function getOpenAIConfig(env) {
+  const envMode = String(env.ENV_MODE || env.ENOVA_ENV || "").toLowerCase();
+  const apiKey = envMode === "prod" ? env.OPENAI_API_KEY_PROD : env.OPENAI_API_KEY_TEST;
+  const model = String(env.OFFTRACK_AI_MODEL || "gpt-4.1-mini");
+  return { apiKey, model };
+}
+
+async function callOpenAIJson(env, { system, user, temperature = 0 }) {
+  const { apiKey, model } = getOpenAIConfig(env);
+  if (!apiKey) return null;
+
+  let resp;
+  try {
+    resp = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model,
+        temperature,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user }
+        ]
+      })
+    });
+  } catch {
+    return null;
+  }
+
+  if (!resp?.ok) return null;
+
+  let data = null;
+  try {
+    data = await resp.json();
+  } catch {
+    return null;
+  }
+
+  const content = data?.choices?.[0]?.message?.content || "{}";
+  try {
+    return JSON.parse(content);
+  } catch {
+    return null;
+  }
+}
+
+function hasClearStageAnswer(stage, text) {
+  if (stage === "estado_civil") return Boolean(parseEstadoCivil(text));
+  if (stage === "renda") {
+    const money = parseMoneyBR(text);
+    return Number.isFinite(money) && money > 300;
+  }
+  if (stage === "ir_declarado") return isYes(text) || isNo(text);
+  if (stage === "quem_pode_somar" || stage === "interpretar_composicao") {
+    const nt = normalizeText(text);
+    if (!nt) return false;
+    const composicao = parseComposicaoRenda(text);
+    const sozinho = /(so\s*(a\s*)?minha|so\s*eu|sozinh|ninguem|sem ninguem)/i.test(nt);
+    return Boolean(composicao || sozinho);
+  }
+  return false;
+}
+
+function shouldTriggerCognitiveAssist(stage, text) {
+  if (!COGNITIVE_V1_ALLOWED_STAGES.has(stage)) return false;
+  const nt = normalizeText(text);
+  if (!nt) return false;
+
+  const hasQuestion = /\?/.test(String(text || ""));
+  const hasConnector = /\b(mas|porem|porém|so que|só que|ao mesmo tempo)\b/i.test(nt);
+  const offtrackHints = /\b(imovel|casa|apartamento|bairro|regiao|entrada|parcela|fgts|valor|preco)\b/i.test(nt);
+  const fearHints = /\b(medo|receio|reprovad|enganad|vergonha|nao quero passar|não quero passar)\b/i.test(nt);
+
+  return hasQuestion || hasConnector || offtrackHints || fearHints;
+}
+
+function sanitizeCognitiveReply(replyText) {
+  let text = String(replyText || "").trim();
+  if (!text) return "Perfeito, te explico isso com calma. E pra seguir com segurança, me confirma a informação desta etapa, por favor.";
+  text = text.replace(/\bcasa\b/gi, "imóvel");
+  return text;
+}
+
+function isStageSignalCompatible(stage, safeStageSignal) {
+  if (!safeStageSignal) return false;
+  const map = {
+    estado_civil: ["estado_civil"],
+    quem_pode_somar: ["composicao"],
+    interpretar_composicao: ["composicao"],
+    renda: ["renda", "regime", "ir_possible"],
+    ir_declarado: ["ir"]
+  };
+  const allowed = map[stage] || [];
+  return allowed.some((prefix) => String(safeStageSignal).startsWith(prefix));
+}
+
+function extractCompatibleStageAnswerFromCognitive(stage, cognitiveOutput) {
+  const c = cognitiveOutput || {};
+  const entities = c.entities && typeof c.entities === "object" ? c.entities : {};
+  const stageSignals = c.stage_signals && typeof c.stage_signals === "object" ? c.stage_signals : {};
+  const safe = String(c.safe_stage_signal || "").toLowerCase();
+
+  if (stage === "estado_civil") {
+    const fromEntity = normalizeText(entities.estado_civil || "");
+    if (fromEntity && ["solteiro", "casado", "uniao_estavel", "separado", "divorciado", "viuvo"].includes(fromEntity)) {
+      return fromEntity.replace("_", " ");
+    }
+    const fromSignal = normalizeText(stageSignals.estado_civil || "");
+    if (fromSignal && ["solteiro", "casado", "uniao_estavel", "separado", "divorciado", "viuvo"].includes(fromSignal)) {
+      return fromSignal.replace("_", " ");
+    }
+    const safeMatch = safe.match(/^estado_civil:(.+)$/);
+    if (safeMatch?.[1]) return safeMatch[1].replace(/_/g, " ");
+    return null;
+  }
+
+  if (stage === "quem_pode_somar" || stage === "interpretar_composicao") {
+    const comp = normalizeText(entities.composicao_tipo || stageSignals.composicao || "");
+    if (comp === "parceiro") return "parceiro";
+    if (comp === "familiar") return "familiar";
+    if (comp === "sozinho") return "sozinho";
+
+    const safeMatch = safe.match(/^composicao:(.+)$/);
+    if (safeMatch?.[1]) {
+      const v = normalizeText(safeMatch[1]);
+      if (["parceiro", "familiar", "sozinho"].includes(v)) return v;
+    }
+    return null;
+  }
+
+  if (stage === "ir_declarado") {
+    const ir = normalizeText(String(entities.ir_declarado ?? stageSignals.ir_declarado ?? ""));
+    if (ir === "sim" || ir === "true") return "sim";
+    if (ir === "nao" || ir === "false") return "nao";
+    const safeMatch = safe.match(/^ir:(.+)$/);
+    if (safeMatch?.[1]) {
+      const v = normalizeText(safeMatch[1]);
+      if (v === "sim" || v === "true") return "sim";
+      if (v === "nao" || v === "false") return "nao";
+    }
+    return null;
+  }
+
+  return null;
+}
+
+function buildCognitiveFallback(stage) {
+  return {
+    reply_text: "Entendo sua dúvida. Pra te orientar com segurança, eu preciso fechar esta etapa primeiro e aí te explico o próximo passo com base no seu perfil.",
+    intent: "fallback_contextual",
+    entities: {},
+    stage_signals: {},
+    still_needs_original_answer: true,
+    answered_customer_question: true,
+    safe_stage_signal: null,
+    suggested_stage: stage,
+    confidence: 0,
+    reason: "no_llm_or_parse"
+  };
+}
+
+async function cognitiveAssistV1(env, { stage, text, stateSnapshot }) {
+  const base = buildCognitiveFallback(stage);
+
+  const system = [
+    "Você é a camada cognitiva v1 da ENOVA e deve responder APENAS JSON válido.",
+    "Objetivo: acolher, orientar sem prometer, e trazer o cliente de volta ao stage atual.",
+    "NUNCA decidir funil sozinho; suggested_stage e stage_signals são apenas sugestão.",
+    "Use linguagem natural em pt-BR, tom acolhedor + firme + consultivo.",
+    "Regras duras: sem promessa de aprovação; sem antecipar valor/parcela/entrada/resultado; falar imóvel; aprovação depende de análise de perfil + avaliação bancária; escolha/simulação de imóvel apenas após aprovação no plantão.",
+    "Se responder dúvida mas faltar resposta objetiva do stage, marque still_needs_original_answer=true.",
+    "Contrato de saída obrigatório: reply_text, intent, entities, stage_signals, still_needs_original_answer, answered_customer_question, safe_stage_signal, suggested_stage, confidence, reason."
+  ].join(" ");
+
+  const user = JSON.stringify({
+    stage,
+    customer_text: String(text || ""),
+    playbook_v1: COGNITIVE_PLAYBOOK_V1,
+    known_state: {
+      estado_civil: stateSnapshot?.estado_civil || null,
+      somar_renda: stateSnapshot?.somar_renda ?? null,
+      renda: stateSnapshot?.renda || null,
+      renda_parceiro: stateSnapshot?.renda_parceiro || null,
+      regime: stateSnapshot?.regime || null
+    }
+  });
+
+  const parsed = await callOpenAIJson(env, { system, user, temperature: 0.2 });
+  if (!parsed || typeof parsed !== "object") return base;
+
+  const confidence = Number(parsed.confidence ?? 0);
+  const output = {
+    reply_text: sanitizeCognitiveReply(parsed.reply_text),
+    intent: String(parsed.intent || "fallback_contextual"),
+    entities: parsed.entities && typeof parsed.entities === "object" ? parsed.entities : {},
+    stage_signals: parsed.stage_signals && typeof parsed.stage_signals === "object" ? parsed.stage_signals : {},
+    still_needs_original_answer: Boolean(parsed.still_needs_original_answer),
+    answered_customer_question: Boolean(parsed.answered_customer_question),
+    safe_stage_signal: parsed.safe_stage_signal ? String(parsed.safe_stage_signal) : null,
+    suggested_stage: parsed.suggested_stage ? String(parsed.suggested_stage) : stage,
+    confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+    reason: String(parsed.reason || "cognitive_v1")
+  };
+
+  if (!output.reply_text) output.reply_text = base.reply_text;
+  return output;
+}
+
 // =============================================================
 // 🧠 OFFTRACK GUARD — IA simples (classifica pergunta fora do trilho)
 //  - Só decide: OFFTRACK ou ONTRACK
@@ -769,16 +1022,9 @@ async function offtrackGuard(env, { wa_id, stage, text }) {
 
   // Se não tiver key, não faz nada (não quebra atendimento)
   // Se não tiver key, não faz nada (não quebra atendimento)
-const envMode = String(env.ENV_MODE || env.ENOVA_ENV || "").toLowerCase();
-const apiKey =
-  envMode === "prod"
-    ? env.OPENAI_API_KEY_PROD
-    : env.OPENAI_API_KEY_TEST;
+const { apiKey } = getOpenAIConfig(env);
 
 if (!apiKey) return { offtrack: false };
-
-// Modelo (você já criou OFFTRACK_AI_MODEL nos 2 ambientes)
-const model = String(env.OFFTRACK_AI_MODEL || "gpt-4.1-mini");
   const labels = ["ONTRACK", "FGTS", "PRECO", "REGIAO", "COMPOR_RENDA", "CASA", "RESTRICAO", "OUTRO"];
 
   const system =
@@ -794,47 +1040,8 @@ const model = String(env.OFFTRACK_AI_MODEL || "gpt-4.1-mini");
       labels_validos: labels
     });
 
-  const body = {
-    model,
-    temperature: 0,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: user }
-    ]
-  };
-
-  let resp;
-  try {
-    resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(body)
-    });
-  } catch {
-    return { offtrack: false };
-  }
-
-  if (!resp.ok) return { offtrack: false };
-
-  let data;
-  try {
-    data = await resp.json();
-  } catch {
-    return { offtrack: false };
-  }
-
-  const content = data?.choices?.[0]?.message?.content || "{}";
-
-  let parsed = null;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    parsed = null;
-  }
+  const parsed = await callOpenAIJson(env, { system, user, temperature: 0 });
+  if (!parsed) return { offtrack: false };
 
   const labelRaw = String(parsed?.label || parsed?.result || "").toUpperCase().trim();
   const confidence = Number(parsed?.confidence ?? 0);
@@ -4889,7 +5096,7 @@ async function runFunnel(env, st, userText) {
   });
 
   const stage = st.fase_conversa || "inicio";
-  const t = (userText || "").trim().toLowerCase();
+  let t = (userText || "").trim().toLowerCase();
 
   // ============================================================
   // 🧷 OFFTRACK DETERMINÍSTICO (YES/NO stages)
@@ -4925,6 +5132,83 @@ async function runFunnel(env, st, userText) {
         stage
       );
     }
+  }
+
+  // ============================================================
+  // 🧠 COGNITIVE ASSIST V1 (SOCORRO CONTROLADO)
+  // - Somente nos stages permitidos
+  // - Mantém soberania do funil mecânico
+  // - Em baixa confiança ou ambiguidade: responde e mantém stage
+  // ============================================================
+  try {
+    if (shouldTriggerCognitiveAssist(stage, userText)) {
+      const clearAnswer = hasClearStageAnswer(stage, userText);
+      const cognitive = await cognitiveAssistV1(env, {
+        stage,
+        text: userText,
+        stateSnapshot: st
+      });
+
+      const compatibleSignal = isStageSignalCompatible(stage, cognitive.safe_stage_signal);
+      const lowConfidence = Number(cognitive.confidence || 0) < COGNITIVE_V1_CONFIDENCE_MIN;
+      const syntheticStageAnswer =
+        !clearAnswer && !lowConfidence && compatibleSignal
+          ? extractCompatibleStageAnswerFromCognitive(stage, cognitive)
+          : null;
+      const hasSufficientStageAnswer = clearAnswer || Boolean(syntheticStageAnswer);
+      const stillNeedsOriginal =
+        cognitive.still_needs_original_answer === true && !hasSufficientStageAnswer;
+
+      await telemetry(env, {
+        wa_id: st.wa_id,
+        event: "cognitive_v1_signal",
+        stage,
+        severity: "info",
+        message: "Cognitive v1 acionado",
+        details: {
+          intent: cognitive.intent || null,
+          confidence: cognitive.confidence ?? null,
+          still_needs_original_answer: cognitive.still_needs_original_answer,
+          answered_customer_question: cognitive.answered_customer_question,
+          suggested_stage: cognitive.suggested_stage || null,
+          safe_stage_signal: cognitive.safe_stage_signal || null,
+          signal_compatible: compatibleSignal,
+          clear_answer_detected_by_parser: clearAnswer,
+          synthetic_stage_answer: syntheticStageAnswer || null,
+          still_needs_original_effective: stillNeedsOriginal
+        }
+      });
+
+      if (syntheticStageAnswer) {
+        t = syntheticStageAnswer;
+      }
+
+      const shouldHoldStage =
+        lowConfidence ||
+        stillNeedsOriginal;
+
+      if (shouldHoldStage) {
+        const trilhoMsg = stage === "renda"
+          ? "Pra eu seguir com segurança, me confirma sua renda mensal aproximada em reais, por favor."
+          : stage === "ir_declarado"
+          ? "Pra eu avançar nesta etapa, me responde objetivamente: você declara Imposto de Renda hoje?"
+          : stage === "estado_civil"
+          ? "Pra eu seguir certinho, me confirma seu estado civil em uma opção: solteiro(a), casado(a), união estável, separado(a), divorciado(a) ou viúvo(a)."
+          : "Pra eu seguir no processo com segurança, me responde objetivamente a pergunta desta etapa, por favor.";
+
+        return step(
+          env,
+          st,
+          [
+            cognitive.reply_text,
+            trilhoMsg
+          ],
+          stage
+        );
+      }
+    }
+  } catch (e) {
+    console.error("COGNITIVE_V1_RUNFUNNEL_ERROR:", e);
   }
 
   // ============================================================

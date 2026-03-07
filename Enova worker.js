@@ -20,7 +20,15 @@ async function step(env, st, messages, nextStage) {
   const isSim = Boolean(simCtx?.active);
 
   // Converte sempre para array
-  const arr = Array.isArray(messages) ? messages : [messages];
+    const rawArr = Array.isArray(messages) ? messages : [messages];
+  const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
+
+  const arr = cognitivePrefix
+    ? [cognitivePrefix, ...rawArr].filter(Boolean)
+    : rawArr.filter(Boolean);
+
+  // limpa prefixo transitório para não vazar para próximas respostas
+  st.__cognitive_reply_prefix = null;
 
   // 🔥 AQUI: aplica modo humano (somente se ativo)
   const msgs = modoHumanoRender(st, arr);
@@ -5183,6 +5191,30 @@ async function runFunnel(env, st, userText) {
         t = syntheticStageAnswer;
       }
 
+      const cognitiveReply = !lowConfidence
+        ? sanitizeCognitiveReply(cognitive.reply_text)
+        : "";
+
+      const hasUsefulCognitiveReply =
+        Boolean(cognitiveReply) &&
+        (
+          cognitive.answered_customer_question === true ||
+          Boolean(cognitive.intent) ||
+          Boolean(cognitive.safe_stage_signal)
+        );
+
+      if (hasUsefulCognitiveReply) {
+        st.__cognitive_reply_prefix = cognitiveReply;
+      } else {
+        st.__cognitive_reply_prefix = null;
+      }
+
+      if (syntheticStageAnswer) {
+        st.__cognitive_stage_answer = syntheticStageAnswer;
+      } else {
+        st.__cognitive_stage_answer = null;
+      }
+
       const shouldHoldStage =
         lowConfidence ||
         stillNeedsOriginal;
@@ -5200,7 +5232,6 @@ async function runFunnel(env, st, userText) {
           env,
           st,
           [
-            cognitive.reply_text,
             trilhoMsg
           ],
           stage
@@ -10307,7 +10338,8 @@ case "quem_pode_somar": {
     }
   });
 
-  const tRaw = (userText || "").trim();
+  const tRaw = String(st.__cognitive_stage_answer || userText || "").trim();
+  st.__cognitive_stage_answer = null;
 
   // Normalização de mojibake / caracteres quebrados (PowerShell/console)
   const t = tRaw

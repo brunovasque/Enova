@@ -1,6 +1,7 @@
 console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
 
 const ENOVA_BUILD = "enova-meta-debug-stamp-2026-02-11";
+// cognitive-layer-v1: CONV_MEM_V1 + stage-expansion — reindex 2026-03-08
 
 function getSimulationContext(env) {
   return env && env.__enovaSimulationCtx ? env.__enovaSimulationCtx : null;

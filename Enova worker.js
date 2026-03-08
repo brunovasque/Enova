@@ -5955,7 +5955,7 @@ case "inicio_nome": {
       st,
       [
         "Só pra ficar certinho aqui no sistema 😅",
-        "Me manda seu *nome completo*, tipo: *Bruno Vasques*."
+        "Me manda seu *nome completo*, tipo: *Ana Silva*."
       ],
       "inicio_nome"
     );
@@ -6114,7 +6114,7 @@ case "inicio_rnm": {
       st,
       [
         "Entendi! 👀",
-        "Para financiar pelo Minha Casa Minha Vida é obrigatório ter o *RNM válido*.",
+        "Para financiar pelo Minha Casa Minha Vida é obrigatório ter o *RNM com prazo de validade por tempo indeterminado*.",
         "Quando você tiver o RNM, posso te ajudar a fazer tudo certinho! 😊"
       ],
       "fim_ineligivel"
@@ -6238,8 +6238,8 @@ case "inicio_rnm_validade": {
     st,
     [
       "Só preciso confirmar rapidinho 🙂",
-      "Seu RNM é *válido* (com validade definida) ou *indeterminado*?",
-      "Responda apenas: 👉 *válido* ou *indeterminado*"
+      "Seu RNM possui prazo de validade com data definida ou por prazo *indeterminado* de validade?",
+      "Responda apenas: 👉 *com validade* ou *indeterminado*"
     ],
     "inicio_rnm_validade"
   );

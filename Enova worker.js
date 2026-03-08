@@ -755,7 +755,13 @@ const COGNITIVE_V1_ALLOWED_STAGES = new Set([
   "quem_pode_somar",
   "interpretar_composicao",
   "renda",
-  "ir_declarado"
+  "ir_declarado",
+  "inicio_nome",
+  "inicio_nacionalidade",
+  "somar_renda_solteiro",
+  "somar_renda_familiar",
+  "regime_trabalho",
+  "regime_trabalho_parceiro"
 ]);
 
 const COGNITIVE_V1_CONFIDENCE_MIN = 0.66;
@@ -778,7 +784,13 @@ const COGNITIVE_PLAYBOOK_V1 = {
     quem_pode_somar: ["composicao_familiar", "composicao_parceiro", "duvida_conjuge", "objecao"],
     interpretar_composicao: ["composicao_familiar", "composicao_parceiro", "sozinho", "objecao"],
     renda: ["renda_hibrida", "autonomo_ir", "duvida_valor_sem_analise", "objecao"],
-    ir_declarado: ["ir_sim", "ir_nao", "autonomo_ir", "objecao"]
+    ir_declarado: ["ir_sim", "ir_nao", "autonomo_ir", "objecao"],
+    inicio_nome: ["nome_hibrido", "duvida_programa", "objecao"],
+    inicio_nacionalidade: ["brasileiro", "estrangeiro", "duvida_elegibilidade", "objecao"],
+    somar_renda_solteiro: ["composicao_solo", "composicao_parceiro", "composicao_familiar", "duvida_composicao", "objecao"],
+    somar_renda_familiar: ["familiar_mae", "familiar_pai", "familiar_avo", "familiar_irmao", "familiar_outro", "duvida_familiar", "objecao"],
+    regime_trabalho: ["regime_clt", "regime_autonomo", "regime_servidor", "regime_aposentado", "duvida_regime", "objecao"],
+    regime_trabalho_parceiro: ["regime_clt", "regime_autonomo", "regime_servidor", "regime_aposentado", "duvida_regime", "objecao"]
   },
   entities_supported: [
     "estado_civil",
@@ -787,9 +799,69 @@ const COGNITIVE_PLAYBOOK_V1 = {
     "familiar_casado_civil",
     "regime_trabalho",
     "ir_possible",
-    "duvida_imovel_antes_analise"
+    "duvida_imovel_antes_analise",
+    "nome_extraido",
+    "nacionalidade"
   ]
 };
+
+// =============================================================
+// 🧠 CONV_MEM_V1 — Memória de Conversa Útil
+// Salva sinais práticos de contexto sem alterar nenhum gate ou fluxo.
+// Chamado no início de cada turno como efeito colateral puro.
+// =============================================================
+
+const CONV_MEM_PATTERNS = {
+  mem_mencionou_parceiro:   /(parceiro|parceira|namorad[oa]|esposo|esposa|marido|mulher|c[oô]njuge)/i,
+  mem_mora_com_alguem:      /(moro com|moramos|vivemos juntos|divid[eo] (casa|apartamento)|compartilho)/i,
+  mem_mencionou_regiao:     /(zona\s*(norte|sul|leste|oeste|centro)|bairro|região|regiao|quero (em|na|no)\s+\w)/i,
+  mem_prefere_presencial:   /(presencial|ir pessoalmente|quero ir|comparecer|prefiro ir|escritório)/i,
+  mem_medo_docs:            /(medo|receio|vergonha|complicad|trabalhoso|papelad|burocraci)/i,
+  mem_mencionou_restricao:  /(restrição|restri[çc][ãa]o|serasa|spc|cpf\s*(sujo|negativad)|nome\s*(sujo|negativad)|negativad)/i,
+  mem_cogita_declarar_ir:   /(penso em declarar|vou declarar|quer declarar|cogit[ao] declarar|quero declarar)/i,
+  mem_quer_sozinho:         /(s[oó]\s*eu|somente eu|apenas eu|quero (fazer|seguir)\s+sozinho|sozinha mesmo)/i,
+  mem_cogita_composicao:    /(somar renda|compor renda|composição de renda|comprar junto com|financiar junto)/i
+};
+
+function extractConvMemHints(text) {
+  const hints = {};
+  const t = String(text || "");
+  for (const [key, pattern] of Object.entries(CONV_MEM_PATTERNS)) {
+    if (pattern.test(t)) hints[key] = true;
+  }
+  return hints;
+}
+
+async function saveConvMemHints(env, st, text) {
+  const hints = extractConvMemHints(text);
+  if (Object.keys(hints).length === 0) return;
+  // Só salva campos que ainda não estão marcados (sinais são aditivos, não reversíveis)
+  const toSave = {};
+  for (const [k, v] of Object.entries(hints)) {
+    if (!st[k]) toSave[k] = v;
+  }
+  if (Object.keys(toSave).length === 0) return;
+  try {
+    await upsertState(env, st.wa_id, toSave);
+    Object.assign(st, toSave);
+  } catch (e) {
+    console.error("CONV_MEM_V1_SAVE_ERROR:", e);
+  }
+}
+
+function getConvMemSnapshot(st) {
+  return {
+    mem_mencionou_parceiro:  Boolean(st.mem_mencionou_parceiro),
+    mem_mora_com_alguem:     Boolean(st.mem_mora_com_alguem),
+    mem_mencionou_regiao:    Boolean(st.mem_mencionou_regiao),
+    mem_prefere_presencial:  Boolean(st.mem_prefere_presencial),
+    mem_medo_docs:           Boolean(st.mem_medo_docs),
+    mem_mencionou_restricao: Boolean(st.mem_mencionou_restricao),
+    mem_cogita_declarar_ir:  Boolean(st.mem_cogita_declarar_ir),
+    mem_quer_sozinho:        Boolean(st.mem_quer_sozinho),
+    mem_cogita_composicao:   Boolean(st.mem_cogita_composicao)
+  };
+}
 
 function getOpenAIConfig(env) {
   const envMode = String(env.ENV_MODE || env.ENOVA_ENV || "").toLowerCase();
@@ -855,6 +927,29 @@ function hasClearStageAnswer(stage, text) {
     const sozinho = /(so\s*(a\s*)?minha|so\s*eu|sozinh|ninguem|sem ninguem)/i.test(nt);
     return Boolean(composicao || sozinho);
   }
+  if (stage === "inicio_nome") {
+    // Nome claro: pelo menos 2 palavras, sem pergunta ou conectores explícitos no início
+    const raw = String(text || "").replace(/^(meu nome [eé]|me chamo|me chama|sou [oa]?|sou|aqui [eé])\s*/i, "").trim();
+    const parts = raw.split(/\s+/).filter(p => p.replace(/[^\p{L}]/gu, "").length >= 2);
+    return parts.length >= 2 && parts.length <= 6 && !(/\?/.test(raw));
+  }
+  if (stage === "inicio_nacionalidade") {
+    const nt = normalizeText(text || "");
+    return /\b(brasileiro|brasileira|daqui|nasci no brasil|sou do brasil|estrangeiro|estrangeira|gringo|nao sou brasileiro)\b/i.test(nt);
+  }
+  if (stage === "somar_renda_solteiro") {
+    const nt = normalizeText(text || "");
+    return /\b(so|somente|apenas|sozinho|sozinha|s[oó]\s+eu|apenas\s+eu)\b/i.test(nt) ||
+           /\b(parceiro|parceira|c[oô]njuge|marido|esposa|namorad[oa])\b/i.test(nt) ||
+           /\b(familiar|familia|pai|mae|irm[aã]o|irm[aã]|tio|tia|av[oô])\b/i.test(nt);
+  }
+  if (stage === "somar_renda_familiar") {
+    const nt = normalizeText(text || "");
+    return /\b(mae|minha mae|pai|meu pai|av[oô]|av[oô]s|irm[aã]o|irm[aã]|tio|tia|primo|prima)\b/i.test(nt);
+  }
+  if (stage === "regime_trabalho" || stage === "regime_trabalho_parceiro") {
+    return Boolean(parseRegimeTrabalho(normalizeText(text || "")));
+  }
   return false;
 }
 
@@ -885,7 +980,13 @@ function isStageSignalCompatible(stage, safeStageSignal) {
     quem_pode_somar: ["composicao"],
     interpretar_composicao: ["composicao"],
     renda: ["renda", "regime", "ir_possible"],
-    ir_declarado: ["ir"]
+    ir_declarado: ["ir"],
+    inicio_nome: ["nome"],
+    inicio_nacionalidade: ["nacionalidade"],
+    somar_renda_solteiro: ["composicao", "renda_solo"],
+    somar_renda_familiar: ["familiar"],
+    regime_trabalho: ["regime"],
+    regime_trabalho_parceiro: ["regime"]
   };
   const allowed = map[stage] || [];
   return allowed.some((prefix) => String(safeStageSignal).startsWith(prefix));
@@ -938,6 +1039,74 @@ function extractCompatibleStageAnswerFromCognitive(stage, cognitiveOutput) {
     return null;
   }
 
+  // ---- NEW STAGES ----
+
+  if (stage === "inicio_nome") {
+    // LLM devolve o nome extraído em entities.nome_extraido ou safe_stage_signal "nome:<Nome Sobrenome>"
+    const fromEntity = String(entities.nome_extraido || "").trim();
+    if (fromEntity && fromEntity.split(/\s+/).filter(p => p.length >= 2).length >= 2) {
+      return fromEntity;
+    }
+    const safeMatch = safe.match(/^nome:(.+)$/);
+    if (safeMatch?.[1]) {
+      const candidate = safeMatch[1].trim().replace(/_/g, " ");
+      if (candidate.split(/\s+/).filter(p => p.length >= 2).length >= 2) return candidate;
+    }
+    return null;
+  }
+
+  if (stage === "inicio_nacionalidade") {
+    const nat = normalizeText(String(entities.nacionalidade || stageSignals.nacionalidade || ""));
+    if (nat === "brasileiro" || nat === "brasileira") return "brasileiro";
+    if (nat === "estrangeiro" || nat === "estrangeira") return "estrangeiro";
+    const safeMatch = safe.match(/^nacionalidade:(.+)$/);
+    if (safeMatch?.[1]) {
+      const v = normalizeText(safeMatch[1]);
+      if (v === "brasileiro" || v === "brasileira") return "brasileiro";
+      if (v === "estrangeiro" || v === "estrangeira") return "estrangeiro";
+    }
+    return null;
+  }
+
+  if (stage === "somar_renda_solteiro") {
+    const comp = normalizeText(String(entities.composicao_tipo || stageSignals.composicao || ""));
+    if (comp === "sozinho" || comp === "solo") return "sozinho";
+    if (comp === "parceiro") return "parceiro";
+    if (comp === "familiar") return "familiar";
+    const safeMatch = safe.match(/^(?:composicao|renda_solo):(.+)$/);
+    if (safeMatch?.[1]) {
+      const v = normalizeText(safeMatch[1]);
+      if (v === "sozinho" || v === "solo") return "sozinho";
+      if (v === "parceiro") return "parceiro";
+      if (v === "familiar") return "familiar";
+    }
+    return null;
+  }
+
+  if (stage === "somar_renda_familiar") {
+    const fam = normalizeText(String(entities.familiar_tipo || stageSignals.familiar || ""));
+    const famValidos = ["mae", "pai", "avo", "irmao", "irma", "tio", "tia", "primo", "prima"];
+    if (famValidos.includes(fam)) return fam;
+    const safeMatch = safe.match(/^familiar:(.+)$/);
+    if (safeMatch?.[1]) {
+      const v = normalizeText(safeMatch[1]);
+      if (famValidos.includes(v)) return v;
+    }
+    return null;
+  }
+
+  if (stage === "regime_trabalho" || stage === "regime_trabalho_parceiro") {
+    const regimeRaw = normalizeText(String(entities.regime_trabalho || stageSignals.regime || ""));
+    const regimeValido = parseRegimeTrabalho(regimeRaw);
+    if (regimeValido) return regimeValido;
+    const safeMatch = safe.match(/^regime:(.+)$/);
+    if (safeMatch?.[1]) {
+      const v = parseRegimeTrabalho(normalizeText(safeMatch[1]));
+      if (v) return v;
+    }
+    return null;
+  }
+
   return null;
 }
 
@@ -978,7 +1147,9 @@ async function cognitiveAssistV1(env, { stage, text, stateSnapshot }) {
       somar_renda: stateSnapshot?.somar_renda ?? null,
       renda: stateSnapshot?.renda || null,
       renda_parceiro: stateSnapshot?.renda_parceiro || null,
-      regime: stateSnapshot?.regime || null
+      regime: stateSnapshot?.regime || null,
+      nome: stateSnapshot?.nome || null,
+      ...getConvMemSnapshot(stateSnapshot || {})
     }
   });
 
@@ -5907,6 +6078,16 @@ async function runFunnel(env, st, userText) {
   let t = (userText || "").trim().toLowerCase();
 
   // ============================================================
+  // 🧠 CONV_MEM_V1 — Salva sinais úteis de contexto (efeito colateral puro)
+  // Não altera nenhum gate, nextStage ou regra de negócio.
+  // ============================================================
+  try {
+    await saveConvMemHints(env, st, userText);
+  } catch (e) {
+    console.error("CONV_MEM_V1_RUNFUNNEL_ERROR:", e);
+  }
+
+  // ============================================================
   // 🧷 OFFTRACK DETERMINÍSTICO (YES/NO stages)
   // Se a fase atual espera SIM/NÃO e o texto não é SIM/NÃO → OFFTRACK (sem IA)
   // ============================================================
@@ -6026,6 +6207,18 @@ async function runFunnel(env, st, userText) {
           ? "Pra eu avançar nesta etapa, me responde objetivamente: você declara Imposto de Renda hoje?"
           : stage === "estado_civil"
           ? "Pra eu seguir certinho, me confirma seu estado civil em uma opção: solteiro(a), casado(a), união estável, separado(a), divorciado(a) ou viúvo(a)."
+          : stage === "inicio_nome"
+          ? "Pra eu continuar, me manda só o seu *nome completo*, por favor. (ex: Ana Silva)"
+          : stage === "inicio_nacionalidade"
+          ? "Pra eu seguir, me diz: você é *brasileiro(a)* ou *estrangeiro(a)*?"
+          : stage === "somar_renda_solteiro"
+          ? "Pra eu montar seu perfil, me diz: vai usar só sua renda, ou quer somar com *parceiro(a)* ou *familiar*?"
+          : stage === "somar_renda_familiar"
+          ? "Pra eu seguir, me diz quem é o familiar que vai somar renda com você (ex: mãe, pai, irmão)."
+          : stage === "regime_trabalho"
+          ? "Pra seguir com sua análise, me confirma: você é *CLT*, *autônomo(a)*, *servidor(a)* ou *aposentado(a)*?"
+          : stage === "regime_trabalho_parceiro"
+          ? "Pra montar o perfil do(a) parceiro(a), me diz o regime dele(a): *CLT*, *autônomo(a)*, *servidor(a)* ou *aposentado(a)*?"
           : "Pra eu seguir no processo com segurança, me responde objetivamente a pergunta desta etapa, por favor.";
 
         return step(
@@ -6699,8 +6892,9 @@ case "inicio_nome": {
   });
 
   // Exemplos cobertos: "meu nome é Ana Maria", "sou João Pedro", "aqui é Carla Souza"
-  // Texto bruto digitado pelo cliente
-  let rawNome = (userText || "").trim();
+  // Prioriza nome extraído pelo cognitivo (ex: "João Silva, pode me dizer sobre o programa?")
+  let rawNome = String(st.__cognitive_stage_answer || userText || "").trim();
+  st.__cognitive_stage_answer = null;
 
   // Remove prefixos tipo "meu nome é", "sou o", etc.
   if (/^(meu nome e|meu nome é|me chamo|me chama|sou|sou o|sou a|aqui e|aqui é)/i.test(rawNome)) {

@@ -691,7 +691,7 @@ function parseRnmValidade(text) {
   // Prazo indeterminado → segue
   if (/(indeterminado|prazo\s+indeterminado|tempo\s+indeterminado|por\s+tempo\s+indeterminado)/.test(nt)) return "prazo_indeterminado";
   // Temporário / renovação / validade / protocolo / andamento → não se enquadra
-  if (/(renovac|temporar|validade|protocolo|em\s+andamento|em\s+processo|vencend|venceu|expira)/.test(nt)) return "nao_se_enquadra";
+  if (/(renovac(?:ao|oes)?|renova(?:r|ndo)?|temporari[oa]|validade|protocolo|em\s+andamento|em\s+processo|venc(?:endo|eu)|expira|ainda\s+nao\s+saiu|nao\s+saiu\s+ainda)/.test(nt)) return "nao_se_enquadra";
   return null;
 }
 
@@ -699,7 +699,7 @@ function parseIrDeclarado(text) {
   const nt = normalizeText(text);
   if (!nt) return null;
   // Negação explícita primeiro (evita que "declaro" em frase negativa vire sim)
-  if (/(nao\s+declaro|nao\s+declara|sem\s+imposto|nunca\s+declarei|nao\s+faco\s+ir)/.test(nt)) return "nao";
+  if (/(nao\s+declaro(\s+ir)?|nao\s+declara|sem\s+imposto|nunca\s+declarei|nao\s+faco\s+ir|mei(?:\s+mas)?\s+nao\s+declaro)/.test(nt)) return "nao";
   // Frases afirmativas
   if (/(declaro\s+sim|declaro\s+imposto|declaro\s+ir|faco\s+ir|faco\s+imposto|imposto\s+de\s+renda)/.test(nt)) return "sim";
   if (/^(declaro|declara)$/.test(nt)) return "sim";
@@ -710,9 +710,9 @@ function parseRestricaoHumana(text) {
   const nt = normalizeText(text);
   if (!nt) return null;
   // Negação primeiro
-  if (/(nao\s+(tenho|tem)|sem\s+restricao|sem\s+divida|nome\s+limpo|cpf\s+limpo|(ta|esta)\s+limpo|tudo\s+certo)/.test(nt)) return "nao";
+  if (/(nao\s+(tenho|tem)|sem\s+restricao|sem\s+divida|nome\s+limpo|cpf\s+limpo|(ta|esta)\s+limpo|meu\s+nome\s+ta\s+limpo|meu\s+nome\s+esta\s+limpo|tudo\s+certo)/.test(nt)) return "nao";
   // Conservador: "acho que tem" → sim
-  if (/(acho\s+que\s+(tem|tenho|possuo)|tenho\s+sim|tem\s+restricao|tenho\s+restricao|nome\s+sujo|cpf\s+sujo|negativad|estou\s+em\s+divida|protesto)/.test(nt)) return "sim";
+  if (/(acho\s+que\s+(tem|tenho|possuo)|acho\s+que\s+devo\s+ter|tenho\s+sim|tem\s+restricao|tenho\s+restricao|nome\s+sujo|cpf\s+sujo|negativad|estou\s+em\s+divida|protesto)/.test(nt)) return "sim";
   return null;
 }
 
@@ -730,7 +730,7 @@ function parseRestricaoParceiroHumana(text) {
   const nt = normalizeText(text);
   if (!nt) return null;
   // Negação primeiro
-  if (/(nao\s+(tenho|tem|possui)|(ta|esta)\s+limpo|nome\s+limpo|cpf\s+limpo|sem\s+restricao|tudo\s+certo)/.test(nt)) return "nao";
+  if (/(nao\s+(tenho|tem|possui)|^nao\s*[,.]?\s*(ele|ela)\s+nao\s+(tem|possui|vai|ira)\b|(ta|esta)\s+limpo|nome\s+limpo|cpf\s+limpo|sem\s+restricao|tudo\s+certo)/.test(nt)) return "nao";
   // Afirmativo: inclui "tem sim", "ele/ela tem", "parceiro tem"
   if (/(tem\s+sim|(ele|ela)\s+(tem|possui)\b|parceiro\s+tem|tem\s+restricao|esta\s+negativad|nome\s+sujo|cpf\s+sujo|negativad|protesto)/.test(nt)) return "sim";
   return null;
@@ -739,7 +739,7 @@ function parseRestricaoParceiroHumana(text) {
 function parseCtps36Humano(text) {
   const nt = normalizeText(text);
   if (!nt) return null;
-  if (/(nao\s+sei|nao\s+lembro|nunca\s+parei|nao\s+tenho\s+certeza)/.test(nt)) return "nao_sei";
+  if (/(nao\s+sei|nao\s+lembro|nunca\s+parei|nao\s+tenho\s+certeza|nao\s+consigo\s+afirmar)/.test(nt)) return "nao_sei";
   if (/(nao\s+(tenho|possuo|completei|completo)|menos\s+de\s+36|menos\s+de\s+3\s+anos)/.test(nt)) return "nao";
   if (/(mais\s+de\s+36|acima\s+de\s+36|mais\s+de\s+3\s+anos|3\s+anos\s+ou\s+mais|ja\s+tenho\s+36|tenho\s+36)/.test(nt)) return "sim";
   return null;
@@ -748,7 +748,7 @@ function parseCtps36Humano(text) {
 function parseCtps36ParceiroHumano(text) {
   const nt = normalizeText(text);
   if (!nt) return null;
-  if (/(nao\s+sei|nao\s+lembro)/.test(nt)) return "nao_sei";
+  if (/(nao\s+sei|nao\s+lembro|nao\s+consigo\s+afirmar)/.test(nt)) return "nao_sei";
   if (/(ele\s+nao\s+tem|ela\s+nao\s+tem|nao\s+tem|nao\s+possui|menos\s+de\s+36|menos\s+de\s+3\s+anos)/.test(nt)) return "nao";
   if (/(ele\s+tem\b|ela\s+tem\b|tem\s+sim|o\s+parceiro\s+tem|parceiro\s+tem|mais\s+de\s+36|36\s+meses\s+ou\s+mais|3\s+anos\s+ou\s+mais)/.test(nt)) return "sim";
   return null;
@@ -12228,6 +12228,7 @@ if (st.ctps_36_parceiro === true || st.p3_ctps_36 === true) {
   // Texto bruto + normalizado (centralizado no helper global)
 const t = String(userText || "").trim();
 const tNorm = normalizeText(t);
+  const ctpsParsed = parseCtps36Humano(userText || "");
 
   // Token simples (evita depender de \b em casos chatos)
   const hasWord = (w) => new RegExp(`(^|\\s)${w}(\\s|$)`, "i").test(tNorm);
@@ -12241,10 +12242,13 @@ const tNorm = normalizeText(t);
 
   // "não sei"
   const nao_sei =
+    ctpsParsed === "nao_sei" ||
     /(nao sei|nao lembro|talvez|acho|nunca\s+parei)/i.test(tNorm);
 
   // "sim" / positivo
   const sim =
+    ctpsParsed === "sim" || (
+    ctpsParsed === null &&
     !temNegacao36 &&
     !nao_sei &&
     (
@@ -12253,10 +12257,12 @@ const tNorm = normalizeText(t);
       /(mais de\s*36|acima de\s*36)/i.test(tNorm) ||
       /(mais de\s*3 anos|3 anos ou mais)/i.test(tNorm) ||
       /(desde\s*20\d{2})/i.test(tNorm)
-    );
+    ));
 
   // "não" (inclui "nao" simples e frases comuns)
   const nao =
+    ctpsParsed === "nao" || (
+    ctpsParsed === null &&
     !nao_sei &&
     !sim &&
     (
@@ -12265,7 +12271,7 @@ const tNorm = normalizeText(t);
       tNorm === "n" ||
       /(nao tem|nao possui|nao completo|nao completei)/i.test(tNorm) ||
       /(menos de\s*36|menos de\s*3 anos)/i.test(tNorm)
-    );
+    ));
 
   const ehFinanciamentoConjunto = (
   st.financiamento_conjunto === true ||
@@ -12545,6 +12551,7 @@ case "ctps_36_parceiro": {
 
   const t = String(userText || "").trim();
   const tNorm = normalizeText(t);
+  const ctpsParceiroParsed = parseCtps36ParceiroHumano(userText || "");
 
   // ✅ GATE: se já tem 36m em qualquer outro (titular ou P3), não pergunta parceiro
   if (st.ctps_36 === true || st.p3_ctps_36 === true) {
@@ -12582,23 +12589,28 @@ case "ctps_36_parceiro": {
     /(menos de\s*3 anos)/i.test(tNorm);
 
   const nao_sei =
+    ctpsParceiroParsed === "nao_sei" ||
     /(nao sei|talvez|acho|nao lembro)/i.test(tNorm);
 
   const sim =
+    ctpsParceiroParsed === "sim" || (
+    ctpsParceiroParsed === null &&
     !temNegacao36Parceiro &&
     !nao_sei &&
     (
       /(^|\s)sim(\s|$)/i.test(tNorm) ||
       /(tem sim|possui|possuo|completo|completa|mais de 36|acima de 36|mais de 3 anos|3 anos ou mais|desde 20\d{2})/i.test(tNorm)
-    );
+    ));
 
   const nao =
+    ctpsParceiroParsed === "nao" || (
+    ctpsParceiroParsed === null &&
     !nao_sei &&
     !sim &&
     (
       temNegacao36Parceiro ||
       /(^|\s)nao(\s|$)/i.test(tNorm)
-    );
+    ));
 
   const nextStageInformativo = "restricao";
 
@@ -13508,8 +13520,11 @@ case "restricao_parceiro": {
   const temNaoTenho = /\b(n[aã]o|nao)\s+(tenho|tem)\b/i.test(t);
   const temTermoRestricao = hasRestricaoIndicador(t);
   const achoQueTem = /acho\s+que\s+(tem|tenho|possuo)/i.test(t);
+  const restricaoParceiroParsed = parseRestricaoParceiroHumana(userText || "");
 
   const sim =
+    restricaoParceiroParsed === "sim" || (
+    restricaoParceiroParsed === null &&
     !temNaoTenho && (
       achoQueTem ||
       isYes(t) ||
@@ -13519,19 +13534,21 @@ case "restricao_parceiro": {
       (!isNo(t) && temTermoRestricao) ||
       /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(t) ||
       /\b(tenho|tem)\s+(restri[cç][aã]o|nome sujo|cpf sujo|d[ií]vida|divida|protesto)\b/i.test(t)
-    );
+    ));
 
   const incerto =
     !achoQueTem &&
     /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(t);
 
   const nao =
+    restricaoParceiroParsed === "nao" || (
+    restricaoParceiroParsed === null &&
     !incerto && (
       isNo(t) ||
       temNaoTenho ||
       /^(n[aã]o|nao)\s*[,.]?\s*(ele|ela)\s+(n[aã]o|nao)\b/i.test(t) ||
       /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo|nome\s+(ta|tá|esta|está)\s+limpo|cpf\s+(ta|tá|esta|está)\s+limpo|\b(ta|tá|esta|está)\s+limpo\b)/i.test(t)
-    );
+    ));
 
   if (isModoFamiliar(st)) {
     if (!sim && !nao && !incerto) {
@@ -13765,6 +13782,7 @@ case "regularizacao_restricao": {
   });
 
   const isParceiro = (stage === "regularizacao_restricao_parceiro");
+  const regularizacaoParsed = parseRegularizacaoHumana(userText || "");
 
   // 🔢 Valor aproximado da restrição (se existir em memória)
   const valorRestricaoRaw =
@@ -13798,8 +13816,14 @@ case "regularizacao_restricao": {
   };
 
   // Exemplos cobertos: "já tô negociando", "vou regularizar", "ele vai regularizar", "já quitei", "não vou regularizar", "ele não vai pagar", "já pagou"
-  const sim = isYes(t) || /(sim|já estou|ja estou|estou vendo|to vendo|estou resolvendo|tô resolvendo|pagando|negociando|acordo|parcelando|renegociando|ja quitei|já quitei|ja paguei|já paguei|ja quitou|já quitou|ja pagou|já pagou|vou\s+regularizar|vai\s+regularizar|vamos\s+regularizar|pretendo\s+regularizar|estou\s+regularizando|to\s+regularizando|tô\s+regularizando|vou\s+pagar|vai\s+pagar|pretendo\s+negociar|vou\s+negociar)/i.test(t);
-  const nao = isNo(t) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|nao\s+vou\s+regularizar|não\s+vou\s+regularizar|nao\s+vai\s+regularizar|não\s+vai\s+regularizar|nao\s+vou\s+pagar|não\s+vou\s+pagar|nao\s+quero\s+pagar|não\s+quero\s+pagar|(ele|ela)\s+(n[aã]o|nao)\s+(vai|ir[aá])\s+(regularizar|pagar))/i.test(t);
+  const sim = regularizacaoParsed === "sim" || (
+    regularizacaoParsed === null &&
+    (isYes(t) || /(sim|já estou|ja estou|estou vendo|to vendo|estou resolvendo|tô resolvendo|pagando|negociando|acordo|parcelando|renegociando|ja quitei|já quitei|ja paguei|já paguei|ja quitou|já quitou|ja pagou|já pagou|vou\s+regularizar|vai\s+regularizar|vamos\s+regularizar|pretendo\s+regularizar|estou\s+regularizando|to\s+regularizando|tô\s+regularizando|vou\s+pagar|vai\s+pagar|pretendo\s+negociar|vou\s+negociar)/i.test(t))
+  );
+  const nao = regularizacaoParsed === "nao" || (
+    regularizacaoParsed === null &&
+    (isNo(t) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|nao\s+vou\s+regularizar|não\s+vou\s+regularizar|nao\s+vai\s+regularizar|não\s+vai\s+regularizar|nao\s+vou\s+pagar|não\s+vou\s+pagar|nao\s+quero\s+pagar|não\s+quero\s+pagar|(ele|ela)\s+(n[aã]o|nao)\s+(vai|ir[aá])\s+(regularizar|pagar))/i.test(t))
+  );
   const talvez = /(talvez|acho|nao sei|não sei|pode ser)/i.test(t);
 
   // Se não veio sim/não/talvez, tenta capturar VALOR e repetir a pergunta no mesmo stage

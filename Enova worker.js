@@ -695,6 +695,65 @@ function parseRnmValidade(text) {
   return null;
 }
 
+function parseIrDeclarado(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  // Negação explícita primeiro (evita que "declaro" em frase negativa vire sim)
+  if (/(nao\s+declaro|nao\s+declara|sem\s+imposto|nunca\s+declarei|nao\s+faco\s+ir)/.test(nt)) return "nao";
+  // Frases afirmativas
+  if (/(declaro\s+sim|declaro\s+imposto|declaro\s+ir|faco\s+ir|faco\s+imposto|imposto\s+de\s+renda)/.test(nt)) return "sim";
+  if (/^(declaro|declara)$/.test(nt)) return "sim";
+  return null;
+}
+
+function parseRestricaoHumana(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  // Negação primeiro
+  if (/(nao\s+(tenho|tem)|sem\s+restricao|sem\s+divida|nome\s+limpo|cpf\s+limpo|(ta|esta)\s+limpo|tudo\s+certo)/.test(nt)) return "nao";
+  // Conservador: "acho que tem" → sim
+  if (/(acho\s+que\s+(tem|tenho|possuo)|tenho\s+sim|tem\s+restricao|tenho\s+restricao|nome\s+sujo|cpf\s+sujo|negativad|estou\s+em\s+divida|protesto)/.test(nt)) return "sim";
+  return null;
+}
+
+function parseRegularizacaoHumana(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  // Negação primeiro (inclui terceira pessoa: "ele/ela não vai pagar")
+  if (/(nao\s+vou\s+regularizar|nao\s+vai\s+regularizar|nao\s+vamos\s+regularizar|nao\s+quero\s+pagar|nao\s+vou\s+pagar|nao\s+vai\s+pagar|(ele|ela)\s+nao\s+(vai|ira)\s+(regularizar|pagar))/.test(nt)) return "nao";
+  // Afirmativo (inclui terceira pessoa: "ele/ela vai regularizar", "já pagou")
+  if (/(vou\s+regularizar|vai\s+regularizar|vamos\s+regularizar|pretendo\s+regularizar|estou\s+regularizando|ja\s+(quitei|quitou|paguei|pagou)|estou\s+negociando|vou\s+pagar|vai\s+pagar)/.test(nt)) return "sim";
+  return null;
+}
+
+function parseRestricaoParceiroHumana(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  // Negação primeiro
+  if (/(nao\s+(tenho|tem|possui)|(ta|esta)\s+limpo|nome\s+limpo|cpf\s+limpo|sem\s+restricao|tudo\s+certo)/.test(nt)) return "nao";
+  // Afirmativo: inclui "tem sim", "ele/ela tem", "parceiro tem"
+  if (/(tem\s+sim|(ele|ela)\s+(tem|possui)\b|parceiro\s+tem|tem\s+restricao|esta\s+negativad|nome\s+sujo|cpf\s+sujo|negativad|protesto)/.test(nt)) return "sim";
+  return null;
+}
+
+function parseCtps36Humano(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  if (/(nao\s+sei|nao\s+lembro|nunca\s+parei|nao\s+tenho\s+certeza)/.test(nt)) return "nao_sei";
+  if (/(nao\s+(tenho|possuo|completei|completo)|menos\s+de\s+36|menos\s+de\s+3\s+anos)/.test(nt)) return "nao";
+  if (/(mais\s+de\s+36|acima\s+de\s+36|mais\s+de\s+3\s+anos|3\s+anos\s+ou\s+mais|ja\s+tenho\s+36|tenho\s+36)/.test(nt)) return "sim";
+  return null;
+}
+
+function parseCtps36ParceiroHumano(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  if (/(nao\s+sei|nao\s+lembro)/.test(nt)) return "nao_sei";
+  if (/(ele\s+nao\s+tem|ela\s+nao\s+tem|nao\s+tem|nao\s+possui|menos\s+de\s+36|menos\s+de\s+3\s+anos)/.test(nt)) return "nao";
+  if (/(ele\s+tem\b|ela\s+tem\b|tem\s+sim|o\s+parceiro\s+tem|parceiro\s+tem|mais\s+de\s+36|36\s+meses\s+ou\s+mais|3\s+anos\s+ou\s+mais)/.test(nt)) return "sim";
+  return null;
+}
+
 function parseMoneyBR(text) {
   const raw = String(text || "").trim();
   if (!raw) return null;
@@ -1025,7 +1084,13 @@ function hasClearStageAnswer(stage, text) {
     const money = parseMoneyBR(text);
     return Number.isFinite(money) && money > 300;
   }
-  if (stage === "ir_declarado") return isYes(text) || isNo(text);
+  if (stage === "ir_declarado") return Boolean(parseIrDeclarado(text)) || isYes(text) || isNo(text);
+  if (stage === "restricao") return Boolean(parseRestricaoHumana(text));
+  if (stage === "regularizacao_restricao") return Boolean(parseRegularizacaoHumana(text));
+  if (stage === "restricao_parceiro") return Boolean(parseRestricaoParceiroHumana(text));
+  if (stage === "regularizacao_restricao_parceiro") return Boolean(parseRegularizacaoHumana(text));
+  if (stage === "ctps_36") return Boolean(parseCtps36Humano(text));
+  if (stage === "ctps_36_parceiro") return Boolean(parseCtps36ParceiroHumano(text));
   if (stage === "quem_pode_somar" || stage === "interpretar_composicao") {
     const nt = normalizeText(text);
     if (!nt) return false;
@@ -11868,11 +11933,14 @@ case "ir_declarado": {
 
   const regimeParceiro = st.regime_parceiro || st.regime_trabalho_parceiro || null;
 
+  const irParsed = parseIrDeclarado(userText);
   const yes =
+    irParsed === "sim" ||
     /^(1|sim|s|declaro|declara)$/i.test(t) ||
-    /(fa[çc]o imposto|fa[çc]o ir|imposto de renda)/i.test(t);
+    /(fa[çc]o imposto|fa[çc]o ir|imposto de renda|declaro\s+sim|declaro\s+ir|declaro\s+imposto)/i.test(t);
 
   const no =
+    irParsed === "nao" ||
     /^(2|nao|não|n)$/i.test(t) ||
     /(n[aã]o declaro|sem imposto|nunca declarei)/i.test(t);
 
@@ -12180,7 +12248,7 @@ const tNorm = normalizeText(t);
 
   // "não sei"
   const nao_sei =
-    /(nao sei|nao lembro|talvez|acho)/i.test(tNorm);
+    /(nao sei|nao lembro|talvez|acho|nunca\s+parei)/i.test(tNorm);
 
   // "sim" / positivo
   const sim =
@@ -13076,12 +13144,14 @@ case "restricao": {
     }
   });
   
-  // Exemplos cobertos: "nome sujo", "negativado no serasa", "cpf limpo", "não sei", "tenho sim", "meu nome tá limpo"
-  const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(t);
+  // Exemplos cobertos: "nome sujo", "negativado no serasa", "cpf limpo", "não sei", "tenho sim", "meu nome tá limpo", "acho que tem"
+  const temNaoTenho = /\b(n[aã]o|nao)\s+(tenho|tem)\b/i.test(t);
   const temTermoRestricao = hasRestricaoIndicador(t);
+  const achoQueTem = /acho\s+que\s+(tem|tenho|possuo)/i.test(t);
 
   const sim =
     !temNaoTenho && (
+      achoQueTem ||
       isYes(t) ||
       /\btenho\s+sim\b/i.test(t) ||
       /^\s*tem\s*$/i.test(t) ||
@@ -13091,13 +13161,14 @@ case "restricao": {
     );
 
   const incerto =
+    !achoQueTem &&
     /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(t);
 
   const nao =
     !incerto && (
       isNo(t) ||
       temNaoTenho ||
-      /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo|nome\s+(ta|tá|esta|está)\s+limpo|cpf\s+(ta|tá|esta|está)\s+limpo)/i.test(t)
+      /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo|nome\s+(ta|tá|esta|está)\s+limpo|cpf\s+(ta|tá|esta|está)\s+limpo|\b(ta|tá|esta|está)\s+limpo\b)/i.test(t)
     );
 
   const ehFluxoConjunto =
@@ -13441,12 +13512,15 @@ case "restricao_parceiro": {
     }
   });
 
-  const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(t);
+  const temNaoTenho = /\b(n[aã]o|nao)\s+(tenho|tem)\b/i.test(t);
   const temTermoRestricao = hasRestricaoIndicador(t);
+  const achoQueTem = /acho\s+que\s+(tem|tenho|possuo)/i.test(t);
 
   const sim =
     !temNaoTenho && (
+      achoQueTem ||
       isYes(t) ||
+      /\b(tem\s+sim|(ele|ela)\s+(tem|possui))\b/i.test(t) ||
       /\btenho\s+sim\b/i.test(t) ||
       /^\s*tem\s*$/i.test(t) ||
       (!isNo(t) && temTermoRestricao) ||
@@ -13455,13 +13529,14 @@ case "restricao_parceiro": {
     );
 
   const incerto =
+    !achoQueTem &&
     /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(t);
 
   const nao =
     !incerto && (
       isNo(t) ||
       temNaoTenho ||
-      /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo|nome\s+(ta|tá|esta|está)\s+limpo|cpf\s+(ta|tá|esta|está)\s+limpo)/i.test(t)
+      /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo|nome\s+(ta|tá|esta|está)\s+limpo|cpf\s+(ta|tá|esta|está)\s+limpo|\b(ta|tá|esta|está)\s+limpo\b)/i.test(t)
     );
 
   if (isModoFamiliar(st)) {
@@ -13728,9 +13803,9 @@ case "regularizacao_restricao": {
     return Number.isFinite(v) ? v : 0;
   };
 
-  // Exemplos cobertos: "já tô negociando", "vou regularizar", "ele vai regularizar", "já quitei", "não vou regularizar"
-  const sim = isYes(t) || /(sim|já estou|ja estou|estou vendo|to vendo|estou resolvendo|tô resolvendo|pagando|negociando|acordo|parcelando|renegociando|ja quitei|já quitei|ja paguei|já paguei|vou\s+regularizar|vai\s+regularizar|vamos\s+regularizar|pretendo\s+regularizar|estou\s+regularizando|to\s+regularizando|tô\s+regularizando|vou\s+pagar|vai\s+pagar|pretendo\s+negociar|vou\s+negociar)/i.test(t);
-  const nao = isNo(t) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|nao\s+vou\s+regularizar|não\s+vou\s+regularizar|nao\s+vai\s+regularizar|não\s+vai\s+regularizar|nao\s+vou\s+pagar|não\s+vou\s+pagar)/i.test(t);
+  // Exemplos cobertos: "já tô negociando", "vou regularizar", "ele vai regularizar", "já quitei", "não vou regularizar", "ele não vai pagar", "já pagou"
+  const sim = isYes(t) || /(sim|já estou|ja estou|estou vendo|to vendo|estou resolvendo|tô resolvendo|pagando|negociando|acordo|parcelando|renegociando|ja quitei|já quitei|ja paguei|já paguei|ja quitou|já quitou|ja pagou|já pagou|vou\s+regularizar|vai\s+regularizar|vamos\s+regularizar|pretendo\s+regularizar|estou\s+regularizando|to\s+regularizando|tô\s+regularizando|vou\s+pagar|vai\s+pagar|pretendo\s+negociar|vou\s+negociar)/i.test(t);
+  const nao = isNo(t) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|nao\s+vou\s+regularizar|não\s+vou\s+regularizar|nao\s+vai\s+regularizar|não\s+vai\s+regularizar|nao\s+vou\s+pagar|não\s+vou\s+pagar|nao\s+quero\s+pagar|não\s+quero\s+pagar|(ele|ela)\s+(n[aã]o|nao)\s+(vai|ir[aá])\s+(regularizar|pagar))/i.test(t);
   const talvez = /(talvez|acho|nao sei|não sei|pode ser)/i.test(t);
 
   // Se não veio sim/não/talvez, tenta capturar VALOR e repetir a pergunta no mesmo stage

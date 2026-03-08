@@ -663,6 +663,38 @@ function isNo(text) {
   return phrases.some((term) => nt.includes(term));
 }
 
+function parseNacionalidade(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  // Naturalizado ou dupla nacionalidade → brasileiro(a)
+  if (/(naturalizado|naturalizada|dupla\s*nacionalidade|tenho\s+dupla)/.test(nt)) return "brasileira";
+  // Brasileiro(a)
+  if (/(brasileir|nasci\s+no\s+brasil|sou\s+do\s+brasil|sou\s+daqui)/.test(nt)) return "brasileira";
+  // Estrangeiro(a)
+  if (/(estrangeir|gringo|nao\s+sou\s+brasileir)/.test(nt)) return "estrangeira";
+  return null;
+}
+
+function parseRnmPossui(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  // Protocolo / em andamento → não possui RNM válido
+  if (/(protocolo|em\s+andamento|ainda\s+nao\s+saiu|so\s+protocolo|aguardando|em\s+processo|nao\s+saiu\s+ainda)/.test(nt)) return "nao";
+  if (isNo(text) || /^(nao\s+possuo|nao\s+tenho)$/.test(nt)) return "nao";
+  if (isYes(text) || /(ja\s+tenho|ja\s+possuo|possuo\s+rnm|tenho\s+rnm|tenho\s+o\s+rnm|tenho\s+sim)/.test(nt)) return "sim";
+  return null;
+}
+
+function parseRnmValidade(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  // Prazo indeterminado → segue
+  if (/(indeterminado|prazo\s+indeterminado|tempo\s+indeterminado|por\s+tempo\s+indeterminado)/.test(nt)) return "prazo_indeterminado";
+  // Temporário / renovação / validade / protocolo / andamento → não se enquadra
+  if (/(renovac|temporar|validade|protocolo|em\s+andamento|em\s+processo|vencend|venceu|expira)/.test(nt)) return "nao_se_enquadra";
+  return null;
+}
+
 function parseMoneyBR(text) {
   const raw = String(text || "").trim();
   if (!raw) return null;
@@ -986,6 +1018,9 @@ async function callOpenAIJson(env, { system, user, temperature = 0 }) {
 
 function hasClearStageAnswer(stage, text) {
   if (stage === "estado_civil") return Boolean(parseEstadoCivil(text));
+  if (stage === "inicio_nacionalidade") return Boolean(parseNacionalidade(text));
+  if (stage === "inicio_rnm") return Boolean(parseRnmPossui(text));
+  if (stage === "inicio_rnm_validade") return Boolean(parseRnmValidade(text));
   if (stage === "renda") {
     const money = parseMoneyBR(text);
     return Number.isFinite(money) && money > 300;
@@ -6193,16 +6228,12 @@ if (Object.keys(usefulSignals).length) {
   // ============================================================
   // 🧷 OFFTRACK DETERMINÍSTICO (YES/NO stages)
   // Se a fase atual espera SIM/NÃO e o texto não é SIM/NÃO → OFFTRACK (sem IA)
+  // Estágios com parsers próprios (restricao, ctps_36, regularizacao etc.) ficam fora
+  // deste gate para que frases humanas reais alcancem seus case blocks.
   // ============================================================
   const yesNoStages = new Set([
   "dependente",
-  "restricao",
   "confirmar_casamento",
-  "regularizacao_restricao",
-  "regularizacao_restricao_parceiro",
-  "ctps_36",
-  "ctps_36_parceiro",
-  "restricao_parceiro",
   "restricao_familiar",
   "restricao_p3"
 ]);
@@ -7112,12 +7143,13 @@ case "inicio_nacionalidade": {
   });
 
   const nt = normalizeText(userText || "");
-  // Exemplos cobertos: "sou brasileira", "nasci no brasil", "sou estrangeiro"
+  // Parsers determinísticos cobrem: "sou brasileira", "naturalizado", "dupla nacionalidade", "sou estrangeiro" etc.
+  const nacionalidadeParsed = parseNacionalidade(userText || "");
 
   // -------------------------------------------
-  // 🇧🇷 BRASILEIRO
+  // 🇧🇷 BRASILEIRO (inclui naturalizado e dupla nacionalidade)
   // -------------------------------------------
-  if (/^(brasileiro|brasileiro mesmo|brasileira|brasileira mesmo|daqui mesmo|sou daqui mesmo|sou brasileiro|sou brasileiro mesmo|sou brasileira mesmo|sou brasileira|nascido no brasil|nascida no brasil|nasci no brasil)$/i.test(nt)) {
+  if (nacionalidadeParsed === "brasileira") {
 
     await upsertState(env, st.wa_id, {
       nacionalidade: "brasileiro",
@@ -7142,7 +7174,7 @@ case "inicio_nacionalidade": {
   // -------------------------------------------
   // 🌎 ESTRANGEIRO
   // -------------------------------------------
-  if (/^(estrangeiro|estrangeira|sou estrangeiro|sou estrangeira|gringo|nao sou brasileiro|não sou brasileiro)$/i.test(nt)) {
+  if (nacionalidadeParsed === "estrangeira") {
 
     await upsertState(env, st.wa_id, {
       nacionalidade: "estrangeiro",
@@ -7173,7 +7205,7 @@ case "inicio_nacionalidade": {
     st,
     [
       "Perdão 😅, não consegui entender.",
-      "Você é *brasileiro* ou *estrangeiro*?"
+      "Você é *brasileiro(a)* (incluindo naturalizado(a) e dupla nacionalidade) ou *estrangeiro(a)*?"
     ],
     "inicio_nacionalidade"
   );
@@ -7194,11 +7226,13 @@ case "inicio_rnm": {
   });
 
   const nt = normalizeText(userText || "");
+  // Parser determinístico: cobre "sim", "já tenho RNM", "protocolo", "em andamento" etc.
+  const rnmPossui = parseRnmPossui(userText || "");
 
   // -------------------------------------------
-  // ❌ 1) NÃO POSSUI RNM → ineligível
+  // ❌ 1) NÃO POSSUI RNM (inclui protocolo/em andamento) → ineligível
   // -------------------------------------------
-  if (isNo(nt) || /^(nao|não|nao possuo|não possuo)$/i.test(nt)) {
+  if (rnmPossui === "nao") {
 
     await upsertState(env, st.wa_id, {
       rnm_status: "não possui",
@@ -7226,7 +7260,7 @@ case "inicio_rnm": {
   // -------------------------------------------
   // ✅ 2) POSSUI RNM → perguntar tipo de validade
   // -------------------------------------------
-  if (isYes(nt) || /^sim$/i.test(nt)) {
+  if (rnmPossui === "sim") {
 
     await upsertState(env, st.wa_id, {
       rnm_status: "possui",
@@ -7243,7 +7277,7 @@ case "inicio_rnm": {
       [
         "Perfeito! 🙌",
         "Seu RNM é *com validade* ou *indeterminado*?",
-        "Responda: *valido* ou *indeterminado*."
+        "Responda: *com validade* ou *indeterminado*."
       ],
       "inicio_rnm_validade"
     );
@@ -7278,11 +7312,13 @@ case "inicio_rnm_validade": {
   });
 
   const nt = normalizeText(userText || "");
+  // Parser determinístico: cobre "prazo indeterminado", "renovação", "temporário" etc.
+  const rnmValidade = parseRnmValidade(userText || "");
 
   // -------------------------------------------
-  // ❌ RNM COM VALIDADE DEFINIDA → INELEGÍVEL
+  // ❌ NÃO SE ENQUADRA (temporário, renovação, validade, protocolo) → INELEGÍVEL
   // -------------------------------------------
-  if (/^(valido|válido|com validade|definida)$/i.test(nt)) {
+  if (rnmValidade === "nao_se_enquadra" || /^(valido|válido|com validade|definida)$/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       rnm_validade: "definida",
@@ -7310,7 +7346,7 @@ case "inicio_rnm_validade": {
   // -------------------------------------------
   // ✅ RNM INDETERMINADO → CONTINUA O FLUXO
   // -------------------------------------------
-  if (/^indeterminado$/i.test(nt)) {
+  if (rnmValidade === "prazo_indeterminado") {
 
     await upsertState(env, st.wa_id, {
       rnm_validade: "indeterminado",
@@ -13034,13 +13070,14 @@ case "restricao": {
     }
   });
   
-  // Exemplos cobertos: "nome sujo", "negativado no serasa", "cpf limpo", "não sei"
+  // Exemplos cobertos: "nome sujo", "negativado no serasa", "cpf limpo", "não sei", "tenho sim", "meu nome tá limpo"
   const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(t);
   const temTermoRestricao = hasRestricaoIndicador(t);
 
   const sim =
     !temNaoTenho && (
       isYes(t) ||
+      /\btenho\s+sim\b/i.test(t) ||
       /^\s*tem\s*$/i.test(t) ||
       (!isNo(t) && temTermoRestricao) ||
       /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(t) ||
@@ -13054,7 +13091,7 @@ case "restricao": {
     !incerto && (
       isNo(t) ||
       temNaoTenho ||
-      /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo)/i.test(t)
+      /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo|nome\s+(ta|tá|esta|está)\s+limpo|cpf\s+(ta|tá|esta|está)\s+limpo)/i.test(t)
     );
 
   const ehFluxoConjunto =
@@ -13404,6 +13441,7 @@ case "restricao_parceiro": {
   const sim =
     !temNaoTenho && (
       isYes(t) ||
+      /\btenho\s+sim\b/i.test(t) ||
       /^\s*tem\s*$/i.test(t) ||
       (!isNo(t) && temTermoRestricao) ||
       /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(t) ||
@@ -13417,7 +13455,7 @@ case "restricao_parceiro": {
     !incerto && (
       isNo(t) ||
       temNaoTenho ||
-      /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo)/i.test(t)
+      /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo|nome\s+(ta|tá|esta|está)\s+limpo|cpf\s+(ta|tá|esta|está)\s+limpo)/i.test(t)
     );
 
   if (isModoFamiliar(st)) {
@@ -13684,9 +13722,9 @@ case "regularizacao_restricao": {
     return Number.isFinite(v) ? v : 0;
   };
 
-  // Exemplos cobertos: "já tô negociando", "estou pagando acordo", "ainda não fiz nada", "já quitei"
-  const sim = isYes(t) || /(sim|já estou|ja estou|estou vendo|to vendo|estou resolvendo|tô resolvendo|pagando|negociando|acordo|parcelando|renegociando|ja quitei|já quitei|ja paguei|já paguei)/i.test(t);
-  const nao = isNo(t) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|pretendo negociar|vou negociar depois)/i.test(t);
+  // Exemplos cobertos: "já tô negociando", "vou regularizar", "ele vai regularizar", "já quitei", "não vou regularizar"
+  const sim = isYes(t) || /(sim|já estou|ja estou|estou vendo|to vendo|estou resolvendo|tô resolvendo|pagando|negociando|acordo|parcelando|renegociando|ja quitei|já quitei|ja paguei|já paguei|vou\s+regularizar|vai\s+regularizar|vamos\s+regularizar|pretendo\s+regularizar|estou\s+regularizando|to\s+regularizando|tô\s+regularizando|vou\s+pagar|vai\s+pagar|pretendo\s+negociar|vou\s+negociar)/i.test(t);
+  const nao = isNo(t) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|nao\s+vou\s+regularizar|não\s+vou\s+regularizar|nao\s+vai\s+regularizar|não\s+vai\s+regularizar|nao\s+vou\s+pagar|não\s+vou\s+pagar)/i.test(t);
   const talvez = /(talvez|acho|nao sei|não sei|pode ser)/i.test(t);
 
   // Se não veio sim/não/talvez, tenta capturar VALOR e repetir a pergunta no mesmo stage

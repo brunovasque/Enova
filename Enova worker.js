@@ -859,7 +859,7 @@ const COGNITIVE_PLAYBOOK_V1 = {
   ],
   intents_by_stage: {
   inicio_nacionalidade: ["nacionalidade_direta", "nacionalidade_hibrida", "objecao"],
-  inicio_rnm: ["rnm_sim", "rnm_nao", "rnm_protocolo", "objecao"],
+  inicio_rnm: ["rnm_sim", "rnm_nao", "objecao"],
   inicio_rnm_validade: ["rnm_indeterminado", "rnm_temporario", "rnm_renovacao", "objecao"],
   estado_civil: ["estado_civil_hibrido", "duvida_composicao", "duvida_imovel_pre_analise", "objecao"],
   quem_pode_somar: ["composicao_familiar", "composicao_parceiro", "duvida_conjuge", "objecao"],
@@ -896,15 +896,15 @@ inicio_nacionalidade: {
   objective: "Identificar nacionalidade do cliente sem reperguntar se ele já deixou isso claro.",
   collect: "nacionalidade",
   ask: "Pra eu seguir certo aqui, você é brasileira, estrangeira ou naturalizada?",
-  acceptSignals: ["nacionalidade:brasileira", "nacionalidade:estrangeira", "nacionalidade:naturalizado"],
+  acceptSignals: ["nacionalidade:brasileira", "nacionalidade:estrangeira"],
   memoryHints: ["mentioned_nationality"],
   guardrails: ["Nao prometer enquadramento", "Nao sair da fase sem classificar nacionalidade"]
 },
 inicio_rnm: {
   objective: "Entender se cliente estrangeiro possui RNM ou apenas protocolo/em andamento.",
   collect: "rnm",
-  ask: "Você já tem RNM emitido, está só com protocolo, ou ainda não tem?",
-  acceptSignals: ["rnm:sim", "rnm:nao", "rnm:protocolo"],
+  ask: "Você possui RNM — Registro Nacional Migratório? Responda: sim ou não.",
+  acceptSignals: ["rnm:sim", "rnm:nao"],
   memoryHints: ["mentioned_rnm"],
   guardrails: ["Nao assumir documento definitivo sem sinal claro"]
 },
@@ -1125,22 +1125,28 @@ function extractCompatibleStageAnswerFromCognitive(stage, cognitiveOutput) {
 
   if (stage === "inicio_nacionalidade") {
     const v = normalizeText(String(entities.nacionalidade ?? stageSignals.nacionalidade ?? ""));
-    if (["brasileira", "estrangeira", "naturalizado"].includes(v)) return v;
+    // naturalizado converge para brasileira
+    if (v === "naturalizado") return "brasileira";
+    if (["brasileira", "estrangeira"].includes(v)) return v;
     const safeMatch = safe.match(/^nacionalidade:(.+)$/);
     if (safeMatch?.[1]) {
       const x = normalizeText(safeMatch[1]);
-      if (["brasileira", "estrangeira", "naturalizado"].includes(x)) return x;
+      if (x === "naturalizado") return "brasileira";
+      if (["brasileira", "estrangeira"].includes(x)) return x;
     }
     return null;
   }
 
   if (stage === "inicio_rnm") {
     const v = normalizeText(String(entities.rnm ?? stageSignals.rnm ?? ""));
-    if (["sim", "nao", "protocolo"].includes(v)) return v;
+    // protocolo converge para nao
+    if (v === "protocolo") return "nao";
+    if (["sim", "nao"].includes(v)) return v;
     const safeMatch = safe.match(/^rnm:(.+)$/);
     if (safeMatch?.[1]) {
       const x = normalizeText(safeMatch[1]);
-      if (["sim", "nao", "protocolo"].includes(x)) return x;
+      if (x === "protocolo") return "nao";
+      if (["sim", "nao"].includes(x)) return x;
     }
     return null;
   }
@@ -1264,8 +1270,8 @@ async function cognitiveAssistV1(env, { stage, text, stateSnapshot }) {
   `Entidades permitidas neste stage: ${JSON.stringify(COGNITIVE_PLAYBOOK_V1.entities_supported || [])}`,
   "safe_stage_signal deve usar SOMENTE prefixos compatíveis com o stage atual.",
   "Prefixos aceitos por stage:",
-  "- inicio_nacionalidade => nacionalidade:brasileira | nacionalidade:estrangeira | nacionalidade:naturalizado",
-  "- inicio_rnm => rnm:sim | rnm:nao | rnm:protocolo",
+  "- inicio_nacionalidade => nacionalidade:brasileira | nacionalidade:estrangeira",
+  "- inicio_rnm => rnm:sim | rnm:nao",
   "- inicio_rnm_validade => rnm_validade:prazo_indeterminado | rnm_validade:nao_se_enquadra",
   "- estado_civil => estado_civil:solteiro | estado_civil:casado | estado_civil:uniao_estavel | estado_civil:separado | estado_civil:divorciado | estado_civil:viuvo",
   "- quem_pode_somar / interpretar_composicao => composicao:sozinho | composicao:parceiro | composicao:familiar",

@@ -2762,6 +2762,7 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "cognitivo_regularizacao_restricao_parceiro_nao", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_restricao_v1", start_stage: "regularizacao_restricao_parceiro", input: "não, ele não vai pagar", expected: { type: "multiple", in: ["envio_docs","fim_ineligivel"] } },
     { id: "cognitivo_ctps36_nao_sei", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_gate_ctps_solo_v1", start_stage: "ctps_36", input: "não sei", expected: { type: "multiple", in: ["dependente","restricao"] } },
     { id: "cognitivo_ctps36_parceiro_nao_sei", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_parceiro_v1", start_stage: "ctps_36_parceiro", input: "não sei", expected: { type: "multiple", in: ["restricao","restricao_parceiro"] } },
+    { id: "cognitivo_restricao_parceiro_nao_ele_nao_paga", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_restricao_v1", start_stage: "restricao_parceiro", input: "não, ele não vai pagar", expected: { type: "multiple", in: ["envio_docs","fim_ineligivel"] } },
 
     { id: "modo_contextual_invalido", grupo: "contrato", mode: "simulate-from-state", allowed_modes: ["replay-webhook"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", input: "arquivo", expected: { type: "multiple", in: ["envio_docs","finalizacao"] } }
   ];
@@ -13528,6 +13529,7 @@ case "restricao_parceiro": {
     !incerto && (
       isNo(t) ||
       temNaoTenho ||
+      /^(n[aã]o|nao)\s*[,.]?\s*(ele|ela)\s+(n[aã]o|nao)\b/i.test(t) ||
       /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo|nome\s+(ta|tá|esta|está)\s+limpo|cpf\s+(ta|tá|esta|está)\s+limpo|\b(ta|tá|esta|está)\s+limpo\b)/i.test(t)
     );
 

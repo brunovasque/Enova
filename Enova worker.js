@@ -663,6 +663,97 @@ function isNo(text) {
   return phrases.some((term) => nt.includes(term));
 }
 
+function parseNacionalidade(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  // Naturalizado ou dupla nacionalidade → brasileiro(a)
+  if (/(naturalizado|naturalizada|dupla\s*nacionalidade|tenho\s+dupla)/.test(nt)) return "brasileira";
+  // Brasileiro(a)
+  if (/(brasileir|nasci\s+no\s+brasil|sou\s+do\s+brasil|sou\s+daqui)/.test(nt)) return "brasileira";
+  // Estrangeiro(a)
+  if (/(estrangeir|gringo|nao\s+sou\s+brasileir)/.test(nt)) return "estrangeira";
+  return null;
+}
+
+function parseRnmPossui(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  // Protocolo / em andamento → não possui RNM válido
+  if (/(protocolo|em\s+andamento|ainda\s+nao\s+saiu|so\s+protocolo|aguardando|em\s+processo|nao\s+saiu\s+ainda)/.test(nt)) return "nao";
+  if (isNo(text) || /^(nao\s+possuo|nao\s+tenho)$/.test(nt)) return "nao";
+  if (isYes(text) || /(ja\s+tenho|ja\s+possuo|possuo\s+rnm|tenho\s+rnm|tenho\s+o\s+rnm|tenho\s+sim)/.test(nt)) return "sim";
+  return null;
+}
+
+function parseRnmValidade(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  // Prazo indeterminado → segue
+  if (/(indeterminado|prazo\s+indeterminado|tempo\s+indeterminado|por\s+tempo\s+indeterminado)/.test(nt)) return "prazo_indeterminado";
+  // Temporário / renovação / validade / protocolo / andamento → não se enquadra
+  if (/(renovac|temporar|validade|protocolo|em\s+andamento|em\s+processo|vencend|venceu|expira)/.test(nt)) return "nao_se_enquadra";
+  return null;
+}
+
+function parseIrDeclarado(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  // Negação explícita primeiro (evita que "declaro" em frase negativa vire sim)
+  if (/(nao\s+declaro|nao\s+declara|sem\s+imposto|nunca\s+declarei|nao\s+faco\s+ir)/.test(nt)) return "nao";
+  // Frases afirmativas
+  if (/(declaro\s+sim|declaro\s+imposto|declaro\s+ir|faco\s+ir|faco\s+imposto|imposto\s+de\s+renda)/.test(nt)) return "sim";
+  if (/^(declaro|declara)$/.test(nt)) return "sim";
+  return null;
+}
+
+function parseRestricaoHumana(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  // Negação primeiro
+  if (/(nao\s+(tenho|tem)|sem\s+restricao|sem\s+divida|nome\s+limpo|cpf\s+limpo|(ta|esta)\s+limpo|tudo\s+certo)/.test(nt)) return "nao";
+  // Conservador: "acho que tem" → sim
+  if (/(acho\s+que\s+(tem|tenho|possuo)|tenho\s+sim|tem\s+restricao|tenho\s+restricao|nome\s+sujo|cpf\s+sujo|negativad|estou\s+em\s+divida|protesto)/.test(nt)) return "sim";
+  return null;
+}
+
+function parseRegularizacaoHumana(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  // Negação primeiro (inclui terceira pessoa: "ele/ela não vai pagar")
+  if (/(nao\s+vou\s+regularizar|nao\s+vai\s+regularizar|nao\s+vamos\s+regularizar|nao\s+quero\s+pagar|nao\s+vou\s+pagar|nao\s+vai\s+pagar|(ele|ela)\s+nao\s+(vai|ira)\s+(regularizar|pagar))/.test(nt)) return "nao";
+  // Afirmativo (inclui terceira pessoa: "ele/ela vai regularizar", "já pagou")
+  if (/(vou\s+regularizar|vai\s+regularizar|vamos\s+regularizar|pretendo\s+regularizar|estou\s+regularizando|ja\s+(quitei|quitou|paguei|pagou)|estou\s+negociando|vou\s+pagar|vai\s+pagar)/.test(nt)) return "sim";
+  return null;
+}
+
+function parseRestricaoParceiroHumana(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  // Negação primeiro
+  if (/(nao\s+(tenho|tem|possui)|(ta|esta)\s+limpo|nome\s+limpo|cpf\s+limpo|sem\s+restricao|tudo\s+certo)/.test(nt)) return "nao";
+  // Afirmativo: inclui "tem sim", "ele/ela tem", "parceiro tem"
+  if (/(tem\s+sim|(ele|ela)\s+(tem|possui)\b|parceiro\s+tem|tem\s+restricao|esta\s+negativad|nome\s+sujo|cpf\s+sujo|negativad|protesto)/.test(nt)) return "sim";
+  return null;
+}
+
+function parseCtps36Humano(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  if (/(nao\s+sei|nao\s+lembro|nunca\s+parei|nao\s+tenho\s+certeza)/.test(nt)) return "nao_sei";
+  if (/(nao\s+(tenho|possuo|completei|completo)|menos\s+de\s+36|menos\s+de\s+3\s+anos)/.test(nt)) return "nao";
+  if (/(mais\s+de\s+36|acima\s+de\s+36|mais\s+de\s+3\s+anos|3\s+anos\s+ou\s+mais|ja\s+tenho\s+36|tenho\s+36)/.test(nt)) return "sim";
+  return null;
+}
+
+function parseCtps36ParceiroHumano(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  if (/(nao\s+sei|nao\s+lembro)/.test(nt)) return "nao_sei";
+  if (/(ele\s+nao\s+tem|ela\s+nao\s+tem|nao\s+tem|nao\s+possui|menos\s+de\s+36|menos\s+de\s+3\s+anos)/.test(nt)) return "nao";
+  if (/(ele\s+tem\b|ela\s+tem\b|tem\s+sim|o\s+parceiro\s+tem|parceiro\s+tem|mais\s+de\s+36|36\s+meses\s+ou\s+mais|3\s+anos\s+ou\s+mais)/.test(nt)) return "sim";
+  return null;
+}
+
 function parseMoneyBR(text) {
   const raw = String(text || "").trim();
   if (!raw) return null;
@@ -711,8 +802,9 @@ function parseRegimeTrabalho(text) {
   const nt = normalizeText(text);
   if (!nt) return null;
   if (/(mei|microempreendedor|micro empreendedor|mei caminhoneiro)/.test(nt)) return "autonomo";
+  if (/(sem registro|sem carteira|nao registrado|não registrado|sem clt)/.test(nt)) return "autonomo";
   if (/(clt|carteira assinada|registrad|registro em carteira|carteira registrada|de carteira)/.test(nt)) return "clt";
-  if (/(autonom|informal|por conta|freela|freelancer|uber|ifood|liberal|bico|diarista|comissionad)/.test(nt)) return "autonomo";
+  if (/(autonom|informal|por conta|freela|freelancer|uber|ifood|app|liberal|bico|diarista|comissionad|taxa)/.test(nt)) return "autonomo";
   if (/(servidor|funcionario publico|publico|concursad|estatutari|municipal|estadual|federal|prefeitura)/.test(nt)) return "servidor";
   if (/(aposentad)/.test(nt)) return "aposentadoria";
   if (/(desempregad)/.test(nt)) return "desempregado";
@@ -750,12 +842,63 @@ function parseP3Tipo(text) {
   return null;
 }
 
+function extractUsefulConversationSignals(text) {
+  const nt = normalizeText(text || "");
+  if (!nt) return {};
+
+  const out = {};
+  if (/(namorad|parceir|companheir|espos|marid)/.test(nt)) {
+    out.mentioned_partner = true;
+  }
+  if (/\bcom\s+(minha|meu)\b/.test(nt) && /(pai|mae|irma|irmao|familiar|familia|avo|tia|tio)/.test(nt)) {
+    out.mentioned_familiar = true;
+  }
+  if (/(moro junto|moramos junto|mora comigo|vivemos juntos)/.test(nt)) {
+    out.mentioned_lives_with_someone = true;
+  }
+  if (/(nao quero apartamento|não quero apartamento)/.test(nt)) {
+    out.does_not_want_apartment = true;
+  }
+  if (/(quero casa|prefiro casa)/.test(nt)) {
+    out.wants_house = true;
+  }
+  if (/(presencial|plantao|plantão)/.test(nt)) {
+    out.prefers_presential = true;
+  }
+  if (/(nao quero mandar documento pelo celular|não quero mandar documento pelo celular|medo de enviar documento no celular)/.test(nt)) {
+    out.fear_docs_mobile = true;
+  }
+  if (/(nome sujo|negativad|serasa|spc|restricao)/.test(nt)) {
+    out.mentioned_negative_name = true;
+  }
+  if (/(declarar ir|declara ir|imposto de renda)/.test(nt)) {
+    out.considering_ir = true;
+  }
+  if (/(so eu|só eu|sozinh)/.test(nt)) {
+    out.wants_solo = true;
+  }
+  if (/(somar renda|compor renda|fazer com)/.test(nt)) {
+    out.considering_composition = true;
+  }
+
+  return out;
+}
+
 const COGNITIVE_V1_ALLOWED_STAGES = new Set([
+  "inicio_nacionalidade",
+  "inicio_rnm",
+  "inicio_rnm_validade",
   "estado_civil",
   "quem_pode_somar",
   "interpretar_composicao",
   "renda",
-  "ir_declarado"
+  "ir_declarado",
+  "restricao",
+  "regularizacao_restricao",
+  "restricao_parceiro",
+  "regularizacao_restricao_parceiro",
+  "ctps_36",
+  "ctps_36_parceiro"
 ]);
 
 const COGNITIVE_V1_CONFIDENCE_MIN = 0.66;
@@ -774,21 +917,112 @@ const COGNITIVE_PLAYBOOK_V1 = {
     "Simulação detalhada e escolha do imóvel só após aprovação, no plantão."
   ],
   intents_by_stage: {
-    estado_civil: ["estado_civil_hibrido", "duvida_composicao", "duvida_imovel_pre_analise", "objecao"],
-    quem_pode_somar: ["composicao_familiar", "composicao_parceiro", "duvida_conjuge", "objecao"],
-    interpretar_composicao: ["composicao_familiar", "composicao_parceiro", "sozinho", "objecao"],
-    renda: ["renda_hibrida", "autonomo_ir", "duvida_valor_sem_analise", "objecao"],
-    ir_declarado: ["ir_sim", "ir_nao", "autonomo_ir", "objecao"]
-  },
-  entities_supported: [
-    "estado_civil",
-    "composicao_tipo",
-    "familiar_tipo",
-    "familiar_casado_civil",
-    "regime_trabalho",
-    "ir_possible",
-    "duvida_imovel_antes_analise"
-  ]
+  inicio_nacionalidade: ["nacionalidade_direta", "nacionalidade_hibrida", "objecao"],
+  inicio_rnm: ["rnm_sim", "rnm_nao", "objecao"],
+  inicio_rnm_validade: ["rnm_indeterminado", "rnm_temporario", "rnm_renovacao", "objecao"],
+  estado_civil: ["estado_civil_hibrido", "duvida_composicao", "duvida_imovel_pre_analise", "objecao"],
+  quem_pode_somar: ["composicao_familiar", "composicao_parceiro", "duvida_conjuge", "objecao"],
+  interpretar_composicao: ["composicao_familiar", "composicao_parceiro", "sozinho", "objecao"],
+  renda: ["renda_hibrida", "autonomo_ir", "duvida_valor_sem_analise", "objecao"],
+  ir_declarado: ["ir_sim", "ir_nao", "autonomo_ir", "objecao"],
+  restricao: ["restricao_sim", "restricao_nao", "restricao_duvida", "objecao"],
+  regularizacao_restricao: ["regulariza_sim", "regulariza_nao", "divida_informada", "objecao"],
+  restricao_parceiro: ["restricao_parceiro_sim", "restricao_parceiro_nao", "restricao_parceiro_duvida", "objecao"],
+  regularizacao_restricao_parceiro: ["regulariza_parceiro_sim", "regulariza_parceiro_nao", "divida_parceiro_informada", "objecao"],
+  ctps_36: ["ctps36_sim", "ctps36_nao", "ctps36_nao_sei", "objecao"],
+  ctps_36_parceiro: ["ctps36_parceiro_sim", "ctps36_parceiro_nao", "ctps36_parceiro_nao_sei", "objecao"]
+},
+entities_supported: [
+  "estado_civil",
+  "composicao_tipo",
+  "familiar_tipo",
+  "familiar_casado_civil",
+  "regime_trabalho",
+  "ir_possible",
+  "duvida_imovel_antes_analise",
+  "nacionalidade",
+  "rnm",
+  "rnm_validade",
+  "ir_declarado",
+  "restricao",
+  "regularizacao_restricao",
+  "restricao_parceiro",
+  "regularizacao_restricao_parceiro",
+  "ctps_36",
+  "ctps_36_parceiro"
+],
+inicio_nacionalidade: {
+  objective: "Identificar nacionalidade do cliente sem reperguntar se ele já deixou isso claro.",
+  collect: "nacionalidade",
+  ask: "Pra eu seguir certo aqui, você é brasileira, estrangeira ou naturalizada?",
+  acceptSignals: ["nacionalidade:brasileira", "nacionalidade:estrangeira"],
+  memoryHints: ["mentioned_nationality"],
+  guardrails: ["Nao prometer enquadramento", "Nao sair da fase sem classificar nacionalidade"]
+},
+inicio_rnm: {
+  objective: "Entender se cliente estrangeiro possui RNM ou apenas protocolo/em andamento.",
+  collect: "rnm",
+  ask: "Você possui RNM — Registro Nacional Migratório? Responda: sim ou não.",
+  acceptSignals: ["rnm:sim", "rnm:nao"],
+  memoryHints: ["mentioned_rnm"],
+  guardrails: ["Nao assumir documento definitivo sem sinal claro"]
+},
+inicio_rnm_validade: {
+  objective: "Confirmar se o RNM é por prazo indeterminado ou se não se enquadra.",
+  collect: "rnm_validade",
+  ask: "Seu RNM está em prazo indeterminado ou ainda tem validade/renovação?",
+  acceptSignals: ["rnm_validade:prazo_indeterminado", "rnm_validade:nao_se_enquadra"],
+  memoryHints: ["mentioned_rnm_validade"],
+  guardrails: ["Qualquer coisa diferente de prazo indeterminado = nao se enquadra"]
+},
+restricao: {
+  objective: "Classificar se hoje existe restrição no nome do titular.",
+  collect: "restricao",
+  ask: "Hoje você tem alguma restrição no nome?",
+  acceptSignals: ["restricao:sim", "restricao:nao"],
+  memoryHints: ["mentioned_negative_name"],
+  guardrails: ["Fase informativa", "Na duvida marcar sim e puxar regularizacao"]
+},
+regularizacao_restricao: {
+  objective: "Entender se o titular pretende ou consegue regularizar a restrição.",
+  collect: "regularizacao_restricao",
+  ask: "Você pretende regularizar essa pendência?",
+  acceptSignals: ["regularizacao_restricao:sim", "regularizacao_restricao:nao"],
+  memoryHints: ["mentioned_negative_name"],
+  guardrails: ["Se vier so valor, repetir pergunta central", "Excecao: acima de 1000 + sem regularizar"]
+},
+restricao_parceiro: {
+  objective: "Classificar se hoje existe restrição no nome do parceiro.",
+  collect: "restricao_parceiro",
+  ask: "Hoje o parceiro tem alguma restrição no nome?",
+  acceptSignals: ["restricao_parceiro:sim", "restricao_parceiro:nao"],
+  memoryHints: ["mentioned_partner", "mentioned_negative_name"],
+  guardrails: ["Fase informativa", "Na duvida marcar sim e puxar regularizacao do parceiro"]
+},
+regularizacao_restricao_parceiro: {
+  objective: "Entender se o parceiro pretende ou consegue regularizar a restrição.",
+  collect: "regularizacao_restricao_parceiro",
+  ask: "O parceiro pretende regularizar essa pendência?",
+  acceptSignals: ["regularizacao_restricao_parceiro:sim", "regularizacao_restricao_parceiro:nao"],
+  memoryHints: ["mentioned_partner", "mentioned_negative_name"],
+  guardrails: ["Se vier so valor, repetir pergunta central", "Excecao: acima de 1000 + sem regularizar"]
+},
+ctps_36: {
+  objective: "Confirmar se o titular tem 36 meses ou mais de carteira assinada somando os registros.",
+  collect: "ctps_36",
+  ask: "Somando todos os seus registros em carteira, você já tem 36 meses ou mais?",
+  acceptSignals: ["ctps_36:sim", "ctps_36:nao", "ctps_36:nao_sei"],
+  memoryHints: ["mentioned_work_history"],
+  guardrails: ["Fase informativa", "Nao sei segue", "Pode informar impacto em juros"]
+},
+ctps_36_parceiro: {
+  objective: "Confirmar se o parceiro tem 36 meses ou mais de carteira assinada somando os registros.",
+  collect: "ctps_36_parceiro",
+  ask: "Somando todos os registros do parceiro, ele(a) já tem 36 meses ou mais de carteira assinada?",
+  acceptSignals: ["ctps_36_parceiro:sim", "ctps_36_parceiro:nao", "ctps_36_parceiro:nao_sei"],
+  memoryHints: ["mentioned_partner", "mentioned_work_history"],
+  guardrails: ["Fase informativa", "Nao sei segue", "Pode informar impacto em juros"]
+},
 };
 
 function getOpenAIConfig(env) {
@@ -843,11 +1077,20 @@ async function callOpenAIJson(env, { system, user, temperature = 0 }) {
 
 function hasClearStageAnswer(stage, text) {
   if (stage === "estado_civil") return Boolean(parseEstadoCivil(text));
+  if (stage === "inicio_nacionalidade") return Boolean(parseNacionalidade(text));
+  if (stage === "inicio_rnm") return Boolean(parseRnmPossui(text));
+  if (stage === "inicio_rnm_validade") return Boolean(parseRnmValidade(text));
   if (stage === "renda") {
     const money = parseMoneyBR(text);
     return Number.isFinite(money) && money > 300;
   }
-  if (stage === "ir_declarado") return isYes(text) || isNo(text);
+  if (stage === "ir_declarado") return Boolean(parseIrDeclarado(text)) || isYes(text) || isNo(text);
+  if (stage === "restricao") return Boolean(parseRestricaoHumana(text));
+  if (stage === "regularizacao_restricao") return Boolean(parseRegularizacaoHumana(text));
+  if (stage === "restricao_parceiro") return Boolean(parseRestricaoParceiroHumana(text));
+  if (stage === "regularizacao_restricao_parceiro") return Boolean(parseRegularizacaoHumana(text));
+  if (stage === "ctps_36") return Boolean(parseCtps36Humano(text));
+  if (stage === "ctps_36_parceiro") return Boolean(parseCtps36ParceiroHumano(text));
   if (stage === "quem_pode_somar" || stage === "interpretar_composicao") {
     const nt = normalizeText(text);
     if (!nt) return false;
@@ -885,7 +1128,16 @@ function isStageSignalCompatible(stage, safeStageSignal) {
     quem_pode_somar: ["composicao"],
     interpretar_composicao: ["composicao"],
     renda: ["renda", "regime", "ir_possible"],
-    ir_declarado: ["ir"]
+    ir_declarado: ["ir"],
+    inicio_nacionalidade: ["nacionalidade"],
+    inicio_rnm: ["rnm"],
+    inicio_rnm_validade: ["rnm_validade"],
+    restricao: ["restricao"],
+    regularizacao_restricao: ["regularizacao_restricao"],
+    restricao_parceiro: ["restricao_parceiro"],
+    regularizacao_restricao_parceiro: ["regularizacao_restricao_parceiro"],
+    ctps_36: ["ctps_36"],
+    ctps_36_parceiro: ["ctps_36_parceiro"]
   };
   const allowed = map[stage] || [];
   return allowed.some((prefix) => String(safeStageSignal).startsWith(prefix));
@@ -900,11 +1152,11 @@ function extractCompatibleStageAnswerFromCognitive(stage, cognitiveOutput) {
   if (stage === "estado_civil") {
     const fromEntity = normalizeText(entities.estado_civil || "");
     if (fromEntity && ["solteiro", "casado", "uniao_estavel", "separado", "divorciado", "viuvo"].includes(fromEntity)) {
-      return fromEntity.replace("_", " ");
+      return fromEntity.replace(/_/g, " ");
     }
     const fromSignal = normalizeText(stageSignals.estado_civil || "");
     if (fromSignal && ["solteiro", "casado", "uniao_estavel", "separado", "divorciado", "viuvo"].includes(fromSignal)) {
-      return fromSignal.replace("_", " ");
+      return fromSignal.replace(/_/g, " ");
     }
     const safeMatch = safe.match(/^estado_civil:(.+)$/);
     if (safeMatch?.[1]) return safeMatch[1].replace(/_/g, " ");
@@ -913,9 +1165,7 @@ function extractCompatibleStageAnswerFromCognitive(stage, cognitiveOutput) {
 
   if (stage === "quem_pode_somar" || stage === "interpretar_composicao") {
     const comp = normalizeText(entities.composicao_tipo || stageSignals.composicao || "");
-    if (comp === "parceiro") return "parceiro";
-    if (comp === "familiar") return "familiar";
-    if (comp === "sozinho") return "sozinho";
+    if (["parceiro", "familiar", "sozinho"].includes(comp)) return comp;
 
     const safeMatch = safe.match(/^composicao:(.+)$/);
     if (safeMatch?.[1]) {
@@ -934,6 +1184,119 @@ function extractCompatibleStageAnswerFromCognitive(stage, cognitiveOutput) {
       const v = normalizeText(safeMatch[1]);
       if (v === "sim" || v === "true") return "sim";
       if (v === "nao" || v === "false") return "nao";
+    }
+    return null;
+  }
+
+  if (stage === "inicio_nacionalidade") {
+    const v = normalizeText(String(entities.nacionalidade ?? stageSignals.nacionalidade ?? ""));
+    // naturalizado converge para brasileira
+    if (v === "naturalizado") return "brasileira";
+    if (["brasileira", "estrangeira"].includes(v)) return v;
+    const safeMatch = safe.match(/^nacionalidade:(.+)$/);
+    if (safeMatch?.[1]) {
+      const x = normalizeText(safeMatch[1]);
+      if (x === "naturalizado") return "brasileira";
+      if (["brasileira", "estrangeira"].includes(x)) return x;
+    }
+    return null;
+  }
+
+  if (stage === "inicio_rnm") {
+    const v = normalizeText(String(entities.rnm ?? stageSignals.rnm ?? ""));
+    // protocolo converge para nao
+    if (v === "protocolo") return "nao";
+    if (["sim", "nao"].includes(v)) return v;
+    const safeMatch = safe.match(/^rnm:(.+)$/);
+    if (safeMatch?.[1]) {
+      const x = normalizeText(safeMatch[1]);
+      if (x === "protocolo") return "nao";
+      if (["sim", "nao"].includes(x)) return x;
+    }
+    return null;
+  }
+
+  if (stage === "inicio_rnm_validade") {
+    const v = normalizeText(String(entities.rnm_validade ?? stageSignals.rnm_validade ?? ""));
+    if (["prazo_indeterminado", "nao_se_enquadra"].includes(v)) return v;
+    const safeMatch = safe.match(/^rnm_validade:(.+)$/);
+    if (safeMatch?.[1]) {
+      const x = normalizeText(safeMatch[1]);
+      if (["prazo_indeterminado", "nao_se_enquadra"].includes(x)) return x;
+    }
+    return null;
+  }
+
+  if (stage === "restricao") {
+    const v = normalizeText(String(entities.restricao ?? stageSignals.restricao ?? ""));
+    if (v === "sim" || v === "true") return "sim";
+    if (v === "nao" || v === "false") return "nao";
+    const safeMatch = safe.match(/^restricao:(.+)$/);
+    if (safeMatch?.[1]) {
+      const x = normalizeText(safeMatch[1]);
+      if (x === "sim" || x === "true") return "sim";
+      if (x === "nao" || x === "false") return "nao";
+    }
+    return null;
+  }
+
+  if (stage === "regularizacao_restricao") {
+    const v = normalizeText(String(entities.regularizacao_restricao ?? stageSignals.regularizacao_restricao ?? ""));
+    if (v === "sim" || v === "true") return "sim";
+    if (v === "nao" || v === "false") return "nao";
+    const safeMatch = safe.match(/^regularizacao_restricao:(.+)$/);
+    if (safeMatch?.[1]) {
+      const x = normalizeText(safeMatch[1]);
+      if (x === "sim" || x === "true") return "sim";
+      if (x === "nao" || x === "false") return "nao";
+    }
+    return null;
+  }
+
+  if (stage === "restricao_parceiro") {
+    const v = normalizeText(String(entities.restricao_parceiro ?? stageSignals.restricao_parceiro ?? ""));
+    if (v === "sim" || v === "true") return "sim";
+    if (v === "nao" || v === "false") return "nao";
+    const safeMatch = safe.match(/^restricao_parceiro:(.+)$/);
+    if (safeMatch?.[1]) {
+      const x = normalizeText(safeMatch[1]);
+      if (x === "sim" || x === "true") return "sim";
+      if (x === "nao" || x === "false") return "nao";
+    }
+    return null;
+  }
+
+  if (stage === "regularizacao_restricao_parceiro") {
+    const v = normalizeText(String(entities.regularizacao_restricao_parceiro ?? stageSignals.regularizacao_restricao_parceiro ?? ""));
+    if (v === "sim" || v === "true") return "sim";
+    if (v === "nao" || v === "false") return "nao";
+    const safeMatch = safe.match(/^regularizacao_restricao_parceiro:(.+)$/);
+    if (safeMatch?.[1]) {
+      const x = normalizeText(safeMatch[1]);
+      if (x === "sim" || x === "true") return "sim";
+      if (x === "nao" || x === "false") return "nao";
+    }
+    return null;
+  }
+
+  if (stage === "ctps_36") {
+    const v = normalizeText(String(entities.ctps_36 ?? stageSignals.ctps_36 ?? ""));
+    if (["sim", "nao", "nao_sei"].includes(v)) return v;
+    const safeMatch = safe.match(/^ctps_36:(.+)$/);
+    if (safeMatch?.[1]) {
+      const x = normalizeText(safeMatch[1]);
+      if (["sim", "nao", "nao_sei"].includes(x)) return x;
+    }
+    return null;
+  }
+
+  if (stage === "ctps_36_parceiro") {
+    const v = normalizeText(String(entities.ctps_36_parceiro ?? stageSignals.ctps_36_parceiro ?? ""));
+    if (["sim", "nao", "nao_sei"].includes(v)) return v;
+    const safeMatch = safe.match(/^ctps_36_parceiro:(.+)$/);
+    if (safeMatch?.[1]) {
+      const x = normalizeText(safeMatch[1]);
+      if (["sim", "nao", "nao_sei"].includes(x)) return x;
     }
     return null;
   }
@@ -960,14 +1323,32 @@ async function cognitiveAssistV1(env, { stage, text, stateSnapshot }) {
   const base = buildCognitiveFallback(stage);
 
   const system = [
-    "Você é a camada cognitiva v1 da ENOVA e deve responder APENAS JSON válido.",
-    "Objetivo: acolher, orientar sem prometer, e trazer o cliente de volta ao stage atual.",
-    "NUNCA decidir funil sozinho; suggested_stage e stage_signals são apenas sugestão.",
-    "Use linguagem natural em pt-BR, tom acolhedor + firme + consultivo.",
-    "Regras duras: sem promessa de aprovação; sem antecipar valor/parcela/entrada/resultado; falar imóvel; aprovação depende de análise de perfil + avaliação bancária; escolha/simulação de imóvel apenas após aprovação no plantão.",
-    "Se responder dúvida mas faltar resposta objetiva do stage, marque still_needs_original_answer=true.",
-    "Contrato de saída obrigatório: reply_text, intent, entities, stage_signals, still_needs_original_answer, answered_customer_question, safe_stage_signal, suggested_stage, confidence, reason."
-  ].join(" ");
+  "Você é a camada cognitiva v1 da ENOVA e deve responder APENAS JSON válido.",
+  "Objetivo: acolher, orientar sem prometer, e trazer o cliente de volta ao stage atual.",
+  "NUNCA decidir funil sozinho; suggested_stage e stage_signals são apenas sugestão.",
+  "Use linguagem natural em pt-BR, tom acolhedor + firme + consultivo.",
+  "Regras duras: sem promessa de aprovação; sem antecipar valor/parcela/entrada/resultado; falar imóvel; aprovação depende de análise de perfil + avaliação bancária; escolha/simulação de imóvel apenas após aprovação no plantão.",
+  "Se responder dúvida mas faltar resposta objetiva do stage, marque still_needs_original_answer=true.",
+  "Contrato de saída obrigatório: reply_text, intent, entities, stage_signals, still_needs_original_answer, answered_customer_question, safe_stage_signal, suggested_stage, confidence, reason.",
+  `Stage atual: ${stage}`,
+  `Intents permitidos neste stage: ${JSON.stringify((COGNITIVE_PLAYBOOK_V1.intents_by_stage || {})[stage] || [])}`,
+  `Entidades permitidas neste stage: ${JSON.stringify(COGNITIVE_PLAYBOOK_V1.entities_supported || [])}`,
+  "safe_stage_signal deve usar SOMENTE prefixos compatíveis com o stage atual.",
+  "Prefixos aceitos por stage:",
+  "- inicio_nacionalidade => nacionalidade:brasileira | nacionalidade:estrangeira",
+  "- inicio_rnm => rnm:sim | rnm:nao",
+  "- inicio_rnm_validade => rnm_validade:prazo_indeterminado | rnm_validade:nao_se_enquadra",
+  "- estado_civil => estado_civil:solteiro | estado_civil:casado | estado_civil:uniao_estavel | estado_civil:separado | estado_civil:divorciado | estado_civil:viuvo",
+  "- quem_pode_somar / interpretar_composicao => composicao:sozinho | composicao:parceiro | composicao:familiar",
+  "- ir_declarado => ir:sim | ir:nao",
+  "- restricao => restricao:sim | restricao:nao",
+  "- regularizacao_restricao => regularizacao_restricao:sim | regularizacao_restricao:nao",
+  "- restricao_parceiro => restricao_parceiro:sim | restricao_parceiro:nao",
+  "- regularizacao_restricao_parceiro => regularizacao_restricao_parceiro:sim | regularizacao_restricao_parceiro:nao",
+  "- ctps_36 => ctps_36:sim | ctps_36:nao | ctps_36:nao_sei",
+  "- ctps_36_parceiro => ctps_36_parceiro:sim | ctps_36_parceiro:nao | ctps_36_parceiro:nao_sei",
+  "Se não houver sinal seguro, devolver safe_stage_signal vazio."
+].join(" ");
 
   const user = JSON.stringify({
     stage,
@@ -2372,6 +2753,15 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "terminal_finalizacao_processo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_renda_v1", start_stage: "finalizacao", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_fim_inelegivel_redirect", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "fim_inelegivel", input: "ok", expected: { type: "context", in: ["fim_ineligivel","fim_inelegivel"], terminal_canonical: "fim_ineligivel" } },
     { id: "terminal_aguardando_retorno_replay", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_base_topo_v1", start_stage: "aguardando_retorno_correspondente", input: "oi", expected: { type: "multiple", in: ["aguardando_retorno_correspondente","finalizacao_processo"] } },
+
+    { id: "cognitivo_rnm_nao", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "inicio_rnm", input: "não", expected: { type: "single", equals: "fim_ineligivel" } },
+    { id: "cognitivo_rnm_nao_ainda_nao_tenho", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "inicio_rnm", input: "ainda não tenho", expected: { type: "single", equals: "fim_ineligivel" } },
+    { id: "cognitivo_rnm_temporario", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "inicio_rnm_validade", input: "temporário", expected: { type: "single", equals: "fim_ineligivel" } },
+    { id: "cognitivo_ir_nao", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_gate_ir_autonomo_v1", start_stage: "ir_declarado", input: "não", expected: { type: "multiple", in: ["autonomo_compor_renda","renda","ctps_36"] } },
+    { id: "cognitivo_regularizacao_restricao_nao", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_restricao_v1", start_stage: "regularizacao_restricao", input: "não vou regularizar", expected: { type: "multiple", in: ["envio_docs","fim_ineligivel"] } },
+    { id: "cognitivo_regularizacao_restricao_parceiro_nao", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_restricao_v1", start_stage: "regularizacao_restricao_parceiro", input: "não, ele não vai pagar", expected: { type: "multiple", in: ["envio_docs","fim_ineligivel"] } },
+    { id: "cognitivo_ctps36_nao_sei", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_gate_ctps_solo_v1", start_stage: "ctps_36", input: "não sei", expected: { type: "multiple", in: ["dependente","restricao"] } },
+    { id: "cognitivo_ctps36_parceiro_nao_sei", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_parceiro_v1", start_stage: "ctps_36_parceiro", input: "não sei", expected: { type: "multiple", in: ["restricao","restricao_parceiro"] } },
 
     { id: "modo_contextual_invalido", grupo: "contrato", mode: "simulate-from-state", allowed_modes: ["replay-webhook"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", input: "arquivo", expected: { type: "multiple", in: ["envio_docs","finalizacao"] } }
   ];
@@ -5906,21 +6296,27 @@ async function runFunnel(env, st, userText) {
   const stage = st.fase_conversa || "inicio";
   let t = (userText || "").trim().toLowerCase();
 
+// Memória útil de conversa (camada cognitiva, sem mexer no trilho mecânico)
+const usefulSignals = extractUsefulConversationSignals(userText || "");
+if (Object.keys(usefulSignals).length) {
+  try {
+    await upsertState(env, st.wa_id, usefulSignals);
+    Object.assign(st, usefulSignals);
+  } catch (_) {}
+}
+
   // ============================================================
   // 🧷 OFFTRACK DETERMINÍSTICO (YES/NO stages)
   // Se a fase atual espera SIM/NÃO e o texto não é SIM/NÃO → OFFTRACK (sem IA)
+  // Estágios com parsers próprios (restricao, ctps_36, regularizacao etc.) ficam fora
+  // deste gate para que frases humanas reais alcancem seus case blocks.
   // ============================================================
   const yesNoStages = new Set([
-    "dependente",
-    "restricao",
-    "confirmar_casamento",
-    "regularizacao_restricao",
-    "ctps_36",
-    "ctps_36_parceiro",
-    "restricao_parceiro",
-    "restricao_familiar",
-    "restricao_p3"
-  ]);
+  "dependente",
+  "confirmar_casamento",
+  "restricao_familiar",
+  "restricao_p3"
+]);
 
   if (yesNoStages.has(stage)) {
     const txt = (userText || "").trim();
@@ -6810,12 +7206,13 @@ case "inicio_nacionalidade": {
   });
 
   const nt = normalizeText(userText || "");
-  // Exemplos cobertos: "sou brasileira", "nasci no brasil", "sou estrangeiro"
+  // Parsers determinísticos cobrem: "sou brasileira", "naturalizado", "dupla nacionalidade", "sou estrangeiro" etc.
+  const nacionalidadeParsed = parseNacionalidade(userText || "");
 
   // -------------------------------------------
-  // 🇧🇷 BRASILEIRO
+  // 🇧🇷 BRASILEIRO (inclui naturalizado e dupla nacionalidade)
   // -------------------------------------------
-  if (/^(brasileiro|brasileiro mesmo|brasileira|brasileira mesmo|daqui mesmo|sou daqui mesmo|sou brasileiro|sou brasileiro mesmo|sou brasileira mesmo|sou brasileira|nascido no brasil|nascida no brasil|nasci no brasil)$/i.test(nt)) {
+  if (nacionalidadeParsed === "brasileira") {
 
     await upsertState(env, st.wa_id, {
       nacionalidade: "brasileiro",
@@ -6840,7 +7237,7 @@ case "inicio_nacionalidade": {
   // -------------------------------------------
   // 🌎 ESTRANGEIRO
   // -------------------------------------------
-  if (/^(estrangeiro|estrangeira|sou estrangeiro|sou estrangeira|gringo|nao sou brasileiro|não sou brasileiro)$/i.test(nt)) {
+  if (nacionalidadeParsed === "estrangeira") {
 
     await upsertState(env, st.wa_id, {
       nacionalidade: "estrangeiro",
@@ -6871,7 +7268,7 @@ case "inicio_nacionalidade": {
     st,
     [
       "Perdão 😅, não consegui entender.",
-      "Você é *brasileiro* ou *estrangeiro*?"
+      "Você é *brasileiro(a)* (incluindo naturalizado(a) e dupla nacionalidade) ou *estrangeiro(a)*?"
     ],
     "inicio_nacionalidade"
   );
@@ -6892,11 +7289,13 @@ case "inicio_rnm": {
   });
 
   const nt = normalizeText(userText || "");
+  // Parser determinístico: cobre "sim", "já tenho RNM", "protocolo", "em andamento" etc.
+  const rnmPossui = parseRnmPossui(userText || "");
 
   // -------------------------------------------
-  // ❌ 1) NÃO POSSUI RNM → ineligível
+  // ❌ 1) NÃO POSSUI RNM (inclui protocolo/em andamento) → ineligível
   // -------------------------------------------
-  if (isNo(nt) || /^(nao|não|nao possuo|não possuo)$/i.test(nt)) {
+  if (rnmPossui === "nao") {
 
     await upsertState(env, st.wa_id, {
       rnm_status: "não possui",
@@ -6924,7 +7323,7 @@ case "inicio_rnm": {
   // -------------------------------------------
   // ✅ 2) POSSUI RNM → perguntar tipo de validade
   // -------------------------------------------
-  if (isYes(nt) || /^sim$/i.test(nt)) {
+  if (rnmPossui === "sim") {
 
     await upsertState(env, st.wa_id, {
       rnm_status: "possui",
@@ -6941,7 +7340,7 @@ case "inicio_rnm": {
       [
         "Perfeito! 🙌",
         "Seu RNM é *com validade* ou *indeterminado*?",
-        "Responda: *valido* ou *indeterminado*."
+        "Responda: *com validade* ou *indeterminado*."
       ],
       "inicio_rnm_validade"
     );
@@ -6976,11 +7375,13 @@ case "inicio_rnm_validade": {
   });
 
   const nt = normalizeText(userText || "");
+  // Parser determinístico: cobre "prazo indeterminado", "renovação", "temporário" etc.
+  const rnmValidade = parseRnmValidade(userText || "");
 
   // -------------------------------------------
-  // ❌ RNM COM VALIDADE DEFINIDA → INELEGÍVEL
+  // ❌ NÃO SE ENQUADRA (temporário, renovação, validade, protocolo) → INELEGÍVEL
   // -------------------------------------------
-  if (/^(valido|válido|com validade|definida)$/i.test(nt)) {
+  if (rnmValidade === "nao_se_enquadra" || /^(valido|válido|com validade|definida)$/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       rnm_validade: "definida",
@@ -7008,7 +7409,7 @@ case "inicio_rnm_validade": {
   // -------------------------------------------
   // ✅ RNM INDETERMINADO → CONTINUA O FLUXO
   // -------------------------------------------
-  if (/^indeterminado$/i.test(nt)) {
+  if (rnmValidade === "prazo_indeterminado") {
 
     await upsertState(env, st.wa_id, {
       rnm_validade: "indeterminado",
@@ -11524,11 +11925,14 @@ case "ir_declarado": {
 
   const regimeParceiro = st.regime_parceiro || st.regime_trabalho_parceiro || null;
 
+  const irParsed = parseIrDeclarado(userText);
   const yes =
+    irParsed === "sim" ||
     /^(1|sim|s|declaro|declara)$/i.test(t) ||
-    /(fa[çc]o imposto|fa[çc]o ir|imposto de renda)/i.test(t);
+    /(fa[çc]o imposto|fa[çc]o ir|imposto de renda|declaro\s+sim|declaro\s+ir|declaro\s+imposto)/i.test(t);
 
   const no =
+    irParsed === "nao" ||
     /^(2|nao|não|n)$/i.test(t) ||
     /(n[aã]o declaro|sem imposto|nunca declarei)/i.test(t);
 
@@ -11836,7 +12240,7 @@ const tNorm = normalizeText(t);
 
   // "não sei"
   const nao_sei =
-    /(nao sei|nao lembro|talvez|acho)/i.test(tNorm);
+    /(nao sei|nao lembro|talvez|acho|nunca\s+parei)/i.test(tNorm);
 
   // "sim" / positivo
   const sim =
@@ -12732,13 +13136,16 @@ case "restricao": {
     }
   });
   
-  // Exemplos cobertos: "nome sujo", "negativado no serasa", "cpf limpo", "não sei"
-  const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(t);
+  // Exemplos cobertos: "nome sujo", "negativado no serasa", "cpf limpo", "não sei", "tenho sim", "meu nome tá limpo", "acho que tem"
+  const temNaoTenho = /\b(n[aã]o|nao)\s+(tenho|tem)\b/i.test(t);
   const temTermoRestricao = hasRestricaoIndicador(t);
+  const achoQueTem = /acho\s+que\s+(tem|tenho|possuo)/i.test(t);
 
   const sim =
     !temNaoTenho && (
+      achoQueTem ||
       isYes(t) ||
+      /\btenho\s+sim\b/i.test(t) ||
       /^\s*tem\s*$/i.test(t) ||
       (!isNo(t) && temTermoRestricao) ||
       /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(t) ||
@@ -12746,13 +13153,14 @@ case "restricao": {
     );
 
   const incerto =
+    !achoQueTem &&
     /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(t);
 
   const nao =
     !incerto && (
       isNo(t) ||
       temNaoTenho ||
-      /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo)/i.test(t)
+      /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo|nome\s+(ta|tá|esta|está)\s+limpo|cpf\s+(ta|tá|esta|está)\s+limpo|\b(ta|tá|esta|está)\s+limpo\b)/i.test(t)
     );
 
   const ehFluxoConjunto =
@@ -13096,12 +13504,16 @@ case "restricao_parceiro": {
     }
   });
 
-  const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(t);
+  const temNaoTenho = /\b(n[aã]o|nao)\s+(tenho|tem)\b/i.test(t);
   const temTermoRestricao = hasRestricaoIndicador(t);
+  const achoQueTem = /acho\s+que\s+(tem|tenho|possuo)/i.test(t);
 
   const sim =
     !temNaoTenho && (
+      achoQueTem ||
       isYes(t) ||
+      /\b(tem\s+sim|(ele|ela)\s+(tem|possui))\b/i.test(t) ||
+      /\btenho\s+sim\b/i.test(t) ||
       /^\s*tem\s*$/i.test(t) ||
       (!isNo(t) && temTermoRestricao) ||
       /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(t) ||
@@ -13109,13 +13521,14 @@ case "restricao_parceiro": {
     );
 
   const incerto =
+    !achoQueTem &&
     /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(t);
 
   const nao =
     !incerto && (
       isNo(t) ||
       temNaoTenho ||
-      /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo)/i.test(t)
+      /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo|nome\s+(ta|tá|esta|está)\s+limpo|cpf\s+(ta|tá|esta|está)\s+limpo|\b(ta|tá|esta|está)\s+limpo\b)/i.test(t)
     );
 
   if (isModoFamiliar(st)) {
@@ -13382,9 +13795,9 @@ case "regularizacao_restricao": {
     return Number.isFinite(v) ? v : 0;
   };
 
-  // Exemplos cobertos: "já tô negociando", "estou pagando acordo", "ainda não fiz nada", "já quitei"
-  const sim = isYes(t) || /(sim|já estou|ja estou|estou vendo|to vendo|estou resolvendo|tô resolvendo|pagando|negociando|acordo|parcelando|renegociando|ja quitei|já quitei|ja paguei|já paguei)/i.test(t);
-  const nao = isNo(t) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|pretendo negociar|vou negociar depois)/i.test(t);
+  // Exemplos cobertos: "já tô negociando", "vou regularizar", "ele vai regularizar", "já quitei", "não vou regularizar", "ele não vai pagar", "já pagou"
+  const sim = isYes(t) || /(sim|já estou|ja estou|estou vendo|to vendo|estou resolvendo|tô resolvendo|pagando|negociando|acordo|parcelando|renegociando|ja quitei|já quitei|ja paguei|já paguei|ja quitou|já quitou|ja pagou|já pagou|vou\s+regularizar|vai\s+regularizar|vamos\s+regularizar|pretendo\s+regularizar|estou\s+regularizando|to\s+regularizando|tô\s+regularizando|vou\s+pagar|vai\s+pagar|pretendo\s+negociar|vou\s+negociar)/i.test(t);
+  const nao = isNo(t) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|nao\s+vou\s+regularizar|não\s+vou\s+regularizar|nao\s+vai\s+regularizar|não\s+vai\s+regularizar|nao\s+vou\s+pagar|não\s+vou\s+pagar|nao\s+quero\s+pagar|não\s+quero\s+pagar|(ele|ela)\s+(n[aã]o|nao)\s+(vai|ir[aá])\s+(regularizar|pagar))/i.test(t);
   const talvez = /(talvez|acho|nao sei|não sei|pode ser)/i.test(t);
 
   // Se não veio sim/não/talvez, tenta capturar VALOR e repetir a pergunta no mesmo stage

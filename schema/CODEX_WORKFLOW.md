@@ -1,7 +1,7 @@
 # CODEX WORKFLOW — ENOVA (CANÔNICO)
 
 ## HEADER FIXO (colar antes de qualquer tarefa)
-Leia `schema/CODEX_WORKFLOW.md` e siga como regra absoluta.  
+Leia `schema/CODEX_WORKFLOW.md` e `CANONICO_GATE_PRESERVATION.md` e siga como regra absoluta.  
 Confirme que leu e diga: **WORKFLOW_ACK: ok**.
 
 Regras:

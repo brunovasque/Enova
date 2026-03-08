@@ -2754,6 +2754,15 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "terminal_fim_inelegivel_redirect", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "fim_inelegivel", input: "ok", expected: { type: "context", in: ["fim_ineligivel","fim_inelegivel"], terminal_canonical: "fim_ineligivel" } },
     { id: "terminal_aguardando_retorno_replay", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_base_topo_v1", start_stage: "aguardando_retorno_correspondente", input: "oi", expected: { type: "multiple", in: ["aguardando_retorno_correspondente","finalizacao_processo"] } },
 
+    { id: "cognitivo_rnm_nao", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "inicio_rnm", input: "não", expected: { type: "single", equals: "fim_ineligivel" } },
+    { id: "cognitivo_rnm_nao_ainda_nao_tenho", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "inicio_rnm", input: "ainda não tenho", expected: { type: "single", equals: "fim_ineligivel" } },
+    { id: "cognitivo_rnm_temporario", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "inicio_rnm_validade", input: "temporário", expected: { type: "single", equals: "fim_ineligivel" } },
+    { id: "cognitivo_ir_nao", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_gate_ir_autonomo_v1", start_stage: "ir_declarado", input: "não", expected: { type: "multiple", in: ["autonomo_compor_renda","renda","ctps_36"] } },
+    { id: "cognitivo_regularizacao_restricao_nao", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_restricao_v1", start_stage: "regularizacao_restricao", input: "não vou regularizar", expected: { type: "multiple", in: ["envio_docs","fim_ineligivel"] } },
+    { id: "cognitivo_regularizacao_restricao_parceiro_nao", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_restricao_v1", start_stage: "regularizacao_restricao_parceiro", input: "não, ele não vai pagar", expected: { type: "multiple", in: ["envio_docs","fim_ineligivel"] } },
+    { id: "cognitivo_ctps36_nao_sei", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_gate_ctps_solo_v1", start_stage: "ctps_36", input: "não sei", expected: { type: "multiple", in: ["dependente","restricao"] } },
+    { id: "cognitivo_ctps36_parceiro_nao_sei", grupo: "cognitivo_v1", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_parceiro_v1", start_stage: "ctps_36_parceiro", input: "não sei", expected: { type: "multiple", in: ["restricao","restricao_parceiro"] } },
+
     { id: "modo_contextual_invalido", grupo: "contrato", mode: "simulate-from-state", allowed_modes: ["replay-webhook"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", input: "arquivo", expected: { type: "multiple", in: ["envio_docs","finalizacao"] } }
   ];
 
@@ -6314,23 +6323,6 @@ if (Object.keys(usefulSignals).length) {
     const ehSim = isYes(txt);
     const ehNao = isNo(txt);
     const ehTalvez = /\b(talvez|nao\s+sei|não\s+sei|depende|acho\s+que)\b/i.test(txt);
-
-if ((stage === "ctps_36" || stage === "ctps_36_parceiro") && ehTalvez) {
-  const nextStage =
-    stage === "ctps_36"
-      ? (st.financiamento_conjunto === true || st.somar_renda === true ? "ctps_36_parceiro" : "dependente")
-      : "dependente";
-
-  await upsertState(env, st.wa_id, {
-    [stage]: "nao_sei",
-    fase_conversa: nextStage
-  });
-
-  return step(
-    nextStage,
-    "Perfeito. Essa informação ajuda porque, se tiver 36 meses ou mais de registro, isso pode ajudar a buscar uma taxa de juros menor e melhorar o valor de financiamento."
-  );
-}
 
     // não é resposta direta esperada → trava e pede responder a pergunta anterior
     if (!ehSim && !ehNao && !ehTalvez) {

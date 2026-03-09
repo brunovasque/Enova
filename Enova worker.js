@@ -1599,6 +1599,10 @@ async function resetTotal(env, wa_id) {
     canal_docs_motivo_recusa: null,
     canal_docs_agendamento_pendente: null,
     canal_docs_opcoes_liberadas_json: null,
+    envio_docs_status: null,
+    envio_docs_total_recebidos: null,
+    envio_docs_total_pendentes: null,
+    envio_docs_historico_json: null,
 
     processo_pre_analise: null,
     processo_pre_analise_status: null,
@@ -1731,6 +1735,10 @@ function createSimulationState(wa_id, startStage) {
     canal_docs_motivo_recusa: null,
     canal_docs_agendamento_pendente: null,
     canal_docs_opcoes_liberadas_json: null,
+    envio_docs_status: null,
+    envio_docs_total_recebidos: null,
+    envio_docs_total_pendentes: null,
+    envio_docs_historico_json: null,
 
     processo_pre_analise: null,
     processo_pre_analise_status: null,
@@ -5444,7 +5452,10 @@ function buildDocumentDossierFromState(st) {
     dossie_observacoes_correspondente_json: observacoesCorrespondente,
     envio_docs_itens_json: envioDocsItens,
     envio_docs_total_itens: envioDocsItens.length,
-    envio_docs_total_pendentes: envioDocsItens.filter((i) => i.status === "pendente").length
+    envio_docs_total_recebidos: 0,
+    envio_docs_total_pendentes: envioDocsItens.filter((i) => i.status === "pendente" && i.bucket !== "recomendado").length,
+    envio_docs_status: "aguardando_envio",
+    envio_docs_historico_json: []
   };
 }
 
@@ -5628,6 +5639,82 @@ function mensagemPendenciasHumanizada(list) {
   return linhas;
 }
 
+function envioDocsResumoPendencias(itens = []) {
+  return itens
+    .filter((item) => (item.bucket === "obrigatorio" || item.bucket === "condicional") && item.status === "pendente")
+    .slice(0, 4)
+    .map((item) => `• ${prettyDocLabel(item.tipo)} (${item.participante === "p1" ? "titular" : "composição"})`);
+}
+
+function recomputeEnvioDocsProgress(itens = []) {
+  const itensBloqueantes = itens.filter((item) => item.bucket === "obrigatorio" || item.bucket === "condicional");
+  const totalPendentes = itensBloqueantes.filter((item) => item.status === "pendente").length;
+  const totalRecebidos = itensBloqueantes.filter((item) => item.status === "recebido_pendente_validacao" || item.status === "validado").length;
+  const status =
+    totalRecebidos === 0
+      ? "aguardando_envio"
+      : totalPendentes === 0
+        ? "completo"
+        : "parcial";
+
+  return {
+    envio_docs_total_recebidos: totalRecebidos,
+    envio_docs_total_pendentes: totalPendentes,
+    envio_docs_status: status
+  };
+}
+
+function guessEnvioDocsTipoFromText(texto) {
+  const t = normalizeText(texto || "");
+  if (!t) return null;
+  if (/\b(rg|identidade|cnh)\b/.test(t)) return "rg";
+  if (/\bcpf\b/.test(t)) return "cpf";
+  if (/\b(comprovante.*resid|conta de (luz|agua|água|internet))\b/.test(t)) return "comprovante_residencia";
+  if (/\bcomprovante.*renda\b/.test(t)) return "comprovante_renda";
+  if (/\bholerite\b/.test(t)) return "holerite_ultimo";
+  if (/\bextrat/.test(t)) return "extratos_bancarios_3_meses";
+  if (/\bir\b/.test(t)) return "declaracao_ir";
+  if (/\bcertidao|certidão\b/.test(t) && /\bnasc/.test(t)) return "certidao_nascimento_dependente";
+  if (/\bcertidao|certidão\b/.test(t) && /\bcasament/.test(t)) return "certidao_casamento";
+  if (/\bctps|carteira de trabalho\b/.test(t)) return "ctps_completa";
+  return null;
+}
+
+function envioDocsParticipanteLabel(participante) {
+  if (participante === "p1") return "titular";
+  if (participante === "p2") return "parceiro(a)";
+  if (participante === "p3") return "familiar";
+  return "composição";
+}
+
+function selectEnvioDocsItemForUpload(st, hintText = "") {
+  const itens = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
+  const pendentes = itens.filter((item) => (item.bucket === "obrigatorio" || item.bucket === "condicional") && item.status === "pendente");
+  if (!pendentes.length) return null;
+
+  const hintedTipo = guessEnvioDocsTipoFromText(hintText);
+  const hintedParticipante = /\b(parceir|espos|marid|conjuge|cônjuge|p2)\b/.test(normalizeText(hintText || "")) ? "p2" : null;
+
+  if (hintedTipo && hintedParticipante) {
+    const match = pendentes.find((item) => item.tipo === hintedTipo && item.participante === hintedParticipante);
+    if (match) return match;
+  }
+
+  if (hintedTipo) {
+    const match = pendentes.find((item) => item.tipo === hintedTipo);
+    if (match) return match;
+  }
+
+  return pendentes[0];
+}
+
+function isEnvioDocsTextualUploadSignal(texto) {
+  const t = normalizeText(texto || "");
+  if (!t) return false;
+  if (!/\b(enviei|envio|segue|mandei|acabei de mandar|anexei|subi)\b/.test(t)) return false;
+  return /\b(doc|documento|arquivo|anexo|foto|comprovante|rg|cpf|holerite|ir|extrato)\b/.test(t);
+}
+
 // ======================================================================
 // 🧱 BLOCO 19 — ROTEADOR DE MÍDIA PARA DOCUMENTOS (FINAL MASTER)
 // ======================================================================
@@ -5635,11 +5722,11 @@ function mensagemPendenciasHumanizada(list) {
 /**
  * handleDocumentUpload(env, st, msg)
  *
- * - Detecta tipo de mídia recebida (image, audio, document, etc.)
- * - Baixa arquivo do WhatsApp
- * - Processa via OCR / Whisper (processIncomingDocumentV2)
- * - Atualiza pendências usando updateDocsStatusV2
- * - Retorna mensagem humanizada e segue no fluxo envio_docs
+ * - Detecta envio de arquivo/mídia no contexto de docs
+ * - Associa ao item mais provável do checklist (sem validação profunda)
+ * - Marca como recebido_pendente_validacao
+ * - Recalcula status geral da pasta (aguardando_envio/parcial/completo)
+ * - Retorna mensagem humanizada mantendo etapa envio_docs
  */
 async function handleDocumentUpload(env, st, msg) {
   try {
@@ -5648,8 +5735,9 @@ async function handleDocumentUpload(env, st, msg) {
     // ==========================================================
     const mediaObject =
       msg.image || msg.audio || msg.document || msg.video || null;
+    const isTextSignal = msg?.text_signal === true;
 
-    if (!mediaObject) {
+    if (!mediaObject && !isTextSignal) {
       return {
         ok: false,
         message: [
@@ -5660,72 +5748,64 @@ async function handleDocumentUpload(env, st, msg) {
       };
     }
 
-    const mediaId = mediaObject.id;
-    const fileType = msg.type || "desconhecido";
+    const hintText =
+      msg.document?.caption ||
+      msg.image?.caption ||
+      msg.caption ||
+      st.last_user_text ||
+      "";
+    const itens = Array.isArray(st.envio_docs_itens_json) ? [...st.envio_docs_itens_json] : [];
+    const target = selectEnvioDocsItemForUpload(st, hintText);
 
-    // ==========================================================
-    // 2 — BAIXAR MÍDIA DO WHATSAPP
-    // ==========================================================
-    const mediaUrl = `https://graph.facebook.com/v20.0/${mediaId}`;
-    const mediaResp = await fetch(mediaUrl, {
-      headers: { Authorization: `Bearer ${env.WHATS_TOKEN}` }
-    });
+    if (target) {
+      const idx = itens.findIndex((item) => item.tipo === target.tipo && item.participante === target.participante && item.status === "pendente");
+      if (idx >= 0) {
+        itens[idx] = {
+          ...itens[idx],
+          status: "recebido_pendente_validacao",
+          recebido_em: new Date().toISOString()
+        };
+      }
+    }
 
-    const arrayBuffer = await mediaResp.arrayBuffer();
-    const contentType = mediaResp.headers.get("Content-Type") || "";
-
-    const file = {
-      buffer: arrayBuffer,
-      url: mediaUrl,
-      contentType
+    const progress = recomputeEnvioDocsProgress(itens);
+    const historicoBase = Array.isArray(st.envio_docs_historico_json) ? st.envio_docs_historico_json : [];
+    const patch = {
+      envio_docs_itens_json: itens,
+      ...progress,
+      envio_docs_historico_json: [
+        ...historicoBase.slice(-19),
+        {
+          at: new Date().toISOString(),
+          origem: "upload",
+          canal_origem: st.canal_docs_escolhido || "whatsapp",
+          associado: target ? { tipo: target.tipo, participante: target.participante } : null
+        }
+      ]
     };
+    await upsertState(env, st.wa_id, patch);
+    Object.assign(st, patch);
 
-    // ==========================================================
-    // 3 — PROCESSAR DOCUMENTO (recai no Bloco 13 / V2)
-    // ==========================================================
-    const result = await processIncomingDocumentV2(env, st, file);
+    const pendenciasResumo = envioDocsResumoPendencias(itens);
+    const linhas = ["Recebi seu arquivo e já registrei na sua pasta ✅"];
 
-    if (!result.ok) {
-      return {
-        ok: false,
-        message: result.message,
-        keepStage: "envio_docs"
-      };
+    if (target) {
+      linhas.push(`Vinculei como **${prettyDocLabel(target.tipo)}** (${envioDocsParticipanteLabel(target.participante)}), com status *recebido pendente de validação*.`);
+    } else {
+      linhas.push("Registrei o recebimento e sigo com sua pasta; a validação detalhada acontece na próxima etapa interna.");
     }
 
-    // ==========================================================
-    // 4 — ATUALIZAR PENDÊNCIAS (Bloco 18)
-    // ==========================================================
-    const status = await updateDocsStatusV2(env, st);
-
-    // ==========================================================
-    // 5 — MENSAGEM DE CONFIRMAÇÃO
-    // ==========================================================
-    const linhas = [
-      "Documento recebido e registrado 👌",
-      `Tipo: **${labelTipoDocumento(result.docType)}**`,
-    ];
-
-    // Se ainda há pendências
-    if (!status.completo) {
-      linhas.push("");
-      linhas.push(...mensagemPendenciasHumanizada(status.pendentes));
-      return {
-        ok: true,
-        message: linhas,
-        keepStage: "envio_docs"
-      };
+    if (progress.envio_docs_status === "completo") {
+      linhas.push("Perfeito — sua pasta documental ficou **completa** para avançar à validação interna.");
+    } else {
+      linhas.push("Pode me enviar os próximos documentos para concluir sua pasta.");
+      if (pendenciasResumo.length) linhas.push("", ...pendenciasResumo);
     }
-
-    // Se completou tudo
-    linhas.push("");
-    linhas.push("🚀 Perfeito! Todos documentos recebidos.");
-    linhas.push("Agora posso avançar para a próxima etapa.");
 
     return {
       ok: true,
       message: linhas,
-      nextStage: "agendamento_visita"
+      keepStage: "envio_docs"
     };
 
   } catch (err) {
@@ -13858,6 +13938,15 @@ case "envio_docs": {
     Object.assign(st, seedCanal);
   }
 
+  const envioDocsStatusNotSet = st.envio_docs_status === null || st.envio_docs_status === undefined;
+  const envioDocsPendentesNotSet = st.envio_docs_total_pendentes === null || st.envio_docs_total_pendentes === undefined;
+  const envioDocsRecebidosNotSet = st.envio_docs_total_recebidos === null || st.envio_docs_total_recebidos === undefined;
+  if ((envioDocsStatusNotSet || envioDocsPendentesNotSet || envioDocsRecebidosNotSet) && Array.isArray(st.envio_docs_itens_json)) {
+    const progressSeed = recomputeEnvioDocsProgress(st.envio_docs_itens_json);
+    await upsertState(env, st.wa_id, progressSeed);
+    Object.assign(st, progressSeed);
+  }
+
   // =====================================================
   // 1 — SE CHEGOU ALGUMA MÍDIA → handleDocumentUpload
   // =====================================================
@@ -13959,6 +14048,15 @@ case "envio_docs": {
       "Te passo o canal online para envio dos documentos do seu caso.",
       "Assim que anexar tudo, já continuo sua pasta por aqui."
     ], "envio_docs");
+  }
+
+  if (isEnvioDocsTextualUploadSignal(t) && st.docs_lista_enviada) {
+    const resposta = await handleDocumentUpload(env, st, {
+      type: "text_signal",
+      text_signal: true,
+      caption: t
+    });
+    return step(env, st, resposta.message, resposta.keepStage || "envio_docs");
   }
 
   // =====================================================

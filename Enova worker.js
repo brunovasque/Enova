@@ -5384,6 +5384,23 @@ function buildDocumentDossierFromState(st) {
     .reduce((acc, p) => acc + (p.renda || 0), 0);
 
   const restricoesAtivas = participantes.filter((p) => p.restricao);
+  const restricaoResumo = !restricoesAtivas.length
+    ? "sem_restricao"
+    : restricoesAtivas.some((p) => p.regularizacao_restricao)
+      ? "com_restricao_regularizavel"
+      : "restricao_critica";
+  const aptidaoMap = {
+    sem_restricao: "apto",
+    com_restricao_regularizavel: "potencialmente_apto",
+    restricao_critica: "inapto"
+  };
+  const aptidaoPrograma = aptidaoMap[restricaoResumo] || "potencialmente_apto";
+
+  let tipoProcesso = "solo";
+  if (hasP3) tipoProcesso = "p3";
+  else if (!hasP2) tipoProcesso = "solo";
+  else if (st.composicao_pessoa === "familiar" || st.familiar_tipo) tipoProcesso = "familiar";
+  else tipoProcesso = "casal";
   const pendencias = [...docsObrigatorios, ...docsCondicionais].map((item) => ({
     ...item,
     status: "pendente"
@@ -5397,15 +5414,13 @@ function buildDocumentDossierFromState(st) {
 
   return {
     dossie_status: "pronto",
-    dossie_aptidao_programa: restricoesAtivas.some((p) => !p.regularizacao_restricao) ? "pendente_regularizacao" : "apto",
+    dossie_aptidao_programa: aptidaoPrograma,
     dossie_motivo_status: "dossie_montado_automaticamente_na_entrada_envio_docs",
-    dossie_tipo_processo: participantes.length > 1 ? "composicao_renda" : "individual",
+    dossie_tipo_processo: tipoProcesso,
     dossie_qtd_participantes: participantes.length,
     dossie_renda_total_formal: rendaTotalFormal,
     dossie_renda_total_informal: rendaTotalInformal,
-    dossie_restricao_resumo: restricoesAtivas.length
-      ? `Restrição em ${restricoesAtivas.map((p) => p.id).join(", ")}`
-      : "Sem restrição ativa",
+    dossie_restricao_resumo: restricaoResumo,
     dossie_risco_documental: docsCondicionais.length > 2 ? "medio" : "baixo",
     dossie_resumo_humano: `Dossiê com ${participantes.length} participante(s), ${docsObrigatorios.length} docs obrigatórios e ${docsCondicionais.length} condicionais.`,
     dossie_participantes_json: participantes,

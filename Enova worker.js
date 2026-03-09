@@ -12955,12 +12955,8 @@ if (modoFamiliar) {
     return step(env, st,
       [
         "Perfeito! 👌",
-        "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
-        "",
-        "📌 Você prefere:",
-        "1) Enviar por aqui no WhatsApp",
-        "2) Enviar pelo site",
-        "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+        "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+        "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
       ],
       "envio_docs"
     );
@@ -13084,12 +13080,8 @@ if (st.p3_required && st.p3_done !== true) {
 return step(env, st,
   [
   "Perfeito! 👌",
-  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
-  "",
-  "📌 Você prefere:",
-  "1) Enviar por aqui no WhatsApp",
-  "2) Enviar pelo site",
-  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+  "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+  "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
 ],
   "envio_docs"
 );
@@ -13133,12 +13125,8 @@ return step(env, st,
 return step(env, st,
   [
   "Perfeito! 👌",
-  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
-  "",
-  "📌 Você prefere:",
-  "1) Enviar por aqui no WhatsApp",
-  "2) Enviar pelo site",
-  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+  "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+  "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
 ],
   "envio_docs"
 );
@@ -13167,12 +13155,8 @@ if (incerto) {
     return step(env, st,
       [
   "Perfeito! 👌",
-  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
-  "",
-  "📌 Você prefere:",
-  "1) Enviar por aqui no WhatsApp",
-  "2) Enviar pelo site",
-  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+  "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+  "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
 ],
       "envio_docs"
     );
@@ -13206,12 +13190,8 @@ if (incerto) {
   return step(env, st,
     [
   "Perfeito! 👌",
-  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
-  "",
-  "📌 Você prefere:",
-  "1) Enviar por aqui no WhatsApp",
-  "2) Enviar pelo site",
-  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+  "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+  "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
 ],
     "envio_docs"
   );
@@ -13406,12 +13386,8 @@ if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restric
     return step(env, st,
   [
   "Perfeito! 👌",
-  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
-  "",
-  "📌 Você prefere:",
-  "1) Enviar por aqui no WhatsApp",
-  "2) Enviar pelo site",
-  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+  "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+  "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
 ],
   "envio_docs"
 );
@@ -13456,12 +13432,8 @@ if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restric
     return step(env, st,
   [
   "Perfeito! 👌",
-  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
-  "",
-  "📌 Você prefere:",
-  "1) Enviar por aqui no WhatsApp",
-  "2) Enviar pelo site",
-  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+  "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+  "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
 ],
   "envio_docs"
 );
@@ -13671,12 +13643,8 @@ case "regularizacao_restricao": {
       return step(env, st,
         [
           "Ótimo! 👏",
-          "Fechado. Vou te passar a lista de **documentos** pra darmos sequência.",
-          "",
-          "📌 Você prefere:",
-          "1) Enviar por aqui no WhatsApp",
-          "2) Enviar pelo site",
-          "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+          "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+          "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
         ],
         "envio_docs"
       );

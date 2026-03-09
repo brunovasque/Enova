@@ -13793,27 +13793,26 @@ case "regularizacao_restricao": {
   );
 }
 
-function parseEnvioDocsCanal(textoNormalizado) {
-  const t = String(textoNormalizado || "");
-  const pediuVisita = /\b(prefiro presencial|quero ir no plantao|plantao|presencial|escritorio|decorado|levar pessoalmente|posso levar pessoalmente|visita)\b/.test(t);
-  const objecaoOnlineForte = /\b(nao quero enviar online|nao envio online|nao gosto de enviar online)\b/.test(t);
-  const recusaWhatsapp = /\b(nao quero mandar documento por aqui|nao quero mandar documentos por aqui|nao quero enviar por aqui|nao quero mandar por whatsapp|nao quero enviar por whatsapp|nao quero mandar documento no whatsapp|sem whatsapp)\b/.test(t);
-  const pediuSite =
-    /\bprefiro enviar pelo site\b/.test(t) ||
-    (/\b(site|portal|plataforma|link)\b/.test(t) && /\b(enviar|envio|mandar|subir|anexar|prefiro)\b/.test(t));
-
-  return {
-    pediuVisita,
-    objecaoOnlineForte,
-    recusaWhatsapp,
-    pediuSite
-  };
-}
-
 // =========================================================
 // 🧩 C36 — ENVIO DE DOCUMENTOS (NOVA VERSÃO DEFINITIVA)
 // =========================================================
 case "envio_docs": {
+  function parseEnvioDocsCanal(textoNormalizado) {
+    const t = String(textoNormalizado || "");
+    const pediuVisita = /\b(prefiro presencial|quero ir no plantao|plantao|presencial|escritorio|decorado|levar pessoalmente|posso levar pessoalmente|visita)\b/.test(t);
+    const objecaoOnlineForte = /\b(nao quero enviar online|nao envio online|nao gosto de enviar online)\b/.test(t);
+    const recusaWhatsapp = /\b(nao quero mandar documento por aqui|nao quero mandar documentos por aqui|nao quero enviar por aqui|nao quero mandar por whatsapp|nao quero enviar por whatsapp|nao quero mandar documento no whatsapp|sem whatsapp)\b/.test(t);
+    const pediuSite =
+      /\bprefiro enviar pelo site\b/.test(t) ||
+      (/\b(site|portal|plataforma|link)\b/.test(t) && /\b(enviar|envio|mandar|subir|anexar|prefiro)\b/.test(t));
+
+    return {
+      pediuVisita,
+      objecaoOnlineForte,
+      recusaWhatsapp,
+      pediuSite
+    };
+  }
 
   if (st.dossie_status !== "pronto") {
     try {

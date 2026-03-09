@@ -3052,6 +3052,16 @@ if (isAdminProdPath) {
       const forcedStage = String(payload?.stage || "").trim();
       const text = String(payload?.text || "");
       const stOverrides = payload?.st_overrides && typeof payload.st_overrides === "object" ? payload.st_overrides : {};
+      const incomingMedia =
+        payload?._incoming_media ||
+        payload?.incoming_media ||
+        payload?.media ||
+        null;
+      const normalizedOverrides = { ...stOverrides };
+      normalizedOverrides._incoming_media =
+        normalizedOverrides._incoming_media ||
+        stOverrides?.incoming_media ||
+        incomingMedia;
       const dryRun = payload?.dry_run !== false;
       const maxSteps = Math.max(1, Math.min(3, Number(payload?.max_steps) || 1));
 
@@ -3075,7 +3085,7 @@ if (isAdminProdPath) {
       });
 
       const current = (await getState(env, wa_id)) || { wa_id, fase_conversa: forcedStage };
-      const seeded = { ...current, ...stOverrides, wa_id, fase_conversa: forcedStage };
+      const seeded = { ...current, ...normalizedOverrides, wa_id, fase_conversa: forcedStage };
       const previousCtx = env.__enovaSimulationCtx;
       env.__enovaSimulationCtx = {
         active: true,
@@ -3427,6 +3437,44 @@ async function runColdFollowupBatch(env, ctx) {
 // =============================================================
 // 🧱 A4.1 — Handler principal do webhook META (POST)
 // =============================================================
+async function handleMediaEnvelope(env, waId, msg, type) {
+  const mediaPayload = {
+    type,
+    caption: msg?.caption || msg?.[type]?.caption || null,
+    [type]: msg?.[type] || null
+  };
+
+  let st = await getState(env, waId);
+  if (!st) {
+    st = {
+      wa_id: waId,
+      fase_conversa: "inicio",
+      funil_status: null,
+      nome: null
+    };
+    await upsertState(env, waId, {
+      fase_conversa: "inicio",
+      funil_status: null,
+      nome: null
+    });
+  }
+
+  await upsertState(env, waId, { _incoming_media: mediaPayload });
+  st = { ...st, _incoming_media: mediaPayload };
+  await runFunnel(env, st, mediaPayload.caption || "");
+
+  return new Response(JSON.stringify({
+    ok: true,
+    reason: "media_envelope_ok",
+    type
+  }), {
+    status: 200,
+    headers: {
+      "content-type": "application/json"
+    }
+  });
+}
+
 async function handleMetaWebhook(request, env, ctx) {
 
   console.log("DEBUG-1: ENTROU NO handleMetaWebhook");
@@ -3739,7 +3787,13 @@ try {
 // ============================================================
 // 🔒 HARD FILTER – Só filtra quando realmente existe msg
 // ============================================================
-if (msg && type !== "text" && type !== "interactive") {
+const isSupportedMediaType =
+  type === "image" ||
+  type === "audio" ||
+  type === "video" ||
+  type === "document";
+
+if (msg && type !== "text" && type !== "interactive" && !isSupportedMediaType) {
   await telemetry(env, {
     wa_id: waId,
     event: "ignored_non_text_payload",
@@ -3839,12 +3893,7 @@ let userText = null;
         interactive.list_reply?.id ||
         "";
     }
-  } else if (
-    type === "image" ||
-    type === "audio" ||
-    type === "video" ||
-    type === "document"
-  ) {
+  } else if (isSupportedMediaType) {
     // TELEMETRIA COMPLETA DE MÍDIA
     await funnelTelemetry(env, {
       wa_id: waId,

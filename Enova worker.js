@@ -635,11 +635,24 @@ function isYes(text) {
     "vamo",
     "vamos",
     "bora",
+    "declaro sim",
+    "sim declaro",
+    "eu declaro",
+    "faco imposto",
+    "faço imposto",
+    "declaro imposto",
+    "tenho imposto de renda",
+    "tenho ir",
+    "possuo ir"
   ];
 
   if (exact.has(nt)) return true;
 
-  return phrases.some((term) => nt.includes(term));
+  if (phrases.some((term) => nt.includes(normalizeText(term)))) return true;
+
+  if (/\bdeclaro\b/.test(nt) && !/\bnao declaro\b/.test(nt)) return true;
+
+  return false;
 }
 
 function isNo(text) {
@@ -649,18 +662,30 @@ function isNo(text) {
   // respostas curtas: só EXATO
   const exact = new Set(["nao", "n", "nn", "negativo"]);
 
-  // frases: pode usar includes (com espaço, pra não pegar "no cpf" como "não")
+  // frases: pode usar includes
   const phrases = [
     "nunca",
     "jamais",
     "ainda nao",
     "agora nao",
-    "talvez depois"
+    "talvez depois",
+    "nao declaro",
+    "não declaro",
+    "eu nao declaro",
+    "eu não declaro",
+    "nao faco imposto",
+    "não faço imposto",
+    "nao tenho imposto de renda",
+    "não tenho imposto de renda",
+    "sem imposto",
+    "nunca declarei"
   ];
 
   if (exact.has(nt)) return true;
 
-  return phrases.some((term) => nt.includes(term));
+  if (phrases.some((term) => nt.includes(normalizeText(term)))) return true;
+
+  return false;
 }
 
 function parseMoneyBR(text) {

@@ -1593,6 +1593,16 @@ async function resetTotal(env, wa_id) {
     docs_status_completo: null,
     docs_status_parcial: null,
     docs_status_texto: null,
+    canal_docs_status: null,
+    canal_docs_escolhido: null,
+    canal_docs_recusa_whatsapp: null,
+    canal_docs_motivo_recusa: null,
+    canal_docs_agendamento_pendente: null,
+    canal_docs_opcoes_liberadas_json: null,
+    envio_docs_status: null,
+    envio_docs_total_recebidos: null,
+    envio_docs_total_pendentes: null,
+    envio_docs_historico_json: null,
 
     processo_pre_analise: null,
     processo_pre_analise_status: null,
@@ -1719,6 +1729,16 @@ function createSimulationState(wa_id, startStage) {
     docs_status_completo: null,
     docs_status_parcial: null,
     docs_status_texto: null,
+    canal_docs_status: null,
+    canal_docs_escolhido: null,
+    canal_docs_recusa_whatsapp: null,
+    canal_docs_motivo_recusa: null,
+    canal_docs_agendamento_pendente: null,
+    canal_docs_opcoes_liberadas_json: null,
+    envio_docs_status: null,
+    envio_docs_total_recebidos: null,
+    envio_docs_total_pendentes: null,
+    envio_docs_historico_json: null,
 
     processo_pre_analise: null,
     processo_pre_analise_status: null,
@@ -3032,6 +3052,16 @@ if (isAdminProdPath) {
       const forcedStage = String(payload?.stage || "").trim();
       const text = String(payload?.text || "");
       const stOverrides = payload?.st_overrides && typeof payload.st_overrides === "object" ? payload.st_overrides : {};
+      const incomingMedia =
+        payload?._incoming_media ||
+        payload?.incoming_media ||
+        payload?.media ||
+        null;
+      const normalizedOverrides = { ...stOverrides };
+      normalizedOverrides._incoming_media =
+        normalizedOverrides._incoming_media ||
+        stOverrides?.incoming_media ||
+        incomingMedia;
       const dryRun = payload?.dry_run !== false;
       const maxSteps = Math.max(1, Math.min(3, Number(payload?.max_steps) || 1));
 
@@ -3055,7 +3085,7 @@ if (isAdminProdPath) {
       });
 
       const current = (await getState(env, wa_id)) || { wa_id, fase_conversa: forcedStage };
-      const seeded = { ...current, ...stOverrides, wa_id, fase_conversa: forcedStage };
+      const seeded = { ...current, ...normalizedOverrides, wa_id, fase_conversa: forcedStage };
       const previousCtx = env.__enovaSimulationCtx;
       env.__enovaSimulationCtx = {
         active: true,
@@ -3407,6 +3437,44 @@ async function runColdFollowupBatch(env, ctx) {
 // =============================================================
 // 🧱 A4.1 — Handler principal do webhook META (POST)
 // =============================================================
+async function handleMediaEnvelope(env, waId, msg, type) {
+  const mediaPayload = {
+    type,
+    caption: msg?.caption || msg?.[type]?.caption || null,
+    [type]: msg?.[type] || null
+  };
+
+  let st = await getState(env, waId);
+  if (!st) {
+    st = {
+      wa_id: waId,
+      fase_conversa: "inicio",
+      funil_status: null,
+      nome: null
+    };
+    await upsertState(env, waId, {
+      fase_conversa: "inicio",
+      funil_status: null,
+      nome: null
+    });
+  }
+
+  await upsertState(env, waId, { _incoming_media: mediaPayload });
+  st = { ...st, _incoming_media: mediaPayload };
+  await runFunnel(env, st, mediaPayload.caption || "");
+
+  return new Response(JSON.stringify({
+    ok: true,
+    reason: "media_envelope_ok",
+    type
+  }), {
+    status: 200,
+    headers: {
+      "content-type": "application/json"
+    }
+  });
+}
+
 async function handleMetaWebhook(request, env, ctx) {
 
   console.log("DEBUG-1: ENTROU NO handleMetaWebhook");
@@ -3719,7 +3787,13 @@ try {
 // ============================================================
 // 🔒 HARD FILTER – Só filtra quando realmente existe msg
 // ============================================================
-if (msg && type !== "text" && type !== "interactive") {
+const isSupportedMediaType =
+  type === "image" ||
+  type === "audio" ||
+  type === "video" ||
+  type === "document";
+
+if (msg && type !== "text" && type !== "interactive" && !isSupportedMediaType) {
   await telemetry(env, {
     wa_id: waId,
     event: "ignored_non_text_payload",
@@ -3819,12 +3893,7 @@ let userText = null;
         interactive.list_reply?.id ||
         "";
     }
-  } else if (
-    type === "image" ||
-    type === "audio" ||
-    type === "video" ||
-    type === "document"
-  ) {
+  } else if (isSupportedMediaType) {
     // TELEMETRIA COMPLETA DE MÍDIA
     await funnelTelemetry(env, {
       wa_id: waId,
@@ -5432,7 +5501,10 @@ function buildDocumentDossierFromState(st) {
     dossie_observacoes_correspondente_json: observacoesCorrespondente,
     envio_docs_itens_json: envioDocsItens,
     envio_docs_total_itens: envioDocsItens.length,
-    envio_docs_total_pendentes: envioDocsItens.filter((i) => i.status === "pendente").length
+    envio_docs_total_recebidos: 0,
+    envio_docs_total_pendentes: envioDocsItens.filter((i) => i.status === "pendente" && i.bucket !== "recomendado").length,
+    envio_docs_status: "aguardando_envio",
+    envio_docs_historico_json: []
   };
 }
 
@@ -5616,6 +5688,134 @@ function mensagemPendenciasHumanizada(list) {
   return linhas;
 }
 
+function envioDocsResumoPendencias(itens = []) {
+  return itens
+    .filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item))
+    .slice(0, 4)
+    .map((item) => `• ${prettyDocLabel(item.tipo)} (${item.participante === "p1" ? "titular" : "composição"})`);
+}
+
+function isEnvioDocsBlockingItem(item) {
+  if (!item || typeof item !== "object") return false;
+  if (item.bucket === "obrigatorio" || item.bucket === "condicional") return true;
+  if (item.bucket === "recomendado") return false;
+  if (item.obrigatorio === true) return true;
+  if (item.recomendacao) return false;
+  if (item.regra) return true;
+  // Fallback seguro: item sem metadado explícito entra como bloqueante para não liberar "completo" por engano.
+  return true;
+}
+
+function isEnvioDocsItemReceived(item) {
+  const rawStatus = (item?.status || "").trim().toLowerCase();
+  return (
+    rawStatus === "recebido_pendente_validacao" ||
+    rawStatus === "recebido pendente validacao" ||
+    rawStatus === "recebido" ||
+    rawStatus === "validado"
+  );
+}
+
+function recomputeEnvioDocsProgress(itens = []) {
+  const itensBloqueantes = itens.filter((item) => isEnvioDocsBlockingItem(item));
+  const totalRecebidos = itensBloqueantes.filter((item) => isEnvioDocsItemReceived(item)).length;
+  const totalPendentes = Math.max(0, itensBloqueantes.length - totalRecebidos);
+  const status =
+    totalRecebidos === 0
+      ? "aguardando_envio"
+      : totalPendentes === 0
+        ? "completo"
+        : "parcial";
+
+  return {
+    envio_docs_total_recebidos: totalRecebidos,
+    envio_docs_total_pendentes: totalPendentes,
+    envio_docs_status: status
+  };
+}
+
+function guessEnvioDocsTipoFromText(texto) {
+  const t = normalizeText(texto || "");
+  if (!t) return null;
+  if (/\b(rg|identidade|cnh)\b/.test(t)) return "rg";
+  if (/\bcpf\b/.test(t)) return "cpf";
+  if (/\b(comprovante.*resid|conta de (luz|agua|água|internet))\b/.test(t)) return "comprovante_residencia";
+  if (/\bcomprovante.*renda\b/.test(t)) return "comprovante_renda";
+  if (/\bholerite\b/.test(t)) return "holerite_ultimo";
+  if (/\bextrat/.test(t)) return "extratos_bancarios_3_meses";
+  if (/\bir\b/.test(t)) return "declaracao_ir";
+  if (/\bcertidao|certidão\b/.test(t) && /\bnasc/.test(t)) return "certidao_nascimento_dependente";
+  if (/\bcertidao|certidão\b/.test(t) && /\bcasament/.test(t)) return "certidao_casamento";
+  if (/\bctps|carteira de trabalho\b/.test(t)) return "ctps_completa";
+  return null;
+}
+
+function envioDocsParticipanteLabel(participante) {
+  if (participante === "p1") return "titular";
+  if (participante === "p2") return "parceiro(a)";
+  if (participante === "p3") return "familiar";
+  return "composição";
+}
+
+function selectEnvioDocsItemForUpload(st, hintText = "") {
+  const itens = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
+  const pendentes = itens.filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item));
+  if (!pendentes.length) return null;
+
+  const hintedTipo = guessEnvioDocsTipoFromText(hintText);
+  const hintedParticipante = /\b(parceir|espos|marid|conjuge|cônjuge|p2)\b/.test(normalizeText(hintText || "")) ? "p2" : null;
+
+  if (hintedTipo && hintedParticipante) {
+    const match = pendentes.find((item) => item.tipo === hintedTipo && item.participante === hintedParticipante);
+    if (match) return match;
+  }
+
+  if (hintedTipo) {
+    const match = pendentes.find((item) => item.tipo === hintedTipo);
+    if (match) return match;
+  }
+
+  return pendentes[0];
+}
+
+function isEnvioDocsTextualUploadSignal(texto) {
+  const t = normalizeText(texto || "");
+  if (!t) return false;
+  if (!/\b(enviei|envio|segue|mandei|acabei de mandar|anexei|subi)\b/.test(t)) return false;
+  return /\b(doc|documento|arquivo|anexo|foto|comprovante|rg|cpf|holerite|ir|extrato)\b/.test(t);
+}
+
+function normalizeEnvioDocsIncomingMedia(msg) {
+  if (!msg || typeof msg !== "object") return msg;
+  if (msg.image || msg.audio || msg.document || msg.video) return msg;
+
+  const directType = String(msg.type || "").toLowerCase();
+  if (["image", "audio", "document", "video"].includes(directType) && msg.id) {
+    return {
+      ...msg,
+      [directType]: {
+        ...msg,
+        caption: msg.caption || null
+      }
+    };
+  }
+
+  const nested = msg.media && typeof msg.media === "object" ? msg.media : null;
+  const nestedType = String(nested?.type || "").toLowerCase();
+  if (nested && ["image", "audio", "document", "video"].includes(nestedType) && nested.id) {
+    return {
+      ...msg,
+      type: nestedType,
+      [nestedType]: {
+        ...nested,
+        caption: msg.caption || nested.caption || null
+      }
+    };
+  }
+
+  return msg;
+}
+
 // ======================================================================
 // 🧱 BLOCO 19 — ROTEADOR DE MÍDIA PARA DOCUMENTOS (FINAL MASTER)
 // ======================================================================
@@ -5623,21 +5823,23 @@ function mensagemPendenciasHumanizada(list) {
 /**
  * handleDocumentUpload(env, st, msg)
  *
- * - Detecta tipo de mídia recebida (image, audio, document, etc.)
- * - Baixa arquivo do WhatsApp
- * - Processa via OCR / Whisper (processIncomingDocumentV2)
- * - Atualiza pendências usando updateDocsStatusV2
- * - Retorna mensagem humanizada e segue no fluxo envio_docs
+ * - Detecta envio de arquivo/mídia no contexto de docs
+ * - Associa ao item mais provável do checklist (sem validação profunda)
+ * - Marca como recebido_pendente_validacao
+ * - Recalcula status geral da pasta (aguardando_envio/parcial/completo)
+ * - Retorna mensagem humanizada mantendo etapa envio_docs
  */
 async function handleDocumentUpload(env, st, msg) {
   try {
+    const normalizedMsg = normalizeEnvioDocsIncomingMedia(msg);
     // ==========================================================
     // 1 — DETECTAR TIPO DE ARQUIVO VINDO DO WHATSAPP
     // ==========================================================
     const mediaObject =
-      msg.image || msg.audio || msg.document || msg.video || null;
+      normalizedMsg?.image || normalizedMsg?.audio || normalizedMsg?.document || normalizedMsg?.video || null;
+    const isTextSignal = normalizedMsg?.text_signal === true;
 
-    if (!mediaObject) {
+    if (!mediaObject && !isTextSignal) {
       return {
         ok: false,
         message: [
@@ -5648,72 +5850,68 @@ async function handleDocumentUpload(env, st, msg) {
       };
     }
 
-    const mediaId = mediaObject.id;
-    const fileType = msg.type || "desconhecido";
+    const hintText =
+      normalizedMsg?.document?.caption ||
+      normalizedMsg?.image?.caption ||
+      normalizedMsg?.caption ||
+      st.last_user_text ||
+      "";
+    const itens = Array.isArray(st.envio_docs_itens_json) ? [...st.envio_docs_itens_json] : [];
+    const target = selectEnvioDocsItemForUpload(st, hintText);
 
-    // ==========================================================
-    // 2 — BAIXAR MÍDIA DO WHATSAPP
-    // ==========================================================
-    const mediaUrl = `https://graph.facebook.com/v20.0/${mediaId}`;
-    const mediaResp = await fetch(mediaUrl, {
-      headers: { Authorization: `Bearer ${env.WHATS_TOKEN}` }
-    });
+    if (target) {
+      const idx = itens.findIndex((item) =>
+        item.tipo === target.tipo &&
+        item.participante === target.participante &&
+        !isEnvioDocsItemReceived(item)
+      );
+      if (idx >= 0) {
+        itens[idx] = {
+          ...itens[idx],
+          status: "recebido_pendente_validacao",
+          recebido_em: new Date().toISOString()
+        };
+      }
+    }
 
-    const arrayBuffer = await mediaResp.arrayBuffer();
-    const contentType = mediaResp.headers.get("Content-Type") || "";
-
-    const file = {
-      buffer: arrayBuffer,
-      url: mediaUrl,
-      contentType
+    const progress = recomputeEnvioDocsProgress(itens);
+    const historicoBase = Array.isArray(st.envio_docs_historico_json) ? st.envio_docs_historico_json : [];
+    const patch = {
+      envio_docs_itens_json: itens,
+      ...progress,
+      envio_docs_historico_json: [
+        ...historicoBase.slice(-19),
+        {
+          at: new Date().toISOString(),
+          origem: "upload",
+          canal_origem: st.canal_docs_escolhido || "whatsapp",
+          associado: target ? { tipo: target.tipo, participante: target.participante } : null
+        }
+      ]
     };
+    await upsertState(env, st.wa_id, patch);
+    Object.assign(st, patch);
 
-    // ==========================================================
-    // 3 — PROCESSAR DOCUMENTO (recai no Bloco 13 / V2)
-    // ==========================================================
-    const result = await processIncomingDocumentV2(env, st, file);
+    const pendenciasResumo = envioDocsResumoPendencias(itens);
+    const linhas = ["Recebi seu arquivo e já registrei na sua pasta ✅"];
 
-    if (!result.ok) {
-      return {
-        ok: false,
-        message: result.message,
-        keepStage: "envio_docs"
-      };
+    if (target) {
+      linhas.push(`Vinculei como **${prettyDocLabel(target.tipo)}** (${envioDocsParticipanteLabel(target.participante)}), com status *recebido pendente de validação*.`);
+    } else {
+      linhas.push("Registrei o recebimento e sigo com sua pasta; a validação detalhada acontece na próxima etapa interna.");
     }
 
-    // ==========================================================
-    // 4 — ATUALIZAR PENDÊNCIAS (Bloco 18)
-    // ==========================================================
-    const status = await updateDocsStatusV2(env, st);
-
-    // ==========================================================
-    // 5 — MENSAGEM DE CONFIRMAÇÃO
-    // ==========================================================
-    const linhas = [
-      "Documento recebido e registrado 👌",
-      `Tipo: **${labelTipoDocumento(result.docType)}**`,
-    ];
-
-    // Se ainda há pendências
-    if (!status.completo) {
-      linhas.push("");
-      linhas.push(...mensagemPendenciasHumanizada(status.pendentes));
-      return {
-        ok: true,
-        message: linhas,
-        keepStage: "envio_docs"
-      };
+    if (progress.envio_docs_status === "completo") {
+      linhas.push("Perfeito — sua pasta documental ficou **completa** para avançar à validação interna.");
+    } else {
+      linhas.push("Pode me enviar os próximos documentos para concluir sua pasta.");
+      if (pendenciasResumo.length) linhas.push("", ...pendenciasResumo);
     }
-
-    // Se completou tudo
-    linhas.push("");
-    linhas.push("🚀 Perfeito! Todos documentos recebidos.");
-    linhas.push("Agora posso avançar para a próxima etapa.");
 
     return {
       ok: true,
       message: linhas,
-      nextStage: "agendamento_visita"
+      keepStage: "envio_docs"
     };
 
   } catch (err) {
@@ -12943,12 +13141,8 @@ if (modoFamiliar) {
     return step(env, st,
       [
         "Perfeito! 👌",
-        "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
-        "",
-        "📌 Você prefere:",
-        "1) Enviar por aqui no WhatsApp",
-        "2) Enviar pelo site",
-        "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+        "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+        "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
       ],
       "envio_docs"
     );
@@ -13072,12 +13266,8 @@ if (st.p3_required && st.p3_done !== true) {
 return step(env, st,
   [
   "Perfeito! 👌",
-  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
-  "",
-  "📌 Você prefere:",
-  "1) Enviar por aqui no WhatsApp",
-  "2) Enviar pelo site",
-  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+  "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+  "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
 ],
   "envio_docs"
 );
@@ -13121,12 +13311,8 @@ return step(env, st,
 return step(env, st,
   [
   "Perfeito! 👌",
-  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
-  "",
-  "📌 Você prefere:",
-  "1) Enviar por aqui no WhatsApp",
-  "2) Enviar pelo site",
-  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+  "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+  "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
 ],
   "envio_docs"
 );
@@ -13155,12 +13341,8 @@ if (incerto) {
     return step(env, st,
       [
   "Perfeito! 👌",
-  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
-  "",
-  "📌 Você prefere:",
-  "1) Enviar por aqui no WhatsApp",
-  "2) Enviar pelo site",
-  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+  "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+  "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
 ],
       "envio_docs"
     );
@@ -13194,12 +13376,8 @@ if (incerto) {
   return step(env, st,
     [
   "Perfeito! 👌",
-  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
-  "",
-  "📌 Você prefere:",
-  "1) Enviar por aqui no WhatsApp",
-  "2) Enviar pelo site",
-  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+  "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+  "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
 ],
     "envio_docs"
   );
@@ -13394,12 +13572,8 @@ if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restric
     return step(env, st,
   [
   "Perfeito! 👌",
-  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
-  "",
-  "📌 Você prefere:",
-  "1) Enviar por aqui no WhatsApp",
-  "2) Enviar pelo site",
-  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+  "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+  "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
 ],
   "envio_docs"
 );
@@ -13444,12 +13618,8 @@ if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restric
     return step(env, st,
   [
   "Perfeito! 👌",
-  "Fechado. Vou te passar a lista de *documentos* pra gente dar sequência:",
-  "",
-  "📌 Você prefere:",
-  "1) Enviar por aqui no WhatsApp",
-  "2) Enviar pelo site",
-  "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+  "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+  "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
 ],
   "envio_docs"
 );
@@ -13659,12 +13829,8 @@ case "regularizacao_restricao": {
       return step(env, st,
         [
           "Ótimo! 👏",
-          "Fechado. Vou te passar a lista de **documentos** pra darmos sequência.",
-          "",
-          "📌 Você prefere:",
-          "1) Enviar por aqui no WhatsApp",
-          "2) Enviar pelo site",
-          "3) Agendar uma visita presencial (decorado + simulação no plantão)"
+          "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+          "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
         ],
         "envio_docs"
       );
@@ -13817,6 +13983,22 @@ case "regularizacao_restricao": {
 // 🧩 C36 — ENVIO DE DOCUMENTOS (NOVA VERSÃO DEFINITIVA)
 // =========================================================
 case "envio_docs": {
+  function parseEnvioDocsCanal(textoNormalizado) {
+    const t = String(textoNormalizado || "");
+    const pediuVisita = /\b(prefiro presencial|quero ir no plantao|plantao|presencial|escritorio|decorado|levar pessoalmente|posso levar pessoalmente|visita)\b/.test(t);
+    const objecaoOnlineForte = /\b(nao quero enviar online|nao envio online|nao gosto de enviar online)\b/.test(t);
+    const recusaWhatsapp = /\b(nao quero mandar documento por aqui|nao quero mandar documentos por aqui|nao quero enviar por aqui|nao quero mandar por whatsapp|nao quero enviar por whatsapp|nao quero mandar documento no whatsapp|sem whatsapp)\b/.test(t);
+    const pediuSite =
+      /\bprefiro enviar pelo site\b/.test(t) ||
+      (/\b(site|portal|plataforma|link)\b/.test(t) && /\b(enviar|envio|mandar|subir|anexar|prefiro)\b/.test(t));
+
+    return {
+      pediuVisita,
+      objecaoOnlineForte,
+      recusaWhatsapp,
+      pediuSite
+    };
+  }
 
   if (st.dossie_status !== "pronto") {
     try {
@@ -13848,6 +14030,31 @@ case "envio_docs": {
       incoming_media: !!st._incoming_media
     }
   });
+
+  if (!st.canal_docs_status) {
+    const seedCanal = {
+      canal_docs_status: "pendente",
+      canal_docs_opcoes_liberadas_json: {
+        principal: "whatsapp",
+        alternativas_digitais: ["site"],
+        visita: "reativa"
+      }
+    };
+    await upsertState(env, st.wa_id, seedCanal);
+    Object.assign(st, seedCanal);
+  }
+
+  if (Array.isArray(st.envio_docs_itens_json)) {
+    const progressSeed = recomputeEnvioDocsProgress(st.envio_docs_itens_json);
+    const progressChanged =
+      st.envio_docs_status !== progressSeed.envio_docs_status ||
+      st.envio_docs_total_pendentes !== progressSeed.envio_docs_total_pendentes ||
+      st.envio_docs_total_recebidos !== progressSeed.envio_docs_total_recebidos;
+    if (progressChanged) {
+      await upsertState(env, st.wa_id, progressSeed);
+      Object.assign(st, progressSeed);
+    }
+  }
 
   // =====================================================
   // 1 — SE CHEGOU ALGUMA MÍDIA → handleDocumentUpload
@@ -13898,15 +14105,89 @@ case "envio_docs": {
   // =====================================================
   // 2 — TEXTO DO CLIENTE (quando não enviou mídia)
   // =====================================================
-  const pronto = isYes(t) || /(sim|ok|pode mandar|manda|pode enviar|vamos|blz|beleza)/i.test(t);
+  const canal = parseEnvioDocsCanal(normalizeText(t));
+  const pronto = isYes(t) || /(sim|ok|pode mandar|manda|pode enviar|pode ser|por aqui|vamos|blz|beleza)/i.test(t);
   const negar  = isNo(t) || /(nao|não agora|depois|mais tarde|agora nao)/i.test(t);
+
+  if (canal.pediuVisita || canal.objecaoOnlineForte) {
+    const patchCanal = {
+      canal_docs_status: "definido",
+      canal_docs_escolhido: "visita",
+      canal_docs_recusa_whatsapp: canal.recusaWhatsapp || st.canal_docs_recusa_whatsapp === true,
+      canal_docs_motivo_recusa: canal.recusaWhatsapp ? "nao_quer_enviar_por_whatsapp" : st.canal_docs_motivo_recusa || null,
+      canal_docs_agendamento_pendente: true,
+      canal_docs_opcoes_liberadas_json: {
+        principal: "whatsapp",
+        alternativas_digitais: ["site"],
+        visita: "solicitada"
+      }
+    };
+    await upsertState(env, st.wa_id, patchCanal);
+    Object.assign(st, patchCanal);
+
+    return step(env, st, [
+      "Perfeito, seguimos com atendimento presencial ✅",
+      "Vou sinalizar seu agendamento de visita e te passo os próximos horários.",
+      "Se preferir adiantar, também posso liberar o envio online pelo site."
+    ], "envio_docs");
+  }
+
+  if (canal.pediuSite || canal.recusaWhatsapp) {
+    const patchCanal = {
+      canal_docs_status: "definido",
+      canal_docs_escolhido: "site",
+      canal_docs_recusa_whatsapp: canal.recusaWhatsapp,
+      canal_docs_motivo_recusa: canal.recusaWhatsapp ? "nao_quer_enviar_por_whatsapp" : null,
+      canal_docs_agendamento_pendente: false,
+      canal_docs_opcoes_liberadas_json: {
+        principal: "whatsapp",
+        alternativas_digitais: ["site"],
+        visita: canal.recusaWhatsapp ? "contingencia" : "reativa"
+      }
+    };
+    await upsertState(env, st.wa_id, patchCanal);
+    Object.assign(st, patchCanal);
+
+    return step(env, st, canal.recusaWhatsapp ? [
+      "Sem problemas, não precisa enviar por WhatsApp.",
+      "Vamos manter online: te passo o canal de envio pelo site para subir os documentos com segurança.",
+      "Se ainda assim preferir, eu ativo a rota presencial como contingência."
+    ] : [
+      "Perfeito, seguimos pelo site ✅",
+      "Te passo o canal online para envio dos documentos do seu caso.",
+      "Assim que anexar tudo, já continuo sua pasta por aqui."
+    ], "envio_docs");
+  }
+
+  if (isEnvioDocsTextualUploadSignal(t) && st.docs_lista_enviada) {
+    const resposta = await handleDocumentUpload(env, st, {
+      type: "text_signal",
+      text_signal: true,
+      caption: t
+    });
+    return step(env, st, resposta.message, resposta.keepStage || "envio_docs");
+  }
 
   // =====================================================
   // CLIENTE ACEITOU RECEBER A LISTA
   // =====================================================
   if (pronto && !st.docs_lista_enviada) {
 
-    await upsertState(env, st.wa_id, { docs_lista_enviada: true });
+    const patchCanal = {
+      docs_lista_enviada: true,
+      canal_docs_status: "definido",
+      canal_docs_escolhido: "whatsapp",
+      canal_docs_recusa_whatsapp: false,
+      canal_docs_motivo_recusa: null,
+      canal_docs_agendamento_pendente: false,
+      canal_docs_opcoes_liberadas_json: {
+        principal: "whatsapp",
+        alternativas_digitais: ["site"],
+        visita: "reativa"
+      }
+    };
+    await upsertState(env, st.wa_id, patchCanal);
+    Object.assign(st, patchCanal);
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -13919,6 +14200,7 @@ case "envio_docs": {
 
     return step(env, st, [
       "Show! 👏",
+      "Fechamos por envio online aqui no WhatsApp.",
       "A lista é bem simples, olha só:",
       "",
       "📄 **Documentos do titular:**",
@@ -13970,9 +14252,9 @@ case "envio_docs": {
     });
 
     return step(env, st, [
-      "Perfeito! 👌",
-      "Agora preciso ver sua documentação pra montar sua análise.",
-      "Quer que eu te envie a **lista dos documentos necessários**?"
+      "Perfeito! Seu perfil pode seguir ✅",
+      "Agora vou te passar a documentação certa do seu caso para envio online por aqui.",
+      "Me confirma com *sim* que já libero a lista objetiva dos documentos."
     ], "envio_docs");
   }
 
@@ -13988,8 +14270,8 @@ case "envio_docs": {
   });
 
   return step(env, st, [
-    "Pode me enviar os documentos por aqui mesmo 😊",
-    "Foto, PDF ou áudio que explique algo… tudo bem!"
+    "Pode me enviar os documentos por aqui mesmo para seguir online 😊",
+    "Se preferir envio digital fora do WhatsApp, eu te direciono pelo site."
   ], "envio_docs");
 }
 

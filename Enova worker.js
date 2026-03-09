@@ -791,63 +791,6 @@ const COGNITIVE_PLAYBOOK_V1 = {
   ]
 };
 
-// =============================================================
-// 🧠 CONV_MEM_V1 — Memória de Conversa Útil
-// Salva sinais práticos de contexto sem alterar nenhum gate ou fluxo.
-// Chamado no início de cada turno como efeito colateral puro.
-// =============================================================
-
-const CONV_MEM_PATTERNS = {
-  mem_mencionou_parceiro:   /(parceiro|parceira|namorad[oa]|esposo|esposa|marido|mulher|c[oô]njuge)/i,
-  mem_mora_com_alguem:      /(moro com|moramos|vivemos juntos|divid[eo] (casa|apartamento)|compartilho)/i,
-  mem_mencionou_regiao:     /(zona\s*(norte|sul|leste|oeste|centro)|bairro|região|regiao|quero (em|na|no)\s+\w)/i,
-  mem_prefere_presencial:   /(presencial|ir pessoalmente|quero ir|comparecer|prefiro ir|escritório)/i,
-  mem_medo_docs:            /(medo|receio|vergonha|complicad|trabalhoso|papelad|burocraci)/i,
-  mem_mencionou_restricao:  /(restrição|restri[çc][ãa]o|serasa|spc|cpf\s*(sujo|negativad)|nome\s*(sujo|negativad)|negativad)/i,
-  mem_cogita_declarar_ir:   /(penso em declarar|vou declarar|quer declarar|cogit[ao] declarar|quero declarar)/i,
-  mem_quer_sozinho:         /(s[oó]\s*eu|somente eu|apenas eu|quero (fazer|seguir)\s+sozinho|sozinha mesmo)/i,
-  mem_cogita_composicao:    /(somar renda|compor renda|composição de renda|comprar junto com|financiar junto)/i
-};
-
-function extractConvMemHints(text) {
-  const hints = {};
-  const t = String(text || "");
-  for (const [key, pattern] of Object.entries(CONV_MEM_PATTERNS)) {
-    if (pattern.test(t)) hints[key] = true;
-  }
-  return hints;
-}
-
-async function saveConvMemHints(env, st, text) {
-  const hints = extractConvMemHints(text);
-  if (Object.keys(hints).length === 0) return;
-  const toSave = {};
-  for (const [k, v] of Object.entries(hints)) {
-    if (!st[k]) toSave[k] = v;
-  }
-  if (Object.keys(toSave).length === 0) return;
-  try {
-    await upsertState(env, st.wa_id, toSave);
-    Object.assign(st, toSave);
-  } catch (e) {
-    console.error("CONV_MEM_V1_SAVE_ERROR:", e);
-  }
-}
-
-function getConvMemSnapshot(st) {
-  return {
-    mem_mencionou_parceiro:  Boolean(st.mem_mencionou_parceiro),
-    mem_mora_com_alguem:     Boolean(st.mem_mora_com_alguem),
-    mem_mencionou_regiao:    Boolean(st.mem_mencionou_regiao),
-    mem_prefere_presencial:  Boolean(st.mem_prefere_presencial),
-    mem_medo_docs:           Boolean(st.mem_medo_docs),
-    mem_mencionou_restricao: Boolean(st.mem_mencionou_restricao),
-    mem_cogita_declarar_ir:  Boolean(st.mem_cogita_declarar_ir),
-    mem_quer_sozinho:        Boolean(st.mem_quer_sozinho),
-    mem_cogita_composicao:   Boolean(st.mem_cogita_composicao)
-  };
-}
-
 function getOpenAIConfig(env) {
   const envMode = String(env.ENV_MODE || env.ENOVA_ENV || "").toLowerCase();
   const apiKey = envMode === "prod" ? env.OPENAI_API_KEY_PROD : env.OPENAI_API_KEY_TEST;
@@ -1035,8 +978,7 @@ async function cognitiveAssistV1(env, { stage, text, stateSnapshot }) {
       somar_renda: stateSnapshot?.somar_renda ?? null,
       renda: stateSnapshot?.renda || null,
       renda_parceiro: stateSnapshot?.renda_parceiro || null,
-      regime: stateSnapshot?.regime || null,
-      ...getConvMemSnapshot(stateSnapshot || {})
+      regime: stateSnapshot?.regime || null
     }
   });
 
@@ -5965,16 +5907,6 @@ async function runFunnel(env, st, userText) {
   let t = (userText || "").trim().toLowerCase();
 
   // ============================================================
-  // 🧠 CONV_MEM_V1 — Salva sinais úteis de contexto (efeito colateral puro)
-  // Não altera nenhum gate, nextStage ou regra de negócio.
-  // ============================================================
-  try {
-    await saveConvMemHints(env, st, userText);
-  } catch (e) {
-    console.error("CONV_MEM_V1_RUNFUNNEL_ERROR:", e);
-  }
-
-  // ============================================================
   // 🧷 OFFTRACK DETERMINÍSTICO (YES/NO stages)
   // Se a fase atual espera SIM/NÃO e o texto não é SIM/NÃO → OFFTRACK (sem IA)
   // ============================================================
@@ -5995,9 +5927,10 @@ async function runFunnel(env, st, userText) {
     const ehSim = isYes(txt);
     const ehNao = isNo(txt);
     const ehTalvez = /\b(talvez|nao\s+sei|não\s+sei|depende|acho\s+que)\b/i.test(txt);
+    const ehNaoExplicito = /^n[aã]o\b/i.test(txt);
 
     // não é resposta direta esperada → trava e pede responder a pergunta anterior
-    if (!ehSim && !ehNao && !ehTalvez) {
+    if (!ehSim && !ehNao && !ehTalvez && !ehNaoExplicito) {
       return step(
         env,
         st,
@@ -6807,7 +6740,7 @@ case "inicio_nome": {
   const partes = rawNome.split(/\s+/).filter(p => p.length >= 2);
 
   // Se tiver muita coisa, provavelmente é frase e não nome
-  if (partes.length < 2 || partes.length > 6) {
+  if (partes.length < 1 || partes.length > 6) {
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -6992,7 +6925,7 @@ case "inicio_rnm": {
   // -------------------------------------------
   // ✅ 2) POSSUI RNM → perguntar tipo de validade
   // -------------------------------------------
-  if (isYes(nt) || /^sim$/i.test(nt)) {
+  if (isYes(nt) || /^sim$/i.test(nt) || /\bsim\b/i.test(nt) || /\b(tenho|possuo|tenho sim|possuo sim)\b/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       rnm_status: "possui",
@@ -7076,7 +7009,7 @@ case "inicio_rnm_validade": {
   // -------------------------------------------
   // ✅ RNM INDETERMINADO → CONTINUA O FLUXO
   // -------------------------------------------
-  if (/^indeterminado$/i.test(nt)) {
+  if (/\bindeterminado\b/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       rnm_validade: "indeterminado",
@@ -7820,7 +7753,8 @@ case "somar_renda_solteiro": {
   /\bso\s+minha\b/i.test(tBase) ||
   /\bs[oó]\s+com\s+a?\s*minha\b/i.test(t) ||
   /\bs[oó]\s+eu\b/i.test(t) ||
-  /\bapenas\s+eu\b/i.test(tBase);
+  /\bapenas\s+eu\b/i.test(tBase) ||
+  isNo(tBase);
   
   const parceiro =
     /quero\s+somar\s+renda\s*$/i.test(tBase) ||

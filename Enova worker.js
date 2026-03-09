@@ -1593,6 +1593,12 @@ async function resetTotal(env, wa_id) {
     docs_status_completo: null,
     docs_status_parcial: null,
     docs_status_texto: null,
+    canal_docs_status: null,
+    canal_docs_escolhido: null,
+    canal_docs_recusa_whatsapp: null,
+    canal_docs_motivo_recusa: null,
+    canal_docs_agendamento_pendente: null,
+    canal_docs_opcoes_liberadas_json: null,
 
     processo_pre_analise: null,
     processo_pre_analise_status: null,
@@ -1719,6 +1725,12 @@ function createSimulationState(wa_id, startStage) {
     docs_status_completo: null,
     docs_status_parcial: null,
     docs_status_texto: null,
+    canal_docs_status: null,
+    canal_docs_escolhido: null,
+    canal_docs_recusa_whatsapp: null,
+    canal_docs_motivo_recusa: null,
+    canal_docs_agendamento_pendente: null,
+    canal_docs_opcoes_liberadas_json: null,
 
     processo_pre_analise: null,
     processo_pre_analise_status: null,
@@ -13813,6 +13825,23 @@ case "regularizacao_restricao": {
   );
 }
 
+function parseEnvioDocsCanal(textoNormalizado) {
+  const t = String(textoNormalizado || "");
+  const pediuVisita = /\b(prefiro presencial|quero ir no plantao|plantao|presencial|escritorio|decorado|levar pessoalmente|posso levar pessoalmente|visita)\b/.test(t);
+  const objecaoOnlineForte = /\b(nao quero enviar online|nao envio online|nao gosto de enviar online)\b/.test(t);
+  const recusaWhatsapp = /\b(nao quero mandar documento por aqui|nao quero mandar documentos por aqui|nao quero enviar por aqui|nao quero mandar por whatsapp|nao quero enviar por whatsapp|nao quero mandar documento no whatsapp|sem whatsapp)\b/.test(t);
+  const pediuSite =
+    /\bprefiro enviar pelo site\b/.test(t) ||
+    (/\b(site|portal|plataforma|link)\b/.test(t) && /\b(enviar|envio|mandar|subir|anexar|prefiro)\b/.test(t));
+
+  return {
+    pediuVisita,
+    objecaoOnlineForte,
+    recusaWhatsapp,
+    pediuSite
+  };
+}
+
 // =========================================================
 // 🧩 C36 — ENVIO DE DOCUMENTOS (NOVA VERSÃO DEFINITIVA)
 // =========================================================
@@ -13848,6 +13877,19 @@ case "envio_docs": {
       incoming_media: !!st._incoming_media
     }
   });
+
+  if (!st.canal_docs_status) {
+    const seedCanal = {
+      canal_docs_status: "pendente",
+      canal_docs_opcoes_liberadas_json: {
+        principal: "whatsapp",
+        alternativas_digitais: ["site"],
+        visita: "reativa"
+      }
+    };
+    await upsertState(env, st.wa_id, seedCanal);
+    Object.assign(st, seedCanal);
+  }
 
   // =====================================================
   // 1 — SE CHEGOU ALGUMA MÍDIA → handleDocumentUpload
@@ -13898,15 +13940,80 @@ case "envio_docs": {
   // =====================================================
   // 2 — TEXTO DO CLIENTE (quando não enviou mídia)
   // =====================================================
-  const pronto = isYes(t) || /(sim|ok|pode mandar|manda|pode enviar|vamos|blz|beleza)/i.test(t);
+  const canal = parseEnvioDocsCanal(normalizeText(t));
+  const pronto = isYes(t) || /(sim|ok|pode mandar|manda|pode enviar|pode ser|por aqui|vamos|blz|beleza)/i.test(t);
   const negar  = isNo(t) || /(nao|não agora|depois|mais tarde|agora nao)/i.test(t);
+
+  if (canal.pediuVisita || canal.objecaoOnlineForte) {
+    const patchCanal = {
+      canal_docs_status: "definido",
+      canal_docs_escolhido: "visita",
+      canal_docs_recusa_whatsapp: canal.recusaWhatsapp || st.canal_docs_recusa_whatsapp === true,
+      canal_docs_motivo_recusa: canal.recusaWhatsapp ? "nao_quer_enviar_por_whatsapp" : st.canal_docs_motivo_recusa || null,
+      canal_docs_agendamento_pendente: true,
+      canal_docs_opcoes_liberadas_json: {
+        principal: "whatsapp",
+        alternativas_digitais: ["site"],
+        visita: "solicitada"
+      }
+    };
+    await upsertState(env, st.wa_id, patchCanal);
+    Object.assign(st, patchCanal);
+
+    return step(env, st, [
+      "Perfeito, seguimos com atendimento presencial ✅",
+      "Vou sinalizar seu agendamento de visita e te passo os próximos horários.",
+      "Se preferir adiantar, também posso liberar o envio online pelo site."
+    ], "envio_docs");
+  }
+
+  if (canal.pediuSite || canal.recusaWhatsapp) {
+    const patchCanal = {
+      canal_docs_status: "definido",
+      canal_docs_escolhido: "site",
+      canal_docs_recusa_whatsapp: canal.recusaWhatsapp,
+      canal_docs_motivo_recusa: canal.recusaWhatsapp ? "nao_quer_enviar_por_whatsapp" : null,
+      canal_docs_agendamento_pendente: false,
+      canal_docs_opcoes_liberadas_json: {
+        principal: "whatsapp",
+        alternativas_digitais: ["site"],
+        visita: canal.recusaWhatsapp ? "contingencia" : "reativa"
+      }
+    };
+    await upsertState(env, st.wa_id, patchCanal);
+    Object.assign(st, patchCanal);
+
+    return step(env, st, canal.recusaWhatsapp ? [
+      "Sem problemas, não precisa enviar por WhatsApp.",
+      "Vamos manter online: te passo o canal de envio pelo site para subir os documentos com segurança.",
+      "Se ainda assim preferir, eu ativo a rota presencial como contingência."
+    ] : [
+      "Perfeito, seguimos pelo site ✅",
+      "Te passo o canal online para envio dos documentos do seu caso.",
+      "Assim que anexar tudo, já continuo sua pasta por aqui."
+    ], "envio_docs");
+  }
 
   // =====================================================
   // CLIENTE ACEITOU RECEBER A LISTA
   // =====================================================
   if (pronto && !st.docs_lista_enviada) {
 
-    await upsertState(env, st.wa_id, { docs_lista_enviada: true });
+    const patchCanal = {
+      docs_lista_enviada: true,
+      canal_docs_status: "definido",
+      canal_docs_escolhido: "whatsapp",
+      canal_docs_recusa_whatsapp: false,
+      canal_docs_motivo_recusa: null,
+      canal_docs_agendamento_pendente: false,
+      canal_docs_opcoes_liberadas_json: {
+        principal: "whatsapp",
+        alternativas_digitais: ["site"],
+        visita: "reativa"
+      }
+    };
+    await upsertState(env, st.wa_id, patchCanal);
+    Object.assign(st, patchCanal);
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -13919,6 +14026,7 @@ case "envio_docs": {
 
     return step(env, st, [
       "Show! 👏",
+      "Fechamos por envio online aqui no WhatsApp.",
       "A lista é bem simples, olha só:",
       "",
       "📄 **Documentos do titular:**",
@@ -13970,9 +14078,9 @@ case "envio_docs": {
     });
 
     return step(env, st, [
-      "Perfeito! 👌",
-      "Agora preciso ver sua documentação pra montar sua análise.",
-      "Quer que eu te envie a **lista dos documentos necessários**?"
+      "Perfeito! Seu perfil pode seguir ✅",
+      "Agora vou te passar a documentação certa do seu caso para envio online por aqui.",
+      "Me confirma com *sim* que já libero a lista objetiva dos documentos."
     ], "envio_docs");
   }
 
@@ -13988,8 +14096,8 @@ case "envio_docs": {
   });
 
   return step(env, st, [
-    "Pode me enviar os documentos por aqui mesmo 😊",
-    "Foto, PDF ou áudio que explique algo… tudo bem!"
+    "Pode me enviar os documentos por aqui mesmo para seguir online 😊",
+    "Se preferir envio digital fora do WhatsApp, eu te direciono pelo site."
   ], "envio_docs");
 }
 

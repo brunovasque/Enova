@@ -11514,13 +11514,8 @@ case "ir_declarado": {
 
   const regimeParceiro = st.regime_parceiro || st.regime_trabalho_parceiro || null;
 
-  const yes =
-    /^(1|sim|s|declaro|declara)$/i.test(t) ||
-    /(fa[çc]o imposto|fa[çc]o ir|imposto de renda)/i.test(t);
-
-  const no =
-    /^(2|nao|não|n)$/i.test(t) ||
-    /(n[aã]o declaro|sem imposto|nunca declarei)/i.test(t);
+  const yes = isYes(t);
+  const no = isNo(t);
 
   // ============================================================
   // RESPOSTA CONFUSA

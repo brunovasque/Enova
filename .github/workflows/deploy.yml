@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: ["main"]
   workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Ambiente para deploy manual"
+        type: choice
+        required: true
+        default: test
+        options:
+          - test
+          - prod
 
 concurrency:
   group: nv-enova-deploy
@@ -13,7 +22,7 @@ concurrency:
 
 jobs:
   deploy-prod:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.target_env == 'prod')
     runs-on: ubuntu-latest
 
     env:
@@ -56,7 +65,7 @@ jobs:
           WRANGLER_LOG=debug wrangler deploy --config wrangler.toml --keep-vars
 
   deploy-test:
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.target_env == 'test'
     runs-on: ubuntu-latest
 
     env:

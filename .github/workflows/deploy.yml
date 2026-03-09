@@ -15,6 +15,11 @@ on:
         options:
           - test
           - prod
+      deploy_ref:
+        description: "Branch/tag/commit para deploy manual (ex.: copilot/minha-branch)"
+        type: string
+        required: false
+        default: ""
 
 concurrency:
   group: nv-enova-deploy
@@ -31,6 +36,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_ref != '' && inputs.deploy_ref || github.ref_name }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -74,6 +81,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.deploy_ref != '' && inputs.deploy_ref || github.ref_name }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -104,6 +113,8 @@ jobs:
           fi
           echo "event=${{ github.event_name }}"
           echo "actor=${{ github.actor }}"
+          echo "ref_input=${{ inputs.deploy_ref }}"
+          echo "resolved_ref=${{ inputs.deploy_ref != '' && inputs.deploy_ref || github.ref_name }}"
           echo "head_repo=${{ github.event.pull_request.head.repo.full_name || github.repository }}"
           echo "base_repo=${{ github.event.pull_request.base.repo.full_name || github.repository }}"
 

@@ -5723,6 +5723,7 @@ function isEnvioDocsItemUploadAttempted(item) {
   if (isEnvioDocsItemReceived(item)) return true;
   return (
     rawStatus === "ilegivel" ||
+    rawStatus === "ilegível" ||
     rawStatus === "inválido" ||
     rawStatus === "invalido" ||
     rawStatus === "reenvio_solicitado" ||

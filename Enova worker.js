@@ -5711,6 +5711,8 @@ function isEnvioDocsItemReceived(item) {
   return (
     rawStatus === "recebido_pendente_validacao" ||
     rawStatus === "recebido pendente validacao" ||
+    rawStatus === "validado_basico" ||
+    rawStatus === "validado basico" ||
     rawStatus === "recebido" ||
     rawStatus === "validado"
   );
@@ -5755,6 +5757,110 @@ function envioDocsParticipanteLabel(participante) {
   if (participante === "p2") return "parceiro(a)";
   if (participante === "p3") return "familiar";
   return "composição";
+}
+
+function envioDocsCategoriaFromTipo(tipo) {
+  const t = String(tipo || "").trim().toLowerCase();
+  if (["identidade_cpf", "rg", "cpf"].includes(t)) return "identidade";
+  if (t === "comprovante_residencia") return "comprovante_residencia";
+  if (["holerites", "holerite_ultimo", "declaracao_ir", "extratos_bancarios", "extratos_bancarios_3_meses", "ctps_completa", "comprovante_renda", "comprovante_pensao", "comprovante_aposentadoria"].includes(t)) return "comprovante_renda";
+  if (["certidao_casamento", "certidao_nascimento_dependente"].includes(t)) return "documento_civil";
+  return null;
+}
+
+function inferEnvioDocsCategoriaBasica({ hintText = "", filename = "", mimeType = "" } = {}) {
+  const tipoFromHint = guessEnvioDocsTipoFromText(`${hintText || ""} ${filename || ""}`);
+  const categoriaFromTipo = envioDocsCategoriaFromTipo(tipoFromHint);
+  if (categoriaFromTipo) return categoriaFromTipo;
+
+  const t = normalizeText(`${hintText || ""} ${filename || ""}`);
+  if (/\b(certid\w*|casament\w*|nasciment\w*)\b/.test(t)) return "documento_civil";
+  if (/\b(residenc\w*|conta de luz|conta de agua|conta de água|iptu)\b/.test(t)) return "comprovante_residencia";
+  if (/\b(renda\w*|holerit\w*|contracheque\w*|ir\b|extrat\w*|ctps)\b/.test(t)) return "comprovante_renda";
+  if (/\b(rg|cpf|cnh|identidade)\b/.test(t)) return "identidade";
+
+  const mime = String(mimeType || "").toLowerCase();
+  if (mime.startsWith("image/") || mime === "application/pdf") return null;
+  return "nao_documento";
+}
+
+function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, hintText }) {
+  const MIN_IMAGE_SIZE_BYTES = 15 * 1024;
+  const MIN_IMAGE_DIMENSION = 320;
+  const MIN_DOCUMENT_SIZE_BYTES = 20 * 1024;
+
+  if (!mediaObject) {
+    return {
+      status: "recebido_pendente_validacao",
+      reason: "sinal_textual_sem_arquivo",
+      details: { sourceType: "text_signal", expectedCategory: envioDocsCategoriaFromTipo(target?.tipo || "") }
+    };
+  }
+
+  const sourceType =
+    normalizedMsg?.image ? "image" :
+    normalizedMsg?.document ? "document" :
+    normalizedMsg?.audio ? "audio" :
+    normalizedMsg?.video ? "video" :
+    null;
+  const mimeType = String(mediaObject?.mime_type || "").toLowerCase();
+  const fileName = String(mediaObject?.filename || mediaObject?.file_name || "").trim();
+  const fileSize = Number(
+    mediaObject?.file_size ||
+    mediaObject?.size ||
+    mediaObject?.bytes ||
+    0
+  );
+  const width = Number(mediaObject?.width || 0);
+  const height = Number(mediaObject?.height || 0);
+
+  const allowed = sourceType === "image" || sourceType === "document";
+  if (!allowed) {
+    return { status: "invalido", reason: "tipo_midia_nao_documental", details: { sourceType, mimeType, fileSize, fileName } };
+  }
+
+  const inferredCategory = inferEnvioDocsCategoriaBasica({ hintText, filename: fileName, mimeType });
+  if (inferredCategory === "nao_documento") {
+    return { status: "invalido", reason: "mime_nao_documental", details: { sourceType, mimeType, fileSize, fileName } };
+  }
+
+  if (!Number.isFinite(fileSize) || fileSize <= 0) {
+    return { status: "ilegivel", reason: "arquivo_vazio_ou_corrompido", details: { sourceType, mimeType, fileSize, fileName } };
+  }
+
+  if (sourceType === "image") {
+    if (fileSize < MIN_IMAGE_SIZE_BYTES) {
+      return { status: "ilegivel", reason: "imagem_muito_pequena", details: { sourceType, mimeType, fileSize, width, height, fileName } };
+    }
+    if ((width && width < MIN_IMAGE_DIMENSION) || (height && height < MIN_IMAGE_DIMENSION)) {
+      return { status: "ilegivel", reason: "resolucao_baixa", details: { sourceType, mimeType, fileSize, width, height, fileName } };
+    }
+  }
+
+  if (sourceType === "document") {
+    const isPdf = mimeType === "application/pdf" || /\.pdf$/i.test(fileName);
+    if (!isPdf && mimeType && !mimeType.startsWith("image/")) {
+      return { status: "invalido", reason: "documento_sem_formato_aceito", details: { sourceType, mimeType, fileSize, fileName } };
+    }
+    if (fileSize < MIN_DOCUMENT_SIZE_BYTES) {
+      return { status: "ilegivel", reason: "arquivo_documento_muito_pequeno", details: { sourceType, mimeType, fileSize, fileName } };
+    }
+  }
+
+  const expectedCategory = envioDocsCategoriaFromTipo(target?.tipo || "");
+  if (expectedCategory && inferredCategory && inferredCategory !== expectedCategory) {
+    return {
+      status: "reenvio_solicitado",
+      reason: "categoria_divergente",
+      details: { sourceType, mimeType, fileSize, fileName, expectedCategory, inferredCategory }
+    };
+  }
+
+  return {
+    status: inferredCategory ? "validado_basico" : "recebido_pendente_validacao",
+    reason: inferredCategory ? "validacao_basica_ok" : "categoria_nao_inferida",
+    details: { sourceType, mimeType, fileSize, width, height, fileName, inferredCategory, expectedCategory }
+  };
 }
 
 function selectEnvioDocsItemForUpload(st, hintText = "") {
@@ -5859,6 +5965,13 @@ async function handleDocumentUpload(env, st, msg) {
     const itens = Array.isArray(st.envio_docs_itens_json) ? [...st.envio_docs_itens_json] : [];
     const target = selectEnvioDocsItemForUpload(st, hintText);
 
+    const validation = classifyEnvioDocsBasicValidation({
+      mediaObject,
+      normalizedMsg,
+      target,
+      hintText
+    });
+
     if (target) {
       const idx = itens.findIndex((item) =>
         item.tipo === target.tipo &&
@@ -5868,8 +5981,10 @@ async function handleDocumentUpload(env, st, msg) {
       if (idx >= 0) {
         itens[idx] = {
           ...itens[idx],
-          status: "recebido_pendente_validacao",
-          recebido_em: new Date().toISOString()
+          status: validation.status,
+          recebido_em: new Date().toISOString(),
+          validacao_basica_em: new Date().toISOString(),
+          validacao_basica_motivo: validation.reason
         };
       }
     }
@@ -5885,7 +6000,8 @@ async function handleDocumentUpload(env, st, msg) {
           at: new Date().toISOString(),
           origem: "upload",
           canal_origem: st.canal_docs_escolhido || "whatsapp",
-          associado: target ? { tipo: target.tipo, participante: target.participante } : null
+          associado: target ? { tipo: target.tipo, participante: target.participante } : null,
+          validacao_basica: validation
         }
       ]
     };
@@ -5896,7 +6012,17 @@ async function handleDocumentUpload(env, st, msg) {
     const linhas = ["Recebi seu arquivo e já registrei na sua pasta ✅"];
 
     if (target) {
-      linhas.push(`Vinculei como **${prettyDocLabel(target.tipo)}** (${envioDocsParticipanteLabel(target.participante)}), com status *recebido pendente de validação*.`);
+      const statusMensagens = {
+        recebido_pendente_validacao: "recebido pendente de validação",
+        validado_basico: "validado básico",
+        ilegivel: "ilegível",
+        invalido: "inválido",
+        reenvio_solicitado: "reenvio solicitado"
+      };
+      linhas.push(`Vinculei como **${prettyDocLabel(target.tipo)}** (${envioDocsParticipanteLabel(target.participante)}), com status *${statusMensagens[validation.status] || validation.status}*.`);
+      if (validation.status === "ilegivel" || validation.status === "invalido" || validation.status === "reenvio_solicitado") {
+        linhas.push("Se quiser, já pode reenviar esse documento com melhor qualidade/arquivo correto que eu atualizo aqui.");
+      }
     } else {
       linhas.push("Registrei o recebimento e sigo com sua pasta; a validação detalhada acontece na próxima etapa interna.");
     }

@@ -5281,6 +5281,12 @@ function dossieToMoney(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function dossieRendaVariavel(st, participanteId) {
+  if (participanteId === "p1") return dossieIsYes(st.renda_variavel);
+  if (participanteId === "p2") return dossieIsYes(st.p2_renda_variavel || st.renda_variavel_parceiro);
+  return dossieIsYes(st.p3_renda_variavel || st.renda_variavel_p3);
+}
+
 function buildDocumentDossierFromState(st) {
   const hasP2 = Boolean(st.financiamento_conjunto || st.somar_renda);
   const hasP3 = Boolean(
@@ -5336,7 +5342,7 @@ function buildDocumentDossierFromState(st) {
 
   for (const p of participantes) {
     if (p.regime_trabalho === "clt") {
-      const rendaVariavel = p.id === "p1" ? dossieIsYes(st.renda_variavel) : dossieIsYes(st.p2_renda_variavel);
+      const rendaVariavel = dossieRendaVariavel(st, p.id);
       docsCondicionais.push({
         participante: p.id,
         tipo: rendaVariavel ? "holerites_ultimos_3" : "holerite_ultimo",
@@ -5416,7 +5422,7 @@ function buildDocumentDossierFromState(st) {
 }
 
 async function persistDocumentDossier(env, st, dossier) {
-  if (!dossier || st?.dossie_status === "pronto") return;
+  if (!dossier) return;
   await upsertState(env, st.wa_id, dossier);
   Object.assign(st, dossier);
 }

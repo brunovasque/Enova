@@ -5718,10 +5718,22 @@ function isEnvioDocsItemReceived(item) {
   );
 }
 
+function isEnvioDocsItemUploadAttempted(item) {
+  const rawStatus = (item?.status || "").trim().toLowerCase();
+  if (isEnvioDocsItemReceived(item)) return true;
+  return (
+    rawStatus === "ilegivel" ||
+    rawStatus === "inválido" ||
+    rawStatus === "invalido" ||
+    rawStatus === "reenvio_solicitado" ||
+    rawStatus === "reenvio solicitado"
+  );
+}
+
 function recomputeEnvioDocsProgress(itens = []) {
   const itensBloqueantes = itens.filter((item) => isEnvioDocsBlockingItem(item));
-  const totalRecebidos = itensBloqueantes.filter((item) => isEnvioDocsItemReceived(item)).length;
-  const totalPendentes = Math.max(0, itensBloqueantes.length - totalRecebidos);
+  const totalRecebidos = itensBloqueantes.filter((item) => isEnvioDocsItemUploadAttempted(item)).length;
+  const totalPendentes = itensBloqueantes.filter((item) => !isEnvioDocsItemReceived(item)).length;
   const status =
     totalRecebidos === 0
       ? "aguardando_envio"

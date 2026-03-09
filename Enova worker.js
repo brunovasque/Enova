@@ -5641,15 +5641,36 @@ function mensagemPendenciasHumanizada(list) {
 
 function envioDocsResumoPendencias(itens = []) {
   return itens
-    .filter((item) => (item.bucket === "obrigatorio" || item.bucket === "condicional") && item.status === "pendente")
+    .filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item))
     .slice(0, 4)
     .map((item) => `• ${prettyDocLabel(item.tipo)} (${item.participante === "p1" ? "titular" : "composição"})`);
 }
 
+function isEnvioDocsBlockingItem(item) {
+  if (!item || typeof item !== "object") return false;
+  if (item.bucket === "obrigatorio" || item.bucket === "condicional") return true;
+  if (item.bucket === "recomendado") return false;
+  if (item.obrigatorio === true) return true;
+  if (item.recomendacao) return false;
+  if (item.regra) return true;
+  // Fallback seguro: item sem metadado explícito entra como bloqueante para não liberar "completo" por engano.
+  return true;
+}
+
+function isEnvioDocsItemReceived(item) {
+  const rawStatus = (item?.status || "").trim().toLowerCase();
+  return (
+    rawStatus === "recebido_pendente_validacao" ||
+    rawStatus === "recebido pendente validacao" ||
+    rawStatus === "recebido" ||
+    rawStatus === "validado"
+  );
+}
+
 function recomputeEnvioDocsProgress(itens = []) {
-  const itensBloqueantes = itens.filter((item) => item.bucket === "obrigatorio" || item.bucket === "condicional");
-  const totalPendentes = itensBloqueantes.filter((item) => item.status === "pendente").length;
-  const totalRecebidos = itensBloqueantes.filter((item) => item.status === "recebido_pendente_validacao" || item.status === "validado").length;
+  const itensBloqueantes = itens.filter((item) => isEnvioDocsBlockingItem(item));
+  const totalRecebidos = itensBloqueantes.filter((item) => isEnvioDocsItemReceived(item)).length;
+  const totalPendentes = Math.max(0, itensBloqueantes.length - totalRecebidos);
   const status =
     totalRecebidos === 0
       ? "aguardando_envio"
@@ -5689,7 +5710,7 @@ function envioDocsParticipanteLabel(participante) {
 
 function selectEnvioDocsItemForUpload(st, hintText = "") {
   const itens = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
-  const pendentes = itens.filter((item) => (item.bucket === "obrigatorio" || item.bucket === "condicional") && item.status === "pendente");
+  const pendentes = itens.filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item));
   if (!pendentes.length) return null;
 
   const hintedTipo = guessEnvioDocsTipoFromText(hintText);
@@ -5715,6 +5736,37 @@ function isEnvioDocsTextualUploadSignal(texto) {
   return /\b(doc|documento|arquivo|anexo|foto|comprovante|rg|cpf|holerite|ir|extrato)\b/.test(t);
 }
 
+function normalizeEnvioDocsIncomingMedia(msg) {
+  if (!msg || typeof msg !== "object") return msg;
+  if (msg.image || msg.audio || msg.document || msg.video) return msg;
+
+  const directType = String(msg.type || "").toLowerCase();
+  if (["image", "audio", "document", "video"].includes(directType) && msg.id) {
+    return {
+      ...msg,
+      [directType]: {
+        ...msg,
+        caption: msg.caption || null
+      }
+    };
+  }
+
+  const nested = msg.media && typeof msg.media === "object" ? msg.media : null;
+  const nestedType = String(nested?.type || "").toLowerCase();
+  if (nested && ["image", "audio", "document", "video"].includes(nestedType) && nested.id) {
+    return {
+      ...msg,
+      type: nestedType,
+      [nestedType]: {
+        ...nested,
+        caption: msg.caption || nested.caption || null
+      }
+    };
+  }
+
+  return msg;
+}
+
 // ======================================================================
 // 🧱 BLOCO 19 — ROTEADOR DE MÍDIA PARA DOCUMENTOS (FINAL MASTER)
 // ======================================================================
@@ -5730,12 +5782,13 @@ function isEnvioDocsTextualUploadSignal(texto) {
  */
 async function handleDocumentUpload(env, st, msg) {
   try {
+    const normalizedMsg = normalizeEnvioDocsIncomingMedia(msg);
     // ==========================================================
     // 1 — DETECTAR TIPO DE ARQUIVO VINDO DO WHATSAPP
     // ==========================================================
     const mediaObject =
-      msg.image || msg.audio || msg.document || msg.video || null;
-    const isTextSignal = msg?.text_signal === true;
+      normalizedMsg?.image || normalizedMsg?.audio || normalizedMsg?.document || normalizedMsg?.video || null;
+    const isTextSignal = normalizedMsg?.text_signal === true;
 
     if (!mediaObject && !isTextSignal) {
       return {
@@ -5749,16 +5802,20 @@ async function handleDocumentUpload(env, st, msg) {
     }
 
     const hintText =
-      msg.document?.caption ||
-      msg.image?.caption ||
-      msg.caption ||
+      normalizedMsg?.document?.caption ||
+      normalizedMsg?.image?.caption ||
+      normalizedMsg?.caption ||
       st.last_user_text ||
       "";
     const itens = Array.isArray(st.envio_docs_itens_json) ? [...st.envio_docs_itens_json] : [];
     const target = selectEnvioDocsItemForUpload(st, hintText);
 
     if (target) {
-      const idx = itens.findIndex((item) => item.tipo === target.tipo && item.participante === target.participante && item.status === "pendente");
+      const idx = itens.findIndex((item) =>
+        item.tipo === target.tipo &&
+        item.participante === target.participante &&
+        !isEnvioDocsItemReceived(item)
+      );
       if (idx >= 0) {
         itens[idx] = {
           ...itens[idx],
@@ -13938,13 +13995,16 @@ case "envio_docs": {
     Object.assign(st, seedCanal);
   }
 
-  const envioDocsStatusNotSet = st.envio_docs_status === null || st.envio_docs_status === undefined;
-  const envioDocsPendentesNotSet = st.envio_docs_total_pendentes === null || st.envio_docs_total_pendentes === undefined;
-  const envioDocsRecebidosNotSet = st.envio_docs_total_recebidos === null || st.envio_docs_total_recebidos === undefined;
-  if ((envioDocsStatusNotSet || envioDocsPendentesNotSet || envioDocsRecebidosNotSet) && Array.isArray(st.envio_docs_itens_json)) {
+  if (Array.isArray(st.envio_docs_itens_json)) {
     const progressSeed = recomputeEnvioDocsProgress(st.envio_docs_itens_json);
-    await upsertState(env, st.wa_id, progressSeed);
-    Object.assign(st, progressSeed);
+    const progressChanged =
+      st.envio_docs_status !== progressSeed.envio_docs_status ||
+      st.envio_docs_total_pendentes !== progressSeed.envio_docs_total_pendentes ||
+      st.envio_docs_total_recebidos !== progressSeed.envio_docs_total_recebidos;
+    if (progressChanged) {
+      await upsertState(env, st.wa_id, progressSeed);
+      Object.assign(st, progressSeed);
+    }
   }
 
   // =====================================================

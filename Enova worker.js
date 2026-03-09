@@ -625,21 +625,24 @@ function isYes(text) {
 
   // frases que podem usar includes
   const phrases = [
-    "claro",
-    "pode",
-    "beleza",
-    "com certeza",
-    "uhum",
-    "isso",
-    "quero",
-    "vamo",
-    "vamos",
-    "bora",
-  ];
+  "declaro sim",
+  "sim declaro",
+  "eu declaro",
+  "faco imposto",
+  "faço imposto",
+  "declaro imposto",
+  "tenho imposto de renda",
+  "tenho ir",
+  "possuo ir"
+];
 
   if (exact.has(nt)) return true;
 
-  return phrases.some((term) => nt.includes(term));
+  if (phrases.some((term) => nt.includes(normalizeText(term)))) return true;
+
+  if (/\bdeclaro\b/.test(nt) && !/\bnao declaro\b/.test(nt)) return true;
+
+  return false;
 }
 
 function isNo(text) {
@@ -649,18 +652,30 @@ function isNo(text) {
   // respostas curtas: só EXATO
   const exact = new Set(["nao", "n", "nn", "negativo"]);
 
-  // frases: pode usar includes (com espaço, pra não pegar "no cpf" como "não")
+  // frases: pode usar includes
   const phrases = [
     "nunca",
     "jamais",
     "ainda nao",
     "agora nao",
-    "talvez depois"
+    "talvez depois",
+    "nao declaro",
+    "não declaro",
+    "eu nao declaro",
+    "eu não declaro",
+    "nao faco imposto",
+    "não faço imposto",
+    "nao tenho imposto de renda",
+    "não tenho imposto de renda",
+    "sem imposto",
+    "nunca declarei"
   ];
 
   if (exact.has(nt)) return true;
 
-  return phrases.some((term) => nt.includes(term));
+  if (phrases.some((term) => nt.includes(normalizeText(term)))) return true;
+
+  return false;
 }
 
 function parseMoneyBR(text) {
@@ -5927,9 +5942,10 @@ async function runFunnel(env, st, userText) {
     const ehSim = isYes(txt);
     const ehNao = isNo(txt);
     const ehTalvez = /\b(talvez|nao\s+sei|não\s+sei|depende|acho\s+que)\b/i.test(txt);
+    const ehNaoExplicito = /^n[aã]o\b/i.test(txt);
 
     // não é resposta direta esperada → trava e pede responder a pergunta anterior
-    if (!ehSim && !ehNao && !ehTalvez) {
+    if (!ehSim && !ehNao && !ehTalvez && !ehNaoExplicito) {
       return step(
         env,
         st,
@@ -5942,7 +5958,7 @@ async function runFunnel(env, st, userText) {
     }
   }
 
-  // ============================================================
+    // ============================================================
   // 🧠 COGNITIVE ASSIST V1 (SOCORRO CONTROLADO)
   // - Somente nos stages permitidos
   // - Mantém soberania do funil mecânico
@@ -5959,13 +5975,8 @@ async function runFunnel(env, st, userText) {
 
       const compatibleSignal = isStageSignalCompatible(stage, cognitive.safe_stage_signal);
       const lowConfidence = Number(cognitive.confidence || 0) < COGNITIVE_V1_CONFIDENCE_MIN;
-      const syntheticStageAnswer =
-        !clearAnswer && !lowConfidence && compatibleSignal
-          ? extractCompatibleStageAnswerFromCognitive(stage, cognitive)
-          : null;
-      const hasSufficientStageAnswer = clearAnswer || Boolean(syntheticStageAnswer);
       const stillNeedsOriginal =
-        cognitive.still_needs_original_answer === true && !hasSufficientStageAnswer;
+        cognitive.still_needs_original_answer === true && !clearAnswer;
 
       await telemetry(env, {
         wa_id: st.wa_id,
@@ -5982,14 +5993,9 @@ async function runFunnel(env, st, userText) {
           safe_stage_signal: cognitive.safe_stage_signal || null,
           signal_compatible: compatibleSignal,
           clear_answer_detected_by_parser: clearAnswer,
-          synthetic_stage_answer: syntheticStageAnswer || null,
           still_needs_original_effective: stillNeedsOriginal
         }
       });
-
-      if (syntheticStageAnswer) {
-        t = syntheticStageAnswer;
-      }
 
       const cognitiveReply = !lowConfidence
         ? sanitizeCognitiveReply(cognitive.reply_text)
@@ -6009,34 +6015,7 @@ async function runFunnel(env, st, userText) {
         st.__cognitive_reply_prefix = null;
       }
 
-      if (syntheticStageAnswer) {
-        st.__cognitive_stage_answer = syntheticStageAnswer;
-      } else {
-        st.__cognitive_stage_answer = null;
-      }
-
-      const shouldHoldStage =
-        lowConfidence ||
-        stillNeedsOriginal;
-
-      if (shouldHoldStage) {
-        const trilhoMsg = stage === "renda"
-          ? "Pra eu seguir com segurança, me confirma sua renda mensal aproximada em reais, por favor."
-          : stage === "ir_declarado"
-          ? "Pra eu avançar nesta etapa, me responde objetivamente: você declara Imposto de Renda hoje?"
-          : stage === "estado_civil"
-          ? "Pra eu seguir certinho, me confirma seu estado civil em uma opção: solteiro(a), casado(a), união estável, separado(a), divorciado(a) ou viúvo(a)."
-          : "Pra eu seguir no processo com segurança, me responde objetivamente a pergunta desta etapa, por favor.";
-
-        return step(
-          env,
-          st,
-          [
-            trilhoMsg
-          ],
-          stage
-        );
-      }
+      st.__cognitive_stage_answer = null;
     }
   } catch (e) {
     console.error("COGNITIVE_V1_RUNFUNNEL_ERROR:", e);
@@ -6739,7 +6718,7 @@ case "inicio_nome": {
   const partes = rawNome.split(/\s+/).filter(p => p.length >= 2);
 
   // Se tiver muita coisa, provavelmente é frase e não nome
-  if (partes.length < 2 || partes.length > 6) {
+  if (partes.length < 1 || partes.length > 6) {
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -6924,7 +6903,7 @@ case "inicio_rnm": {
   // -------------------------------------------
   // ✅ 2) POSSUI RNM → perguntar tipo de validade
   // -------------------------------------------
-  if (isYes(nt) || /^sim$/i.test(nt)) {
+  if (isYes(nt) || /^sim$/i.test(nt) || /\bsim\b/i.test(nt) || /\b(tenho|possuo|tenho sim|possuo sim)\b/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       rnm_status: "possui",
@@ -7008,7 +6987,7 @@ case "inicio_rnm_validade": {
   // -------------------------------------------
   // ✅ RNM INDETERMINADO → CONTINUA O FLUXO
   // -------------------------------------------
-  if (/^indeterminado$/i.test(nt)) {
+  if (/\bindeterminado\b/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       rnm_validade: "indeterminado",
@@ -7752,7 +7731,8 @@ case "somar_renda_solteiro": {
   /\bso\s+minha\b/i.test(tBase) ||
   /\bs[oó]\s+com\s+a?\s*minha\b/i.test(t) ||
   /\bs[oó]\s+eu\b/i.test(t) ||
-  /\bapenas\s+eu\b/i.test(tBase);
+  /\bapenas\s+eu\b/i.test(tBase) ||
+  isNo(tBase);
   
   const parceiro =
     /quero\s+somar\s+renda\s*$/i.test(tBase) ||
@@ -11138,7 +11118,7 @@ case "quem_pode_somar": {
     }
   });
 
-  const tRaw = String(st.__cognitive_stage_answer || userText || "").trim();
+  const tRaw = String(userText || "").trim();
   st.__cognitive_stage_answer = null;
 
   // Normalização de mojibake / caracteres quebrados (PowerShell/console)
@@ -11524,13 +11504,8 @@ case "ir_declarado": {
 
   const regimeParceiro = st.regime_parceiro || st.regime_trabalho_parceiro || null;
 
-  const yes =
-    /^(1|sim|s|declaro|declara)$/i.test(t) ||
-    /(fa[çc]o imposto|fa[çc]o ir|imposto de renda)/i.test(t);
-
-  const no =
-    /^(2|nao|não|n)$/i.test(t) ||
-    /(n[aã]o declaro|sem imposto|nunca declarei)/i.test(t);
+  const yes = isYes(t);
+  const no = isNo(t);
 
   // ============================================================
   // RESPOSTA CONFUSA

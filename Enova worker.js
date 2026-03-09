@@ -5697,7 +5697,8 @@ function envioDocsResumoPendencias(itens = []) {
 
 function isEnvioDocsBlockingItem(item) {
   if (!item || typeof item !== "object") return false;
-  if (item.bucket === "obrigatorio" || item.bucket === "condicional") return true;
+  if (item.bucket === "obrigatorio") return true;
+  if (item.bucket === "condicional") return false;
   if (item.bucket === "recomendado") return false;
   if (item.obrigatorio === true) return true;
   if (item.recomendacao) return false;

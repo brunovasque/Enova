@@ -5269,6 +5269,179 @@ function dedupeChecklist(list) {
   return finalList;
 }
 
+function dossieIsYes(value) {
+  if (value === true) return true;
+  if (value === false || value == null) return false;
+  return isYes(String(value));
+}
+
+function dossieToMoney(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const parsed = parseMoneyBR(String(value || ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function dossieRendaVariavel(st, participanteId) {
+  if (participanteId === "p1") return dossieIsYes(st.renda_variavel);
+  if (participanteId === "p2") return dossieIsYes(st.p2_renda_variavel || st.renda_variavel_parceiro);
+  return dossieIsYes(st.p3_renda_variavel || st.renda_variavel_p3);
+}
+
+function buildDocumentDossierFromState(st) {
+  const hasP2 = Boolean(st.financiamento_conjunto || st.somar_renda);
+  const hasP3 = Boolean(
+    st.p3_required ||
+    st.regime_trabalho_parceiro_familiar_p3 ||
+    st.renda_parceiro_familiar_p3
+  );
+
+  const participantes = [
+    {
+      id: "p1",
+      role: "titular",
+      regime_trabalho: st.regime_trabalho || null,
+      renda: dossieToMoney(st.renda),
+      restricao: dossieIsYes(st.restricao),
+      regularizacao_restricao: dossieIsYes(st.regularizacao_restricao)
+    }
+  ];
+
+  if (hasP2) {
+    participantes.push({
+      id: "p2",
+      role: "parceiro_familiar",
+      regime_trabalho: st.regime_trabalho_parceiro || st.regime_trabalho_parceiro_familiar || null,
+      renda: dossieToMoney(st.renda_parceiro || st.renda_parceiro_familiar),
+      restricao: dossieIsYes(st.restricao_parceiro),
+      regularizacao_restricao: dossieIsYes(st.regularizacao_restricao_parceiro)
+    });
+  }
+
+  if (hasP3) {
+    participantes.push({
+      id: "p3",
+      role: "familiar_p3",
+      regime_trabalho: st.regime_trabalho_parceiro_familiar_p3 || null,
+      renda: dossieToMoney(st.renda_parceiro_familiar_p3),
+      restricao: dossieIsYes(st.restricao_parceiro_p3),
+      regularizacao_restricao: dossieIsYes(st.regularizacao_restricao_p3)
+    });
+  }
+
+  const docsObrigatorios = participantes.flatMap((p) => ([
+    { participante: p.id, tipo: "rg", obrigatorio: true },
+    { participante: p.id, tipo: "cpf", obrigatorio: true },
+    { participante: p.id, tipo: "comprovante_residencia", obrigatorio: true },
+    { participante: p.id, tipo: "comprovante_renda", obrigatorio: true }
+  ]));
+
+  const docsCondicionais = [];
+  if (st.estado_civil === "casado") {
+    docsCondicionais.push({ participante: "p1", tipo: "certidao_casamento", regra: "casado_civil" });
+  }
+
+  for (const p of participantes) {
+    if (p.regime_trabalho === "clt") {
+      const rendaVariavel = dossieRendaVariavel(st, p.id);
+      docsCondicionais.push({
+        participante: p.id,
+        tipo: rendaVariavel ? "holerites_ultimos_3" : "holerite_ultimo",
+        regra: rendaVariavel ? "clt_variavel" : "clt_fixa"
+      });
+    }
+    if (p.regime_trabalho === "autonomo") {
+      const irDeclarado =
+        p.id === "p1"
+          ? dossieIsYes(st.autonomo_ir_pergunta || st.ir_declarado)
+          : p.id === "p2"
+            ? dossieIsYes(st.ir_declarado_parceiro || st.ir_declarado_p2)
+            : dossieIsYes(st.ir_declarado_p3);
+      if (irDeclarado) {
+        docsCondicionais.push(
+          { participante: p.id, tipo: "declaracao_ir", regra: "autonomo_com_ir" },
+          { participante: p.id, tipo: "recibo_ir", regra: "autonomo_com_ir" }
+        );
+      } else {
+        docsCondicionais.push({ participante: p.id, tipo: "extratos_bancarios_3_meses", regra: "autonomo_sem_ir" });
+      }
+    }
+  }
+
+  const docsRecomendados = [];
+  const observacoesCliente = [];
+  const observacoesCorrespondente = [];
+  if (dossieIsYes(st.ctps_36)) {
+    docsRecomendados.push({ participante: "p1", tipo: "ctps_completa", recomendacao: "estrategica" });
+    observacoesCliente.push("CTPS completa é recomendada para melhorar taxa de juros e perfil de financiamento.");
+    observacoesCorrespondente.push("CTPS completa recomendada (não obrigatória) para potencial ganho de taxa e alçada.");
+  }
+
+  const rendaTotalFormal = participantes
+    .filter((p) => ["clt", "servidor", "aposentado", "pensionista"].includes(String(p.regime_trabalho || "")))
+    .reduce((acc, p) => acc + (p.renda || 0), 0);
+  const rendaTotalInformal = participantes
+    .filter((p) => String(p.regime_trabalho || "") === "autonomo")
+    .reduce((acc, p) => acc + (p.renda || 0), 0);
+
+  const restricoesAtivas = participantes.filter((p) => p.restricao);
+  const restricaoResumo = !restricoesAtivas.length
+    ? "sem_restricao"
+    : restricoesAtivas.some((p) => p.regularizacao_restricao)
+      ? "com_restricao_regularizavel"
+      : "restricao_critica";
+  const aptidaoMap = {
+    sem_restricao: "apto",
+    com_restricao_regularizavel: "potencialmente_apto",
+    restricao_critica: "inapto"
+  };
+  const aptidaoPrograma = aptidaoMap[restricaoResumo] || "potencialmente_apto";
+
+  let tipoProcesso = "solo";
+  if (hasP3) tipoProcesso = "p3";
+  else if (!hasP2) tipoProcesso = "solo";
+  else if (st.composicao_pessoa === "familiar" || st.familiar_tipo) tipoProcesso = "familiar";
+  else tipoProcesso = "casal";
+  const pendencias = [...docsObrigatorios, ...docsCondicionais].map((item) => ({
+    ...item,
+    status: "pendente"
+  }));
+
+  const envioDocsItens = [
+    ...docsObrigatorios.map((d) => ({ ...d, bucket: "obrigatorio", status: "pendente" })),
+    ...docsCondicionais.map((d) => ({ ...d, bucket: "condicional", status: "pendente" })),
+    ...docsRecomendados.map((d) => ({ ...d, bucket: "recomendado", status: "recomendado" }))
+  ];
+
+  return {
+    dossie_status: "pronto",
+    dossie_aptidao_programa: aptidaoPrograma,
+    dossie_motivo_status: "dossie_montado_automaticamente_na_entrada_envio_docs",
+    dossie_tipo_processo: tipoProcesso,
+    dossie_qtd_participantes: participantes.length,
+    dossie_renda_total_formal: rendaTotalFormal,
+    dossie_renda_total_informal: rendaTotalInformal,
+    dossie_restricao_resumo: restricaoResumo,
+    dossie_risco_documental: docsCondicionais.length > 2 ? "medio" : "baixo",
+    dossie_resumo_humano: `Dossiê com ${participantes.length} participante(s), ${docsObrigatorios.length} docs obrigatórios e ${docsCondicionais.length} condicionais.`,
+    dossie_participantes_json: participantes,
+    dossie_pendencias_json: pendencias,
+    dossie_docs_obrigatorios_json: docsObrigatorios,
+    dossie_docs_condicionais_json: docsCondicionais,
+    dossie_docs_recomendados_json: docsRecomendados,
+    dossie_observacoes_cliente_json: observacoesCliente,
+    dossie_observacoes_correspondente_json: observacoesCorrespondente,
+    envio_docs_itens_json: envioDocsItens,
+    envio_docs_total_itens: envioDocsItens.length,
+    envio_docs_total_pendentes: envioDocsItens.filter((i) => i.status === "pendente").length
+  };
+}
+
+async function persistDocumentDossier(env, st, dossier) {
+  if (!dossier) return;
+  await upsertState(env, st.wa_id, dossier);
+  Object.assign(st, dossier);
+}
+
 // =============================================================
 // 🧱 C17 — HELPERS: LABEL BONITO / CHECKLIST / STATUS
 // =============================================================
@@ -13644,6 +13817,22 @@ case "regularizacao_restricao": {
 // 🧩 C36 — ENVIO DE DOCUMENTOS (NOVA VERSÃO DEFINITIVA)
 // =========================================================
 case "envio_docs": {
+
+  if (st.dossie_status !== "pronto") {
+    try {
+      const dossier = buildDocumentDossierFromState(st);
+      await persistDocumentDossier(env, st, dossier);
+    } catch (err) {
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "dossie_build_error",
+        stage,
+        severity: "warning",
+        message: "Falha ao montar dossiê na entrada de envio_docs",
+        details: { error: err?.message || String(err) }
+      });
+    }
+  }
 
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "envio_docs"

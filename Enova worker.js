@@ -625,26 +625,16 @@ function isYes(text) {
 
   // frases que podem usar includes
   const phrases = [
-    "claro",
-    "pode",
-    "beleza",
-    "com certeza",
-    "uhum",
-    "isso",
-    "quero",
-    "vamo",
-    "vamos",
-    "bora",
-    "declaro sim",
-    "sim declaro",
-    "eu declaro",
-    "faco imposto",
-    "faço imposto",
-    "declaro imposto",
-    "tenho imposto de renda",
-    "tenho ir",
-    "possuo ir"
-  ];
+  "declaro sim",
+  "sim declaro",
+  "eu declaro",
+  "faco imposto",
+  "faço imposto",
+  "declaro imposto",
+  "tenho imposto de renda",
+  "tenho ir",
+  "possuo ir"
+];
 
   if (exact.has(nt)) return true;
 

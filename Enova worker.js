@@ -5943,7 +5943,7 @@ async function runFunnel(env, st, userText) {
     }
   }
 
-  // ============================================================
+    // ============================================================
   // 🧠 COGNITIVE ASSIST V1 (SOCORRO CONTROLADO)
   // - Somente nos stages permitidos
   // - Mantém soberania do funil mecânico
@@ -5960,13 +5960,8 @@ async function runFunnel(env, st, userText) {
 
       const compatibleSignal = isStageSignalCompatible(stage, cognitive.safe_stage_signal);
       const lowConfidence = Number(cognitive.confidence || 0) < COGNITIVE_V1_CONFIDENCE_MIN;
-      const syntheticStageAnswer =
-        !clearAnswer && !lowConfidence && compatibleSignal
-          ? extractCompatibleStageAnswerFromCognitive(stage, cognitive)
-          : null;
-      const hasSufficientStageAnswer = clearAnswer || Boolean(syntheticStageAnswer);
       const stillNeedsOriginal =
-        cognitive.still_needs_original_answer === true && !hasSufficientStageAnswer;
+        cognitive.still_needs_original_answer === true && !clearAnswer;
 
       await telemetry(env, {
         wa_id: st.wa_id,
@@ -5983,14 +5978,9 @@ async function runFunnel(env, st, userText) {
           safe_stage_signal: cognitive.safe_stage_signal || null,
           signal_compatible: compatibleSignal,
           clear_answer_detected_by_parser: clearAnswer,
-          synthetic_stage_answer: syntheticStageAnswer || null,
           still_needs_original_effective: stillNeedsOriginal
         }
       });
-
-      if (syntheticStageAnswer) {
-        t = syntheticStageAnswer;
-      }
 
       const cognitiveReply = !lowConfidence
         ? sanitizeCognitiveReply(cognitive.reply_text)
@@ -6010,34 +6000,7 @@ async function runFunnel(env, st, userText) {
         st.__cognitive_reply_prefix = null;
       }
 
-      if (syntheticStageAnswer) {
-        st.__cognitive_stage_answer = syntheticStageAnswer;
-      } else {
-        st.__cognitive_stage_answer = null;
-      }
-
-      const shouldHoldStage =
-        lowConfidence ||
-        stillNeedsOriginal;
-
-      if (shouldHoldStage) {
-        const trilhoMsg = stage === "renda"
-          ? "Pra eu seguir com segurança, me confirma sua renda mensal aproximada em reais, por favor."
-          : stage === "ir_declarado"
-          ? "Pra eu avançar nesta etapa, me responde objetivamente: você declara Imposto de Renda hoje?"
-          : stage === "estado_civil"
-          ? "Pra eu seguir certinho, me confirma seu estado civil em uma opção: solteiro(a), casado(a), união estável, separado(a), divorciado(a) ou viúvo(a)."
-          : "Pra eu seguir no processo com segurança, me responde objetivamente a pergunta desta etapa, por favor.";
-
-        return step(
-          env,
-          st,
-          [
-            trilhoMsg
-          ],
-          stage
-        );
-      }
+      st.__cognitive_stage_answer = null;
     }
   } catch (e) {
     console.error("COGNITIVE_V1_RUNFUNNEL_ERROR:", e);
@@ -11140,7 +11103,7 @@ case "quem_pode_somar": {
     }
   });
 
-  const tRaw = String(st.__cognitive_stage_answer || userText || "").trim();
+  const tRaw = String(userText || "").trim();
   st.__cognitive_stage_answer = null;
 
   // Normalização de mojibake / caracteres quebrados (PowerShell/console)

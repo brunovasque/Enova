@@ -1599,10 +1599,20 @@ async function resetTotal(env, wa_id) {
     canal_docs_motivo_recusa: null,
     canal_docs_agendamento_pendente: null,
     canal_docs_opcoes_liberadas_json: null,
+
     envio_docs_status: null,
+    envio_docs_canal: null,
+    envio_docs_checklist_versao: null,
+    envio_docs_total_itens: null,
     envio_docs_total_recebidos: null,
     envio_docs_total_pendentes: null,
+    envio_docs_total_ilegiveis: null,
+    envio_docs_ultimo_pedido_em: null,
+    envio_docs_lembrete_count: null,
+    envio_docs_itens_json: null,
+    envio_docs_pendencias_json: null,
     envio_docs_historico_json: null,
+
     pacote_status: null,
     pacote_destino: null,
     pacote_resumo_caso: null,
@@ -1745,10 +1755,20 @@ function createSimulationState(wa_id, startStage) {
     canal_docs_motivo_recusa: null,
     canal_docs_agendamento_pendente: null,
     canal_docs_opcoes_liberadas_json: null,
+
     envio_docs_status: null,
+    envio_docs_canal: null,
+    envio_docs_checklist_versao: null,
+    envio_docs_total_itens: null,
     envio_docs_total_recebidos: null,
     envio_docs_total_pendentes: null,
+    envio_docs_total_ilegiveis: null,
+    envio_docs_ultimo_pedido_em: null,
+    envio_docs_lembrete_count: null,
+    envio_docs_itens_json: null,
+    envio_docs_pendencias_json: null,
     envio_docs_historico_json: null,
+
     pacote_status: null,
     pacote_destino: null,
     pacote_resumo_caso: null,
@@ -1768,7 +1788,7 @@ function createSimulationState(wa_id, startStage) {
     dossie_resumo: null,
     processo_enviado_correspondente: null,
     aguardando_retorno_correspondente: null,
-
+    
     // Participantes (zera composição antiga)
     p1_tipo: null,
     p2_tipo: null,

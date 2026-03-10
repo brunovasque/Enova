@@ -6352,7 +6352,11 @@ function isCorrespondentePacoteReady(st) {
     Array.isArray(st?.pacote_participantes_json) &&
     Array.isArray(st?.pacote_documentos_anexados_json) &&
     st?.pacote_renda_resumo_json &&
-    st?.pacote_restricoes_json;
+    typeof st.pacote_renda_resumo_json === "object" &&
+    !Array.isArray(st.pacote_renda_resumo_json) &&
+    st?.pacote_restricoes_json &&
+    typeof st.pacote_restricoes_json === "object" &&
+    !Array.isArray(st.pacote_restricoes_json);
   return envioCompleto && pacotePronto && analiseDisponivel && !!pacoteEstrutural;
 }
 

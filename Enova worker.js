@@ -1590,6 +1590,7 @@ async function resetTotal(env, wa_id) {
     docs_itens_pendentes: null,
     docs_itens_recebidos: null,
     docs_lista_enviada: null,
+    envio_docs_lista_enviada: null,
     docs_status_completo: null,
     docs_status_parcial: null,
     docs_status_texto: null,
@@ -1746,6 +1747,7 @@ function createSimulationState(wa_id, startStage) {
     docs_itens_pendentes: null,
     docs_itens_recebidos: null,
     docs_lista_enviada: null,
+    envio_docs_lista_enviada: null,
     docs_status_completo: null,
     docs_status_parcial: null,
     docs_status_texto: null,
@@ -14394,6 +14396,9 @@ case "envio_docs": {
       });
     }
   }
+  const listaEnviada =
+    st.envio_docs_lista_enviada === true ||
+    st.docs_lista_enviada === true;
 
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "envio_docs"
@@ -14405,7 +14410,7 @@ case "envio_docs": {
     severity: "info",
     message: "Entrando na fase: envio_docs",
     details: {
-      docs_lista_enviada: st.docs_lista_enviada || false,
+      docs_lista_enviada: listaEnviada,
       incoming_media: !!st._incoming_media
     }
   });
@@ -14556,7 +14561,7 @@ case "envio_docs": {
     ], "envio_docs");
   }
 
-  if (isEnvioDocsTextualUploadSignal(t) && st.docs_lista_enviada) {
+  if (isEnvioDocsTextualUploadSignal(t) && listaEnviada) {
     const resposta = await handleDocumentUpload(env, st, {
       type: "text_signal",
       text_signal: true,
@@ -14568,7 +14573,7 @@ case "envio_docs": {
   // =====================================================
   // CLIENTE ACEITOU RECEBER A LISTA
   // =====================================================
-  if (pronto && !st.docs_lista_enviada) {
+  if (pronto && !listaEnviada) {
     const hasP2Confirmado = hasComposicaoConfirmadaP2(st);
     const mensagemLista = [
       "Show! 👏",
@@ -14599,6 +14604,7 @@ case "envio_docs": {
 
     const patchCanal = {
       docs_lista_enviada: true,
+      envio_docs_lista_enviada: true,
       canal_docs_status: "definido",
       canal_docs_escolhido: "whatsapp",
       canal_docs_recusa_whatsapp: false,
@@ -14629,7 +14635,10 @@ case "envio_docs": {
   // CLIENTE NÃO QUER AGORA
   // =====================================================
   if (negar) {
-    await upsertState(env, st.wa_id, { docs_lista_enviada: false });
+    await upsertState(env, st.wa_id, {
+      docs_lista_enviada: false,
+      envio_docs_lista_enviada: false
+    });
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -14649,7 +14658,7 @@ case "envio_docs": {
   // =====================================================
   // PRIMEIRA VEZ NA FASE
   // =====================================================
-  if (!st.docs_lista_enviada) {
+  if (!listaEnviada) {
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,

@@ -5783,7 +5783,18 @@ function buildAnaliseDocsPayloadFromEnvio(itens = []) {
     const status = normalizeStatus(item);
     return status === "ilegivel" || status === "ilegível";
   });
-  const docsFaltantes = itensBloqueantes.filter((item) => !isEnvioDocsItemReceived(item));
+  const docsFaltantes = itensBloqueantes.filter((item) => {
+  if (isEnvioDocsItemReceived(item)) return false;
+  const status = normalizeStatus(item);
+  return !(
+    status === "invalido" ||
+    status === "inválido" ||
+    status === "reenvio_solicitado" ||
+    status === "reenvio solicitado" ||
+    status === "ilegivel" ||
+    status === "ilegível"
+  );
+});
 
   const toDocItem = (item) => ({
     tipo: item?.tipo || null,

@@ -2497,6 +2497,7 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "terminal_finalizacao_processo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_renda_v1", start_stage: "finalizacao", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_finalizacao_processo_publica_grupo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_envio_ready_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_finalizacao_processo_aguarda_assumir", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "terminal_assumir_token_sucesso_entrega_privada", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.ok", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_assumir_token_bloqueado_sem_transicao", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", input: "ASSUMIR AB12CD34", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_retorno_correspondente_aprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO APROVADO", expected: { type: "single", equals: "agendamento_visita" } },
     { id: "terminal_retorno_correspondente_reprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO REPROVADO\nMotivo: score", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
@@ -6469,6 +6470,51 @@ function buildCorrespondentePrivateDeliveryMessage(dossiePrivado, docsText) {
   return ["✅ Caso assumido com exclusividade.", "", dossiePrivado, "", docsText].join("\n");
 }
 
+// Divide texto em blocos para reduzir risco de falha por limite de tamanho de mensagem.
+function splitMessageForWhatsapp(text, maxChars = 3500) {
+  const raw = String(text || "").trim();
+  if (!raw) return [];
+  if (raw.length <= maxChars) return [raw];
+
+  const parts = [];
+  const lines = raw.split("\n");
+  let current = "";
+
+  for (const line of lines) {
+    const next = current ? `${current}\n${line}` : line;
+    if (next.length <= maxChars) {
+      current = next;
+      continue;
+    }
+    if (current) parts.push(current);
+    if (line.length <= maxChars) {
+      current = line;
+      continue;
+    }
+    let start = 0;
+    while (start < line.length) {
+      const chunk = line.slice(start, start + maxChars);
+      parts.push(chunk);
+      start += maxChars;
+    }
+    current = "";
+  }
+
+  if (current) parts.push(current);
+  return parts.filter(Boolean);
+}
+
+// Entrega privada em múltiplas mensagens mantendo o contrato da fase oficial.
+async function sendCorrespondentePrivateDelivery(env, correspondenteWaId, dossiePrivado, docsText) {
+  const dossieParts = splitMessageForWhatsapp(["✅ Caso assumido com exclusividade.", "", dossiePrivado].join("\n"));
+  const docsParts = splitMessageForWhatsapp(docsText);
+  const payloads = [...dossieParts, ...docsParts];
+  for (const body of payloads) {
+    await sendWhatsToCorrespondente(env, correspondenteWaId, body);
+  }
+  return { partsSent: payloads.length };
+}
+
 async function getCorrespondenteCaseByToken(env, token) {
   const safeToken = normalizeAssumirToken(token);
   if (!safeToken) return null;
@@ -6602,13 +6648,12 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
     return { handled: true, reason: "assumir_token_state_not_found" };
   }
 
-  const dossiePrivado = gerarDossieCompleto(stCaso);
+  const dossiePrivado = String(stCaso.dossie_resumo || "").trim() || gerarDossieCompleto(stCaso);
   const docs = await getCaseDocumentLinks(env, caso.wa_id);
   const docsText = buildCorrespondentePrivateDocsLinksText(docs);
-  const entregaPrivadaMsg = buildCorrespondentePrivateDeliveryMessage(dossiePrivado, docsText);
 
   try {
-    await sendWhatsToCorrespondente(env, correspondenteWaId, entregaPrivadaMsg);
+    await sendCorrespondentePrivateDelivery(env, correspondenteWaId, dossiePrivado, docsText);
   } catch (err) {
     await upsertState(env, caso.wa_id, {
       corr_entrega_privada_status: "falha_entrega_privada",

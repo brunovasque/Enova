@@ -6313,6 +6313,7 @@ async function handleDocumentUpload(env, st, msg) {
 // 🧩 FUNÇÃO — GERAR DOSSIÊ COMPLETO DO CLIENTE
 // =============================================================
 function gerarDossieCompleto(st) {
+  const statusDocs = st.envio_docs_status || st.docs_status_geral || "pendente";
 
   return `
 📌 *Dossiê do Cliente*
@@ -6331,10 +6332,32 @@ function gerarDossieCompleto(st) {
 
 🚨 Restrição: ${st.restricao || "não informado"}
 
-📂 Status Documentos: ${st.docs_status_geral || "pendente"}
+📂 Status Documentos: ${statusDocs}
 
 ID: ${st.wa_id}
   `.trim();
+}
+
+// =========================================================
+// 🚦 CORRESPONDENTE OFICIAL
+// Caminho oficial atual: finalizacao_processo -> enviarParaCorrespondente -> sendWhatsToCorrespondente -> aguardando_retorno_correspondente.
+// Mudanças futuras da fase correspondente devem ocorrer neste caminho oficial, preservando gates/nextStage atuais.
+// Este envio oficial depende da prontidão canônica do pacote (pacote_status/envio_docs_status/analise_docs_*/pacote_*).
+// =========================================================
+function isCorrespondentePacoteReady(st) {
+  const envioCompleto = String(st?.envio_docs_status || "").toLowerCase() === "completo";
+  const pacotePronto = String(st?.pacote_status || "").toLowerCase() === "pronto";
+  const analiseDisponivel = typeof st?.analise_docs_status === "string" && st.analise_docs_status.length > 0;
+  const pacoteEstrutural =
+    Array.isArray(st?.pacote_participantes_json) &&
+    Array.isArray(st?.pacote_documentos_anexados_json) &&
+    st?.pacote_renda_resumo_json &&
+    typeof st.pacote_renda_resumo_json === "object" &&
+    !Array.isArray(st.pacote_renda_resumo_json) &&
+    st?.pacote_restricoes_json &&
+    typeof st.pacote_restricoes_json === "object" &&
+    !Array.isArray(st.pacote_restricoes_json);
+  return envioCompleto && pacotePronto && analiseDisponivel && !!pacoteEstrutural;
 }
 
 // =========================================================
@@ -6372,7 +6395,7 @@ async function enviarParaCorrespondente(env, st, dossie) {
 
   const dependenteTxt = st.dependente === true ? "Sim" : (st.dependente === false ? "Não" : "Não informado");
 
-  const statusDocs = st.docs_status_geral || "pendente";
+  const statusDocs = st.envio_docs_status || st.docs_status_geral || "pendente";
 
   const mensagemCorrespondente = [
     "Olá! Por favor, analisar este perfil para Minha Casa Minha Vida 🙏",
@@ -6461,6 +6484,11 @@ async function sendWhatsToCorrespondente(env, to, body) {
   }
 }
 
+// ======================================================================
+// 🧭 CORRESPONDENTE LEGADO ISOLADO
+// Legado isolado (não-oficial): parseCorrespondenteBlocks/findClientByName/handleCorrespondenteRetorno.
+// Não promover nem evoluir este bloco sem diagnóstico comprovado de runtime no Worker.
+// Mudanças futuras da fase correspondente devem priorizar o caminho oficial acima.
 // ======================================================================
 // 🧱 D4 — RETORNO DO CORRESPONDENTE (interpretação + aviso ao cliente)
 // ======================================================================
@@ -14832,6 +14860,9 @@ case "agendamento_visita": {
 }
 
 // =========================================================
+// 🚦 CORRESPONDENTE OFICIAL
+// Este case é a entrada oficial da fase correspondente.
+// Preserve o trilho oficial atual e faça evoluções futuras aqui (não no legado isolado).
 // 🧩 D1 — FINALIZAÇÃO DO PROCESSO (envio ao correspondente)
 // =========================================================
 case "finalizacao_processo": {
@@ -14866,6 +14897,31 @@ case "finalizacao_processo": {
   // CLIENTE CONFIRMA ENVIO AO CORRESPONDENTE
   // ------------------------------------------------------
   if (confirmar) {
+    const pacoteReady = isCorrespondentePacoteReady(st);
+    if (!pacoteReady) {
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: "finalizacao_processo",
+        severity: "warning",
+        message: "Bloqueio de envio: pacote canônico ainda não está pronto para correspondente",
+        details: {
+          envio_docs_status: st.envio_docs_status || null,
+          pacote_status: st.pacote_status || null
+        }
+      });
+
+      return step(
+        env,
+        st,
+        [
+          "Perfeito — só falta eu confirmar a prontidão final do pacote documental para envio oficial ao correspondente.",
+          "Assim que o pacote estiver pronto, eu sigo com o envio por aqui sem precisar repetir nada."
+        ],
+        "finalizacao_processo"
+      );
+    }
 
     // monta dossiê simples (versão 1 — depois evoluímos)
     const dossie = `

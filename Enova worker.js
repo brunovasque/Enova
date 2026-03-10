@@ -5827,16 +5827,28 @@ function buildAnaliseDocsPayloadFromEnvio(itens = []) {
 }
 
 function buildPacoteRendaResumoPorParticipante(participantes = []) {
-  const rendaFormalRegimes = new Set(["clt", "servidor", "aposentado", "pensionista"]);
   return participantes.map((p) => {
-    const renda = dossieToMoney(p?.renda);
+    const rendaFormal = dossieToMoney(p?.renda_formal);
+    const rendaInformal = dossieToMoney(p?.renda_informal);
+    const rendaTotal = rendaFormal + rendaInformal;
     const regime = String(p?.regime_trabalho || "").toLowerCase();
-    const natureza = rendaFormalRegimes.has(regime) ? "formal" : regime === "autonomo" ? "informal" : "mista_ou_indefinida";
+    const natureza =
+      rendaFormal > 0 && rendaInformal > 0
+        ? "mista_ou_indefinida"
+        : rendaFormal > 0
+          ? "formal"
+          : rendaInformal > 0
+            ? "informal"
+            : regime === "autonomo"
+              ? "informal"
+              : "mista_ou_indefinida";
     return {
-      participante: p?.id || null,
-      papel: p?.role || null,
+      participante: p?.participante || p?.id || null,
+      papel: p?.papel || p?.role || null,
       regime_trabalho: p?.regime_trabalho || null,
-      renda,
+      renda_formal: rendaFormal,
+      renda_informal: rendaInformal,
+      renda_total: rendaTotal,
       natureza_renda: natureza
     };
   });
@@ -5922,9 +5934,9 @@ function buildPacoteCorrespondentePayloadFromState(st, itens = [], analisePayloa
     pacote_restricoes_json: {
       resumo: st?.dossie_restricao_resumo || null,
       participantes: participantes.map((p) => ({
-        participante: p?.id || null,
-        restricao: dossieIsYes(p?.restricao),
-        regularizacao_restricao: dossieIsYes(p?.regularizacao_restricao)
+        participante: p?.participante || p?.id || null,
+        tem_restricao: dossieIsYes(p?.tem_restricao ?? p?.restricao),
+        restricao_regularizada: dossieIsYes(p?.restricao_regularizada ?? p?.regularizacao_restricao)
       }))
     },
     pacote_pendencias_json: pendencias,

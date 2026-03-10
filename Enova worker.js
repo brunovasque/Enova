@@ -2144,6 +2144,21 @@ function enovaV1FixturePatch(id) {
         pacote_restricoes_json: { resumo: "sem_restricao" }
       };
 
+    case "fx_correspondente_publicado_v1":
+      return {
+        nome: "JOAO TESTE",
+        envio_docs_status: "completo",
+        pacote_status: "pronto",
+        analise_docs_status: "validada",
+        pacote_participantes_json: [{ participante: "p1", papel: "titular" }],
+        pacote_documentos_anexados_json: [{ tipo: "rg", participante: "p1", status: "validado_basico" }],
+        pacote_renda_resumo_json: { total_geral: 2000 },
+        pacote_restricoes_json: { resumo: "sem_restricao" },
+        pre_cadastro_numero: "AB12CD34",
+        processo_pre_analise_status: "publicado_grupo_pendente_assumir",
+        processo_enviado_correspondente: false
+      };
+
     case "fx_correspondente_retorno_v1":
       return {
         nome: "JOAO TESTE",
@@ -2466,7 +2481,8 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "restricao_p3", grupo: "restricao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_p3_v1", start_stage: "restricao_parceiro_p3", input: "sim", expected: { type: "single", equals: "regularizacao_restricao_p3" } },
 
     { id: "terminal_finalizacao_processo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_renda_v1", start_stage: "finalizacao", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
-    { id: "terminal_finalizacao_processo_auto_envio", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_envio_ready_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_finalizacao_processo_publica_grupo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_envio_ready_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "terminal_finalizacao_processo_aguarda_assumir", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_retorno_correspondente_aprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO APROVADO", expected: { type: "single", equals: "agendamento_visita" } },
     { id: "terminal_retorno_correspondente_reprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO REPROVADO\nMotivo: score", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_retorno_correspondente_pendencia", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência: comprovante de residência", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
@@ -3949,13 +3965,13 @@ let userText = null;
 
     if (interactive.type === "button") {
       userText =
-        interactive.button_reply?.title ||
         interactive.button_reply?.id ||
+        interactive.button_reply?.title ||
         "";
     } else if (interactive.type === "list_reply") {
       userText =
-        interactive.list_reply?.title ||
         interactive.list_reply?.id ||
+        interactive.list_reply?.title ||
         "";
     }
   } else if (isSupportedMediaType) {
@@ -3995,6 +4011,14 @@ let userText = null;
 
     return metaWebhookResponse(200, {
       reason: "webhook_no_text",
+      type
+    });
+  }
+
+  const assumirCmd = await handleCorrespondenteAssumirCommand(env, msg, userText);
+  if (assumirCmd?.handled) {
+    return metaWebhookResponse(200, {
+      reason: assumirCmd.reason || "assumir_token_handled",
       type
     });
   }
@@ -6361,6 +6385,192 @@ ID: ${st.wa_id}
   `.trim();
 }
 
+function normalizeAssumirToken(token) {
+  return String(token || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 8);
+}
+
+function gerarAssumirToken() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  let raw = "";
+  for (const b of bytes) raw += alphabet[b % alphabet.length];
+  return normalizeAssumirToken(raw);
+}
+
+function parseAssumirTokenFromText(userText) {
+  const txt = String(userText || "").trim();
+  const m = txt.match(/^assumir[\s:;#-]*([a-z0-9-]{4,32})\b/i);
+  if (!m) return null;
+  return normalizeAssumirToken(m[1]);
+}
+
+function buildCorrespondenteGroupAlert(st, token) {
+  const caseRef = String(st?.wa_id || "").slice(-4).padStart(4, "0");
+  return [
+    "🚨 *Novo caso para correspondente*",
+    `Ref: C${caseRef}`,
+    `Token: ${token}`,
+    "",
+    "Para assumir com exclusividade, responda no privado:",
+    `ASSUMIR ${token}`,
+    "",
+    "⚠️ Este grupo é apenas distribuição (sem dados sensíveis)."
+  ].join("\n");
+}
+
+function buildCorrespondentePrivateDocsLinksText(docs = []) {
+  if (!Array.isArray(docs) || docs.length === 0) {
+    return "Links de documentos: nenhum link encontrado no momento.";
+  }
+
+  const lines = docs
+    .filter((d) => d?.url)
+    .slice(0, 30)
+    .map((d, idx) => {
+      const tipo = d?.tipo || "documento";
+      const participante = d?.participante ? ` (${String(d.participante).toUpperCase()})` : "";
+      return `${idx + 1}. ${tipo}${participante}: ${d.url}`;
+    });
+
+  return lines.length
+    ? ["🔗 *Links dos documentos do caso:*", ...lines].join("\n")
+    : "Links de documentos: nenhum link encontrado no momento.";
+}
+
+async function getCorrespondenteCaseByToken(env, token) {
+  const safeToken = normalizeAssumirToken(token);
+  if (!safeToken) return null;
+
+  const { data } = await sbFetch(env, "/rest/v1/enova_state", {
+    method: "GET",
+    query: {
+      pre_cadastro_numero: `eq.${encodeURIComponent(safeToken)}`,
+      select: "wa_id,nome,fase_conversa,pre_cadastro_numero,processo_pre_analise,processo_pre_analise_status,processo_enviado_correspondente,dossie_resumo",
+      order: "updated_at.desc",
+      limit: 1
+    }
+  });
+
+  if (!Array.isArray(data) || !data.length) return null;
+  return data[0];
+}
+
+async function getCaseDocumentLinks(env, wa_id) {
+  if (!wa_id) return [];
+  const { data } = await sbFetch(env, "/rest/v1/enova_docs", {
+    method: "GET",
+    query: {
+      wa_id: `eq.${encodeURIComponent(wa_id)}`,
+      select: "tipo,participante,url,created_at",
+      order: "created_at.asc",
+      limit: 50
+    }
+  });
+  return Array.isArray(data) ? data : [];
+}
+
+async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
+  await sbFetch(env, "/rest/v1/enova_state", {
+    method: "PATCH",
+    query: {
+      wa_id: `eq.${encodeURIComponent(wa_id)}`,
+      processo_pre_analise: "is.null"
+    },
+    body: JSON.stringify({
+      processo_pre_analise: correspondenteWaId,
+      processo_pre_analise_status: "assumido_em_entrega_privada",
+      updated_at: new Date().toISOString()
+    })
+  });
+
+  const after = await getState(env, wa_id);
+  return after?.processo_pre_analise === correspondenteWaId;
+}
+
+async function handleCorrespondenteAssumirCommand(env, msg, userText) {
+  const token = parseAssumirTokenFromText(userText);
+  if (!token) return { handled: false };
+
+  const from = String(msg?.from || "").trim();
+  const author = String(msg?.author || "").trim();
+  const correspondenteWaId = author || (from && from !== String(env.CORRESPONDENTE_TO || "").trim() ? from : "");
+  if (!correspondenteWaId) return { handled: false };
+
+  const caso = await getCorrespondenteCaseByToken(env, token);
+  if (!caso || !caso.wa_id) {
+    await sendMessage(env, correspondenteWaId, `Token ${token} não encontrado ou já expirado.`);
+    return { handled: true, reason: "assumir_token_not_found" };
+  }
+
+  if (correspondenteWaId === caso.wa_id) {
+    await sendMessage(env, correspondenteWaId, "Esse token é de um atendimento de cliente. Assunção permitida apenas para correspondente.");
+    return { handled: true, reason: "assumir_token_cliente_bloqueado" };
+  }
+
+  if (caso.processo_enviado_correspondente === true) {
+    await sendMessage(env, correspondenteWaId, "Este caso já foi assumido e entregue em privado.");
+    return { handled: true, reason: "assumir_token_already_delivered" };
+  }
+
+  const lockAtual = String(caso.processo_pre_analise || "").trim();
+  if (lockAtual && lockAtual !== correspondenteWaId) {
+    await sendMessage(env, correspondenteWaId, "Este caso já foi assumido por outro correspondente.");
+    return { handled: true, reason: "assumir_token_locked" };
+  }
+
+  if (!lockAtual) {
+    const acquired = await tryAcquireCorrespondenteLock(env, caso.wa_id, correspondenteWaId);
+    if (!acquired) {
+      await sendMessage(env, correspondenteWaId, "Este caso acabou de ser assumido por outro correspondente.");
+      return { handled: true, reason: "assumir_token_lock_race" };
+    }
+  }
+
+  const stCaso = await getState(env, caso.wa_id);
+  if (!stCaso) {
+    await sendMessage(env, correspondenteWaId, "Não consegui carregar o caso para entrega privada. Tente novamente.");
+    return { handled: true, reason: "assumir_token_state_not_found" };
+  }
+
+  const dossiePrivado = gerarDossieCompleto(stCaso);
+  const docs = await getCaseDocumentLinks(env, caso.wa_id);
+  const docsText = buildCorrespondentePrivateDocsLinksText(docs);
+
+  try {
+    await sendWhatsToCorrespondente(env, correspondenteWaId, ["✅ Caso assumido com exclusividade.", "", dossiePrivado, "", docsText].join("\n"));
+  } catch (err) {
+    await upsertState(env, caso.wa_id, {
+      processo_pre_analise_status: "assumido_falha_entrega_privada"
+    });
+    await sendMessage(env, correspondenteWaId, "Consegui registrar a assunção, mas falhou a entrega privada do dossiê. Tente novamente com o mesmo token.");
+    return { handled: true, reason: "assumir_token_private_delivery_failed" };
+  }
+
+  await upsertState(env, caso.wa_id, {
+    processo_pre_analise: correspondenteWaId,
+    processo_pre_analise_status: "entregue_privado_aguardando_retorno",
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true,
+    pacote_enviado_em: new Date().toISOString()
+  });
+
+  const stAtualizado = await getState(env, caso.wa_id);
+  if (stAtualizado) {
+    await step(env, stAtualizado, [
+      "Perfeito! 👏",
+      "Seu processo foi assumido por um correspondente e o dossiê completo já foi entregue em canal privado.",
+      "Agora seguimos aguardando o retorno da pré-análise por aqui 😊"
+    ], "aguardando_retorno_correspondente");
+  }
+
+  await sendMessage(env, correspondenteWaId, `Assunção confirmada. Caso ${token} entregue no seu privado.`);
+  return { handled: true, reason: "assumir_token_success" };
+}
+
 // =========================================================
 // 🚦 CORRESPONDENTE OFICIAL
 // Caminho oficial atual: finalizacao_processo -> enviarParaCorrespondente -> sendWhatsToCorrespondente -> aguardando_retorno_correspondente.
@@ -6399,97 +6609,81 @@ async function enviarParaCorrespondente(env, st, dossie) {
     console.error("Erro ao logar envio ao correspondente:", e);
   }
 
-  // 2 — Monta texto bonitão pro correspondente (estilo print que você mandou)
-  const nomeCliente = st.nome || "NÃO INFORMADO";
-  const estadoCivil = st.estado_civil || "NÃO INFORMADO";
+  const tokenAssumir = normalizeAssumirToken(st?.pre_cadastro_numero) || gerarAssumirToken();
+  const mensagemGrupo = buildCorrespondenteGroupAlert(st, tokenAssumir);
 
-  const rendaTitular  = st.renda ? `Renda Titular: R$ ${st.renda}` : "Renda Titular: não informada";
-  const rendaParc    = st.renda_parceiro ? `Renda Parceiro: R$ ${st.renda_parceiro}` : "Renda Parceiro: não informado";
-  const somaRendaTxt = st.somar_renda ? "Sim" : "Não";
-
-  const ctpsTitular  = st.ctps_36 === true ? "Sim" : (st.ctps_36 === false ? "Não" : "Não informado");
-  const ctpsParc     = st.ctps_36_parceiro === true ? "Sim" : (st.ctps_36_parceiro === false ? "Não" : "Não informado");
-
-  let restricaoTxt;
-  if (st.restricao === true) restricaoTxt = "Sim (cliente informou restrição)";
-  else if (st.restricao === false) restricaoTxt = "Não";
-  else if (st.restricao === "incerto") restricaoTxt = "Incerto (cliente não soube confirmar)";
-  else restricaoTxt = "Não informado";
-
-  const dependenteTxt = st.dependente === true ? "Sim" : (st.dependente === false ? "Não" : "Não informado");
-
-  const statusDocs = st.envio_docs_status || st.docs_status_geral || "pendente";
-
-  const mensagemCorrespondente = [
-    "Olá! Por favor, analisar este perfil para Minha Casa Minha Vida 🙏",
-    "",
-    `👤 Cliente: ${nomeCliente}`,
-    `💍 Estado civil: ${estadoCivil}`,
-    `🤝 Soma renda com alguém? ${somaRendaTxt}`,
-    "",
-    `💰 ${rendaTitular}`,
-    `💰 ${rendaParc}`,
-    "",
-    `📘 CTPS Titular ≥ 36 meses: ${ctpsTitular}`,
-    `📘 CTPS Parceiro ≥ 36 meses: ${ctpsParc}`,
-    "",
-    `👶 Dependente menor de 18: ${dependenteTxt}`,
-    `🚨 Restrição em CPF: ${restricaoTxt}`,
-    "",
-    `📂 Status documentos: ${statusDocs}`,
-    "",
-    "Resumo IA:",
-    dossie,
-    "",
-    "Assim que tiver a pré-análise, me retorne por favor com:",
-    "- CRÉDITO APROVADO ou CRÉDITO REPROVADO",
-    "- Observações / condições principais 🙏"
-  ].join("\n");
-
-  // 3 — Envia mensagem via WhatsApp Cloud API para o grupo / número do correspondente
-  const to = env.CORRESPONDENTE_TO; 
-  // 👉 configure no Cloudflare:
-  // CORRESPONDENTE_TO = número do grupo ou telefone do correspondente (ex: 5541999999999)
+  // 3 — Publica alerta mínimo no grupo (distribuição sem dados sensíveis)
+  const to = env.CORRESPONDENTE_TO;
+  // CORRESPONDENTE_TO = grupo de correspondentes (distribuição)
 
   if (!to) {
     console.warn("CORRESPONDENTE_TO não configurado no ambiente. Não foi possível enviar ao correspondente.");
-    return false;
+    return { ok: false, token: tokenAssumir, mode: "none" };
   }
 
   try {
-    await sendWhatsToCorrespondente(env, to, mensagemCorrespondente);
-  } catch (err) {
-    console.error("Erro ao enviar mensagem ao correspondente:", err);
-    return false;
-  }
+    const allowInteractive = String(env.CORRESPONDENTE_GROUP_INTERACTIVE || "").toLowerCase() === "true";
+    if (allowInteractive) {
+      const payloadInteractive = {
+        messaging_product: "whatsapp",
+        to,
+        type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: mensagemGrupo },
+          action: {
+            buttons: [
+              {
+                type: "reply",
+                reply: {
+                  id: `ASSUMIR ${tokenAssumir}`,
+                  title: "Assumir"
+                }
+              }
+            ]
+          }
+        }
+      };
+      await sendWhatsPayloadToCorrespondente(env, payloadInteractive);
+      return { ok: true, token: tokenAssumir, mode: "interactive" };
+    }
 
-  return true;
+    await sendWhatsToCorrespondente(env, to, mensagemGrupo);
+    return { ok: true, token: tokenAssumir, mode: "text" };
+  } catch (err) {
+    console.warn("Falha no envio interativo; fallback para texto ASSUMIR <TOKEN>.", err?.message || err);
+    try {
+      await sendWhatsToCorrespondente(env, to, mensagemGrupo);
+      return { ok: true, token: tokenAssumir, mode: "fallback_text" };
+    } catch (err2) {
+      console.error("Erro ao publicar alerta no grupo de correspondentes:", err2);
+      return { ok: false, token: tokenAssumir, mode: "none" };
+    }
+  }
 }
 
 // =========================================================
 // 🔧 Helper — enviar mensagem de texto pro correspondente
 // =========================================================
 async function sendWhatsToCorrespondente(env, to, body) {
-  const simCtx = getSimulationContext(env);
-  if (simCtx?.suppressExternalSend) {
-    simCtx.sendPreview = {
-      messaging_product: "whatsapp",
-      to,
-      type: "text",
-      text: { body }
-    };
-    simCtx.wouldSend = true;
-    return true;
-  }
-
-  const url = `https://graph.facebook.com/v20.0/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
-
   const payload = {
     messaging_product: "whatsapp",
     to,
     type: "text",
     text: { body }
   };
+  return sendWhatsPayloadToCorrespondente(env, payload);
+}
+
+async function sendWhatsPayloadToCorrespondente(env, payload) {
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.suppressExternalSend) {
+    simCtx.sendPreview = payload;
+    simCtx.wouldSend = true;
+    return true;
+  }
+
+  const url = `https://graph.facebook.com/v20.0/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 
   const res = await fetch(url, {
     method: "POST",
@@ -14960,7 +15154,20 @@ case "finalizacao_processo": {
     );
   }
 
-  // monta dossiê simples (versão 1 — depois evoluímos)
+  const statusPreAnalise = String(st.processo_pre_analise_status || "").toLowerCase();
+  if (statusPreAnalise === "publicado_grupo_pendente_assumir" || statusPreAnalise === "assumido_em_entrega_privada" || statusPreAnalise === "assumido_falha_entrega_privada") {
+    return step(
+      env,
+      st,
+      [
+        "Seu caso já foi publicado para distribuição entre correspondentes.",
+        "Assim que um correspondente assumir, eu sigo automaticamente com a entrega privada e te aviso por aqui."
+      ],
+      "finalizacao_processo"
+    );
+  }
+
+  // monta dossiê simples (uso privado após assunção)
   const dossie = `
 Cliente: ${st.nome || "não informado"}
 Estado Civil: ${st.estado_civil || "não informado"}
@@ -14973,13 +15180,16 @@ Dependente: ${st.dependente === true ? "Sim" : "Não"}
 Restrição: ${st.restricao || "não informado"}
 `.trim();
 
-  const envioOk = await enviarParaCorrespondente(env, st, dossie);
+  const envio = await enviarParaCorrespondente(env, st, dossie);
   await upsertState(env, st.wa_id, {
     dossie_resumo: dossie,
-    processo_enviado_correspondente: envioOk === true
+    pre_cadastro_numero: envio?.token || st.pre_cadastro_numero || null,
+    processo_pre_analise_status: envio?.ok ? "publicado_grupo_pendente_assumir" : "falha_publicacao_grupo",
+    processo_pre_analise: st.processo_pre_analise || null,
+    processo_enviado_correspondente: false
   });
 
-  if (!envioOk) {
+  if (!envio?.ok) {
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -14993,23 +15203,25 @@ Restrição: ${st.restricao || "não informado"}
       env,
       st,
       [
-        "Estou finalizando seu envio oficial ao correspondente e já sigo por aqui.",
-        "Se houver qualquer indisponibilidade momentânea, eu continuo o processamento sem você precisar repetir informações."
+        "Estou finalizando a publicação do seu caso para distribuição ao correspondente e já sigo por aqui.",
+        "Se houver qualquer indisponibilidade momentânea, continuo o processamento sem você precisar repetir informações."
       ],
       "finalizacao_processo"
     );
   }
 
-  // TELEMETRIA — saída da fase com envio confirmado
+  // TELEMETRIA — saída da fase mantendo entrada oficial até assunção/entrega privada
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
     stage,
-    next_stage: "aguardando_retorno_correspondente",
+    next_stage: "finalizacao_processo",
     severity: "info",
-    message: "Processo enviado ao correspondente",
+    message: "Caso publicado no grupo de correspondentes aguardando assunção com lock",
     details: {
-      processo_enviado_correspondente: true
+      processo_enviado_correspondente: false,
+      token_assumir: envio?.token || null,
+      modo_publicacao: envio?.mode || null
     }
   });
 
@@ -15019,10 +15231,10 @@ Restrição: ${st.restricao || "não informado"}
     st,
     [
       "Perfeito! 👏",
-      "Acabei de enviar seu processo ao correspondente bancário.",
-      "Assim que eles retornarem com a pré-análise, eu te aviso aqui mesmo 😊"
+      "Publiquei seu caso no canal oficial de distribuição dos correspondentes.",
+      "Assim que um correspondente assumir e eu concluir a entrega privada do dossiê, te aviso aqui mesmo 😊"
     ],
-    "aguardando_retorno_correspondente"
+    "finalizacao_processo"
   );
 
 } // 🔥 FECHA O CASE "finalizacao_processo"

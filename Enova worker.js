@@ -1627,6 +1627,13 @@ async function resetTotal(env, wa_id) {
 
     processo_pre_analise: null,
     processo_pre_analise_status: null,
+    corr_assumir_token: null,
+    corr_publicacao_status: null,
+    corr_publicado_grupo_em: null,
+    corr_lock_correspondente_wa_id: null,
+    corr_lock_assumido_em: null,
+    corr_entrega_privada_status: null,
+    corr_entrega_privada_em: null,
     retorno_correspondente_bruto: null,
     retorno_correspondente_status: null,
     retorno_correspondente_motivo: null,
@@ -1784,6 +1791,13 @@ function createSimulationState(wa_id, startStage) {
 
     processo_pre_analise: null,
     processo_pre_analise_status: null,
+    corr_assumir_token: null,
+    corr_publicacao_status: null,
+    corr_publicado_grupo_em: null,
+    corr_lock_correspondente_wa_id: null,
+    corr_lock_assumido_em: null,
+    corr_entrega_privada_status: null,
+    corr_entrega_privada_em: null,
     retorno_correspondente_bruto: null,
     retorno_correspondente_status: null,
     retorno_correspondente_motivo: null,
@@ -2154,8 +2168,8 @@ function enovaV1FixturePatch(id) {
         pacote_documentos_anexados_json: [{ tipo: "rg", participante: "p1", status: "validado_basico" }],
         pacote_renda_resumo_json: { total_geral: 2000 },
         pacote_restricoes_json: { resumo: "sem_restricao" },
-        pre_cadastro_numero: "AB12CD34",
-        processo_pre_analise_status: "publicado_grupo_pendente_assumir",
+        corr_assumir_token: "AB12CD34",
+        corr_publicacao_status: "publicado_grupo_pendente_assumir",
         processo_enviado_correspondente: false
       };
 
@@ -6455,15 +6469,14 @@ function buildCorrespondentePrivateDeliveryMessage(dossiePrivado, docsText) {
 }
 
 async function getCorrespondenteCaseByToken(env, token) {
-  // Reuso de coluna existente: pre_cadastro_numero guarda token operacional de assunção.
   const safeToken = normalizeAssumirToken(token);
   if (!safeToken) return null;
 
   const { data } = await sbFetch(env, "/rest/v1/enova_state", {
     method: "GET",
     query: {
-      pre_cadastro_numero: `eq.${encodeURIComponent(safeToken)}`,
-      select: "wa_id,nome,fase_conversa,pre_cadastro_numero,processo_pre_analise,processo_pre_analise_status,processo_enviado_correspondente,dossie_resumo",
+      corr_assumir_token: `eq.${encodeURIComponent(safeToken)}`,
+      select: "wa_id,nome,fase_conversa,corr_assumir_token,corr_publicacao_status,corr_lock_correspondente_wa_id,corr_entrega_privada_status,processo_enviado_correspondente,dossie_resumo",
       order: "updated_at.desc",
       limit: 1
     }
@@ -6492,17 +6505,18 @@ async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
     method: "PATCH",
     query: {
       wa_id: `eq.${encodeURIComponent(wa_id)}`,
-      processo_pre_analise: "is.null"
+      corr_lock_correspondente_wa_id: "is.null"
     },
     body: JSON.stringify({
-      processo_pre_analise: correspondenteWaId,
-      processo_pre_analise_status: "assumido_em_entrega_privada",
+      corr_lock_correspondente_wa_id: correspondenteWaId,
+      corr_lock_assumido_em: new Date().toISOString(),
+      corr_publicacao_status: "assumido_em_entrega_privada",
       updated_at: new Date().toISOString()
     })
   });
 
   const after = await getState(env, wa_id);
-  return after?.processo_pre_analise === correspondenteWaId;
+  return after?.corr_lock_correspondente_wa_id === correspondenteWaId;
 }
 
 async function handleCorrespondenteAssumirCommand(env, msg, userText) {
@@ -6528,7 +6542,7 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
     return { handled: true, reason: "assumir_token_already_delivered" };
   }
 
-  const lockAtual = String(caso.processo_pre_analise || "").trim();
+  const lockAtual = String(caso.corr_lock_correspondente_wa_id || "").trim();
   if (lockAtual && lockAtual !== correspondenteWaId) {
     await sendMessage(env, correspondenteWaId, "Este caso já foi assumido por outro correspondente.");
     return { handled: true, reason: "assumir_token_locked" };
@@ -6557,19 +6571,20 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
     await sendWhatsToCorrespondente(env, correspondenteWaId, entregaPrivadaMsg);
   } catch (err) {
     await upsertState(env, caso.wa_id, {
-      processo_pre_analise_status: "assumido_falha_entrega_privada"
+      corr_entrega_privada_status: "falha_entrega_privada",
+      corr_publicacao_status: "assumido_falha_entrega_privada"
     });
     await sendMessage(env, correspondenteWaId, "Consegui registrar a assunção, mas falhou a entrega privada do dossiê. Tente novamente com o mesmo token.");
     return { handled: true, reason: "assumir_token_private_delivery_failed" };
   }
 
   await upsertState(env, caso.wa_id, {
-    processo_pre_analise: correspondenteWaId,
-    processo_pre_analise_status: "entregue_privado_aguardando_retorno",
+    corr_lock_correspondente_wa_id: correspondenteWaId,
+    corr_entrega_privada_status: "entregue_privado_aguardando_retorno",
+    corr_entrega_privada_em: new Date().toISOString(),
+    corr_publicacao_status: "entregue_privado_aguardando_retorno",
     processo_enviado_correspondente: true,
-    aguardando_retorno_correspondente: true,
-    // Reuso de coluna existente para timestamp da entrega privada do pacote ao correspondente.
-    pacote_enviado_em: new Date().toISOString()
+    aguardando_retorno_correspondente: true
   });
 
   const stAtualizado = await getState(env, caso.wa_id);
@@ -6624,7 +6639,7 @@ async function enviarParaCorrespondente(env, st, dossie) {
     console.error("Erro ao logar envio ao correspondente:", e);
   }
 
-  const tokenAssumir = normalizeAssumirToken(st?.pre_cadastro_numero) || gerarAssumirToken();
+  const tokenAssumir = normalizeAssumirToken(st?.corr_assumir_token) || gerarAssumirToken();
   const mensagemGrupo = buildCorrespondenteGroupAlert(st, tokenAssumir);
 
   // 3 — Publica alerta mínimo no grupo (distribuição sem dados sensíveis)
@@ -15169,8 +15184,8 @@ case "finalizacao_processo": {
     );
   }
 
-  const statusPreAnalise = String(st.processo_pre_analise_status || "").toLowerCase();
-  if (statusPreAnalise === "publicado_grupo_pendente_assumir" || statusPreAnalise === "assumido_em_entrega_privada" || statusPreAnalise === "assumido_falha_entrega_privada") {
+  const statusPublicacaoCorr = String(st.corr_publicacao_status || "").toLowerCase();
+  if (statusPublicacaoCorr === "publicado_grupo_pendente_assumir" || statusPublicacaoCorr === "assumido_em_entrega_privada" || statusPublicacaoCorr === "assumido_falha_entrega_privada") {
     return step(
       env,
       st,
@@ -15198,9 +15213,10 @@ Restrição: ${st.restricao || "não informado"}
   const envio = await enviarParaCorrespondente(env, st, dossie);
   await upsertState(env, st.wa_id, {
     dossie_resumo: dossie,
-    pre_cadastro_numero: envio?.token || st.pre_cadastro_numero || null,
-    processo_pre_analise_status: envio?.ok ? "publicado_grupo_pendente_assumir" : "falha_publicacao_grupo",
-    processo_pre_analise: st.processo_pre_analise || null,
+    corr_assumir_token: envio?.token || st.corr_assumir_token || null,
+    corr_publicacao_status: envio?.ok ? "publicado_grupo_pendente_assumir" : "falha_publicacao_grupo",
+    corr_publicado_grupo_em: envio?.ok ? new Date().toISOString() : st.corr_publicado_grupo_em || null,
+    corr_lock_correspondente_wa_id: st.corr_lock_correspondente_wa_id || null,
     processo_enviado_correspondente: false
   });
 

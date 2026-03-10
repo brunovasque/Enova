@@ -1590,6 +1590,7 @@ async function resetTotal(env, wa_id) {
     docs_itens_pendentes: null,
     docs_itens_recebidos: null,
     docs_lista_enviada: null,
+    envio_docs_lista_enviada: null,
     docs_status_completo: null,
     docs_status_parcial: null,
     docs_status_texto: null,
@@ -1599,10 +1600,20 @@ async function resetTotal(env, wa_id) {
     canal_docs_motivo_recusa: null,
     canal_docs_agendamento_pendente: null,
     canal_docs_opcoes_liberadas_json: null,
+
     envio_docs_status: null,
+    envio_docs_canal: null,
+    envio_docs_checklist_versao: null,
+    envio_docs_total_itens: null,
     envio_docs_total_recebidos: null,
     envio_docs_total_pendentes: null,
+    envio_docs_total_ilegiveis: null,
+    envio_docs_ultimo_pedido_em: null,
+    envio_docs_lembrete_count: null,
+    envio_docs_itens_json: null,
+    envio_docs_pendencias_json: null,
     envio_docs_historico_json: null,
+
     pacote_status: null,
     pacote_destino: null,
     pacote_resumo_caso: null,
@@ -1736,6 +1747,7 @@ function createSimulationState(wa_id, startStage) {
     docs_itens_pendentes: null,
     docs_itens_recebidos: null,
     docs_lista_enviada: null,
+    envio_docs_lista_enviada: null,
     docs_status_completo: null,
     docs_status_parcial: null,
     docs_status_texto: null,
@@ -1745,10 +1757,20 @@ function createSimulationState(wa_id, startStage) {
     canal_docs_motivo_recusa: null,
     canal_docs_agendamento_pendente: null,
     canal_docs_opcoes_liberadas_json: null,
+
     envio_docs_status: null,
+    envio_docs_canal: null,
+    envio_docs_checklist_versao: null,
+    envio_docs_total_itens: null,
     envio_docs_total_recebidos: null,
     envio_docs_total_pendentes: null,
+    envio_docs_total_ilegiveis: null,
+    envio_docs_ultimo_pedido_em: null,
+    envio_docs_lembrete_count: null,
+    envio_docs_itens_json: null,
+    envio_docs_pendencias_json: null,
     envio_docs_historico_json: null,
+
     pacote_status: null,
     pacote_destino: null,
     pacote_resumo_caso: null,
@@ -1768,7 +1790,7 @@ function createSimulationState(wa_id, startStage) {
     dossie_resumo: null,
     processo_enviado_correspondente: null,
     aguardando_retorno_correspondente: null,
-
+    
     // Participantes (zera composição antiga)
     p1_tipo: null,
     p2_tipo: null,
@@ -5557,9 +5579,18 @@ function prettyDocLabel(type) {
   return map[type] || type;
 }
 
+function hasComposicaoConfirmadaP2(st) {
+  return (
+    st.financiamento_conjunto === true ||
+    Boolean(st.p2_tipo) ||
+    Boolean(st.composicao_pessoa)
+  );
+}
+
 // 17.2 — Gera checklist dinâmico p/ P1 e P2
 function generateChecklistForDocs(st) {
   const checklist = [];
+  const hasP2Confirmado = hasComposicaoConfirmadaP2(st);
 
   // Documentos obrigatórios P1
   checklist.push({ tipo: "identidade_cpf", participante: "p1" });
@@ -5592,7 +5623,7 @@ function generateChecklistForDocs(st) {
   }
 
   // Documentos P2 caso somar renda
-  if (st.financiamento_conjunto || st.somar_renda) {
+  if (hasP2Confirmado) {
     checklist.push({ tipo: "identidade_cpf", participante: "p2" });
     checklist.push({ tipo: "comprovante_residencia", participante: "p2" });
     checklist.push({ tipo: "ctps_completa", participante: "p2" });
@@ -14365,6 +14396,9 @@ case "envio_docs": {
       });
     }
   }
+  const listaEnviada =
+    st.envio_docs_lista_enviada === true ||
+    st.docs_lista_enviada === true;
 
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "envio_docs"
@@ -14376,7 +14410,7 @@ case "envio_docs": {
     severity: "info",
     message: "Entrando na fase: envio_docs",
     details: {
-      docs_lista_enviada: st.docs_lista_enviada || false,
+      docs_lista_enviada: listaEnviada,
       incoming_media: !!st._incoming_media
     }
   });
@@ -14527,7 +14561,7 @@ case "envio_docs": {
     ], "envio_docs");
   }
 
-  if (isEnvioDocsTextualUploadSignal(t) && st.docs_lista_enviada) {
+  if (isEnvioDocsTextualUploadSignal(t) && listaEnviada) {
     const resposta = await handleDocumentUpload(env, st, {
       type: "text_signal",
       text_signal: true,
@@ -14539,10 +14573,38 @@ case "envio_docs": {
   // =====================================================
   // CLIENTE ACEITOU RECEBER A LISTA
   // =====================================================
-  if (pronto && !st.docs_lista_enviada) {
+  if (pronto && !listaEnviada) {
+    const hasP2Confirmado = hasComposicaoConfirmadaP2(st);
+    const mensagemLista = [
+      "Show! 👏",
+      "Fechamos por envio online aqui no WhatsApp.",
+      "A lista é bem simples, olha só:",
+      "",
+      "📄 **Documentos do titular:**",
+      "- RG ou CNH",
+      "- CPF (se não tiver na CNH)",
+      "- Comprovante de residência (atual)",
+      "- Comprovante de renda (de acordo com o perfil)"
+    ];
+    if (st.ctps_36 === true) {
+      mensagemLista.push("- CTPS (carteira de trabalho) completa");
+    }
+    if (hasP2Confirmado) {
+      mensagemLista.push(
+        "",
+        "📄 **Documentos da outra pessoa da composição:**",
+        "Mesmos documentos da outra pessoa 🙌"
+      );
+    }
+    mensagemLista.push(
+      "",
+      "Assim que tiver tudo em mãos, pode enviar por aqui mesmo.",
+      "Pode mandar uma foto de cada documento 😉"
+    );
 
     const patchCanal = {
       docs_lista_enviada: true,
+      envio_docs_lista_enviada: true,
       canal_docs_status: "definido",
       canal_docs_escolhido: "whatsapp",
       canal_docs_recusa_whatsapp: false,
@@ -14566,30 +14628,17 @@ case "envio_docs": {
       message: "Cliente aceitou receber lista de documentos"
     });
 
-    return step(env, st, [
-      "Show! 👏",
-      "Fechamos por envio online aqui no WhatsApp.",
-      "A lista é bem simples, olha só:",
-      "",
-      "📄 **Documentos do titular:**",
-      "- RG ou CNH",
-      "- CPF (se não tiver na CNH)",
-      "- Comprovante de residência (atual)",
-      "- Comprovante de renda (de acordo com o perfil)",
-      "",
-      "📄 **Se somar renda com alguém:**",
-      "Mesmos documentos da outra pessoa 🙌",
-      "",
-      "Assim que tiver tudo em mãos, pode enviar por aqui mesmo.",
-      "Pode mandar uma foto de cada documento 😉"
-    ], "envio_docs");
+    return step(env, st, mensagemLista, "envio_docs");
   }
 
   // =====================================================
   // CLIENTE NÃO QUER AGORA
   // =====================================================
   if (negar) {
-    await upsertState(env, st.wa_id, { docs_lista_enviada: false });
+    await upsertState(env, st.wa_id, {
+      docs_lista_enviada: false,
+      envio_docs_lista_enviada: false
+    });
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -14609,7 +14658,7 @@ case "envio_docs": {
   // =====================================================
   // PRIMEIRA VEZ NA FASE
   // =====================================================
-  if (!st.docs_lista_enviada) {
+  if (!listaEnviada) {
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,

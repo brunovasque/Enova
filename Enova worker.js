@@ -5778,11 +5778,11 @@ function buildAnaliseDocsPayloadFromEnvio(itens = []) {
   ];
 
   const analiseStatus =
-    docsFaltantes.length > 0
-      ? "aguardando_documentos"
-      : (docsInvalidos.length > 0 || docsIlegiveis.length > 0)
-        ? "pendente_correcao"
-        : "em_analise";
+  docsInvalidos.length > 0 || docsIlegiveis.length > 0
+    ? "pendente_ajuste"
+    : docsFaltantes.length > 0
+      ? "em_analise"
+      : "validada";
 
   const resumo = {
     status: analiseStatus,

@@ -5831,7 +5831,6 @@ function buildPacoteRendaResumoPorParticipante(participantes = []) {
     const rendaFormal = dossieToMoney(p?.renda_formal);
     const rendaInformal = dossieToMoney(p?.renda_informal);
     const rendaTotal = rendaFormal + rendaInformal;
-    const regime = String(p?.regime_trabalho || "").toLowerCase();
     const natureza =
       rendaFormal > 0 && rendaInformal > 0
         ? "mista_ou_indefinida"
@@ -5839,9 +5838,7 @@ function buildPacoteRendaResumoPorParticipante(participantes = []) {
           ? "formal"
           : rendaInformal > 0
             ? "informal"
-            : regime === "autonomo"
-              ? "informal"
-              : "mista_ou_indefinida";
+            : "mista_ou_indefinida";
     return {
       participante: p?.participante || p?.id || null,
       papel: p?.papel || p?.role || null,

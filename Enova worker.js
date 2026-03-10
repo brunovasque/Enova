@@ -2497,7 +2497,7 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "terminal_finalizacao_processo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_renda_v1", start_stage: "finalizacao", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_finalizacao_processo_publica_grupo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_envio_ready_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_finalizacao_processo_aguarda_assumir", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
-    { id: "terminal_assumir_token_cliente_bloqueado", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", input: "ASSUMIR AB12CD34", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "terminal_assumir_token_bloqueado_sem_transicao", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", input: "ASSUMIR AB12CD34", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_retorno_correspondente_aprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO APROVADO", expected: { type: "single", equals: "agendamento_visita" } },
     { id: "terminal_retorno_correspondente_reprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO REPROVADO\nMotivo: score", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_retorno_correspondente_pendencia", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência: comprovante de residência", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
@@ -6475,17 +6475,20 @@ async function getCorrespondenteCaseByToken(env, token) {
 
   const simCtx = getSimulationContext(env);
   if (simCtx?.active && simCtx.stateByWaId) {
-    const entries = Object.values(simCtx.stateByWaId).filter(
-      (row) => normalizeAssumirToken(row?.corr_assumir_token) === safeToken
-    );
+    const entries = Object.values(simCtx.stateByWaId)
+      .map((row) => ({
+        row,
+        token: normalizeAssumirToken(row?.corr_assumir_token),
+        ts: (() => {
+          const parsed = Date.parse(String(row?.updated_at || ""));
+          return Number.isNaN(parsed) ? 0 : parsed;
+        })()
+      }))
+      .filter((it) => it.token === safeToken);
     if (!entries.length) return null;
     // Mantém o mesmo critério do caminho real (updated_at.desc + limit 1).
-    entries.sort((a, b) => {
-      const aTs = Date.parse(String(a?.updated_at || "")) || 0;
-      const bTs = Date.parse(String(b?.updated_at || "")) || 0;
-      return bTs - aTs;
-    });
-    return entries[0];
+    entries.sort((a, b) => b.ts - a.ts);
+    return entries[0].row;
   }
 
   const { data } = await sbFetch(env, "/rest/v1/enova_state", {
@@ -6505,6 +6508,7 @@ async function getCorrespondenteCaseByToken(env, token) {
 async function getCaseDocumentLinks(env, wa_id) {
   if (!wa_id) return [];
   const simCtx = getSimulationContext(env);
+  // Em simulação canônica, não consultamos storage externo de documentos.
   if (simCtx?.active) return [];
   const { data } = await sbFetch(env, "/rest/v1/enova_docs", {
     method: "GET",

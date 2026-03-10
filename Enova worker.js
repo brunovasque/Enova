@@ -5750,6 +5750,62 @@ function recomputeEnvioDocsProgress(itens = []) {
   };
 }
 
+function buildAnaliseDocsPayloadFromEnvio(itens = []) {
+  const itensBloqueantes = itens.filter((item) => isEnvioDocsBlockingItem(item));
+  const normalizeStatus = (item) => String(item?.status || "").trim().toLowerCase();
+
+  const docsValidos = itensBloqueantes.filter((item) => isEnvioDocsItemReceived(item));
+  const docsInvalidos = itensBloqueantes.filter((item) => {
+    const status = normalizeStatus(item);
+    return status === "invalido" || status === "inválido" || status === "reenvio_solicitado" || status === "reenvio solicitado";
+  });
+  const docsIlegiveis = itensBloqueantes.filter((item) => {
+    const status = normalizeStatus(item);
+    return status === "ilegivel" || status === "ilegível";
+  });
+  const docsFaltantes = itensBloqueantes.filter((item) => !isEnvioDocsItemReceived(item));
+
+  const toDocItem = (item) => ({
+    tipo: item?.tipo || null,
+    participante: item?.participante || null,
+    status: item?.status || null
+  });
+
+  const pendencias = [
+    ...docsInvalidos.map((item) => ({ ...toDocItem(item), pendencia: "invalido" })),
+    ...docsIlegiveis.map((item) => ({ ...toDocItem(item), pendencia: "ilegivel" })),
+    ...docsFaltantes.map((item) => ({ ...toDocItem(item), pendencia: "faltante" }))
+  ];
+
+  const analiseStatus =
+    docsFaltantes.length > 0
+      ? "aguardando_documentos"
+      : (docsInvalidos.length > 0 || docsIlegiveis.length > 0)
+        ? "pendente_correcao"
+        : "em_analise";
+
+  const resumo = {
+    status: analiseStatus,
+    total_validos: docsValidos.length,
+    total_invalidos: docsInvalidos.length,
+    total_ilegiveis: docsIlegiveis.length,
+    total_faltantes: docsFaltantes.length
+  };
+
+  return {
+    analise_docs_status: analiseStatus,
+    analise_docs_total_validos: docsValidos.length,
+    analise_docs_total_invalidos: docsInvalidos.length,
+    analise_docs_total_ilegiveis: docsIlegiveis.length,
+    analise_docs_total_faltantes: docsFaltantes.length,
+    analise_docs_resumo_json: resumo,
+    analise_docs_docs_invalidos_json: docsInvalidos.map(toDocItem),
+    analise_docs_docs_ilegiveis_json: docsIlegiveis.map(toDocItem),
+    analise_docs_docs_faltantes_json: docsFaltantes.map(toDocItem),
+    analise_docs_pendencias_json: pendencias
+  };
+}
+
 function guessEnvioDocsTipoFromText(texto) {
   const t = normalizeText(texto || "");
   if (!t) return null;
@@ -6019,6 +6075,9 @@ async function handleDocumentUpload(env, st, msg) {
         }
       ]
     };
+    if (progress.envio_docs_status === "completo") {
+      Object.assign(patch, buildAnaliseDocsPayloadFromEnvio(itens));
+    }
     await upsertState(env, st.wa_id, patch);
     Object.assign(st, patch);
 
@@ -6042,7 +6101,7 @@ async function handleDocumentUpload(env, st, msg) {
     }
 
     if (progress.envio_docs_status === "completo") {
-      linhas.push("Perfeito — sua pasta documental ficou **completa** para avançar à validação interna.");
+      linhas.push("Recebemos sua pasta. Agora ela está em análise documental.");
     } else {
       linhas.push("Pode me enviar os próximos documentos para concluir sua pasta.");
       if (pendenciasResumo.length) linhas.push("", ...pendenciasResumo);

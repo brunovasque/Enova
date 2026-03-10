@@ -5560,6 +5560,10 @@ function prettyDocLabel(type) {
 // 17.2 — Gera checklist dinâmico p/ P1 e P2
 function generateChecklistForDocs(st) {
   const checklist = [];
+  const hasP2Confirmado =
+    st.financiamento_conjunto === true ||
+    Boolean(st.p2_tipo) ||
+    Boolean(st.composicao_pessoa);
 
   // Documentos obrigatórios P1
   checklist.push({ tipo: "identidade_cpf", participante: "p1" });
@@ -5592,7 +5596,7 @@ function generateChecklistForDocs(st) {
   }
 
   // Documentos P2 caso somar renda
-  if (st.financiamento_conjunto || st.somar_renda) {
+  if (hasP2Confirmado) {
     checklist.push({ tipo: "identidade_cpf", participante: "p2" });
     checklist.push({ tipo: "comprovante_residencia", participante: "p2" });
     checklist.push({ tipo: "ctps_completa", participante: "p2" });
@@ -14540,6 +14544,36 @@ case "envio_docs": {
   // CLIENTE ACEITOU RECEBER A LISTA
   // =====================================================
   if (pronto && !st.docs_lista_enviada) {
+    const hasP2Confirmado =
+      st.financiamento_conjunto === true ||
+      Boolean(st.p2_tipo) ||
+      Boolean(st.composicao_pessoa);
+    const mensagemLista = [
+      "Show! 👏",
+      "Fechamos por envio online aqui no WhatsApp.",
+      "A lista é bem simples, olha só:",
+      "",
+      "📄 **Documentos do titular:**",
+      "- RG ou CNH",
+      "- CPF (se não tiver na CNH)",
+      "- Comprovante de residência (atual)",
+      "- Comprovante de renda (de acordo com o perfil)"
+    ];
+    if (st.ctps_36 === true) {
+      mensagemLista.push("- CTPS (carteira de trabalho) completa");
+    }
+    if (hasP2Confirmado) {
+      mensagemLista.push(
+        "",
+        "📄 **Documentos da outra pessoa da composição:**",
+        "Mesmos documentos da outra pessoa 🙌"
+      );
+    }
+    mensagemLista.push(
+      "",
+      "Assim que tiver tudo em mãos, pode enviar por aqui mesmo.",
+      "Pode mandar uma foto de cada documento 😉"
+    );
 
     const patchCanal = {
       docs_lista_enviada: true,
@@ -14566,23 +14600,7 @@ case "envio_docs": {
       message: "Cliente aceitou receber lista de documentos"
     });
 
-    return step(env, st, [
-      "Show! 👏",
-      "Fechamos por envio online aqui no WhatsApp.",
-      "A lista é bem simples, olha só:",
-      "",
-      "📄 **Documentos do titular:**",
-      "- RG ou CNH",
-      "- CPF (se não tiver na CNH)",
-      "- Comprovante de residência (atual)",
-      "- Comprovante de renda (de acordo com o perfil)",
-      "",
-      "📄 **Se somar renda com alguém:**",
-      "Mesmos documentos da outra pessoa 🙌",
-      "",
-      "Assim que tiver tudo em mãos, pode enviar por aqui mesmo.",
-      "Pode mandar uma foto de cada documento 😉"
-    ], "envio_docs");
+    return step(env, st, mensagemLista, "envio_docs");
   }
 
   // =====================================================

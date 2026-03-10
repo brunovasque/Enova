@@ -6479,7 +6479,13 @@ async function getCorrespondenteCaseByToken(env, token) {
       (row) => normalizeAssumirToken(row?.corr_assumir_token) === safeToken
     );
     if (!entries.length) return null;
-    return entries[entries.length - 1];
+    // Mantém o mesmo critério do caminho real (updated_at.desc + limit 1).
+    entries.sort((a, b) => {
+      const aTs = Date.parse(String(a?.updated_at || "")) || 0;
+      const bTs = Date.parse(String(b?.updated_at || "")) || 0;
+      return bTs - aTs;
+    });
+    return entries[0];
   }
 
   const { data } = await sbFetch(env, "/rest/v1/enova_state", {

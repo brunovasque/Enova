@@ -2497,6 +2497,7 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "terminal_finalizacao_processo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_renda_v1", start_stage: "finalizacao", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_finalizacao_processo_publica_grupo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_envio_ready_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_finalizacao_processo_aguarda_assumir", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "terminal_assumir_token_cliente_bloqueado", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", input: "ASSUMIR AB12CD34", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_retorno_correspondente_aprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO APROVADO", expected: { type: "single", equals: "agendamento_visita" } },
     { id: "terminal_retorno_correspondente_reprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO REPROVADO\nMotivo: score", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_retorno_correspondente_pendencia", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência: comprovante de residência", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
@@ -6472,6 +6473,15 @@ async function getCorrespondenteCaseByToken(env, token) {
   const safeToken = normalizeAssumirToken(token);
   if (!safeToken) return null;
 
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active && simCtx.stateByWaId) {
+    const entries = Object.values(simCtx.stateByWaId).filter(
+      (row) => normalizeAssumirToken(row?.corr_assumir_token) === safeToken
+    );
+    if (!entries.length) return null;
+    return entries[entries.length - 1];
+  }
+
   const { data } = await sbFetch(env, "/rest/v1/enova_state", {
     method: "GET",
     query: {
@@ -6488,6 +6498,8 @@ async function getCorrespondenteCaseByToken(env, token) {
 
 async function getCaseDocumentLinks(env, wa_id) {
   if (!wa_id) return [];
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) return [];
   const { data } = await sbFetch(env, "/rest/v1/enova_docs", {
     method: "GET",
     query: {
@@ -6501,6 +6513,24 @@ async function getCaseDocumentLinks(env, wa_id) {
 }
 
 async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) {
+    const current = await getState(env, wa_id);
+    if (!current) return false;
+    const lockAtual = String(current.corr_lock_correspondente_wa_id || "").trim();
+    if (lockAtual && lockAtual !== correspondenteWaId) return false;
+
+    await upsertState(env, wa_id, {
+      corr_lock_correspondente_wa_id: correspondenteWaId,
+      corr_lock_assumido_em: new Date().toISOString(),
+      corr_publicacao_status: "lock_adquirido_tentando_entrega",
+      updated_at: new Date().toISOString()
+    });
+
+    const afterSim = await getState(env, wa_id);
+    return afterSim?.corr_lock_correspondente_wa_id === correspondenteWaId;
+  }
+
   await sbFetch(env, "/rest/v1/enova_state", {
     method: "PATCH",
     query: {

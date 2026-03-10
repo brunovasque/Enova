@@ -6476,7 +6476,7 @@ async function getCorrespondenteCaseByToken(env, token) {
     method: "GET",
     query: {
       corr_assumir_token: `eq.${encodeURIComponent(safeToken)}`,
-      select: "wa_id,nome,fase_conversa,corr_assumir_token,corr_publicacao_status,corr_lock_correspondente_wa_id,corr_entrega_privada_status,processo_enviado_correspondente,dossie_resumo",
+      select: "wa_id,nome,fase_conversa,corr_assumir_token,corr_publicacao_status,corr_publicado_grupo_em,corr_lock_correspondente_wa_id,corr_lock_assumido_em,corr_entrega_privada_status,processo_enviado_correspondente,dossie_resumo",
       order: "updated_at.desc",
       limit: 1
     }
@@ -6510,7 +6510,7 @@ async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
     body: JSON.stringify({
       corr_lock_correspondente_wa_id: correspondenteWaId,
       corr_lock_assumido_em: new Date().toISOString(),
-      corr_publicacao_status: "assumido_em_entrega_privada",
+      corr_publicacao_status: "lock_adquirido_tentando_entrega",
       updated_at: new Date().toISOString()
     })
   });
@@ -6572,6 +6572,7 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   } catch (err) {
     await upsertState(env, caso.wa_id, {
       corr_entrega_privada_status: "falha_entrega_privada",
+      corr_entrega_privada_em: new Date().toISOString(),
       corr_publicacao_status: "assumido_falha_entrega_privada"
     });
     await sendMessage(env, correspondenteWaId, "Consegui registrar a assunção, mas falhou a entrega privada do dossiê. Tente novamente com o mesmo token.");
@@ -15185,7 +15186,7 @@ case "finalizacao_processo": {
   }
 
   const statusPublicacaoCorr = String(st.corr_publicacao_status || "").toLowerCase();
-  if (statusPublicacaoCorr === "publicado_grupo_pendente_assumir" || statusPublicacaoCorr === "assumido_em_entrega_privada" || statusPublicacaoCorr === "assumido_falha_entrega_privada") {
+  if (statusPublicacaoCorr === "publicado_grupo_pendente_assumir" || statusPublicacaoCorr === "lock_adquirido_tentando_entrega" || statusPublicacaoCorr === "assumido_falha_entrega_privada") {
     return step(
       env,
       st,

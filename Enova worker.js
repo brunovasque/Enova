@@ -1603,6 +1603,16 @@ async function resetTotal(env, wa_id) {
     envio_docs_total_recebidos: null,
     envio_docs_total_pendentes: null,
     envio_docs_historico_json: null,
+    pacote_status: null,
+    pacote_destino: null,
+    pacote_resumo_caso: null,
+    pacote_enviado_em: null,
+    pacote_participantes_json: null,
+    pacote_renda_resumo_json: null,
+    pacote_restricoes_json: null,
+    pacote_pendencias_json: null,
+    pacote_documentos_anexados_json: null,
+    pacote_observacoes_json: null,
 
     processo_pre_analise: null,
     processo_pre_analise_status: null,
@@ -1739,6 +1749,16 @@ function createSimulationState(wa_id, startStage) {
     envio_docs_total_recebidos: null,
     envio_docs_total_pendentes: null,
     envio_docs_historico_json: null,
+    pacote_status: null,
+    pacote_destino: null,
+    pacote_resumo_caso: null,
+    pacote_enviado_em: null,
+    pacote_participantes_json: null,
+    pacote_renda_resumo_json: null,
+    pacote_restricoes_json: null,
+    pacote_pendencias_json: null,
+    pacote_documentos_anexados_json: null,
+    pacote_observacoes_json: null,
 
     processo_pre_analise: null,
     processo_pre_analise_status: null,
@@ -5763,7 +5783,18 @@ function buildAnaliseDocsPayloadFromEnvio(itens = []) {
     const status = normalizeStatus(item);
     return status === "ilegivel" || status === "ilegível";
   });
-  const docsFaltantes = itensBloqueantes.filter((item) => !isEnvioDocsItemReceived(item));
+  const docsFaltantes = itensBloqueantes.filter((item) => {
+  if (isEnvioDocsItemReceived(item)) return false;
+  const status = normalizeStatus(item);
+  return !(
+    status === "invalido" ||
+    status === "inválido" ||
+    status === "reenvio_solicitado" ||
+    status === "reenvio solicitado" ||
+    status === "ilegivel" ||
+    status === "ilegível"
+  );
+});
 
   const toDocItem = (item) => ({
     tipo: item?.tipo || null,
@@ -5803,6 +5834,122 @@ function buildAnaliseDocsPayloadFromEnvio(itens = []) {
     analise_docs_docs_ilegiveis_json: docsIlegiveis.map(toDocItem),
     analise_docs_docs_faltantes_json: docsFaltantes.map(toDocItem),
     analise_docs_pendencias_json: pendencias
+  };
+}
+
+function buildPacoteRendaResumoPorParticipante(participantes = []) {
+  return participantes.map((p) => {
+    const rendaFormal = dossieToMoney(p?.renda_formal);
+    const rendaInformal = dossieToMoney(p?.renda_informal);
+    const rendaTotal = rendaFormal + rendaInformal;
+    const natureza =
+      rendaFormal > 0 && rendaInformal > 0
+        ? "mista_ou_indefinida"
+        : rendaFormal > 0
+          ? "formal"
+          : rendaInformal > 0
+            ? "informal"
+            : "mista_ou_indefinida";
+    return {
+      participante: p?.participante || p?.id || null,
+      papel: p?.papel || p?.role || null,
+      regime_trabalho: p?.regime_trabalho || null,
+      renda_formal: rendaFormal,
+      renda_informal: rendaInformal,
+      renda_total: rendaTotal,
+      natureza_renda: natureza
+    };
+  });
+}
+
+function buildPacoteDocumentosAnexadosResumo(itens = [], analiseBase = {}) {
+  const invalidos = Array.isArray(analiseBase?.analise_docs_docs_invalidos_json) ? analiseBase.analise_docs_docs_invalidos_json : [];
+  const ilegiveis = Array.isArray(analiseBase?.analise_docs_docs_ilegiveis_json) ? analiseBase.analise_docs_docs_ilegiveis_json : [];
+  const faltantes = Array.isArray(analiseBase?.analise_docs_docs_faltantes_json) ? analiseBase.analise_docs_docs_faltantes_json : [];
+
+  const invalidosSet = new Set(invalidos.map((i) => `${i?.tipo || ""}:${i?.participante || ""}`));
+  const ilegiveisSet = new Set(ilegiveis.map((i) => `${i?.tipo || ""}:${i?.participante || ""}`));
+  const faltantesSet = new Set(faltantes.map((i) => `${i?.tipo || ""}:${i?.participante || ""}`));
+
+  return (Array.isArray(itens) ? itens : []).map((item) => {
+    const key = `${item?.tipo || ""}:${item?.participante || ""}`;
+    return {
+      tipo: item?.tipo || null,
+      participante: item?.participante || null,
+      bucket: item?.bucket || null,
+      status: item?.status || null,
+      recebido_em: item?.recebido_em || null,
+      validacao_basica_motivo: item?.validacao_basica_motivo || null,
+      observacao_analise: invalidosSet.has(key)
+        ? "invalido"
+        : ilegiveisSet.has(key)
+          ? "ilegivel"
+          : faltantesSet.has(key)
+            ? "faltante"
+            : "sem_pendencia_analise"
+    };
+  });
+}
+
+function buildPacoteCorrespondentePayloadFromState(st, itens = [], analisePayload = null) {
+  const participantes = Array.isArray(st?.dossie_participantes_json) ? st.dossie_participantes_json : [];
+  const baseMinimaCoerente = participantes.length > 0;
+  const envioCompleto = String(st?.envio_docs_status || "").toLowerCase() === "completo";
+
+  if (!baseMinimaCoerente || !envioCompleto) {
+    return {
+      pacote_status: "nao_montado",
+      pacote_destino: "correspondente",
+      pacote_enviado_em: null
+    };
+  }
+
+  const analiseBase = analisePayload && typeof analisePayload === "object"
+    ? analisePayload
+    : {
+      analise_docs_pendencias_json: st?.analise_docs_pendencias_json,
+      analise_docs_docs_invalidos_json: st?.analise_docs_docs_invalidos_json,
+      analise_docs_docs_ilegiveis_json: st?.analise_docs_docs_ilegiveis_json,
+      analise_docs_docs_faltantes_json: st?.analise_docs_docs_faltantes_json
+    };
+
+  const pendencias = Array.isArray(analiseBase?.analise_docs_pendencias_json)
+    ? analiseBase.analise_docs_pendencias_json
+    : Array.isArray(st?.dossie_pendencias_json)
+      ? st.dossie_pendencias_json
+      : [];
+
+  const observacoesCorrespondente = Array.isArray(st?.dossie_observacoes_correspondente_json) ? st.dossie_observacoes_correspondente_json : [];
+  const observacoesCliente = Array.isArray(st?.dossie_observacoes_cliente_json) ? st.dossie_observacoes_cliente_json : [];
+  const observacoes = [...new Set([...observacoesCorrespondente, ...observacoesCliente])];
+
+  const rendaResumoPorParticipante = buildPacoteRendaResumoPorParticipante(participantes);
+  const rendaTotalFormal = Number(st?.dossie_renda_total_formal ?? 0) || 0;
+  const rendaTotalInformal = Number(st?.dossie_renda_total_informal ?? 0) || 0;
+
+  return {
+    pacote_status: "pronto",
+    pacote_destino: "correspondente",
+    pacote_resumo_caso: st?.dossie_resumo_humano || `Pacote com ${participantes.length} participante(s) pronto para correspondente.`,
+    pacote_enviado_em: null,
+    pacote_participantes_json: participantes,
+    pacote_renda_resumo_json: {
+      total_formal: rendaTotalFormal,
+      total_informal: rendaTotalInformal,
+      total_geral: rendaTotalFormal + rendaTotalInformal,
+      por_participante: rendaResumoPorParticipante
+    },
+    pacote_restricoes_json: {
+      resumo: st?.dossie_restricao_resumo || null,
+      participantes: participantes.map((p) => ({
+        participante: p?.participante || p?.id || null,
+        tem_restricao: dossieIsYes(p?.tem_restricao ?? p?.restricao),
+        restricao_regularizada: dossieIsYes(p?.restricao_regularizada ?? p?.regularizacao_restricao)
+      }))
+    },
+    pacote_pendencias_json: pendencias,
+    pacote_documentos_anexados_json: buildPacoteDocumentosAnexadosResumo(itens, analiseBase),
+    pacote_observacoes_json: observacoes
   };
 }
 
@@ -6075,9 +6222,13 @@ async function handleDocumentUpload(env, st, msg) {
         }
       ]
     };
+    let analisePayload = null;
     if (progress.envio_docs_status === "completo") {
-      Object.assign(patch, buildAnaliseDocsPayloadFromEnvio(itens));
+      analisePayload = buildAnaliseDocsPayloadFromEnvio(itens);
+      Object.assign(patch, analisePayload);
     }
+    const pacotePayload = buildPacoteCorrespondentePayloadFromState({ ...st, ...patch }, itens, analisePayload);
+    Object.assign(patch, pacotePayload);
     await upsertState(env, st.wa_id, patch);
     Object.assign(st, patch);
 
@@ -14252,6 +14403,24 @@ case "envio_docs": {
     if (progressChanged) {
       await upsertState(env, st.wa_id, progressSeed);
       Object.assign(st, progressSeed);
+    }
+    const pacoteIncoerente =
+      st.pacote_status !== "pronto" ||
+      !Array.isArray(st.pacote_participantes_json) ||
+      !Array.isArray(st.pacote_documentos_anexados_json);
+    if (progressSeed.envio_docs_status === "completo" && pacoteIncoerente) {
+      const analisePayload = buildAnaliseDocsPayloadFromEnvio(st.envio_docs_itens_json);
+      const pacotePayload = buildPacoteCorrespondentePayloadFromState(
+        { ...st, ...progressSeed, ...analisePayload },
+        st.envio_docs_itens_json,
+        analisePayload
+      );
+      const consistencyPatch = {
+        ...analisePayload,
+        ...pacotePayload
+      };
+      await upsertState(env, st.wa_id, consistencyPatch);
+      Object.assign(st, consistencyPatch);
     }
   }
 

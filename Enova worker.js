@@ -2132,6 +2132,25 @@ function enovaV1FixturePatch(id) {
         docs_itens_recebidos: ["rg", "cpf"]
       };
 
+    case "fx_correspondente_envio_ready_v1":
+      return {
+        nome: "JOAO TESTE",
+        envio_docs_status: "completo",
+        pacote_status: "pronto",
+        analise_docs_status: "validada",
+        pacote_participantes_json: [{ participante: "p1", papel: "titular" }],
+        pacote_documentos_anexados_json: [{ tipo: "rg", participante: "p1", status: "validado_basico" }],
+        pacote_renda_resumo_json: { total_geral: 2000 },
+        pacote_restricoes_json: { resumo: "sem_restricao" }
+      };
+
+    case "fx_correspondente_retorno_v1":
+      return {
+        nome: "JOAO TESTE",
+        nome_parceiro_normalizado: "MARIA TESTE",
+        processo_enviado_correspondente: true
+      };
+
     default:
       return null;
   }
@@ -2447,6 +2466,10 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "restricao_p3", grupo: "restricao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_p3_v1", start_stage: "restricao_parceiro_p3", input: "sim", expected: { type: "single", equals: "regularizacao_restricao_p3" } },
 
     { id: "terminal_finalizacao_processo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_renda_v1", start_stage: "finalizacao", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "terminal_finalizacao_processo_auto_envio", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_envio_ready_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_retorno_correspondente_aprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO APROVADO", expected: { type: "single", equals: "agendamento_visita" } },
+    { id: "terminal_retorno_correspondente_reprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO REPROVADO\nMotivo: score", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_retorno_correspondente_pendencia", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência: comprovante de residência", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_fim_inelegivel_redirect", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "fim_inelegivel", input: "ok", expected: { type: "context", in: ["fim_ineligivel","fim_inelegivel"], terminal_canonical: "fim_ineligivel" } },
     { id: "terminal_aguardando_retorno_replay", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_base_topo_v1", start_stage: "aguardando_retorno_correspondente", input: "oi", expected: { type: "multiple", in: ["aguardando_retorno_correspondente","finalizacao_processo"] } },
 
@@ -14890,41 +14913,55 @@ case "finalizacao_processo": {
     }
   });
 
-  const confirmar = isYes(t) || /(sim|pode enviar|pode mandar|envia|manda|quero|vamos)/i.test(t);
-  const negar = isNo(t) || /(nao|não|depois|agora nao|mais tarde)/i.test(t);
+  const pacoteReady = isCorrespondentePacoteReady(st);
+  if (!pacoteReady) {
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "finalizacao_processo",
+      severity: "warning",
+      message: "Bloqueio de envio: pacote canônico ainda não está pronto para correspondente",
+      details: {
+        envio_docs_status: st.envio_docs_status || null,
+        pacote_status: st.pacote_status || null
+      }
+    });
 
-  // ------------------------------------------------------
-  // CLIENTE CONFIRMA ENVIO AO CORRESPONDENTE
-  // ------------------------------------------------------
-  if (confirmar) {
-    const pacoteReady = isCorrespondentePacoteReady(st);
-    if (!pacoteReady) {
-      await funnelTelemetry(env, {
-        wa_id: st.wa_id,
-        event: "exit_stage",
-        stage,
-        next_stage: "finalizacao_processo",
-        severity: "warning",
-        message: "Bloqueio de envio: pacote canônico ainda não está pronto para correspondente",
-        details: {
-          envio_docs_status: st.envio_docs_status || null,
-          pacote_status: st.pacote_status || null
-        }
-      });
+    return step(
+      env,
+      st,
+      [
+        "Perfeito — só falta eu confirmar a prontidão final do pacote documental para envio oficial ao correspondente.",
+        "Assim que o pacote estiver pronto, eu sigo com o envio por aqui sem precisar repetir nada."
+      ],
+      "finalizacao_processo"
+    );
+  }
 
-      return step(
-        env,
-        st,
-        [
-          "Perfeito — só falta eu confirmar a prontidão final do pacote documental para envio oficial ao correspondente.",
-          "Assim que o pacote estiver pronto, eu sigo com o envio por aqui sem precisar repetir nada."
-        ],
-        "finalizacao_processo"
-      );
-    }
+  if (st.processo_enviado_correspondente === true) {
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "aguardando_retorno_correspondente",
+      severity: "info",
+      message: "Processo já enviado anteriormente; mantendo trilho oficial em aguardando_retorno_correspondente"
+    });
 
-    // monta dossiê simples (versão 1 — depois evoluímos)
-    const dossie = `
+    return step(
+      env,
+      st,
+      [
+        "Seu processo já foi enviado ao correspondente bancário ✅",
+        "Agora sigo acompanhando o retorno da pré-análise por aqui."
+      ],
+      "aguardando_retorno_correspondente"
+    );
+  }
+
+  // monta dossiê simples (versão 1 — depois evoluímos)
+  const dossie = `
 Cliente: ${st.nome || "não informado"}
 Estado Civil: ${st.estado_civil || "não informado"}
 Soma de Renda: ${st.somar_renda ? "Sim" : "Não"}
@@ -14936,86 +14973,56 @@ Dependente: ${st.dependente === true ? "Sim" : "Não"}
 Restrição: ${st.restricao || "não informado"}
 `.trim();
 
-    // salva o dossiê no estado
-    await upsertState(env, st.wa_id, {
-      dossie_resumo: dossie,
-      processo_enviado_correspondente: true
-    });
+  const envioOk = await enviarParaCorrespondente(env, st, dossie);
+  await upsertState(env, st.wa_id, {
+    dossie_resumo: dossie,
+    processo_enviado_correspondente: envioOk === true
+  });
 
-    // envia para o correspondente (placeholder — evolui no bloco D3)
-    await enviarParaCorrespondente(env, st, dossie);
-
-    // TELEMETRIA — saída da fase com envio confirmado
-    await funnelTelemetry(env, {
-      wa_id: st.wa_id,
-      event: "exit_stage",
-      stage,
-      next_stage: "aguardando_retorno_correspondente",
-      severity: "info",
-      message: "Processo enviado ao correspondente",
-      details: {
-        processo_enviado_correspondente: true
-      }
-    });
-
-    // resposta para o cliente
-    return step(
-      env,
-      st,
-      [
-        "Perfeito! 👏",
-        "Acabei de enviar seu processo ao correspondente bancário.",
-        "Assim que eles retornarem com a pré-análise, eu te aviso aqui mesmo 😊"
-      ],
-      "aguardando_retorno_correspondente"
-    );
-  }
-
-  // ------------------------------------------------------
-  // CLIENTE NÃO QUER ENVIAR AGORA
-  // ------------------------------------------------------
-  if (negar) {
-
+  if (!envioOk) {
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
       next_stage: "finalizacao_processo",
-      severity: "info",
-      message: "Cliente optou por não enviar o processo agora"
+      severity: "warning",
+      message: "Falha no envio ao correspondente; mantendo finalizacao_processo para retry controlado"
     });
 
     return step(
       env,
       st,
       [
-        "Sem problema 😊",
-        "Quando quiser que eu envie seu processo ao correspondente, é só me pedir aqui."
+        "Estou finalizando seu envio oficial ao correspondente e já sigo por aqui.",
+        "Se houver qualquer indisponibilidade momentânea, eu continuo o processamento sem você precisar repetir informações."
       ],
       "finalizacao_processo"
     );
   }
 
-  // ------------------------------------------------------
-  // PRIMEIRA VEZ NA FASE / QUALQUER OUTRO TEXTO
-  // ------------------------------------------------------
+  // TELEMETRIA — saída da fase com envio confirmado
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
     stage,
-    next_stage: "finalizacao_processo",
+    next_stage: "aguardando_retorno_correspondente",
     severity: "info",
-    message: "Pergunta inicial sobre envio ao correspondente"
+    message: "Processo enviado ao correspondente",
+    details: {
+      processo_enviado_correspondente: true
+    }
   });
 
+  // resposta para o cliente
   return step(
     env,
     st,
     [
-      "Ótimo, fiz toda a conferência e está tudo certo com seus documentos ✨",
-      "Quer que eu envie agora seu processo ao correspondente bancário para análise?"
+      "Perfeito! 👏",
+      "Acabei de enviar seu processo ao correspondente bancário.",
+      "Assim que eles retornarem com a pré-análise, eu te aviso aqui mesmo 😊"
     ],
-    "finalizacao_processo"
+    "aguardando_retorno_correspondente"
   );
 
 } // 🔥 FECHA O CASE "finalizacao_processo"
@@ -15078,6 +15085,11 @@ case "aguardando_retorno_correspondente": {
 
   const aprovado   = /(aprovado|cr[eé]dito aprovado|liberado)/i.test(txt);
   const reprovado  = /(reprovado|cr[eé]dito reprovado|negado|n[oã]o aprovado)/i.test(txt);
+  const pendencia  = /(pend[eê]ncia|complemento documental|documento adicional|complementar documento|complementa[cç][aã]o documental|ajuste documental)/i.test(txt);
+  let statusCanonico = "nao_identificado";
+  if (aprovado) statusCanonico = "aprovado";
+  else if (reprovado) statusCanonico = "reprovado";
+  else if (pendencia) statusCanonico = "pendencia";
 
   let nomeExtraido = null;
 
@@ -15112,7 +15124,7 @@ case "aguardando_retorno_correspondente": {
   const matchP2 = parecido(nomeExtra, nomeParceiro);
 
   const pareceRetornoCorrespondente =
-    aprovado || reprovado || /pré[- ]?cadastro/i.test(txt);
+    statusCanonico !== "nao_identificado" || /pré[- ]?cadastro/i.test(txt);
 
   if (!pareceRetornoCorrespondente) {
 
@@ -15166,7 +15178,10 @@ case "aguardando_retorno_correspondente": {
 
     await upsertState(env, st.wa_id, {
       processo_aprovado: true,
-      processo_reprovado: false
+      processo_reprovado: false,
+      retorno_correspondente_bruto: txt,
+      retorno_correspondente_status: "aprovado",
+      retorno_correspondente_motivo: null
     });
 
     await funnelTelemetry(env, {
@@ -15195,14 +15210,17 @@ case "aguardando_retorno_correspondente": {
   // ======================================================
   if (reprovado) {
 
-    await upsertState(env, st.wa_id, {
-      processo_aprovado: false,
-      processo_reprovado: true
-    });
-
     let motivo = null;
     const m = txt.match(/(pend[eê]ncia|motivo|raz[aã]o|detalhe).*?:\s*(.*)/i);
     if (m) motivo = m[2];
+
+    await upsertState(env, st.wa_id, {
+      processo_aprovado: false,
+      processo_reprovado: true,
+      retorno_correspondente_bruto: txt,
+      retorno_correspondente_status: "reprovado",
+      retorno_correspondente_motivo: motivo || null
+    });
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -15210,10 +15228,12 @@ case "aguardando_retorno_correspondente": {
       stage,
       next_stage: "aguardando_retorno_correspondente",
       severity: "error",
-      message: "Processo reprovado pelo correspondente",
+      message: "Processo reprovado pelo correspondente (estado provisório pós-retorno no stage oficial)",
       details: { motivo }
     });
 
+    // Contrato oficial atual (provisório): reprovado permanece em aguardando_retorno_correspondente
+    // para orientação pós-retorno, sem criação de novo stage mecânico nesta task.
     return step(env, st,
       [
         "Recebi o retorno do correspondente… 😕",
@@ -15221,6 +15241,40 @@ case "aguardando_retorno_correspondente": {
         motivo ? `Motivo informado: *${motivo.trim()}*.` : "",
         "",
         "Se quiser, posso te orientar o que fazer para **corrigir isso** e tentar novamente! 💙"
+      ],
+      "aguardando_retorno_correspondente"
+    );
+  }
+
+  if (pendencia) {
+    let motivo = null;
+    const m = txt.match(/(pend[eê]ncia|motivo|raz[aã]o|detalhe|complemento).*?:\s*(.*)/i);
+    if (m) motivo = m[2];
+    const motivoSafe = String(motivo || "").replace(/[*_`~]/g, "").trim();
+
+    await upsertState(env, st.wa_id, {
+      processo_aprovado: false,
+      processo_reprovado: false,
+      retorno_correspondente_bruto: txt,
+      retorno_correspondente_status: "pendencia",
+      retorno_correspondente_motivo: motivo || null
+    });
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "aguardando_retorno_correspondente",
+      severity: "warning",
+      message: "Processo com pendencia do correspondente; mantendo interpretação/controle no stage oficial",
+      details: { motivo }
+    });
+
+    return step(env, st,
+      [
+        "Recebi retorno do correspondente com **pendência** no seu processo. 📝",
+        motivoSafe ? `Complemento solicitado: *${motivoSafe}*.` : "Eles pediram um complemento documental antes da decisão final.",
+        "Aqui seguimos no pós-retorno do correspondente: me envie por aqui apenas o complemento pedido e eu continuo o fluxo oficial sem reiniciar sua coleta."
       ],
       "aguardando_retorno_correspondente"
     );
@@ -15235,7 +15289,7 @@ case "aguardando_retorno_correspondente": {
     stage,
     next_stage: "aguardando_retorno_correspondente",
     severity: "info",
-    message: "Fallback — status não identificado"
+    message: "Fallback — status nao_identificado"
   });
 
   return step(env, st,

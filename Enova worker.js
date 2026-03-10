@@ -15085,14 +15085,11 @@ case "aguardando_retorno_correspondente": {
 
   const aprovado   = /(aprovado|cr[eé]dito aprovado|liberado)/i.test(txt);
   const reprovado  = /(reprovado|cr[eé]dito reprovado|negado|n[oã]o aprovado)/i.test(txt);
-  const pendencia  = /(pend[eê]ncia|complemento documental|documento adicional|complementar document|ajuste documental)/i.test(txt);
-  const statusCanonico = aprovado
-    ? "aprovado"
-    : reprovado
-      ? "reprovado"
-      : pendencia
-        ? "pendencia"
-        : "nao_identificado";
+  const pendencia  = /(pend[eê]ncia|complemento documental|documento adicional|complementar documento|complementa[cç][aã]o documental|ajuste documental)/i.test(txt);
+  let statusCanonico = "nao_identificado";
+  if (aprovado) statusCanonico = "aprovado";
+  else if (reprovado) statusCanonico = "reprovado";
+  else if (pendencia) statusCanonico = "pendencia";
 
   let nomeExtraido = null;
 
@@ -15253,6 +15250,7 @@ case "aguardando_retorno_correspondente": {
     let motivo = null;
     const m = txt.match(/(pend[eê]ncia|motivo|raz[aã]o|detalhe|complemento).*?:\s*(.*)/i);
     if (m) motivo = m[2];
+    const motivoSafe = String(motivo || "").replace(/[*_`~]/g, "").trim();
 
     await upsertState(env, st.wa_id, {
       processo_aprovado: false,
@@ -15275,7 +15273,7 @@ case "aguardando_retorno_correspondente": {
     return step(env, st,
       [
         "Recebi retorno do correspondente com **pendência** no seu processo. 📝",
-        motivo ? `Complemento solicitado: *${motivo.trim()}*.` : "Eles pediram um complemento documental antes da decisão final.",
+        motivoSafe ? `Complemento solicitado: *${motivoSafe}*.` : "Eles pediram um complemento documental antes da decisão final.",
         "Aqui seguimos no pós-retorno do correspondente: me envie por aqui apenas o complemento pedido e eu continuo o fluxo oficial sem reiniciar sua coleta."
       ],
       "aguardando_retorno_correspondente"

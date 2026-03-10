@@ -6393,6 +6393,7 @@ function normalizeAssumirToken(token) {
 }
 
 function gerarAssumirToken() {
+  // Sem I/O/0/1 para reduzir erro humano na digitação do token.
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   const bytes = new Uint8Array(6);
   crypto.getRandomValues(bytes);
@@ -6403,7 +6404,7 @@ function gerarAssumirToken() {
 
 function parseAssumirTokenFromText(userText) {
   const txt = String(userText || "").trim();
-  const m = txt.match(/^assumir[\s:;#-]*([a-z0-9-]{4,32})\b/i);
+  const m = txt.match(/^assumir[\s:;#-]*([a-z0-9-]{6,12})\b/i);
   if (!m) return null;
   return normalizeAssumirToken(m[1]);
 }
@@ -6441,7 +6442,20 @@ function buildCorrespondentePrivateDocsLinksText(docs = []) {
     : "Links de documentos: nenhum link encontrado no momento.";
 }
 
+function extractCorrespondenteWaId(msg, env) {
+  const from = String(msg?.from || "").trim();
+  const author = String(msg?.author || "").trim();
+  if (author) return author;
+  if (from && from !== String(env.CORRESPONDENTE_TO || "").trim()) return from;
+  return "";
+}
+
+function buildCorrespondentePrivateDeliveryMessage(dossiePrivado, docsText) {
+  return ["✅ Caso assumido com exclusividade.", "", dossiePrivado, "", docsText].join("\n");
+}
+
 async function getCorrespondenteCaseByToken(env, token) {
+  // Reuso de coluna existente: pre_cadastro_numero guarda token operacional de assunção.
   const safeToken = normalizeAssumirToken(token);
   if (!safeToken) return null;
 
@@ -6495,9 +6509,7 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   const token = parseAssumirTokenFromText(userText);
   if (!token) return { handled: false };
 
-  const from = String(msg?.from || "").trim();
-  const author = String(msg?.author || "").trim();
-  const correspondenteWaId = author || (from && from !== String(env.CORRESPONDENTE_TO || "").trim() ? from : "");
+  const correspondenteWaId = extractCorrespondenteWaId(msg, env);
   if (!correspondenteWaId) return { handled: false };
 
   const caso = await getCorrespondenteCaseByToken(env, token);
@@ -6539,9 +6551,10 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   const dossiePrivado = gerarDossieCompleto(stCaso);
   const docs = await getCaseDocumentLinks(env, caso.wa_id);
   const docsText = buildCorrespondentePrivateDocsLinksText(docs);
+  const entregaPrivadaMsg = buildCorrespondentePrivateDeliveryMessage(dossiePrivado, docsText);
 
   try {
-    await sendWhatsToCorrespondente(env, correspondenteWaId, ["✅ Caso assumido com exclusividade.", "", dossiePrivado, "", docsText].join("\n"));
+    await sendWhatsToCorrespondente(env, correspondenteWaId, entregaPrivadaMsg);
   } catch (err) {
     await upsertState(env, caso.wa_id, {
       processo_pre_analise_status: "assumido_falha_entrega_privada"
@@ -6555,11 +6568,13 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
     processo_pre_analise_status: "entregue_privado_aguardando_retorno",
     processo_enviado_correspondente: true,
     aguardando_retorno_correspondente: true,
+    // Reuso de coluna existente para timestamp da entrega privada do pacote ao correspondente.
     pacote_enviado_em: new Date().toISOString()
   });
 
   const stAtualizado = await getState(env, caso.wa_id);
   if (stAtualizado) {
+    // fase_conversa (stage mecânico) é canônica e independente do status operacional de pré-análise.
     await step(env, stAtualizado, [
       "Perfeito! 👏",
       "Seu processo foi assumido por um correspondente e o dossiê completo já foi entregue em canal privado.",

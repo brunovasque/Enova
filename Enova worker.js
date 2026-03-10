@@ -5557,13 +5557,18 @@ function prettyDocLabel(type) {
   return map[type] || type;
 }
 
+function hasComposicaoConfirmadaP2(st) {
+  return (
+    st.financiamento_conjunto === true ||
+    Boolean(st.p2_tipo) ||
+    Boolean(st.composicao_pessoa)
+  );
+}
+
 // 17.2 — Gera checklist dinâmico p/ P1 e P2
 function generateChecklistForDocs(st) {
   const checklist = [];
-  const hasP2Confirmado =
-    st.financiamento_conjunto === true ||
-    Boolean(st.p2_tipo) ||
-    Boolean(st.composicao_pessoa);
+  const hasP2Confirmado = hasComposicaoConfirmadaP2(st);
 
   // Documentos obrigatórios P1
   checklist.push({ tipo: "identidade_cpf", participante: "p1" });
@@ -14544,10 +14549,7 @@ case "envio_docs": {
   // CLIENTE ACEITOU RECEBER A LISTA
   // =====================================================
   if (pronto && !st.docs_lista_enviada) {
-    const hasP2Confirmado =
-      st.financiamento_conjunto === true ||
-      Boolean(st.p2_tipo) ||
-      Boolean(st.composicao_pessoa);
+    const hasP2Confirmado = hasComposicaoConfirmadaP2(st);
     const mensagemLista = [
       "Show! 👏",
       "Fechamos por envio online aqui no WhatsApp.",

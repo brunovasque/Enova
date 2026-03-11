@@ -2283,6 +2283,13 @@ function enovaV1FixturePatch(id) {
         visita_primeiro_slot_disponivel_em: "2026-03-14T18:30:00.000Z"
       };
 
+    case "fx_visita_documental_v1":
+      return {
+        nome: "JOAO TESTE",
+        visita_origem: "trava_documental",
+        visita_agendamento_status: "convite"
+      };
+
     default:
       return null;
   }
@@ -2590,6 +2597,27 @@ function enovaV1Scenarios(modeOverride = null) {
    
     { id: "docs_media_pendente", grupo: "docs", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", input: "segue", expected: { type: "multiple", in: ["envio_docs","finalizacao"] } },
     { id: "docs_media_completa", grupo: "docs", mode: "simulate-funnel", allowed_modes: ["simulate-funnel"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", script: ["enviei tudo"], expected: { type: "multiple", in: ["envio_docs","finalizacao"] } },
+    {
+      id: "docs_trava_documental_entrada_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "prefiro presencial"],
+      expected: { type: "single", equals: "agendamento_visita" }
+    },
+    {
+      id: "visita_convite_por_trava_documental",
+      grupo: "docs",
+      mode: "simulate-from-state",
+      allowed_modes: ["simulate-from-state"],
+      fixture: "fx_visita_documental_v1",
+      start_stage: "agendamento_visita",
+      input: "sim",
+      expected: { type: "single", equals: "agendamento_visita" },
+      assert_state_write: ["visita_origem","visita_convite_status","visita_agendamento_status"]
+    },
     { id: "regressao_docs_envio_docs", grupo: "regressao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_restricao_v1", start_stage: "regularizacao_restricao", input: "sim", expected: { type: "single", equals: "envio_docs" } },
     { id: "stage_alias_docs_banido", grupo: "docs", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_docs_text_v1", start_stage: "docs", input: "oi", expected: { type: "single", equals: "envio_docs" } },
 
@@ -15186,26 +15214,51 @@ case "envio_docs": {
   // Preservar como ponto de conexão da visita canônica futura.
   // Ainda não integrado ao fluxo oficial completo da visita.
   if (canal.pediuVisita || canal.objecaoOnlineForte) {
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const firstSlotIso = new Date(Date.now() + ONE_DAY_MS).toISOString();
     const patchCanal = {
       canal_docs_status: "definido",
       canal_docs_escolhido: "visita",
       canal_docs_recusa_whatsapp: canal.recusaWhatsapp || st.canal_docs_recusa_whatsapp === true,
       canal_docs_motivo_recusa: canal.recusaWhatsapp ? "nao_quer_enviar_por_whatsapp" : st.canal_docs_motivo_recusa || null,
-      canal_docs_agendamento_pendente: true, // GANCHO OFICIAL DO TRILHO (não legado): integração futura da visita canônica.
+      canal_docs_agendamento_pendente: true, // GANCHO OFICIAL DO TRILHO (não legado): ligação ativa para entrada documental na visita canônica.
       canal_docs_opcoes_liberadas_json: {
         principal: "whatsapp",
         alternativas_digitais: ["site"],
         visita: "solicitada"
-      }
+      },
+      visita_origem: "trava_documental",
+      visita_convite_status: "pendente",
+      visita_agendamento_status: "convite",
+      visita_primeiro_slot_disponivel_em: firstSlotIso,
+      visita_data_escolhida: null,
+      visita_slot_escolhido: null,
+      visita_confirmada: false,
+      visita_confirmada_em: null,
+      visita_dia_hora: null
     };
     await upsertState(env, st.wa_id, patchCanal);
     Object.assign(st, patchCanal);
 
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "agendamento_visita",
+      severity: "info",
+      message: "Entrada documental conectada ao agendamento oficial de visita",
+      details: {
+        visita_origem: "trava_documental",
+        canal_docs_agendamento_pendente: true
+      }
+    });
+
     return step(env, st, [
       "Perfeito, seguimos com atendimento presencial ✅",
-      "Vou sinalizar seu agendamento de visita e te passo os próximos horários.",
+      "Vamos destravar sua etapa documental com visita no plantão.",
+      "Já vou abrir agora o agendamento oficial com datas e horários fechados.",
       "Se preferir adiantar, também posso liberar o envio online pelo site."
-    ], "envio_docs");
+    ], "agendamento_visita");
   }
 
   if (canal.pediuSite || canal.recusaWhatsapp) {
@@ -15503,6 +15556,7 @@ case "agendamento_visita": {
   };
   const userRequestedHourText = /\b\d{1,2}(:\d{2})?\b/.test(tNorm);
   const agendaStatus = st.visita_agendamento_status || "convite";
+  const visitaOrigemAtual = st.visita_origem || "aprovado";
   const conviteAceito = isYes(t) || /\b(sim|quero|vamos|bora|agendar|marcar|1)\b/.test(tNorm);
   const conviteAdiado = isNo(t) || /\b(nao|não|depois|mais tarde|agora nao|ainda nao|2)\b/.test(tNorm);
 
@@ -15611,12 +15665,19 @@ case "agendamento_visita": {
     });
 
     return step(env, st,
-      [
-        "Ótima notícia! Seu processo avançou para a visita presencial. 🎉",
-        "Posso te mostrar agora as próximas datas e horários oficiais?",
-        "1) Sim, quero agendar agora",
-        "2) Prefiro ver depois"
-      ],
+      visitaOrigemAtual === "trava_documental"
+        ? [
+          "Perfeito — vamos seguir pelo presencial para destravar a etapa documental. 🎯",
+          "Posso te mostrar agora as próximas datas e horários oficiais?",
+          "1) Sim, quero agendar agora",
+          "2) Prefiro ver depois"
+        ]
+        : [
+          "Ótima notícia! Seu processo avançou para a visita presencial. 🎉",
+          "Posso te mostrar agora as próximas datas e horários oficiais?",
+          "1) Sim, quero agendar agora",
+          "2) Prefiro ver depois"
+        ],
       "agendamento_visita"
     );
   }

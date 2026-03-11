@@ -2335,6 +2335,23 @@ function enovaV1FixturePatch(id) {
         visita_recusa_online_tentativas_count: 0
       };
 
+    case "fx_visita_recusa_online_convite_v1":
+      return {
+        nome: "JOAO TESTE",
+        visita_origem: "recusa_online",
+        visita_agendamento_status: "convite"
+      };
+
+    case "fx_visita_recusa_online_horario_v1":
+      return {
+        nome: "JOAO TESTE",
+        visita_origem: "recusa_online",
+        visita_convite_status: "aceito",
+        visita_agendamento_status: "horario",
+        visita_data_escolhida: "2026-03-14",
+        visita_primeiro_slot_disponivel_em: "2026-03-14T18:30:00.000Z"
+      };
+
     default:
       return null;
   }
@@ -2766,6 +2783,16 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "visita_recusa_online_com_0_tentativas_nao_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_zero_tentativas_v1", start_stage: "finalizacao_processo", input: "não quero atendimento online", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "visita_recusa_online_com_2_tentativas_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "prefiro presencial", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_origem","visita_agendamento_status","visita_convite_status"] },
     { id: "visita_recusa_online_desinteresse_geral_nao_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "não quero mais, prefiro presencial", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "recusa_online_sem_followup_minimo_nao_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_zero_tentativas_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "recusa_online_com_1_followup_nao_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_zero_tentativas_v1", start_stage: "finalizacao_processo", input: "não quero atendimento online", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "recusa_online_com_2_followups_e_recusa_whatsapp_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "não quero por whatsapp", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_origem","visita_agendamento_status","visita_convite_status"] },
+    { id: "recusa_online_com_2_followups_e_recusa_online_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "não quero atendimento online", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_origem","visita_agendamento_status","visita_convite_status"] },
+    { id: "recusa_online_com_2_followups_e_prefere_presencial_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "prefiro presencial", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_origem","visita_agendamento_status","visita_convite_status"] },
+    { id: "recusa_online_desinteresse_geral_nao_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "não quero mais", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "recusa_online_silencio_generico_nao_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "recusa_online_objecao_financeira_nao_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "agora não tenho dinheiro", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "visita_convite_por_recusa_online", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_convite_v1", start_stage: "agendamento_visita", input: "talvez", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_origem","visita_agendamento_status"] },
+    { id: "visita_horario_valido_confirma_recusa_online", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_horario_v1", start_stage: "agendamento_visita", input: "2", expected: { type: "single", equals: "visita_confirmada" }, assert_state_write: ["visita_origem","visita_confirmada","visita_agendamento_status","visita_slot_escolhido"] },
     { id: "terminal_assumir_token_sucesso_entrega_privada", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.ok", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_assumir_token_sucesso_entrega_privada_casal", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_casal_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.casal", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_assumir_token_sucesso_entrega_privada_restricao_regularizada", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_restricao_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.restricao", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },

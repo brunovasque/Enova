@@ -1627,6 +1627,13 @@ async function resetTotal(env, wa_id) {
 
     processo_pre_analise: null,
     processo_pre_analise_status: null,
+    corr_assumir_token: null,
+    corr_publicacao_status: null,
+    corr_publicado_grupo_em: null,
+    corr_lock_correspondente_wa_id: null,
+    corr_lock_assumido_em: null,
+    corr_entrega_privada_status: null,
+    corr_entrega_privada_em: null,
     retorno_correspondente_bruto: null,
     retorno_correspondente_status: null,
     retorno_correspondente_motivo: null,
@@ -1784,6 +1791,13 @@ function createSimulationState(wa_id, startStage) {
 
     processo_pre_analise: null,
     processo_pre_analise_status: null,
+    corr_assumir_token: null,
+    corr_publicacao_status: null,
+    corr_publicado_grupo_em: null,
+    corr_lock_correspondente_wa_id: null,
+    corr_lock_assumido_em: null,
+    corr_entrega_privada_status: null,
+    corr_entrega_privada_em: null,
     retorno_correspondente_bruto: null,
     retorno_correspondente_status: null,
     retorno_correspondente_motivo: null,
@@ -2144,6 +2158,81 @@ function enovaV1FixturePatch(id) {
         pacote_restricoes_json: { resumo: "sem_restricao" }
       };
 
+    case "fx_correspondente_publicado_v1":
+      return {
+        nome: "JOAO TESTE",
+        envio_docs_status: "completo",
+        pacote_status: "pronto",
+        analise_docs_status: "validada",
+        pacote_participantes_json: [{ participante: "p1", papel: "titular" }],
+        pacote_documentos_anexados_json: [{ tipo: "rg", participante: "p1", status: "validado_basico" }],
+        pacote_renda_resumo_json: { total_geral: 2000 },
+        pacote_restricoes_json: { resumo: "sem_restricao" },
+        corr_assumir_token: "AB12CD34",
+        corr_publicacao_status: "publicado_grupo_pendente_assumir",
+        processo_enviado_correspondente: false
+      };
+
+    case "fx_correspondente_publicado_casal_v1":
+      return {
+        nome: "JOAO TESTE",
+        estado_civil: "casado",
+        envio_docs_status: "completo",
+        pacote_status: "pronto",
+        analise_docs_status: "validada",
+        dossie_participantes_json: [
+          { id: "p1", role: "titular", regime_trabalho: "clt", renda: 3200 },
+          { id: "p2", role: "parceiro_familiar", regime_trabalho: "autonomo", renda: 1800 }
+        ],
+        pacote_participantes_json: [
+          { participante: "p1", papel: "titular", regime_trabalho: "clt" },
+          { participante: "p2", papel: "parceiro_familiar", regime_trabalho: "autonomo" }
+        ],
+        pacote_documentos_anexados_json: [
+          { tipo: "rg", participante: "p1", status: "validado_basico" },
+          { tipo: "rg", participante: "p2", status: "validado_basico" }
+        ],
+        pacote_renda_resumo_json: { total_geral: 5000, por_participante: { p1: { total_geral: 3200 }, p2: { total_geral: 1800 } } },
+        pacote_restricoes_json: { resumo: "sem_restricao", participantes: [{ participante: "p1", tem_restricao: false }, { participante: "p2", tem_restricao: false }] },
+        corr_assumir_token: "AB12CD34",
+        corr_publicacao_status: "publicado_grupo_pendente_assumir",
+        processo_enviado_correspondente: false
+      };
+
+    case "fx_correspondente_publicado_restricao_v1":
+      return {
+        nome: "JOAO TESTE",
+        envio_docs_status: "completo",
+        pacote_status: "pronto",
+        analise_docs_status: "validada",
+        dossie_participantes_json: [{ id: "p1", role: "titular", regime_trabalho: "clt", renda: 2800 }],
+        pacote_participantes_json: [{ participante: "p1", papel: "titular", regime_trabalho: "clt" }],
+        pacote_documentos_anexados_json: [{ tipo: "rg", participante: "p1", status: "validado_basico" }],
+        pacote_renda_resumo_json: { total_geral: 2800, por_participante: { p1: { total_geral: 2800 } } },
+        pacote_restricoes_json: { resumo: "com_restricao_regularizavel", participantes: [{ participante: "p1", tem_restricao: true, restricao_regularizada: true }] },
+        corr_assumir_token: "AB12CD34",
+        corr_publicacao_status: "publicado_grupo_pendente_assumir",
+        processo_enviado_correspondente: false
+      };
+
+    case "fx_correspondente_publicado_pendencia_v1":
+      return {
+        nome: "JOAO TESTE",
+        envio_docs_status: "parcial",
+        pacote_status: "pronto",
+        analise_docs_status: "pendencia_documental",
+        dossie_participantes_json: [{ id: "p1", role: "titular", regime_trabalho: "autonomo", renda: 2600 }],
+        pacote_participantes_json: [{ participante: "p1", papel: "titular", regime_trabalho: "autonomo" }],
+        pacote_documentos_anexados_json: [{ tipo: "comprovante_residencia", participante: "p1", status: "recebido", observacao_analise: "ilegivel" }],
+        pacote_pendencias_json: [{ tipo: "comprovante_residencia", participante: "p1", status: "pendente" }],
+        analise_docs_docs_ilegiveis_json: [{ tipo: "comprovante_residencia", participante: "p1" }],
+        pacote_renda_resumo_json: { total_geral: 2600, por_participante: { p1: { total_geral: 2600 } } },
+        pacote_restricoes_json: { resumo: "sem_restricao", participantes: [{ participante: "p1", tem_restricao: false }] },
+        corr_assumir_token: "AB12CD34",
+        corr_publicacao_status: "publicado_grupo_pendente_assumir",
+        processo_enviado_correspondente: false
+      };
+
     case "fx_correspondente_retorno_v1":
       return {
         nome: "JOAO TESTE",
@@ -2466,10 +2555,20 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "restricao_p3", grupo: "restricao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_p3_v1", start_stage: "restricao_parceiro_p3", input: "sim", expected: { type: "single", equals: "regularizacao_restricao_p3" } },
 
     { id: "terminal_finalizacao_processo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_renda_v1", start_stage: "finalizacao", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
-    { id: "terminal_finalizacao_processo_auto_envio", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_envio_ready_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_finalizacao_processo_publica_grupo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_envio_ready_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "terminal_finalizacao_processo_aguarda_assumir", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "terminal_assumir_token_sucesso_entrega_privada", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.ok", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_assumir_token_sucesso_entrega_privada_casal", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_casal_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.casal", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_assumir_token_sucesso_entrega_privada_restricao_regularizada", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_restricao_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.restricao", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_assumir_token_sucesso_entrega_privada_pendencia_documental", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_pendencia_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.pendencia", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_assumir_token_bloqueado_sem_transicao", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", input: "ASSUMIR AB12CD34", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_retorno_correspondente_aprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO APROVADO", expected: { type: "single", equals: "agendamento_visita" } },
+    { id: "terminal_retorno_correspondente_aprovado_condicionado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO APROVADO CONDICIONADO", expected: { type: "single", equals: "agendamento_visita" } },
     { id: "terminal_retorno_correspondente_reprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO REPROVADO\nMotivo: score", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
-    { id: "terminal_retorno_correspondente_pendencia", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência: comprovante de residência", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_retorno_correspondente_pendencia_documental", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência documental: comprovante de residência", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_retorno_correspondente_pendencia_risco_conres", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência: CONRES", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_retorno_correspondente_prioridade_risco_sobre_documental", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência documental: comprovante de residência e CONRES", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_retorno_correspondente_prioridade_reprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nAprovado condicionado, porém crédito reprovado por score", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_fim_inelegivel_redirect", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "fim_inelegivel", input: "ok", expected: { type: "context", in: ["fim_ineligivel","fim_inelegivel"], terminal_canonical: "fim_ineligivel" } },
     { id: "terminal_aguardando_retorno_replay", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_base_topo_v1", start_stage: "aguardando_retorno_correspondente", input: "oi", expected: { type: "multiple", in: ["aguardando_retorno_correspondente","finalizacao_processo"] } },
 
@@ -3949,13 +4048,13 @@ let userText = null;
 
     if (interactive.type === "button") {
       userText =
-        interactive.button_reply?.title ||
         interactive.button_reply?.id ||
+        interactive.button_reply?.title ||
         "";
     } else if (interactive.type === "list_reply") {
       userText =
-        interactive.list_reply?.title ||
         interactive.list_reply?.id ||
+        interactive.list_reply?.title ||
         "";
     }
   } else if (isSupportedMediaType) {
@@ -3995,6 +4094,14 @@ let userText = null;
 
     return metaWebhookResponse(200, {
       reason: "webhook_no_text",
+      type
+    });
+  }
+
+  const assumirCmd = await handleCorrespondenteAssumirCommand(env, msg, userText);
+  if (assumirCmd?.handled) {
+    return metaWebhookResponse(200, {
+      reason: assumirCmd.reason || "assumir_token_handled",
       type
     });
   }
@@ -6361,6 +6468,482 @@ ID: ${st.wa_id}
   `.trim();
 }
 
+function normalizeAssumirToken(token) {
+  return String(token || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 8);
+}
+
+function buildCorrespondentePrivateDossierFromState(st) {
+  const participantes = Array.isArray(st?.dossie_participantes_json) ? st.dossie_participantes_json : [];
+  const pacoteRenda = st?.pacote_renda_resumo_json && typeof st.pacote_renda_resumo_json === "object" ? st.pacote_renda_resumo_json : {};
+  const pacoteRestricoes = st?.pacote_restricoes_json && typeof st.pacote_restricoes_json === "object" ? st.pacote_restricoes_json : {};
+  const docsAnexados = Array.isArray(st?.pacote_documentos_anexados_json) ? st.pacote_documentos_anexados_json : [];
+  const pendencias = Array.isArray(st?.pacote_pendencias_json) ? st.pacote_pendencias_json : [];
+  const docsInvalidos = Array.isArray(st?.analise_docs_docs_invalidos_json) ? st.analise_docs_docs_invalidos_json : [];
+  const docsIlegiveis = Array.isArray(st?.analise_docs_docs_ilegiveis_json) ? st.analise_docs_docs_ilegiveis_json : [];
+  const docsFaltantes = Array.isArray(st?.analise_docs_docs_faltantes_json) ? st.analise_docs_docs_faltantes_json : [];
+
+  const nome = String(st?.nome || "não informado").trim();
+  const caseId = String(st?.pre_cadastro_numero || st?.wa_id || "não informado").trim();
+  const estadoCivil = String(st?.estado_civil || "").trim();
+  const composicaoQuantidade = participantes.length;
+  const isSolo = composicaoQuantidade <= 1;
+
+  const titular = participantes.find((p) => String(p?.id || p?.participante || "").toLowerCase() === "p1") || participantes[0] || null;
+  const rendaTitular =
+    Number(pacoteRenda?.por_participante?.p1?.total_geral ?? pacoteRenda?.por_participante?.p1?.renda_total ?? titular?.renda ?? st?.renda ?? 0) || 0;
+  const rendaTotalGeral = Number(pacoteRenda?.total_geral ?? rendaTitular ?? 0) || 0;
+  const rendaComplementar = Math.max(0, rendaTotalGeral - Math.max(0, rendaTitular));
+  const multiRenda = rendaComplementar > 0.01;
+
+  const regimesUnicos = [...new Set(
+    participantes
+      .map((p) => String(p?.regime_trabalho || "").trim().toLowerCase())
+      .filter(Boolean)
+  )];
+  const multiRegime = regimesUnicos.length > 1;
+  const temAutonomo = participantes.some((p) => String(p?.regime_trabalho || "").toLowerCase() === "autonomo");
+  const autonomoComIR = temAutonomo && (
+    dossieIsYes(st?.autonomo_ir_pergunta) ||
+    dossieIsYes(st?.ir_declarado) ||
+    dossieIsYes(st?.ir_declarado_parceiro) ||
+    dossieIsYes(st?.ir_declarado_p2) ||
+    dossieIsYes(st?.ir_declarado_p3)
+  );
+  const ctps36 = dossieIsYes(st?.ctps_36) || dossieIsYes(st?.ctps_36_parceiro) || dossieIsYes(st?.ctps_36_parceiro_p3);
+
+  const restricaoResumo = String(pacoteRestricoes?.resumo || st?.dossie_restricao_resumo || "sem_restricao").toLowerCase();
+  const restricoesParticipantes = Array.isArray(pacoteRestricoes?.participantes) ? pacoteRestricoes.participantes : [];
+  const temRestricao = restricoesParticipantes.some((p) => dossieIsYes(p?.tem_restricao)) || /restricao/.test(restricaoResumo);
+  const restricaoRegularizavel = restricoesParticipantes.some((p) => dossieIsYes(p?.restricao_regularizada)) || /regulariz/.test(restricaoResumo);
+
+  const docFlagsFromResumo = docsAnexados.reduce((acc, d) => {
+    const obs = String(d?.observacao_analise || "").toLowerCase();
+    if (obs === "invalido") acc.invalidos += 1;
+    if (obs === "ilegivel") acc.ilegiveis += 1;
+    if (obs === "faltante") acc.faltantes += 1;
+    return acc;
+  }, { invalidos: 0, ilegiveis: 0, faltantes: 0 });
+  const totalInvalidos = docsInvalidos.length || docFlagsFromResumo.invalidos;
+  const totalIlegiveis = docsIlegiveis.length || docFlagsFromResumo.ilegiveis;
+  const totalFaltantes = docsFaltantes.length || docFlagsFromResumo.faltantes;
+  const totalPendencias = pendencias.length + totalFaltantes + totalInvalidos + totalIlegiveis;
+  const envioDocsStatus = String(st?.envio_docs_status || "").toLowerCase();
+  const docsCompletos = envioDocsStatus === "completo" && totalPendencias === 0;
+
+  const identificacaoLines = [
+    "📌 *Identificação do caso*",
+    `Cliente: ${nome}`,
+    `ID/Pré-cadastro: ${caseId}`,
+    `Composição: ${isSolo ? "solo" : `${composicaoQuantidade} participantes`}`
+  ];
+
+  const resumoFamiliarLines = [
+    "👨‍👩‍👧 *Resumo familiar*",
+    `Estado civil: ${estadoCivil || "não informado"}`,
+    isSolo
+      ? "Composição: sem complemento de renda familiar."
+      : `Participantes: ${participantes.map((p) => String(p?.role || p?.papel || p?.id || p?.participante || "").trim()).filter(Boolean).join(", ")}`
+  ];
+
+  const resumoRendaLines = [
+    "💰 *Resumo de renda*",
+    `Renda titular: R$ ${Math.max(0, rendaTitular).toFixed(2)}`,
+    multiRenda ? `Renda complementar: R$ ${Math.max(0, rendaComplementar).toFixed(2)}` : null,
+    `Renda total: R$ ${Math.max(0, rendaTotalGeral).toFixed(2)}`,
+    multiRenda ? "Multi-renda: sim" : null,
+    multiRegime ? `Multi-regime: sim (${regimesUnicos.join(" + ")})` : null
+  ].filter(Boolean);
+
+  const formalizacaoLines = [
+    "🧾 *Formalização*",
+    `Regimes informados: ${regimesUnicos.length ? regimesUnicos.join(", ") : "não informado"}`,
+    autonomoComIR ? "Autônomo com IR: renda formalizável para análise." : null,
+    ctps36 ? "CTPS ≥ 36 meses identificada (sinal positivo para análise)." : null
+  ].filter(Boolean);
+
+  const riscoLines = [
+    "⚠️ *Risco / restrição*",
+    temRestricao
+      ? `Restrição: sim${restricaoRegularizavel ? " (com sinal de regularização)" : ""}`
+      : "Restrição: sem sinal relevante",
+    `Resumo: ${restricaoResumo || "sem_restricao"}`
+  ];
+
+  const documentalLines = [
+    "📂 *Situação documental*",
+    `Status envio: ${envioDocsStatus || "não informado"}`,
+    docsCompletos ? "Documentação: completa" : "Documentação: pendente",
+    totalPendencias > 0 ? `Pendências totais: ${totalPendencias}` : null,
+    totalInvalidos > 0 ? `Inválidos: ${totalInvalidos}` : null,
+    totalIlegiveis > 0 ? `Ilegíveis: ${totalIlegiveis}` : null
+  ].filter(Boolean);
+
+  const composicaoTxt = isSolo ? "Caso solo" : `Caso com composição (${composicaoQuantidade} participantes)`;
+  const riscoTxt = temRestricao
+    ? `com restrição${restricaoRegularizavel ? " com sinal de regularização" : ""}`
+    : "sem restrição relevante";
+  const docTxt = docsCompletos ? "documentação completa" : "documentação com pendências";
+  const observacaoExecutiva = `${composicaoTxt}, ${riscoTxt} e ${docTxt}. Renda total estimada em R$ ${Math.max(0, rendaTotalGeral).toFixed(2)}.`;
+
+  const proximoPasso = docsCompletos
+    ? "Próximo passo: retornar parecer de pré-análise (aprovado, condicionado, pendência ou reprovado)."
+    : "Próximo passo: orientar regularização documental pendente e devolver parecer parcial com pendências.";
+
+  const resumo_humano_correspondente = [
+    ...identificacaoLines,
+    "",
+    ...resumoFamiliarLines,
+    "",
+    ...resumoRendaLines,
+    "",
+    ...formalizacaoLines,
+    "",
+    ...riscoLines,
+    "",
+    ...documentalLines,
+    "",
+    "🧠 *Observação executiva*",
+    observacaoExecutiva,
+    "",
+    "➡️ *Próximo passo operacional*",
+    proximoPasso
+  ].join("\n");
+
+  const payload_tecnico_correspondente_json = {
+    identificacao: {
+      nome,
+      id_pre_cadastro: caseId,
+      wa_id: st?.wa_id || null,
+      estado_civil: estadoCivil || null,
+      composicao_qtd: composicaoQuantidade
+    },
+    composicao: {
+      solo: isSolo,
+      participantes: participantes.map((p) => ({
+        id: p?.id || p?.participante || null,
+        papel: p?.role || p?.papel || null,
+        regime_trabalho: p?.regime_trabalho || null,
+        renda: Number(p?.renda ?? 0) || 0
+      }))
+    },
+    renda: {
+      titular: Math.max(0, rendaTitular),
+      complementar: Math.max(0, rendaComplementar),
+      total: Math.max(0, rendaTotalGeral),
+      multi_renda: multiRenda,
+      multi_regime: multiRegime
+    },
+    formalizacao: {
+      autonomo_com_ir: autonomoComIR,
+      ctps_36: ctps36
+    },
+    restricao: {
+      resumo: restricaoResumo || null,
+      tem_restricao: temRestricao,
+      regularizavel: restricaoRegularizavel
+    },
+    documental: {
+      envio_docs_status: envioDocsStatus || null,
+      completo: docsCompletos,
+      pendencias_total: totalPendencias,
+      invalidos: totalInvalidos,
+      ilegiveis: totalIlegiveis,
+      faltantes: totalFaltantes
+    }
+  };
+
+  return {
+    resumo_humano_correspondente,
+    payload_tecnico_correspondente_json
+  };
+}
+
+function gerarAssumirToken() {
+  // Sem I/O/0/1 para reduzir erro humano na digitação do token.
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const bytes = new Uint8Array(6);
+  crypto.getRandomValues(bytes);
+  let raw = "";
+  for (const b of bytes) raw += alphabet[b % alphabet.length];
+  return normalizeAssumirToken(raw);
+}
+
+function parseAssumirTokenFromText(userText) {
+  const txt = String(userText || "").trim();
+  const m = txt.match(/^assumir[\s:;#-]*([a-z0-9-]{6,12})\b/i);
+  if (!m) return null;
+  return normalizeAssumirToken(m[1]);
+}
+
+function buildCorrespondenteGroupAlert(st, token) {
+  const caseRef = String(st?.wa_id || "").slice(-4).padStart(4, "0");
+  return [
+    "🚨 *Novo caso para correspondente*",
+    `Ref: C${caseRef}`,
+    `Token: ${token}`,
+    "",
+    "Para assumir com exclusividade, responda no privado:",
+    `ASSUMIR ${token}`,
+    "",
+    "⚠️ Este grupo é apenas distribuição (sem dados sensíveis)."
+  ].join("\n");
+}
+
+function buildCorrespondentePrivateDocsLinksText(docs = []) {
+  if (!Array.isArray(docs) || docs.length === 0) {
+    return "Links de documentos: nenhum link encontrado no momento.";
+  }
+
+  const lines = docs
+    .filter((d) => d?.url)
+    .slice(0, 30)
+    .map((d, idx) => {
+      const tipo = d?.tipo || "documento";
+      const participante = d?.participante ? ` (${String(d.participante).toUpperCase()})` : "";
+      return `${idx + 1}. ${tipo}${participante}: ${d.url}`;
+    });
+
+  return lines.length
+    ? ["🔗 *Links dos documentos do caso:*", ...lines].join("\n")
+    : "Links de documentos: nenhum link encontrado no momento.";
+}
+
+function extractCorrespondenteWaId(msg, env) {
+  const from = String(msg?.from || "").trim();
+  const author = String(msg?.author || "").trim();
+  if (author) return author;
+  if (from && from !== String(env.CORRESPONDENTE_TO || "").trim()) return from;
+  return "";
+}
+
+function buildCorrespondentePrivateDeliveryMessage(dossiePrivado, docsText) {
+  return ["✅ Caso assumido com exclusividade.", "", dossiePrivado, "", docsText].join("\n");
+}
+
+// Divide texto em blocos para reduzir risco de falha por limite de tamanho de mensagem.
+function splitMessageForWhatsapp(text, maxChars = 3500) {
+  const raw = String(text || "").trim();
+  if (!raw) return [];
+  if (raw.length <= maxChars) return [raw];
+
+  const parts = [];
+  const lines = raw.split("\n");
+  let current = "";
+
+  for (const line of lines) {
+    const next = current ? `${current}\n${line}` : line;
+    if (next.length <= maxChars) {
+      current = next;
+      continue;
+    }
+    if (current) parts.push(current);
+    if (line.length <= maxChars) {
+      current = line;
+      continue;
+    }
+    let start = 0;
+    while (start < line.length) {
+      const chunk = line.slice(start, start + maxChars);
+      parts.push(chunk);
+      start += maxChars;
+    }
+    current = "";
+  }
+
+  if (current) parts.push(current);
+  return parts.filter(Boolean);
+}
+
+// Entrega privada em múltiplas mensagens mantendo o contrato da fase oficial.
+async function sendCorrespondentePrivateDelivery(env, correspondenteWaId, dossiePrivado, docsText) {
+  const dossieParts = splitMessageForWhatsapp(["✅ Caso assumido com exclusividade.", "", dossiePrivado].join("\n"));
+  const docsParts = splitMessageForWhatsapp(docsText);
+  const payloads = [...dossieParts, ...docsParts];
+  for (const body of payloads) {
+    await sendWhatsToCorrespondente(env, correspondenteWaId, body);
+  }
+  return { partsSent: payloads.length };
+}
+
+async function getCorrespondenteCaseByToken(env, token) {
+  const safeToken = normalizeAssumirToken(token);
+  if (!safeToken) return null;
+
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active && simCtx.stateByWaId) {
+    const entries = Object.values(simCtx.stateByWaId)
+      .map((row) => ({
+        row,
+        token: normalizeAssumirToken(row?.corr_assumir_token),
+        ts: (() => {
+          const parsed = Date.parse(String(row?.updated_at || ""));
+          return Number.isNaN(parsed) ? 0 : parsed;
+        })()
+      }))
+      .filter((it) => it.token === safeToken);
+    if (!entries.length) return null;
+    // Mantém o mesmo critério do caminho real (updated_at.desc + limit 1).
+    entries.sort((a, b) => b.ts - a.ts);
+    return entries[0].row;
+  }
+
+  const { data } = await sbFetch(env, "/rest/v1/enova_state", {
+    method: "GET",
+    query: {
+      corr_assumir_token: `eq.${encodeURIComponent(safeToken)}`,
+      select: "wa_id,nome,fase_conversa,corr_assumir_token,corr_publicacao_status,corr_publicado_grupo_em,corr_lock_correspondente_wa_id,corr_lock_assumido_em,corr_entrega_privada_status,processo_enviado_correspondente,dossie_resumo",
+      order: "updated_at.desc",
+      limit: 1
+    }
+  });
+
+  if (!Array.isArray(data) || !data.length) return null;
+  return data[0];
+}
+
+async function getCaseDocumentLinks(env, wa_id) {
+  if (!wa_id) return [];
+  const simCtx = getSimulationContext(env);
+  // Em simulação canônica, não consultamos storage externo de documentos.
+  if (simCtx?.active) return [];
+  const { data } = await sbFetch(env, "/rest/v1/enova_docs", {
+    method: "GET",
+    query: {
+      wa_id: `eq.${encodeURIComponent(wa_id)}`,
+      select: "tipo,participante,url,created_at",
+      order: "created_at.asc",
+      limit: 50
+    }
+  });
+  return Array.isArray(data) ? data : [];
+}
+
+async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) {
+    const current = await getState(env, wa_id);
+    if (!current) return false;
+    const lockAtual = String(current.corr_lock_correspondente_wa_id || "").trim();
+    if (lockAtual && lockAtual !== correspondenteWaId) return false;
+
+    await upsertState(env, wa_id, {
+      corr_lock_correspondente_wa_id: correspondenteWaId,
+      corr_lock_assumido_em: new Date().toISOString(),
+      corr_publicacao_status: "lock_adquirido_tentando_entrega",
+      updated_at: new Date().toISOString()
+    });
+
+    const afterSim = await getState(env, wa_id);
+    return afterSim?.corr_lock_correspondente_wa_id === correspondenteWaId;
+  }
+
+  await sbFetch(env, "/rest/v1/enova_state", {
+    method: "PATCH",
+    query: {
+      wa_id: `eq.${encodeURIComponent(wa_id)}`,
+      corr_lock_correspondente_wa_id: "is.null"
+    },
+    body: JSON.stringify({
+      corr_lock_correspondente_wa_id: correspondenteWaId,
+      corr_lock_assumido_em: new Date().toISOString(),
+      corr_publicacao_status: "lock_adquirido_tentando_entrega",
+      updated_at: new Date().toISOString()
+    })
+  });
+
+  const after = await getState(env, wa_id);
+  return after?.corr_lock_correspondente_wa_id === correspondenteWaId;
+}
+
+async function handleCorrespondenteAssumirCommand(env, msg, userText) {
+  const token = parseAssumirTokenFromText(userText);
+  if (!token) return { handled: false };
+
+  const correspondenteWaId = extractCorrespondenteWaId(msg, env);
+  if (!correspondenteWaId) return { handled: false };
+
+  const caso = await getCorrespondenteCaseByToken(env, token);
+  if (!caso || !caso.wa_id) {
+    await sendMessage(env, correspondenteWaId, `Token ${token} não encontrado ou já expirado.`);
+    return { handled: true, reason: "assumir_token_not_found" };
+  }
+
+  if (correspondenteWaId === caso.wa_id) {
+    await sendMessage(env, correspondenteWaId, "Esse token é de um atendimento de cliente. Assunção permitida apenas para correspondente.");
+    return { handled: true, reason: "assumir_token_cliente_bloqueado" };
+  }
+
+  if (caso.processo_enviado_correspondente === true) {
+    await sendMessage(env, correspondenteWaId, "Este caso já foi assumido e entregue em privado.");
+    return { handled: true, reason: "assumir_token_already_delivered" };
+  }
+
+  const lockAtual = String(caso.corr_lock_correspondente_wa_id || "").trim();
+  if (lockAtual && lockAtual !== correspondenteWaId) {
+    await sendMessage(env, correspondenteWaId, "Este caso já foi assumido por outro correspondente.");
+    return { handled: true, reason: "assumir_token_locked" };
+  }
+
+  if (!lockAtual) {
+    const acquired = await tryAcquireCorrespondenteLock(env, caso.wa_id, correspondenteWaId);
+    if (!acquired) {
+      await sendMessage(env, correspondenteWaId, "Este caso acabou de ser assumido por outro correspondente.");
+      return { handled: true, reason: "assumir_token_lock_race" };
+    }
+  }
+
+  const stCaso = await getState(env, caso.wa_id);
+  if (!stCaso) {
+    await sendMessage(env, correspondenteWaId, "Não consegui carregar o caso para entrega privada. Tente novamente.");
+    return { handled: true, reason: "assumir_token_state_not_found" };
+  }
+
+  const dossieCanonico = buildCorrespondentePrivateDossierFromState(stCaso);
+  const dossiePrivado =
+    String(dossieCanonico?.resumo_humano_correspondente || "").trim() ||
+    String(stCaso.dossie_resumo || "").trim() ||
+    gerarDossieCompleto(stCaso);
+  const docs = await getCaseDocumentLinks(env, caso.wa_id);
+  const docsText = buildCorrespondentePrivateDocsLinksText(docs);
+
+  try {
+    await sendCorrespondentePrivateDelivery(env, correspondenteWaId, dossiePrivado, docsText);
+  } catch (err) {
+    await upsertState(env, caso.wa_id, {
+      corr_entrega_privada_status: "falha_entrega_privada",
+      corr_entrega_privada_em: new Date().toISOString(),
+      corr_publicacao_status: "assumido_falha_entrega_privada"
+    });
+    await sendMessage(env, correspondenteWaId, "Consegui registrar a assunção, mas falhou a entrega privada do dossiê. Tente novamente com o mesmo token.");
+    return { handled: true, reason: "assumir_token_private_delivery_failed" };
+  }
+
+  await upsertState(env, caso.wa_id, {
+    corr_lock_correspondente_wa_id: correspondenteWaId,
+    corr_entrega_privada_status: "entregue_privado_aguardando_retorno",
+    corr_entrega_privada_em: new Date().toISOString(),
+    corr_publicacao_status: "entregue_privado_aguardando_retorno",
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true
+  });
+
+  const stAtualizado = await getState(env, caso.wa_id);
+  if (stAtualizado) {
+    // fase_conversa (stage mecânico) é canônica e independente do status operacional de pré-análise.
+    await step(env, stAtualizado, [
+      "Perfeito! 👏",
+      "Seu processo foi assumido por um correspondente e o dossiê completo já foi entregue em canal privado.",
+      "Agora seguimos aguardando o retorno da pré-análise por aqui 😊"
+    ], "aguardando_retorno_correspondente");
+  }
+
+  await sendMessage(env, correspondenteWaId, `Assunção confirmada. Caso ${token} entregue no seu privado.`);
+  return { handled: true, reason: "assumir_token_success" };
+}
+
 // =========================================================
 // 🚦 CORRESPONDENTE OFICIAL
 // Caminho oficial atual: finalizacao_processo -> enviarParaCorrespondente -> sendWhatsToCorrespondente -> aguardando_retorno_correspondente.
@@ -6399,97 +6982,81 @@ async function enviarParaCorrespondente(env, st, dossie) {
     console.error("Erro ao logar envio ao correspondente:", e);
   }
 
-  // 2 — Monta texto bonitão pro correspondente (estilo print que você mandou)
-  const nomeCliente = st.nome || "NÃO INFORMADO";
-  const estadoCivil = st.estado_civil || "NÃO INFORMADO";
+  const tokenAssumir = normalizeAssumirToken(st?.corr_assumir_token) || gerarAssumirToken();
+  const mensagemGrupo = buildCorrespondenteGroupAlert(st, tokenAssumir);
 
-  const rendaTitular  = st.renda ? `Renda Titular: R$ ${st.renda}` : "Renda Titular: não informada";
-  const rendaParc    = st.renda_parceiro ? `Renda Parceiro: R$ ${st.renda_parceiro}` : "Renda Parceiro: não informado";
-  const somaRendaTxt = st.somar_renda ? "Sim" : "Não";
-
-  const ctpsTitular  = st.ctps_36 === true ? "Sim" : (st.ctps_36 === false ? "Não" : "Não informado");
-  const ctpsParc     = st.ctps_36_parceiro === true ? "Sim" : (st.ctps_36_parceiro === false ? "Não" : "Não informado");
-
-  let restricaoTxt;
-  if (st.restricao === true) restricaoTxt = "Sim (cliente informou restrição)";
-  else if (st.restricao === false) restricaoTxt = "Não";
-  else if (st.restricao === "incerto") restricaoTxt = "Incerto (cliente não soube confirmar)";
-  else restricaoTxt = "Não informado";
-
-  const dependenteTxt = st.dependente === true ? "Sim" : (st.dependente === false ? "Não" : "Não informado");
-
-  const statusDocs = st.envio_docs_status || st.docs_status_geral || "pendente";
-
-  const mensagemCorrespondente = [
-    "Olá! Por favor, analisar este perfil para Minha Casa Minha Vida 🙏",
-    "",
-    `👤 Cliente: ${nomeCliente}`,
-    `💍 Estado civil: ${estadoCivil}`,
-    `🤝 Soma renda com alguém? ${somaRendaTxt}`,
-    "",
-    `💰 ${rendaTitular}`,
-    `💰 ${rendaParc}`,
-    "",
-    `📘 CTPS Titular ≥ 36 meses: ${ctpsTitular}`,
-    `📘 CTPS Parceiro ≥ 36 meses: ${ctpsParc}`,
-    "",
-    `👶 Dependente menor de 18: ${dependenteTxt}`,
-    `🚨 Restrição em CPF: ${restricaoTxt}`,
-    "",
-    `📂 Status documentos: ${statusDocs}`,
-    "",
-    "Resumo IA:",
-    dossie,
-    "",
-    "Assim que tiver a pré-análise, me retorne por favor com:",
-    "- CRÉDITO APROVADO ou CRÉDITO REPROVADO",
-    "- Observações / condições principais 🙏"
-  ].join("\n");
-
-  // 3 — Envia mensagem via WhatsApp Cloud API para o grupo / número do correspondente
-  const to = env.CORRESPONDENTE_TO; 
-  // 👉 configure no Cloudflare:
-  // CORRESPONDENTE_TO = número do grupo ou telefone do correspondente (ex: 5541999999999)
+  // 3 — Publica alerta mínimo no grupo (distribuição sem dados sensíveis)
+  const to = env.CORRESPONDENTE_TO;
+  // CORRESPONDENTE_TO = grupo de correspondentes (distribuição)
 
   if (!to) {
     console.warn("CORRESPONDENTE_TO não configurado no ambiente. Não foi possível enviar ao correspondente.");
-    return false;
+    return { ok: false, token: tokenAssumir, mode: "none" };
   }
 
   try {
-    await sendWhatsToCorrespondente(env, to, mensagemCorrespondente);
-  } catch (err) {
-    console.error("Erro ao enviar mensagem ao correspondente:", err);
-    return false;
-  }
+    const allowInteractive = String(env.CORRESPONDENTE_GROUP_INTERACTIVE || "").toLowerCase() === "true";
+    if (allowInteractive) {
+      const payloadInteractive = {
+        messaging_product: "whatsapp",
+        to,
+        type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text: mensagemGrupo },
+          action: {
+            buttons: [
+              {
+                type: "reply",
+                reply: {
+                  id: `ASSUMIR ${tokenAssumir}`,
+                  title: "Assumir"
+                }
+              }
+            ]
+          }
+        }
+      };
+      await sendWhatsPayloadToCorrespondente(env, payloadInteractive);
+      return { ok: true, token: tokenAssumir, mode: "interactive" };
+    }
 
-  return true;
+    await sendWhatsToCorrespondente(env, to, mensagemGrupo);
+    return { ok: true, token: tokenAssumir, mode: "text" };
+  } catch (err) {
+    console.warn("Falha no envio interativo; fallback para texto ASSUMIR <TOKEN>.", err?.message || err);
+    try {
+      await sendWhatsToCorrespondente(env, to, mensagemGrupo);
+      return { ok: true, token: tokenAssumir, mode: "fallback_text" };
+    } catch (err2) {
+      console.error("Erro ao publicar alerta no grupo de correspondentes:", err2);
+      return { ok: false, token: tokenAssumir, mode: "none" };
+    }
+  }
 }
 
 // =========================================================
 // 🔧 Helper — enviar mensagem de texto pro correspondente
 // =========================================================
 async function sendWhatsToCorrespondente(env, to, body) {
-  const simCtx = getSimulationContext(env);
-  if (simCtx?.suppressExternalSend) {
-    simCtx.sendPreview = {
-      messaging_product: "whatsapp",
-      to,
-      type: "text",
-      text: { body }
-    };
-    simCtx.wouldSend = true;
-    return true;
-  }
-
-  const url = `https://graph.facebook.com/v20.0/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
-
   const payload = {
     messaging_product: "whatsapp",
     to,
     type: "text",
     text: { body }
   };
+  return sendWhatsPayloadToCorrespondente(env, payload);
+}
+
+async function sendWhatsPayloadToCorrespondente(env, payload) {
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.suppressExternalSend) {
+    simCtx.sendPreview = payload;
+    simCtx.wouldSend = true;
+    return true;
+  }
+
+  const url = `https://graph.facebook.com/v20.0/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
 
   const res = await fetch(url, {
     method: "POST",
@@ -14960,7 +15527,20 @@ case "finalizacao_processo": {
     );
   }
 
-  // monta dossiê simples (versão 1 — depois evoluímos)
+  const statusPublicacaoCorr = String(st.corr_publicacao_status || "").toLowerCase();
+  if (statusPublicacaoCorr === "publicado_grupo_pendente_assumir" || statusPublicacaoCorr === "lock_adquirido_tentando_entrega" || statusPublicacaoCorr === "assumido_falha_entrega_privada") {
+    return step(
+      env,
+      st,
+      [
+        "Seu caso já foi publicado para distribuição entre correspondentes.",
+        "Assim que um correspondente assumir, eu sigo automaticamente com a entrega privada e te aviso por aqui."
+      ],
+      "finalizacao_processo"
+    );
+  }
+
+  // monta dossiê simples (uso privado após assunção)
   const dossie = `
 Cliente: ${st.nome || "não informado"}
 Estado Civil: ${st.estado_civil || "não informado"}
@@ -14973,13 +15553,17 @@ Dependente: ${st.dependente === true ? "Sim" : "Não"}
 Restrição: ${st.restricao || "não informado"}
 `.trim();
 
-  const envioOk = await enviarParaCorrespondente(env, st, dossie);
+  const envio = await enviarParaCorrespondente(env, st, dossie);
   await upsertState(env, st.wa_id, {
     dossie_resumo: dossie,
-    processo_enviado_correspondente: envioOk === true
+    corr_assumir_token: envio?.token || st.corr_assumir_token || null,
+    corr_publicacao_status: envio?.ok ? "publicado_grupo_pendente_assumir" : "falha_publicacao_grupo",
+    corr_publicado_grupo_em: envio?.ok ? new Date().toISOString() : st.corr_publicado_grupo_em || null,
+    corr_lock_correspondente_wa_id: st.corr_lock_correspondente_wa_id || null,
+    processo_enviado_correspondente: false
   });
 
-  if (!envioOk) {
+  if (!envio?.ok) {
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -14993,23 +15577,25 @@ Restrição: ${st.restricao || "não informado"}
       env,
       st,
       [
-        "Estou finalizando seu envio oficial ao correspondente e já sigo por aqui.",
-        "Se houver qualquer indisponibilidade momentânea, eu continuo o processamento sem você precisar repetir informações."
+        "Estou finalizando a publicação do seu caso para distribuição ao correspondente e já sigo por aqui.",
+        "Se houver qualquer indisponibilidade momentânea, continuo o processamento sem você precisar repetir informações."
       ],
       "finalizacao_processo"
     );
   }
 
-  // TELEMETRIA — saída da fase com envio confirmado
+  // TELEMETRIA — saída da fase mantendo entrada oficial até assunção/entrega privada
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
     stage,
-    next_stage: "aguardando_retorno_correspondente",
+    next_stage: "finalizacao_processo",
     severity: "info",
-    message: "Processo enviado ao correspondente",
+    message: "Caso publicado no grupo de correspondentes aguardando assunção com lock",
     details: {
-      processo_enviado_correspondente: true
+      processo_enviado_correspondente: false,
+      token_assumir: envio?.token || null,
+      modo_publicacao: envio?.mode || null
     }
   });
 
@@ -15019,10 +15605,10 @@ Restrição: ${st.restricao || "não informado"}
     st,
     [
       "Perfeito! 👏",
-      "Acabei de enviar seu processo ao correspondente bancário.",
-      "Assim que eles retornarem com a pré-análise, eu te aviso aqui mesmo 😊"
+      "Publiquei seu caso no canal oficial de distribuição dos correspondentes.",
+      "Assim que um correspondente assumir e eu concluir a entrega privada do dossiê, te aviso aqui mesmo 😊"
     ],
-    "aguardando_retorno_correspondente"
+    "finalizacao_processo"
   );
 
 } // 🔥 FECHA O CASE "finalizacao_processo"
@@ -15080,16 +15666,60 @@ case "aguardando_retorno_correspondente": {
   }
 
   // ======================================================
-  // 1 — Extrair possíveis nomes e status via regex
+  // 1 — Extrair possíveis nomes e classificar retorno canônico
   // ======================================================
 
-  const aprovado   = /(aprovado|cr[eé]dito aprovado|liberado)/i.test(txt);
-  const reprovado  = /(reprovado|cr[eé]dito reprovado|negado|n[oã]o aprovado)/i.test(txt);
-  const pendencia  = /(pend[eê]ncia|complemento documental|documento adicional|complementar documento|complementa[cç][aã]o documental|ajuste documental)/i.test(txt);
+  const ntMsg = normalizeText(txt);
+  const hasAny = (terms) => terms.some((term) => ntMsg.includes(term));
+
+  const reprovado = /\b(reprovado|credito reprovado|negado|nao aprovado)\b/.test(ntMsg);
+  const pendenciaRisco = hasAny([
+    "conres",
+    "sinad",
+    "comprometimento de renda",
+    "margem financeira comprometida",
+    "proponente grupo familiar com margem financeira comprometida",
+    "impactada por compromissos financeiros na caixa e ou em outros bancos",
+    "scr",
+    "registrato",
+    "bacen",
+    "serasa",
+    "spc",
+    "protesto",
+    "restricao",
+    "restricoes",
+    "divida",
+    "dividas"
+  ]);
+  const pendenciaDocumental = hasAny([
+    "pendencia documental",
+    "complemento documental",
+    "documento adicional",
+    "complementar documento",
+    "complementacao documental",
+    "ajuste documental",
+    "pendencia de documento",
+    "falta de documento",
+    "documentacao pendente"
+  ]);
+  const aprovadoCondicionado = hasAny([
+    "aprovado condicionado",
+    "aprovacao condicionada",
+    "credito aprovado condicionado",
+    "pre aprovacao condicionada",
+    "aprovado com ressalvas",
+    "aprovado com condicoes"
+  ]);
+  const aprovado = /\b(aprovado|aprovada|credito aprovado|liberado|liberada)\b/.test(ntMsg);
+
+  // Ordem obrigatória de decisão:
+  // reprovado > pendencia_risco > pendencia_documental > aprovado_condicionado > aprovado > nao_identificado
   let statusCanonico = "nao_identificado";
-  if (aprovado) statusCanonico = "aprovado";
-  else if (reprovado) statusCanonico = "reprovado";
-  else if (pendencia) statusCanonico = "pendencia";
+  if (reprovado) statusCanonico = "reprovado";
+  else if (pendenciaRisco) statusCanonico = "pendencia_risco";
+  else if (pendenciaDocumental) statusCanonico = "pendencia_documental";
+  else if (aprovadoCondicionado) statusCanonico = "aprovado_condicionado";
+  else if (aprovado) statusCanonico = "aprovado";
 
   let nomeExtraido = null;
 
@@ -15172,15 +15802,15 @@ case "aguardando_retorno_correspondente": {
   }
 
   // ======================================================
-  // 4 — APROVADO
+  // 4 — APROVADO / APROVADO CONDICIONADO
   // ======================================================
-  if (aprovado) {
+  if (statusCanonico === "aprovado" || statusCanonico === "aprovado_condicionado") {
 
     await upsertState(env, st.wa_id, {
       processo_aprovado: true,
       processo_reprovado: false,
       retorno_correspondente_bruto: txt,
-      retorno_correspondente_status: "aprovado",
+      retorno_correspondente_status: statusCanonico,
       retorno_correspondente_motivo: null
     });
 
@@ -15190,16 +15820,14 @@ case "aguardando_retorno_correspondente": {
       stage,
       next_stage: "agendamento_visita",
       severity: "success",
-      message: "Processo aprovado pelo correspondente"
+      message: "Processo com pré-aprovação do financiamento"
     });
 
     return step(env, st,
       [
-        "Ótima notícia! 🎉",
-        "O correspondente bancário acabou de **aprovar** sua pré-análise! 🙌",
-        "",
-        "Agora sim podemos **confirmar seu agendamento** certinho.",
-        "Qual horário você prefere para a visita? Manhã, tarde ou horário específico?"
+        "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.",
+        "Agora o próximo passo é **agendar sua visita no plantão** para fazermos as simulações e escolher o imóvel.",
+        "Qual horário você prefere para a visita? Manhã, tarde ou algum horário específico?"
       ],
       "agendamento_visita"
     );
@@ -15208,10 +15836,10 @@ case "aguardando_retorno_correspondente": {
   // ======================================================
   // 5 — REPROVADO
   // ======================================================
-  if (reprovado) {
+  if (statusCanonico === "reprovado") {
 
     let motivo = null;
-    const m = txt.match(/(pend[eê]ncia|motivo|raz[aã]o|detalhe).*?:\s*(.*)/i);
+    const m = txt.match(/(pend[eê]ncia|motivo|raz[aã]o|detalhe|score)\s*:\s*([^\n\r]+)/i);
     if (m) motivo = m[2];
 
     await upsertState(env, st.wa_id, {
@@ -15246,9 +15874,9 @@ case "aguardando_retorno_correspondente": {
     );
   }
 
-  if (pendencia) {
+  if (statusCanonico === "pendencia_risco") {
     let motivo = null;
-    const m = txt.match(/(pend[eê]ncia|motivo|raz[aã]o|detalhe|complemento).*?:\s*(.*)/i);
+    const m = txt.match(/(pend[eê]ncia|motivo|raz[aã]o|detalhe|restri[cç][aã]o|conres|sinad|scr|serasa|spc|bacen|registrato)\s*:\s*([^\n\r]+)/i);
     if (m) motivo = m[2];
     const motivoSafe = String(motivo || "").replace(/[*_`~]/g, "").trim();
 
@@ -15256,7 +15884,7 @@ case "aguardando_retorno_correspondente": {
       processo_aprovado: false,
       processo_reprovado: false,
       retorno_correspondente_bruto: txt,
-      retorno_correspondente_status: "pendencia",
+      retorno_correspondente_status: "pendencia_risco",
       retorno_correspondente_motivo: motivo || null
     });
 
@@ -15266,7 +15894,41 @@ case "aguardando_retorno_correspondente": {
       stage,
       next_stage: "aguardando_retorno_correspondente",
       severity: "warning",
-      message: "Processo com pendencia do correspondente; mantendo interpretação/controle no stage oficial",
+      message: "Processo com pendencia_risco do correspondente; mantendo stage oficial",
+      details: { motivo }
+    });
+
+    return step(env, st,
+      [
+        "Recebi retorno do correspondente com **pendência de risco/restrição** no processo.",
+        motivoSafe ? `Detalhe informado: *${motivoSafe}*.` : "Foram apontadas restrições financeiras para análise complementar.",
+        "Posso te orientar nos próximos passos para regularização e nova avaliação."
+      ],
+      "aguardando_retorno_correspondente"
+    );
+  }
+
+  if (statusCanonico === "pendencia_documental") {
+    let motivo = null;
+    const m = txt.match(/(pend[eê]ncia|motivo|raz[aã]o|detalhe|complemento)\s*:\s*([^\n\r]+)/i);
+    if (m) motivo = m[2];
+    const motivoSafe = String(motivo || "").replace(/[*_`~]/g, "").trim();
+
+    await upsertState(env, st.wa_id, {
+      processo_aprovado: false,
+      processo_reprovado: false,
+      retorno_correspondente_bruto: txt,
+      retorno_correspondente_status: "pendencia_documental",
+      retorno_correspondente_motivo: motivo || null
+    });
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "aguardando_retorno_correspondente",
+      severity: "warning",
+      message: "Processo com pendencia_documental do correspondente; mantendo interpretação/controle no stage oficial",
       details: { motivo }
     });
 

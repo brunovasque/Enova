@@ -175,3 +175,10 @@
 180  renda_total_composicao
 181  p2_renda_variavel
 182  familiar_tipo
+183  corr_assumir_token
+184  corr_publicacao_status
+185  corr_publicado_grupo_em
+186  corr_lock_correspondente_wa_id
+187  corr_lock_assumido_em
+188  corr_entrega_privada_status
+189  corr_entrega_privada_em

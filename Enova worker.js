@@ -1946,7 +1946,7 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
 
 
 const ENOVA_V1_VALID_STAGES = Object.freeze([
-  "inicio","inicio_decisao","inicio_programa","inicio_nome","inicio_nacionalidade","inicio_rnm","inicio_rnm_validade","estado_civil","confirmar_casamento","financiamento_conjunto","parceiro_tem_renda","somar_renda_solteiro","somar_renda_familiar","pais_casados_civil_pergunta","confirmar_avo_familiar","renda_familiar_valor","inicio_multi_renda_pergunta","inicio_multi_renda_coletar","inicio_multi_regime_familiar_pergunta","inicio_multi_regime_familiar_loop","inicio_multi_renda_familiar_pergunta","inicio_multi_renda_familiar_loop","inicio_multi_regime_pergunta_parceiro","inicio_multi_regime_coletar_parceiro","inicio_multi_renda_pergunta_parceiro","inicio_multi_renda_coletar_parceiro","regime_trabalho","autonomo_ir_pergunta","autonomo_sem_ir_ir_este_ano","autonomo_sem_ir_caminho","autonomo_sem_ir_entrada","fim_inelegivel","fim_ineligivel","verificar_averbacao","verificar_inventario","p3_tipo_pergunta","regime_trabalho_parceiro_familiar","finalizacao","regime_trabalho_parceiro_familiar_p3","renda_parceiro_familiar_p3","inicio_multi_regime_p3_pergunta","inicio_multi_regime_p3_loop","inicio_multi_renda_p3_pergunta","inicio_multi_renda_p3_loop","ctps_36_parceiro_p3","restricao_parceiro_p3","regularizacao_restricao_p3","inicio_multi_regime_pergunta","inicio_multi_regime_coletar","regime_trabalho_parceiro","renda","renda_parceiro","renda_parceiro_familiar","renda_mista_detalhe","possui_renda_extra","interpretar_composicao","quem_pode_somar","sugerir_composicao_mista","ir_declarado","autonomo_compor_renda","ctps_36","ctps_36_parceiro","dependente","restricao","restricao_parceiro","regularizacao_restricao_parceiro","regularizacao_restricao","envio_docs","agendamento_visita","finalizacao_processo","aguardando_retorno_correspondente"
+  "inicio","inicio_decisao","inicio_programa","inicio_nome","inicio_nacionalidade","inicio_rnm","inicio_rnm_validade","estado_civil","confirmar_casamento","financiamento_conjunto","parceiro_tem_renda","somar_renda_solteiro","somar_renda_familiar","pais_casados_civil_pergunta","confirmar_avo_familiar","renda_familiar_valor","inicio_multi_renda_pergunta","inicio_multi_renda_coletar","inicio_multi_regime_familiar_pergunta","inicio_multi_regime_familiar_loop","inicio_multi_renda_familiar_pergunta","inicio_multi_renda_familiar_loop","inicio_multi_regime_pergunta_parceiro","inicio_multi_regime_coletar_parceiro","inicio_multi_renda_pergunta_parceiro","inicio_multi_renda_coletar_parceiro","regime_trabalho","autonomo_ir_pergunta","autonomo_sem_ir_ir_este_ano","autonomo_sem_ir_caminho","autonomo_sem_ir_entrada","fim_inelegivel","fim_ineligivel","verificar_averbacao","verificar_inventario","p3_tipo_pergunta","regime_trabalho_parceiro_familiar","finalizacao","regime_trabalho_parceiro_familiar_p3","renda_parceiro_familiar_p3","inicio_multi_regime_p3_pergunta","inicio_multi_regime_p3_loop","inicio_multi_renda_p3_pergunta","inicio_multi_renda_p3_loop","ctps_36_parceiro_p3","restricao_parceiro_p3","regularizacao_restricao_p3","inicio_multi_regime_pergunta","inicio_multi_regime_coletar","regime_trabalho_parceiro","renda","renda_parceiro","renda_parceiro_familiar","renda_mista_detalhe","possui_renda_extra","interpretar_composicao","quem_pode_somar","sugerir_composicao_mista","ir_declarado","autonomo_compor_renda","ctps_36","ctps_36_parceiro","dependente","restricao","restricao_parceiro","regularizacao_restricao_parceiro","regularizacao_restricao","envio_docs","agendamento_visita","visita_confirmada","finalizacao_processo","aguardando_retorno_correspondente"
 ]);
 
 const ENOVA_V1_BANNED_ALIASES = Object.freeze([
@@ -2612,7 +2612,7 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "visita_domingo_redireciona_data", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_data_v1", start_stage: "agendamento_visita", input: "domingo", expected: { type: "single", equals: "agendamento_visita" }, assert_stayed: true },
     { id: "visita_sabado_permitido", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_data_v1", start_stage: "agendamento_visita", input: "sábado", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_data_escolhida"] },
     { id: "visita_horario_fora_grade_redireciona", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_horario_v1", start_stage: "agendamento_visita", input: "10:00", expected: { type: "single", equals: "agendamento_visita" }, assert_stayed: true },
-    { id: "visita_horario_valido_confirma", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_horario_v1", start_stage: "agendamento_visita", input: "2", expected: { type: "single", equals: "finalizacao" }, assert_state_write: ["visita_confirmada","visita_dia_hora","visita_slot_escolhido"] },
+    { id: "visita_horario_valido_confirma", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_horario_v1", start_stage: "agendamento_visita", input: "2", expected: { type: "single", equals: "visita_confirmada" }, assert_state_write: ["visita_confirmada","visita_agendamento_status","visita_dia_hora","visita_slot_escolhido"] },
     { id: "terminal_retorno_correspondente_reprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO REPROVADO\nMotivo: score", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_retorno_correspondente_pendencia_documental", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência documental: comprovante de residência", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_retorno_correspondente_pendencia_risco_conres", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência: CONRES", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
@@ -15392,6 +15392,7 @@ case "agendamento_visita": {
   });
 
   const SLOT_OFICIAL = ["10:00", "14:30", "17:00", "19:30"];
+  const ENDERECO_PLANTAO = "Av. Paraná, 2474 – Boa Vista (em frente ao terminal)";
   const dayFmt = new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" });
   const dayIsoFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" });
   const hmsFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hour12: false });
@@ -15517,7 +15518,7 @@ case "agendamento_visita": {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "finalizacao",
+      next_stage: "visita_confirmada",
       severity: "info",
       message: "Visita já confirmada anteriormente"
     });
@@ -15525,9 +15526,10 @@ case "agendamento_visita": {
     return step(env, st,
       [
         `Sua visita já está confirmada para *${visitaResumo}*. ✅`,
+        `📍 Endereço do plantão: *${ENDERECO_PLANTAO}*`,
         "No dia, é só avisar seu nome na recepção que já te chamam 😉"
       ],
-      "finalizacao"
+      "visita_confirmada"
     );
   }
 
@@ -15732,7 +15734,7 @@ case "agendamento_visita": {
         wa_id: st.wa_id,
         event: "exit_stage",
         stage,
-        next_stage: "finalizacao",
+        next_stage: "visita_confirmada",
         severity: "success",
         message: "Visita confirmada com slot oficial",
         details: {
@@ -15745,9 +15747,10 @@ case "agendamento_visita": {
         [
           "Fechado! ✅ Visita confirmada.",
           `📅 *${visitaDiaHora}*`,
+          `📍 Endereço do plantão: *${ENDERECO_PLANTAO}*`,
           "No dia, é só avisar seu nome na recepção que já te chamam 😉"
         ],
-        "finalizacao"
+        "visita_confirmada"
       );
     }
 

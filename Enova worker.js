@@ -2637,6 +2637,86 @@ function enovaV1Scenarios(modeOverride = null) {
       expected: { type: "multiple", in: ["envio_docs", "finalizacao"] }
     },
     {
+      id: "docs_trava_documental_sem_followup_minimo_nao_entra_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "prefiro presencial"],
+      expected: { type: "single", equals: "envio_docs" }
+    },
+    {
+      id: "docs_trava_documental_com_1_followup_nao_entra_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "ok", "prefiro presencial"],
+      expected: { type: "single", equals: "envio_docs" }
+    },
+    {
+      id: "docs_trava_documental_com_2_followups_e_recusa_whatsapp_entra_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "ok", "quais docs faltam?", "não quero mandar por whatsapp"],
+      expected: { type: "single", equals: "agendamento_visita" }
+    },
+    {
+      id: "docs_trava_documental_com_2_followups_e_recusa_site_entra_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "ok", "quais docs faltam?", "não quero enviar pelo site"],
+      expected: { type: "single", equals: "agendamento_visita" }
+    },
+    {
+      id: "docs_trava_documental_com_2_followups_e_prefere_presencial_entra_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "ok", "quais docs faltam?", "prefiro presencial"],
+      expected: { type: "single", equals: "agendamento_visita" }
+    },
+    {
+      id: "docs_trava_documental_com_2_followups_e_silencio_contextual_entra_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "ok", "quais docs faltam?", "nao envio online"],
+      expected: { type: "single", equals: "agendamento_visita" }
+    },
+    {
+      id: "docs_trava_documental_desinteresse_geral_nao_entra_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "ok", "quais docs faltam?", "depois vejo isso"],
+      expected: { type: "single", equals: "envio_docs" }
+    },
+    {
+      id: "docs_trava_documental_bloqueio_nao_documental_nao_entra_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "ok", "quais docs faltam?", "estou sem tempo hoje"],
+      expected: { type: "single", equals: "envio_docs" }
+    },
+    {
       id: "visita_convite_por_trava_documental",
       grupo: "docs",
       mode: "simulate-from-state",

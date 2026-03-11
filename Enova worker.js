@@ -2500,8 +2500,11 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "terminal_assumir_token_sucesso_entrega_privada", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.ok", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_assumir_token_bloqueado_sem_transicao", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", input: "ASSUMIR AB12CD34", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_retorno_correspondente_aprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO APROVADO", expected: { type: "single", equals: "agendamento_visita" } },
+    { id: "terminal_retorno_correspondente_aprovado_condicionado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO APROVADO CONDICIONADO", expected: { type: "single", equals: "agendamento_visita" } },
     { id: "terminal_retorno_correspondente_reprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO REPROVADO\nMotivo: score", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
-    { id: "terminal_retorno_correspondente_pendencia", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência: comprovante de residência", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_retorno_correspondente_pendencia_documental", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência documental: comprovante de residência", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_retorno_correspondente_pendencia_risco_conres", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência: CONRES", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_retorno_correspondente_prioridade_reprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nAprovado condicionado, porém crédito reprovado por score", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_fim_inelegivel_redirect", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "fim_inelegivel", input: "ok", expected: { type: "context", in: ["fim_ineligivel","fim_inelegivel"], terminal_canonical: "fim_ineligivel" } },
     { id: "terminal_aguardando_retorno_replay", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_base_topo_v1", start_stage: "aguardando_retorno_correspondente", input: "oi", expected: { type: "multiple", in: ["aguardando_retorno_correspondente","finalizacao_processo"] } },
 
@@ -15409,16 +15412,26 @@ case "aguardando_retorno_correspondente": {
   }
 
   // ======================================================
-  // 1 — Extrair possíveis nomes e status via regex
+  // 1 — Extrair possíveis nomes e classificar retorno canônico
   // ======================================================
 
-  const aprovado   = /(aprovado|cr[eé]dito aprovado|liberado)/i.test(txt);
-  const reprovado  = /(reprovado|cr[eé]dito reprovado|negado|n[oã]o aprovado)/i.test(txt);
-  const pendencia  = /(pend[eê]ncia|complemento documental|documento adicional|complementar documento|complementa[cç][aã]o documental|ajuste documental)/i.test(txt);
+  const ntMsg = normalizeText(txt);
+  const hasToken = (re) => re.test(ntMsg);
+
+  const reprovado = hasToken(/\b(reprovad|credito reprovado|negad|nao aprovado)\b/);
+  const pendenciaRisco = hasToken(/\b(conres|sinad|comprometimento de renda|margem financeira comprometida|proponente grupo familiar com margem financeira comprometida|impactada por compromissos financeiros na caixa e ou em outros bancos|scr|registrato|bacen|serasa|spc|protesto|restricao|restricoes|divida|dividas)\b/);
+  const pendenciaDocumental = hasToken(/\b(pendencia documental|complemento documental|documento adicional|complementar documento|complementacao documental|ajuste documental|pendencia de documento|falta de documento|documentacao pendente)\b/);
+  const aprovadoCondicionado = hasToken(/\b(aprovado condicionado|aprovacao condicionada|credito aprovado condicionado|pre aprovacao condicionada|aprovado com ressalvas|aprovado com condicoes)\b/);
+  const aprovado = hasToken(/\b(aprovad|credito aprovado|liberad)\b/);
+
+  // Ordem obrigatória de decisão:
+  // reprovado > pendencia_risco > pendencia_documental > aprovado_condicionado > aprovado > nao_identificado
   let statusCanonico = "nao_identificado";
-  if (aprovado) statusCanonico = "aprovado";
-  else if (reprovado) statusCanonico = "reprovado";
-  else if (pendencia) statusCanonico = "pendencia";
+  if (reprovado) statusCanonico = "reprovado";
+  else if (pendenciaRisco) statusCanonico = "pendencia_risco";
+  else if (pendenciaDocumental) statusCanonico = "pendencia_documental";
+  else if (aprovadoCondicionado) statusCanonico = "aprovado_condicionado";
+  else if (aprovado) statusCanonico = "aprovado";
 
   let nomeExtraido = null;
 
@@ -15501,15 +15514,15 @@ case "aguardando_retorno_correspondente": {
   }
 
   // ======================================================
-  // 4 — APROVADO
+  // 4 — APROVADO / APROVADO CONDICIONADO
   // ======================================================
-  if (aprovado) {
+  if (statusCanonico === "aprovado" || statusCanonico === "aprovado_condicionado") {
 
     await upsertState(env, st.wa_id, {
       processo_aprovado: true,
       processo_reprovado: false,
       retorno_correspondente_bruto: txt,
-      retorno_correspondente_status: "aprovado",
+      retorno_correspondente_status: statusCanonico,
       retorno_correspondente_motivo: null
     });
 
@@ -15519,16 +15532,14 @@ case "aguardando_retorno_correspondente": {
       stage,
       next_stage: "agendamento_visita",
       severity: "success",
-      message: "Processo aprovado pelo correspondente"
+      message: "Processo com pré-aprovação do financiamento"
     });
 
     return step(env, st,
       [
-        "Ótima notícia! 🎉",
-        "O correspondente bancário acabou de **aprovar** sua pré-análise! 🙌",
-        "",
-        "Agora sim podemos **confirmar seu agendamento** certinho.",
-        "Qual horário você prefere para a visita? Manhã, tarde ou horário específico?"
+        "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.",
+        "Agora o próximo passo é **agendar sua visita no plantão** para fazermos as simulações e escolher o imóvel.",
+        "Qual horário você prefere para a visita? Manhã, tarde ou algum horário específico?"
       ],
       "agendamento_visita"
     );
@@ -15537,10 +15548,10 @@ case "aguardando_retorno_correspondente": {
   // ======================================================
   // 5 — REPROVADO
   // ======================================================
-  if (reprovado) {
+  if (statusCanonico === "reprovado") {
 
     let motivo = null;
-    const m = txt.match(/(pend[eê]ncia|motivo|raz[aã]o|detalhe).*?:\s*(.*)/i);
+    const m = txt.match(/(pend[eê]ncia|motivo|raz[aã]o|detalhe|score).*?:\s*(.*)/i);
     if (m) motivo = m[2];
 
     await upsertState(env, st.wa_id, {
@@ -15575,9 +15586,9 @@ case "aguardando_retorno_correspondente": {
     );
   }
 
-  if (pendencia) {
+  if (statusCanonico === "pendencia_risco") {
     let motivo = null;
-    const m = txt.match(/(pend[eê]ncia|motivo|raz[aã]o|detalhe|complemento).*?:\s*(.*)/i);
+    const m = txt.match(/(pend[eê]ncia|motivo|raz[aã]o|detalhe|restri[cç][aã]o|conres|sinad|scr|serasa|spc|bacen|registrato).*?:\s*(.*)/i);
     if (m) motivo = m[2];
     const motivoSafe = String(motivo || "").replace(/[*_`~]/g, "").trim();
 
@@ -15585,7 +15596,7 @@ case "aguardando_retorno_correspondente": {
       processo_aprovado: false,
       processo_reprovado: false,
       retorno_correspondente_bruto: txt,
-      retorno_correspondente_status: "pendencia",
+      retorno_correspondente_status: "pendencia_risco",
       retorno_correspondente_motivo: motivo || null
     });
 
@@ -15595,7 +15606,41 @@ case "aguardando_retorno_correspondente": {
       stage,
       next_stage: "aguardando_retorno_correspondente",
       severity: "warning",
-      message: "Processo com pendencia do correspondente; mantendo interpretação/controle no stage oficial",
+      message: "Processo com pendencia_risco do correspondente; mantendo stage oficial",
+      details: { motivo }
+    });
+
+    return step(env, st,
+      [
+        "Recebi retorno do correspondente com **pendência de risco/restrição** no processo.",
+        motivoSafe ? `Detalhe informado: *${motivoSafe}*.` : "Foram apontadas restrições financeiras para análise complementar.",
+        "Posso te orientar nos próximos passos para regularização e nova avaliação."
+      ],
+      "aguardando_retorno_correspondente"
+    );
+  }
+
+  if (statusCanonico === "pendencia_documental") {
+    let motivo = null;
+    const m = txt.match(/(pend[eê]ncia|motivo|raz[aã]o|detalhe|complemento).*?:\s*(.*)/i);
+    if (m) motivo = m[2];
+    const motivoSafe = String(motivo || "").replace(/[*_`~]/g, "").trim();
+
+    await upsertState(env, st.wa_id, {
+      processo_aprovado: false,
+      processo_reprovado: false,
+      retorno_correspondente_bruto: txt,
+      retorno_correspondente_status: "pendencia_documental",
+      retorno_correspondente_motivo: motivo || null
+    });
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "aguardando_retorno_correspondente",
+      severity: "warning",
+      message: "Processo com pendencia_documental do correspondente; mantendo interpretação/controle no stage oficial",
       details: { motivo }
     });
 

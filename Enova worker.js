@@ -7203,6 +7203,9 @@ async function handleCorrespondenteRetorno(env, msg) {
     let proximaFase = "finalizacao";
     let mensagens = [];
 
+    // CAMINHO OFICIAL ATIVO (Worker atual):
+    // Aprovado do correspondente -> agendamento_visita.
+    // Qualquer evolução futura da fase visita deve respeitar este ponto de entrada.
     if (status === "aprovado") {
       proximaFase = "agendamento_visita";
       mensagens = [
@@ -15129,13 +15132,17 @@ case "envio_docs": {
   const pronto = isYes(t) || /(sim|ok|pode mandar|manda|pode enviar|pode ser|por aqui|vamos|blz|beleza)/i.test(t);
   const negar  = isNo(t) || /(nao|não agora|depois|mais tarde|agora nao)/i.test(t);
 
+  // GANCHO OFICIAL DO TRILHO — integração futura da fase visita documental.
+  // Não classificar como legado.
+  // Preservar como ponto de conexão da visita canônica futura.
+  // Ainda não integrado ao fluxo oficial completo da visita.
   if (canal.pediuVisita || canal.objecaoOnlineForte) {
     const patchCanal = {
       canal_docs_status: "definido",
       canal_docs_escolhido: "visita",
       canal_docs_recusa_whatsapp: canal.recusaWhatsapp || st.canal_docs_recusa_whatsapp === true,
       canal_docs_motivo_recusa: canal.recusaWhatsapp ? "nao_quer_enviar_por_whatsapp" : st.canal_docs_motivo_recusa || null,
-      canal_docs_agendamento_pendente: true,
+      canal_docs_agendamento_pendente: true, // GANCHO OFICIAL DO TRILHO (não legado): integração futura da visita canônica.
       canal_docs_opcoes_liberadas_json: {
         principal: "whatsapp",
         alternativas_digitais: ["site"],
@@ -15312,6 +15319,10 @@ case "envio_docs": {
 
 // =========================================================
 // 🧩 C37 — AGENDAMENTO DA VISITA
+// LEGADO DE VISITA — fora do trilho oficial atual.
+// Não evoluir a fase visita aqui.
+// Não usar este bloco como base da implementação futura da visita canônica.
+// Preservado apenas por compatibilidade/histórico até integração oficial.
 // =========================================================
 case "agendamento_visita": {
 
@@ -15804,6 +15815,9 @@ case "aguardando_retorno_correspondente": {
   // ======================================================
   // 4 — APROVADO / APROVADO CONDICIONADO
   // ======================================================
+  // CAMINHO OFICIAL ATIVO (Worker atual):
+  // Aprovado do correspondente -> agendamento_visita.
+  // Qualquer evolução futura da fase visita deve respeitar este ponto de entrada.
   if (statusCanonico === "aprovado" || statusCanonico === "aprovado_condicionado") {
 
     await upsertState(env, st.wa_id, {

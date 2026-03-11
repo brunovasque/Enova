@@ -15319,10 +15319,10 @@ case "envio_docs": {
 
 // =========================================================
 // 🧩 C37 — AGENDAMENTO DA VISITA
-// LEGADO DE VISITA — fora do trilho oficial atual.
-// Não evoluir a fase visita aqui.
-// Não usar este bloco como base da implementação futura da visita canônica.
-// Preservado apenas por compatibilidade/histórico até integração oficial.
+// BLOCO TRANSITÓRIO ATIVO / IMPLEMENTAÇÃO PROVISÓRIA.
+// Este bloco ainda executa o caminho oficial atual de visita por aprovado do correspondente.
+// A modelagem interna aqui é provisória e anterior ao schema canônico da visita.
+// Não usar este conteúdo interno como base da expansão futura da visita; evoluções devem seguir o schema oficial.
 // =========================================================
 case "agendamento_visita": {
 

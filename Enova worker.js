@@ -2173,6 +2173,66 @@ function enovaV1FixturePatch(id) {
         processo_enviado_correspondente: false
       };
 
+    case "fx_correspondente_publicado_casal_v1":
+      return {
+        nome: "JOAO TESTE",
+        estado_civil: "casado",
+        envio_docs_status: "completo",
+        pacote_status: "pronto",
+        analise_docs_status: "validada",
+        dossie_participantes_json: [
+          { id: "p1", role: "titular", regime_trabalho: "clt", renda: 3200 },
+          { id: "p2", role: "parceiro_familiar", regime_trabalho: "autonomo", renda: 1800 }
+        ],
+        pacote_participantes_json: [
+          { participante: "p1", papel: "titular", regime_trabalho: "clt" },
+          { participante: "p2", papel: "parceiro_familiar", regime_trabalho: "autonomo" }
+        ],
+        pacote_documentos_anexados_json: [
+          { tipo: "rg", participante: "p1", status: "validado_basico" },
+          { tipo: "rg", participante: "p2", status: "validado_basico" }
+        ],
+        pacote_renda_resumo_json: { total_geral: 5000, por_participante: { p1: { total_geral: 3200 }, p2: { total_geral: 1800 } } },
+        pacote_restricoes_json: { resumo: "sem_restricao", participantes: [{ participante: "p1", tem_restricao: false }, { participante: "p2", tem_restricao: false }] },
+        corr_assumir_token: "AB12CD34",
+        corr_publicacao_status: "publicado_grupo_pendente_assumir",
+        processo_enviado_correspondente: false
+      };
+
+    case "fx_correspondente_publicado_restricao_v1":
+      return {
+        nome: "JOAO TESTE",
+        envio_docs_status: "completo",
+        pacote_status: "pronto",
+        analise_docs_status: "validada",
+        dossie_participantes_json: [{ id: "p1", role: "titular", regime_trabalho: "clt", renda: 2800 }],
+        pacote_participantes_json: [{ participante: "p1", papel: "titular", regime_trabalho: "clt" }],
+        pacote_documentos_anexados_json: [{ tipo: "rg", participante: "p1", status: "validado_basico" }],
+        pacote_renda_resumo_json: { total_geral: 2800, por_participante: { p1: { total_geral: 2800 } } },
+        pacote_restricoes_json: { resumo: "com_restricao_regularizavel", participantes: [{ participante: "p1", tem_restricao: true, restricao_regularizada: true }] },
+        corr_assumir_token: "AB12CD34",
+        corr_publicacao_status: "publicado_grupo_pendente_assumir",
+        processo_enviado_correspondente: false
+      };
+
+    case "fx_correspondente_publicado_pendencia_v1":
+      return {
+        nome: "JOAO TESTE",
+        envio_docs_status: "parcial",
+        pacote_status: "pronto",
+        analise_docs_status: "pendencia_documental",
+        dossie_participantes_json: [{ id: "p1", role: "titular", regime_trabalho: "autonomo", renda: 2600 }],
+        pacote_participantes_json: [{ participante: "p1", papel: "titular", regime_trabalho: "autonomo" }],
+        pacote_documentos_anexados_json: [{ tipo: "comprovante_residencia", participante: "p1", status: "recebido", observacao_analise: "ilegivel" }],
+        pacote_pendencias_json: [{ tipo: "comprovante_residencia", participante: "p1", status: "pendente" }],
+        analise_docs_docs_ilegiveis_json: [{ tipo: "comprovante_residencia", participante: "p1" }],
+        pacote_renda_resumo_json: { total_geral: 2600, por_participante: { p1: { total_geral: 2600 } } },
+        pacote_restricoes_json: { resumo: "sem_restricao", participantes: [{ participante: "p1", tem_restricao: false }] },
+        corr_assumir_token: "AB12CD34",
+        corr_publicacao_status: "publicado_grupo_pendente_assumir",
+        processo_enviado_correspondente: false
+      };
+
     case "fx_correspondente_retorno_v1":
       return {
         nome: "JOAO TESTE",
@@ -2498,6 +2558,9 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "terminal_finalizacao_processo_publica_grupo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_envio_ready_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_finalizacao_processo_aguarda_assumir", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_assumir_token_sucesso_entrega_privada", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.ok", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_assumir_token_sucesso_entrega_privada_casal", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_casal_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.casal", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_assumir_token_sucesso_entrega_privada_restricao_regularizada", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_restricao_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.restricao", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
+    { id: "terminal_assumir_token_sucesso_entrega_privada_pendencia_documental", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_pendencia_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.pendencia", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_assumir_token_bloqueado_sem_transicao", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", input: "ASSUMIR AB12CD34", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_retorno_correspondente_aprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO APROVADO", expected: { type: "single", equals: "agendamento_visita" } },
     { id: "terminal_retorno_correspondente_aprovado_condicionado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO APROVADO CONDICIONADO", expected: { type: "single", equals: "agendamento_visita" } },
@@ -6412,6 +6475,192 @@ function normalizeAssumirToken(token) {
     .slice(0, 8);
 }
 
+function buildCorrespondentePrivateDossierFromState(st) {
+  const participantes = Array.isArray(st?.dossie_participantes_json) ? st.dossie_participantes_json : [];
+  const pacoteRenda = st?.pacote_renda_resumo_json && typeof st.pacote_renda_resumo_json === "object" ? st.pacote_renda_resumo_json : {};
+  const pacoteRestricoes = st?.pacote_restricoes_json && typeof st.pacote_restricoes_json === "object" ? st.pacote_restricoes_json : {};
+  const docsAnexados = Array.isArray(st?.pacote_documentos_anexados_json) ? st.pacote_documentos_anexados_json : [];
+  const pendencias = Array.isArray(st?.pacote_pendencias_json) ? st.pacote_pendencias_json : [];
+  const docsInvalidos = Array.isArray(st?.analise_docs_docs_invalidos_json) ? st.analise_docs_docs_invalidos_json : [];
+  const docsIlegiveis = Array.isArray(st?.analise_docs_docs_ilegiveis_json) ? st.analise_docs_docs_ilegiveis_json : [];
+  const docsFaltantes = Array.isArray(st?.analise_docs_docs_faltantes_json) ? st.analise_docs_docs_faltantes_json : [];
+
+  const nome = String(st?.nome || "não informado").trim();
+  const caseId = String(st?.pre_cadastro_numero || st?.wa_id || "não informado").trim();
+  const estadoCivil = String(st?.estado_civil || "").trim();
+  const composicaoQuantidade = participantes.length;
+  const isSolo = composicaoQuantidade <= 1;
+
+  const titular = participantes.find((p) => String(p?.id || p?.participante || "").toLowerCase() === "p1") || participantes[0] || null;
+  const rendaTitular =
+    Number(pacoteRenda?.por_participante?.p1?.total_geral ?? pacoteRenda?.por_participante?.p1?.renda_total ?? titular?.renda ?? st?.renda ?? 0) || 0;
+  const rendaTotalGeral = Number(pacoteRenda?.total_geral ?? rendaTitular ?? 0) || 0;
+  const rendaComplementar = Math.max(0, rendaTotalGeral - Math.max(0, rendaTitular));
+  const multiRenda = rendaComplementar > 0.01;
+
+  const regimesUnicos = [...new Set(
+    participantes
+      .map((p) => String(p?.regime_trabalho || "").trim().toLowerCase())
+      .filter(Boolean)
+  )];
+  const multiRegime = regimesUnicos.length > 1;
+  const temAutonomo = participantes.some((p) => String(p?.regime_trabalho || "").toLowerCase() === "autonomo");
+  const autonomoComIR = temAutonomo && (
+    dossieIsYes(st?.autonomo_ir_pergunta) ||
+    dossieIsYes(st?.ir_declarado) ||
+    dossieIsYes(st?.ir_declarado_parceiro) ||
+    dossieIsYes(st?.ir_declarado_p2) ||
+    dossieIsYes(st?.ir_declarado_p3)
+  );
+  const ctps36 = dossieIsYes(st?.ctps_36) || dossieIsYes(st?.ctps_36_parceiro) || dossieIsYes(st?.ctps_36_parceiro_p3);
+
+  const restricaoResumo = String(pacoteRestricoes?.resumo || st?.dossie_restricao_resumo || "sem_restricao").toLowerCase();
+  const restricoesParticipantes = Array.isArray(pacoteRestricoes?.participantes) ? pacoteRestricoes.participantes : [];
+  const temRestricao = restricoesParticipantes.some((p) => dossieIsYes(p?.tem_restricao)) || /restricao/.test(restricaoResumo);
+  const restricaoRegularizavel = restricoesParticipantes.some((p) => dossieIsYes(p?.restricao_regularizada)) || /regulariz/.test(restricaoResumo);
+
+  const docFlagsFromResumo = docsAnexados.reduce((acc, d) => {
+    const obs = String(d?.observacao_analise || "").toLowerCase();
+    if (obs === "invalido") acc.invalidos += 1;
+    if (obs === "ilegivel") acc.ilegiveis += 1;
+    if (obs === "faltante") acc.faltantes += 1;
+    return acc;
+  }, { invalidos: 0, ilegiveis: 0, faltantes: 0 });
+  const totalInvalidos = docsInvalidos.length || docFlagsFromResumo.invalidos;
+  const totalIlegiveis = docsIlegiveis.length || docFlagsFromResumo.ilegiveis;
+  const totalFaltantes = docsFaltantes.length || docFlagsFromResumo.faltantes;
+  const totalPendencias = pendencias.length + totalFaltantes + totalInvalidos + totalIlegiveis;
+  const envioDocsStatus = String(st?.envio_docs_status || "").toLowerCase();
+  const docsCompletos = envioDocsStatus === "completo" && totalPendencias === 0;
+
+  const identificacaoLines = [
+    "📌 *Identificação do caso*",
+    `Cliente: ${nome}`,
+    `ID/Pré-cadastro: ${caseId}`,
+    `Composição: ${isSolo ? "solo" : `${composicaoQuantidade} participantes`}`
+  ];
+
+  const resumoFamiliarLines = [
+    "👨‍👩‍👧 *Resumo familiar*",
+    `Estado civil: ${estadoCivil || "não informado"}`,
+    isSolo
+      ? "Composição: sem complemento de renda familiar."
+      : `Participantes: ${participantes.map((p) => String(p?.role || p?.papel || p?.id || p?.participante || "").trim()).filter(Boolean).join(", ")}`
+  ];
+
+  const resumoRendaLines = [
+    "💰 *Resumo de renda*",
+    `Renda titular: R$ ${Math.max(0, rendaTitular).toFixed(2)}`,
+    multiRenda ? `Renda complementar: R$ ${Math.max(0, rendaComplementar).toFixed(2)}` : null,
+    `Renda total: R$ ${Math.max(0, rendaTotalGeral).toFixed(2)}`,
+    multiRenda ? "Multi-renda: sim" : null,
+    multiRegime ? `Multi-regime: sim (${regimesUnicos.join(" + ")})` : null
+  ].filter(Boolean);
+
+  const formalizacaoLines = [
+    "🧾 *Formalização*",
+    `Regimes informados: ${regimesUnicos.length ? regimesUnicos.join(", ") : "não informado"}`,
+    autonomoComIR ? "Autônomo com IR: renda formalizável para análise." : null,
+    ctps36 ? "CTPS ≥ 36 meses identificada (sinal positivo para análise)." : null
+  ].filter(Boolean);
+
+  const riscoLines = [
+    "⚠️ *Risco / restrição*",
+    temRestricao
+      ? `Restrição: sim${restricaoRegularizavel ? " (com sinal de regularização)" : ""}`
+      : "Restrição: sem sinal relevante",
+    `Resumo: ${restricaoResumo || "sem_restricao"}`
+  ];
+
+  const documentalLines = [
+    "📂 *Situação documental*",
+    `Status envio: ${envioDocsStatus || "não informado"}`,
+    docsCompletos ? "Documentação: completa" : "Documentação: pendente",
+    totalPendencias > 0 ? `Pendências totais: ${totalPendencias}` : null,
+    totalInvalidos > 0 ? `Inválidos: ${totalInvalidos}` : null,
+    totalIlegiveis > 0 ? `Ilegíveis: ${totalIlegiveis}` : null
+  ].filter(Boolean);
+
+  const composicaoTxt = isSolo ? "Caso solo" : `Caso com composição (${composicaoQuantidade} participantes)`;
+  const riscoTxt = temRestricao
+    ? `com restrição${restricaoRegularizavel ? " com sinal de regularização" : ""}`
+    : "sem restrição relevante";
+  const docTxt = docsCompletos ? "documentação completa" : "documentação com pendências";
+  const observacaoExecutiva = `${composicaoTxt}, ${riscoTxt} e ${docTxt}. Renda total estimada em R$ ${Math.max(0, rendaTotalGeral).toFixed(2)}.`;
+
+  const proximoPasso = docsCompletos
+    ? "Próximo passo: retornar parecer de pré-análise (aprovado, condicionado, pendência ou reprovado)."
+    : "Próximo passo: orientar regularização documental pendente e devolver parecer parcial com pendências.";
+
+  const resumo_humano_correspondente = [
+    ...identificacaoLines,
+    "",
+    ...resumoFamiliarLines,
+    "",
+    ...resumoRendaLines,
+    "",
+    ...formalizacaoLines,
+    "",
+    ...riscoLines,
+    "",
+    ...documentalLines,
+    "",
+    "🧠 *Observação executiva*",
+    observacaoExecutiva,
+    "",
+    "➡️ *Próximo passo operacional*",
+    proximoPasso
+  ].join("\n");
+
+  const payload_tecnico_correspondente_json = {
+    identificacao: {
+      nome,
+      id_pre_cadastro: caseId,
+      wa_id: st?.wa_id || null,
+      estado_civil: estadoCivil || null,
+      composicao_qtd: composicaoQuantidade
+    },
+    composicao: {
+      solo: isSolo,
+      participantes: participantes.map((p) => ({
+        id: p?.id || p?.participante || null,
+        papel: p?.role || p?.papel || null,
+        regime_trabalho: p?.regime_trabalho || null,
+        renda: Number(p?.renda ?? 0) || 0
+      }))
+    },
+    renda: {
+      titular: Math.max(0, rendaTitular),
+      complementar: Math.max(0, rendaComplementar),
+      total: Math.max(0, rendaTotalGeral),
+      multi_renda: multiRenda,
+      multi_regime: multiRegime
+    },
+    formalizacao: {
+      autonomo_com_ir: autonomoComIR,
+      ctps_36: ctps36
+    },
+    restricao: {
+      resumo: restricaoResumo || null,
+      tem_restricao: temRestricao,
+      regularizavel: restricaoRegularizavel
+    },
+    documental: {
+      envio_docs_status: envioDocsStatus || null,
+      completo: docsCompletos,
+      pendencias_total: totalPendencias,
+      invalidos: totalInvalidos,
+      ilegiveis: totalIlegiveis,
+      faltantes: totalFaltantes
+    }
+  };
+
+  return {
+    resumo_humano_correspondente,
+    payload_tecnico_correspondente_json
+  };
+}
+
 function gerarAssumirToken() {
   // Sem I/O/0/1 para reduzir erro humano na digitação do token.
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -6652,7 +6901,11 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
     return { handled: true, reason: "assumir_token_state_not_found" };
   }
 
-  const dossiePrivado = String(stCaso.dossie_resumo || "").trim() || gerarDossieCompleto(stCaso);
+  const dossieCanonico = buildCorrespondentePrivateDossierFromState(stCaso);
+  const dossiePrivado =
+    String(dossieCanonico?.resumo_humano_correspondente || "").trim() ||
+    String(stCaso.dossie_resumo || "").trim() ||
+    gerarDossieCompleto(stCaso);
   const docs = await getCaseDocumentLinks(env, caso.wa_id);
   const docsText = buildCorrespondentePrivateDocsLinksText(docs);
 

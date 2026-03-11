@@ -2290,6 +2290,25 @@ function enovaV1FixturePatch(id) {
         visita_agendamento_status: "convite"
       };
 
+    case "fx_visita_documental_data_v1":
+      return {
+        nome: "JOAO TESTE",
+        visita_origem: "trava_documental",
+        visita_convite_status: "aceito",
+        visita_agendamento_status: "data",
+        visita_primeiro_slot_disponivel_em: "2026-03-14T18:30:00.000Z"
+      };
+
+    case "fx_visita_documental_horario_v1":
+      return {
+        nome: "JOAO TESTE",
+        visita_origem: "trava_documental",
+        visita_convite_status: "aceito",
+        visita_agendamento_status: "horario",
+        visita_data_escolhida: "2026-03-14",
+        visita_primeiro_slot_disponivel_em: "2026-03-14T18:30:00.000Z"
+      };
+
     default:
       return null;
   }
@@ -2641,6 +2660,11 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "visita_sabado_permitido", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_data_v1", start_stage: "agendamento_visita", input: "sábado", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_data_escolhida"] },
     { id: "visita_horario_fora_grade_redireciona", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_horario_v1", start_stage: "agendamento_visita", input: "10:00", expected: { type: "single", equals: "agendamento_visita" }, assert_stayed: true },
     { id: "visita_horario_valido_confirma", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_horario_v1", start_stage: "agendamento_visita", input: "2", expected: { type: "single", equals: "visita_confirmada" }, assert_state_write: ["visita_confirmada","visita_agendamento_status","visita_dia_hora","visita_slot_escolhido"] },
+    { id: "visita_aceite_oferece_datas_fechadas_trava_documental", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_documental_v1", start_stage: "agendamento_visita", input: "sim", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_origem","visita_agendamento_status","visita_convite_status"] },
+    { id: "visita_domingo_redireciona_data_trava_documental", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_documental_data_v1", start_stage: "agendamento_visita", input: "domingo", expected: { type: "single", equals: "agendamento_visita" }, assert_stayed: true },
+    { id: "visita_sabado_permitido_trava_documental", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_documental_data_v1", start_stage: "agendamento_visita", input: "sábado", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_origem","visita_data_escolhida"] },
+    { id: "visita_horario_fora_grade_redireciona_trava_documental", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_documental_horario_v1", start_stage: "agendamento_visita", input: "10:00", expected: { type: "single", equals: "agendamento_visita" }, assert_stayed: true },
+    { id: "visita_horario_valido_confirma_trava_documental", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_documental_horario_v1", start_stage: "agendamento_visita", input: "2", expected: { type: "single", equals: "visita_confirmada" }, assert_state_write: ["visita_origem","visita_confirmada","visita_agendamento_status","visita_slot_escolhido"] },
     { id: "terminal_retorno_correspondente_reprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO REPROVADO\nMotivo: score", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_retorno_correspondente_pendencia_documental", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência documental: comprovante de residência", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_retorno_correspondente_pendencia_risco_conres", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência: CONRES", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },

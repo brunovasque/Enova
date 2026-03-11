@@ -8,3 +8,6 @@ DEBUG_META_WEBHOOK = "1"
 
 [env.test]
 name = "nv-enova-test"
+
+[env.test.vars]
+DEBUG_META_WEBHOOK = "1"

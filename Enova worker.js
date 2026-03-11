@@ -1,6 +1,6 @@
 console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
 
-const ENOVA_BUILD = "enova-meta-debug-stamp-2026-02-11";
+const ENOVA_BUILD = "enova-meta-debug-stamp-2026-03-11-visit-suite-publish";
 
 function getSimulationContext(env) {
   return env && env.__enovaSimulationCtx ? env.__enovaSimulationCtx : null;

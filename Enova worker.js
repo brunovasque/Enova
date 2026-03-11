@@ -2623,8 +2623,18 @@ function enovaV1Scenarios(modeOverride = null) {
       allowed_modes: ["simulate-funnel"],
       fixture: "fx_restricao_v1",
       start_stage: "regularizacao_restricao",
-      script: ["sim", "prefiro presencial"],
+      script: ["sim", "sim", "ok", "quais docs faltam?", "prefiro presencial"],
       expected: { type: "single", equals: "agendamento_visita" }
+    },
+    {
+      id: "docs_trava_documental_bloqueia_sem_followup_minimo",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "prefiro presencial"],
+      expected: { type: "multiple", in: ["envio_docs", "finalizacao"] }
     },
     {
       id: "visita_convite_por_trava_documental",
@@ -15091,6 +15101,8 @@ case "envio_docs": {
     const pediuVisita = /\b(prefiro presencial|quero ir no plantao|plantao|presencial|escritorio|decorado|levar pessoalmente|posso levar pessoalmente|visita)\b/.test(t);
     const objecaoOnlineForte = /\b(nao quero enviar online|nao envio online|nao gosto de enviar online)\b/.test(t);
     const recusaWhatsapp = /\b(nao quero mandar documento por aqui|nao quero mandar documentos por aqui|nao quero enviar por aqui|nao quero mandar por whatsapp|nao quero enviar por whatsapp|nao quero mandar documento no whatsapp|sem whatsapp)\b/.test(t);
+    const recusaSite =
+      /\b(nao quero enviar pelo site|nao quero mandar pelo site|nao quero enviar por site|nao quero mandar por site|nao quero usar o site|nao quero usar portal|nao quero usar a plataforma)\b/.test(t);
     const pediuSite =
       /\bprefiro enviar pelo site\b/.test(t) ||
       (/\b(site|portal|plataforma|link)\b/.test(t) && /\b(enviar|envio|mandar|subir|anexar|prefiro)\b/.test(t));
@@ -15099,6 +15111,7 @@ case "envio_docs": {
       pediuVisita,
       objecaoOnlineForte,
       recusaWhatsapp,
+      recusaSite,
       pediuSite
     };
   }
@@ -15237,7 +15250,29 @@ case "envio_docs": {
   // Não classificar como legado.
   // Preservar como ponto de conexão da visita canônica futura.
   // Ainda não integrado ao fluxo oficial completo da visita.
-  if (canal.pediuVisita || canal.objecaoOnlineForte) {
+  const tentativasAcompanhamento = Number(st.envio_docs_lembrete_count || 0);
+  const faseAtual = String(stage || st.fase_conversa || "");
+  const contextoDocumentalAtivo =
+    faseAtual === "envio_docs" &&
+    st.envio_docs_status !== "completo";
+  const naoEnviadoCorrespondente = st.processo_enviado_correspondente !== true;
+  const naoConfirmouVisita = st.visita_confirmada !== true;
+  const naoEncerrado = !["fim_ineligivel", "fim_inelegivel", "finalizacao", "finalizacao_processo", "aguardando_retorno_correspondente"].includes(String(st.fase_conversa || ""));
+  const provaMinimaDeTentativas = tentativasAcompanhamento >= 2;
+  const sinalCompativelVisitaDocumental =
+    canal.pediuVisita ||
+    canal.objecaoOnlineForte ||
+    canal.recusaWhatsapp ||
+    canal.recusaSite;
+  const elegivelVisitaDocumental =
+    contextoDocumentalAtivo &&
+    naoEnviadoCorrespondente &&
+    naoConfirmouVisita &&
+    naoEncerrado &&
+    provaMinimaDeTentativas &&
+    sinalCompativelVisitaDocumental;
+
+  if (elegivelVisitaDocumental) {
     const ONE_DAY_MS = 24 * 60 * 60 * 1000;
     const firstSlotIso = new Date(Date.now() + ONE_DAY_MS).toISOString();
     const patchCanal = {
@@ -15356,6 +15391,8 @@ case "envio_docs": {
     const patchCanal = {
       docs_lista_enviada: true,
       envio_docs_lista_enviada: true,
+      envio_docs_lembrete_count: 0,
+      envio_docs_ultimo_pedido_em: new Date().toISOString(),
       canal_docs_status: "definido",
       canal_docs_escolhido: "whatsapp",
       canal_docs_recusa_whatsapp: false,
@@ -15436,6 +15473,14 @@ case "envio_docs": {
     severity: "info",
     message: "Cliente enviou texto sem mídia na fase envio_docs"
   });
+
+  const lembreteAtual = Number(st.envio_docs_lembrete_count || 0);
+  const lembretePatch = {
+    envio_docs_lembrete_count: lembreteAtual + 1,
+    envio_docs_ultimo_pedido_em: new Date().toISOString()
+  };
+  await upsertState(env, st.wa_id, lembretePatch);
+  Object.assign(st, lembretePatch);
 
   return step(env, st, [
     "Pode me enviar os documentos por aqui mesmo para seguir online 😊",

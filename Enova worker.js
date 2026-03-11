@@ -2309,6 +2309,32 @@ function enovaV1FixturePatch(id) {
         visita_primeiro_slot_disponivel_em: "2026-03-14T18:30:00.000Z"
       };
 
+    case "fx_visita_recusa_online_v1":
+      return {
+        nome: "JOAO TESTE",
+        envio_docs_status: "completo",
+        pacote_status: "pronto",
+        analise_docs_status: "validada",
+        pacote_participantes_json: [{ participante: "p1", papel: "titular" }],
+        pacote_documentos_anexados_json: [{ tipo: "rg", participante: "p1", status: "validado_basico" }],
+        pacote_renda_resumo_json: { total_geral: 2000 },
+        pacote_restricoes_json: { resumo: "sem_restricao" },
+        visita_recusa_online_tentativas_count: 1
+      };
+
+    case "fx_visita_recusa_online_zero_tentativas_v1":
+      return {
+        nome: "JOAO TESTE",
+        envio_docs_status: "completo",
+        pacote_status: "pronto",
+        analise_docs_status: "validada",
+        pacote_participantes_json: [{ participante: "p1", papel: "titular" }],
+        pacote_documentos_anexados_json: [{ tipo: "rg", participante: "p1", status: "validado_basico" }],
+        pacote_renda_resumo_json: { total_geral: 2000 },
+        pacote_restricoes_json: { resumo: "sem_restricao" },
+        visita_recusa_online_tentativas_count: 0
+      };
+
     default:
       return null;
   }
@@ -2737,6 +2763,9 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "terminal_finalizacao_processo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_renda_v1", start_stage: "finalizacao", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_finalizacao_processo_publica_grupo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_envio_ready_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_finalizacao_processo_aguarda_assumir", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "visita_recusa_online_com_0_tentativas_nao_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_zero_tentativas_v1", start_stage: "finalizacao_processo", input: "não quero atendimento online", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "visita_recusa_online_com_2_tentativas_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "prefiro presencial", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_origem","visita_agendamento_status","visita_convite_status"] },
+    { id: "visita_recusa_online_desinteresse_geral_nao_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "não quero mais, prefiro presencial", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_assumir_token_sucesso_entrega_privada", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.ok", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_assumir_token_sucesso_entrega_privada_casal", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_casal_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.casal", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_assumir_token_sucesso_entrega_privada_restricao_regularizada", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_restricao_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.restricao", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
@@ -15821,6 +15850,13 @@ case "agendamento_visita": {
           "1) Sim, quero agendar agora",
           "2) Prefiro ver depois"
         ]
+        : visitaOrigemAtual === "recusa_online"
+          ? [
+            "Perfeito — vamos seguir no presencial como alternativa ao atendimento remoto. 🎯",
+            "Posso te mostrar agora as próximas datas e horários oficiais?",
+            "1) Sim, quero agendar agora",
+            "2) Prefiro ver depois"
+          ]
         : [
           "Ótima notícia! Seu processo avançou para a visita presencial. 🎉",
           "Posso te mostrar agora as próximas datas e horários oficiais?",
@@ -16115,6 +16151,100 @@ case "finalizacao_processo": {
         "Assim que um correspondente assumir, eu sigo automaticamente com a entrega privada e te aviso por aqui."
       ],
       "finalizacao_processo"
+    );
+  }
+
+  const ntFinalizacao = normalizeText(userText || "");
+  const REMOTE_CHANNEL_REFUSAL_PATTERN =
+    /\b(nao quero atendimento online|nao quero atendimento remoto|nao quero seguir online|nao quero continuar online|nao quero falar online|nao quero por whatsapp|nao quero no whatsapp|nao quero por site|nao quero no site|sem whatsapp|sem site|prefiro presencial|quero atendimento presencial|quero ir presencial)\b/;
+  const GENERAL_PROCESS_REJECTION_PATTERN =
+    /\b(nao tenho interesse|nao quero mais|nao vou continuar|desisti|desisto|cancelar processo|quero cancelar)\b/;
+  const sinalRecusaCanalRemoto = REMOTE_CHANNEL_REFUSAL_PATTERN.test(ntFinalizacao);
+  const rejeicaoProcessoGeral = GENERAL_PROCESS_REJECTION_PATTERN.test(ntFinalizacao);
+  const tentativasConducaoAtual = Number(st.visita_recusa_online_tentativas_count || 0);
+  const tentativasConducaoAposContato = tentativasConducaoAtual + (sinalRecusaCanalRemoto ? 1 : 0);
+  const contextoAtendimentoAtivo = stage === "finalizacao_processo";
+  const naoEncerrado = !["fim_ineligivel", "fim_inelegivel", "finalizacao", "aguardando_retorno_correspondente"].includes(String(st.fase_conversa || ""));
+  const naoInelegivel = String(st.funil_status || "").toLowerCase() !== "ineligivel";
+  const naoEnviadoCorrespondente = st.processo_enviado_correspondente !== true;
+  const naoConfirmouVisita = st.visita_confirmada !== true;
+  const semTravaDocumentalPrincipal =
+    st.visita_origem !== "trava_documental" &&
+    st.canal_docs_agendamento_pendente !== true;
+  const elegivelVisitaRecusaOnline =
+    contextoAtendimentoAtivo &&
+    naoEncerrado &&
+    naoInelegivel &&
+    naoEnviadoCorrespondente &&
+    naoConfirmouVisita &&
+    semTravaDocumentalPrincipal &&
+    !rejeicaoProcessoGeral &&
+    sinalRecusaCanalRemoto &&
+    tentativasConducaoAposContato >= 2;
+
+  if (sinalRecusaCanalRemoto && !elegivelVisitaRecusaOnline) {
+    const tentativaPatch = {
+      visita_recusa_online_tentativas_count: tentativasConducaoAposContato,
+      visita_recusa_online_ultimo_sinal_em: new Date().toISOString()
+    };
+    await upsertState(env, st.wa_id, tentativaPatch);
+    Object.assign(st, tentativaPatch);
+
+    return step(
+      env,
+      st,
+      rejeicaoProcessoGeral
+        ? [
+            "Entendi. Se preferir, pausamos por aqui sem problema.",
+            "Se quiser retomar depois, eu continuo do ponto certo para você."
+          ]
+        : [
+            "Entendi sua preferência.",
+            "Antes de migrarmos para o presencial, preciso fazer mais uma tentativa de condução remota por segurança do processo.",
+            "Se você mantiver a recusa ao canal online, eu já abro o agendamento da visita no plantão."
+          ],
+      "finalizacao_processo"
+    );
+  }
+
+  if (elegivelVisitaRecusaOnline) {
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const visitaPatch = {
+      visita_origem: "recusa_online",
+      visita_convite_status: "pendente",
+      visita_agendamento_status: "convite",
+      visita_primeiro_slot_disponivel_em: new Date(Date.now() + ONE_DAY_MS).toISOString(),
+      visita_data_escolhida: null,
+      visita_slot_escolhido: null,
+      visita_confirmada: false,
+      visita_confirmada_em: null,
+      visita_dia_hora: null
+    };
+    await upsertState(env, st.wa_id, visitaPatch);
+    Object.assign(st, visitaPatch);
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "agendamento_visita",
+      severity: "info",
+      message: "Entrada de visita por recusa de atendimento online (elegibilidade canônica)",
+      details: {
+        visita_origem: "recusa_online",
+        tentativas_conducao: tentativasConducaoAposContato
+      }
+    });
+
+    return step(
+      env,
+      st,
+      [
+        "Perfeito, vamos seguir pelo presencial ✅",
+        "Como você recusou o canal remoto após as tentativas de condução, vou abrir o agendamento oficial da visita.",
+        "Já te mostro as opções fechadas de data e horário."
+      ],
+      "agendamento_visita"
     );
   }
 

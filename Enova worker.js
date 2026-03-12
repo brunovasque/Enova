@@ -6463,13 +6463,13 @@ function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, 
   }
 
   if (sourceType === "image") {
-    if (fileSize < MIN_IMAGE_SIZE_BYTES) {
-      return { status: "ilegivel", reason: "imagem_muito_pequena", details: { sourceType, mimeType, fileSize, width, height, fileName } };
-    }
-    if ((width && width < MIN_IMAGE_DIMENSION) || (height && height < MIN_IMAGE_DIMENSION)) {
-      return { status: "ilegivel", reason: "resolucao_baixa", details: { sourceType, mimeType, fileSize, width, height, fileName } };
-    }
+  if (hasKnownFileSize && fileSize < MIN_IMAGE_SIZE_BYTES) {
+    return { status: "ilegivel", reason: "imagem_muito_pequena", details: { sourceType, mimeType, fileSize, width, height, fileName } };
   }
+  if ((width && width < MIN_IMAGE_DIMENSION) || (height && height < MIN_IMAGE_DIMENSION)) {
+    return { status: "ilegivel", reason: "resolucao_baixa", details: { sourceType, mimeType, fileSize, width, height, fileName } };
+  }
+}
 
   if (sourceType === "document") {
     const isPdf = mimeType === "application/pdf" || /\.pdf$/i.test(fileName);

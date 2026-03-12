@@ -7747,15 +7747,14 @@ async function runFunnel(env, st, userText) {
   });
 
   const stage = st.fase_conversa || "inicio";
-  let t = (userText || "").trim().toLowerCase();
-  const nt = normalizeText(userText || "");
+  const normalizedUserText = normalizeText(userText || "");
 
   // ============================================================
   // 🔄 RESET GLOBAL — funciona em QUALQUER FASE
   // ============================================================
   const isReset =
-    nt === "reset" ||
-    /\b(resetar|reset|recomecar|recomeçar|zerar tudo|comecar do zero|começar do zero|comecar tudo de novo|começar tudo de novo)\b/.test(nt);
+    normalizedUserText === "reset" ||
+    /\b(resetar|reset|recomecar|recomeçar|zerar tudo|comecar do zero|começar do zero|comecar tudo de novo|começar tudo de novo)\b/.test(normalizedUserText);
 
   if (isReset) {
     await resetTotal(env, st.wa_id);
@@ -7785,7 +7784,7 @@ async function runFunnel(env, st, userText) {
       message: "Reset global solicitado pelo usuário",
       details: {
         previous_stage: stage,
-        normalized_text: nt,
+        normalized_text: normalizedUserText,
         last_user_text: userText
       }
     });

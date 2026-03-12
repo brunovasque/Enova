@@ -6365,8 +6365,8 @@ function guessEnvioDocsTipoFromText(texto) {
   const t = normalizeText(texto || "");
   if (!t) return null;
 
-  if (/\b(ctps|carteira de trabalho)\b/.test(t)) return "ctps";
   if (/\b(cnh|carteira nacional de habilitacao|habilitacao|carteira de motorista)\b/.test(t)) return "cnh";
+  if (/\b(ctps|carteira de trabalho)\b/.test(t)) return "ctps";
   if (/\b(rg|registro geral|identidade)\b/.test(t)) return "rg";
   if (/\bcpf\b/.test(t)) return "cpf";
 
@@ -6538,8 +6538,8 @@ function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, 
 function inferEnvioDocsParticipanteFromText(texto = "") {
   const t = normalizeText(texto || "");
   if (!t) return null;
-  if (/\b(parceir|espos|marid|conjuge|cônjuge|p2)\b/.test(t)) return "p2";
-  if (/\b(composicao|composição|familiar|pai|mae|mãe|avo|avó|irma|irmã|p3)\b/.test(t)) return "p3";
+  if (/\b(parceir|espos|marid|conjuge|p2)\b/.test(t)) return "p2";
+  if (/\b(composicao|familiar|pai|mae|avo|irma|p3)\b/.test(t)) return "p3";
   return null;
 }
 
@@ -6568,6 +6568,9 @@ function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
   // Aceita fileName e filename para compatibilidade com payloads legados.
   const fileName = String(context.fileName || context.filename || "");
   const joinedHintText = `${hintText} ${fileName}`.trim();
+  const hasHintUtil = /\b(rg|cpf|cnh|ctps|carteira|identidade|comprovante|residenc|renda|holerite|contracheque|extrat|recibo|darf|imposto de renda|ir)\b/.test(
+    normalizeText(joinedHintText)
+  );
   const hintedTipoRaw = guessEnvioDocsTipoFromText(joinedHintText);
   const hintedTipo = normalizeEnvioDocsTipoForChecklist(hintedTipoRaw);
   const detectedDocType = hintedTipoRaw || null;
@@ -6604,9 +6607,13 @@ function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
 
   if (hintedCategoria) {
     const categoryMatches = pendentes.filter((item) => envioDocsCategoriaFromTipo(item.tipo) === hintedCategoria);
-    if (categoryMatches.length >= 1) return toResult(categoryMatches[0]);
-    // Evita fallback cego para item de outra categoria quando o tipo já foi detectado com confiança.
-    // Nesse caso preferimos não associar automaticamente para não gravar vínculo incorreto.
+    if (categoryMatches.length > 0) return toResult(categoryMatches[0]);
+    // Categoria foi detectada, mas nenhum pendente é compatível.
+    // Evita fallback cego para item de outra categoria e mantém sem vínculo automático.
+    return toResult(null);
+  }
+
+  if (hasHintUtil) {
     return toResult(null);
   }
 

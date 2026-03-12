@@ -6917,30 +6917,84 @@ function isEnvioDocsTextualUploadSignal(texto) {
 
 function normalizeEnvioDocsIncomingMedia(msg) {
   if (!msg || typeof msg !== "object") return msg;
+
   if (msg.image || msg.audio || msg.document || msg.video) return msg;
 
+  const knownTypes = ["image", "audio", "document", "video"];
+
+  const hasMediaPayload = (obj) =>
+    obj &&
+    typeof obj === "object" &&
+    (
+      obj.id ||
+      obj.link ||
+      obj.url ||
+      obj.mime_type ||
+      obj.mimetype ||
+      obj.filename ||
+      obj.file_name ||
+      obj.sha256
+    );
+
+  const normalizeMediaNode = (node, fallbackCaption = null) => ({
+    ...node,
+    caption: node?.caption || fallbackCaption || null
+  });
+
   const directType = String(msg.type || "").toLowerCase();
-  if (["image", "audio", "document", "video"].includes(directType) && msg.id) {
-    return {
-      ...msg,
-      [directType]: {
+  if (knownTypes.includes(directType)) {
+    const directNode = msg[directType];
+    if (hasMediaPayload(directNode)) {
+      return {
         ...msg,
-        caption: msg.caption || null
-      }
-    };
+        [directType]: normalizeMediaNode(directNode, msg.caption || null)
+      };
+    }
+    if (hasMediaPayload(msg)) {
+      return {
+        ...msg,
+        [directType]: normalizeMediaNode(msg, msg.caption || null)
+      };
+    }
+  }
+
+  for (const t of knownTypes) {
+    if (hasMediaPayload(msg[t])) {
+      return {
+        ...msg,
+        type: msg.type || t,
+        [t]: normalizeMediaNode(msg[t], msg.caption || null)
+      };
+    }
   }
 
   const nested = msg.media && typeof msg.media === "object" ? msg.media : null;
   const nestedType = String(nested?.type || "").toLowerCase();
-  if (nested && ["image", "audio", "document", "video"].includes(nestedType) && nested.id) {
-    return {
-      ...msg,
-      type: nestedType,
-      [nestedType]: {
-        ...nested,
-        caption: msg.caption || nested.caption || null
-      }
-    };
+  if (nested && knownTypes.includes(nestedType)) {
+    const nestedNode = nested[nestedType] && typeof nested[nestedType] === "object"
+      ? nested[nestedType]
+      : nested;
+    if (hasMediaPayload(nestedNode)) {
+      return {
+        ...msg,
+        type: nestedType,
+        [nestedType]: normalizeMediaNode(nestedNode, msg.caption || nested.caption || null)
+      };
+    }
+  }
+
+  for (const t of knownTypes) {
+    const candidate =
+      (nested && nested[t] && typeof nested[t] === "object" ? nested[t] : null) ||
+      (msg.payload && typeof msg.payload === "object" && msg.payload[t] && typeof msg.payload[t] === "object" ? msg.payload[t] : null);
+
+    if (hasMediaPayload(candidate)) {
+      return {
+        ...msg,
+        type: t,
+        [t]: normalizeMediaNode(candidate, msg.caption || nested?.caption || null)
+      };
+    }
   }
 
   return msg;
@@ -6985,7 +7039,6 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       normalizedMsg?.document?.caption ||
       normalizedMsg?.image?.caption ||
       normalizedMsg?.caption ||
-      st.last_user_text ||
       "";
     const itens = Array.isArray(st.envio_docs_itens_json) ? [...st.envio_docs_itens_json] : [];
     const selection = selectEnvioDocsItemForUpload(st, {

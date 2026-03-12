@@ -6364,16 +6364,33 @@ function buildPacoteCorrespondentePayloadFromState(st, itens = [], analisePayloa
 function guessEnvioDocsTipoFromText(texto) {
   const t = normalizeText(texto || "");
   if (!t) return null;
-  if (/\b(rg|identidade|cnh)\b/.test(t)) return "rg";
+
+  if (/\b(cnh|carteira nacional de habilitacao|habilitacao)\b/.test(t)) return "cnh";
+  if (/\b(rg|registro geral|identidade)\b/.test(t)) return "rg";
   if (/\bcpf\b/.test(t)) return "cpf";
-  if (/\b(comprovante.*resid|conta de (luz|agua|água|internet))\b/.test(t)) return "comprovante_residencia";
-  if (/\bcomprovante.*renda\b/.test(t)) return "comprovante_renda";
-  if (/\bholerite\b/.test(t)) return "holerite_ultimo";
-  if (/\bextrat/.test(t)) return "extratos_bancarios_3_meses";
+
+  if (/\b(comprovante.*resid\w*|residenc\w*|conta de (luz|agua|água|internet)|iptu)\b/.test(t)) {
+    return "comprovante_residencia";
+  }
+
+  if (/\b(holerite|contracheque)\b/.test(t)) return "holerite";
+  if (/\bextrat/.test(t)) return "extrato_bancario";
+
+  if ((/\b(recibo|darf)\b/.test(t)) && (/\bir\b/.test(t) || /\bimposto de renda\b/.test(t))) {
+    return "recibo_ir";
+  }
+
+  if ((/\b(declaracao|declaração)\b/.test(t)) && (/\bir\b/.test(t) || /\bimposto de renda\b/.test(t))) {
+    return "declaracao_ir";
+  }
+
+  if (/\b(ctps|carteira de trabalho)\b/.test(t)) return "ctps";
+
+  if (/\b(certidao|certidão)\b/.test(t) && /\bnasc/.test(t)) return "certidao_nascimento_dependente";
+  if (/\b(certidao|certidão)\b/.test(t) && /\bcasament/.test(t)) return "certidao_casamento";
+
   if (/\bir\b/.test(t)) return "declaracao_ir";
-  if (/\bcertidao|certidão\b/.test(t) && /\bnasc/.test(t)) return "certidao_nascimento_dependente";
-  if (/\bcertidao|certidão\b/.test(t) && /\bcasament/.test(t)) return "certidao_casamento";
-  if (/\bctps|carteira de trabalho\b/.test(t)) return "ctps_completa";
+
   return null;
 }
 
@@ -6386,11 +6403,32 @@ function envioDocsParticipanteLabel(participante) {
 
 function envioDocsCategoriaFromTipo(tipo) {
   const t = String(tipo || "").trim().toLowerCase();
-  if (["identidade_cpf", "rg", "cpf"].includes(t)) return "identidade";
+  if (["identidade_cpf", "rg", "cnh", "cpf"].includes(t)) return "identidade";
   if (t === "comprovante_residencia") return "comprovante_residencia";
-  if (["holerites", "holerite_ultimo", "declaracao_ir", "extratos_bancarios", "extratos_bancarios_3_meses", "ctps_completa", "comprovante_renda", "comprovante_pensao", "comprovante_aposentadoria"].includes(t)) return "comprovante_renda";
+  if (["holerite", "holerites", "holerite_ultimo", "holerites_ultimos_3", "declaracao_ir", "recibo_ir", "extrato_bancario", "extratos_bancarios", "extratos_bancarios_3_meses", "ctps", "ctps_completa", "comprovante_renda", "comprovante_pensao", "comprovante_aposentadoria"].includes(t)) return "comprovante_renda";
   if (["certidao_casamento", "certidao_nascimento_dependente"].includes(t)) return "documento_civil";
   return null;
+}
+
+function normalizeEnvioDocsTipoForChecklist(tipo) {
+  const t = String(tipo || "").trim().toLowerCase();
+  if (!t) return null;
+  if (t === "cnh") return "rg";
+  if (t === "holerite") return "holerite_ultimo";
+  if (t === "extrato_bancario") return "extratos_bancarios_3_meses";
+  if (t === "ctps") return "ctps_completa";
+  return t;
+}
+
+function envioDocsHintTipoMatchesItemTipo(hintedTipoRaw, itemTipo) {
+  const hinted = String(hintedTipoRaw || "").trim().toLowerCase();
+  const item = String(itemTipo || "").trim().toLowerCase();
+  if (!hinted || !item) return false;
+  if (normalizeEnvioDocsTipoForChecklist(hinted) === item) return true;
+  if (hinted === "holerite" && ["holerites", "holerites_ultimos_3", "holerite_ultimo"].includes(item)) return true;
+  if (hinted === "extrato_bancario" && ["extratos_bancarios", "extratos_bancarios_3_meses"].includes(item)) return true;
+  if (hinted === "ctps" && item === "ctps_completa") return true;
+  return false;
 }
 
 function inferEnvioDocsCategoriaBasica({ hintText = "", filename = "", mimeType = "" } = {}) {
@@ -6502,16 +6540,17 @@ function selectEnvioDocsItemForUpload(st, hintText = "") {
   const pendentes = itens.filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item));
   if (!pendentes.length) return null;
 
-  const hintedTipo = guessEnvioDocsTipoFromText(hintText);
+  const hintedTipoRaw = guessEnvioDocsTipoFromText(hintText);
+  const hintedTipo = normalizeEnvioDocsTipoForChecklist(hintedTipoRaw);
   const hintedParticipante = /\b(parceir|espos|marid|conjuge|cônjuge|p2)\b/.test(normalizeText(hintText || "")) ? "p2" : null;
 
   if (hintedTipo && hintedParticipante) {
-    const match = pendentes.find((item) => item.tipo === hintedTipo && item.participante === hintedParticipante);
+    const match = pendentes.find((item) => envioDocsHintTipoMatchesItemTipo(hintedTipoRaw, item.tipo) && item.participante === hintedParticipante);
     if (match) return match;
   }
 
   if (hintedTipo) {
-    const match = pendentes.find((item) => item.tipo === hintedTipo);
+    const match = pendentes.find((item) => envioDocsHintTipoMatchesItemTipo(hintedTipoRaw, item.tipo));
     if (match) return match;
   }
 

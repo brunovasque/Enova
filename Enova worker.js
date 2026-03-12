@@ -9093,6 +9093,7 @@ case "estado_civil": {
     }
   });
 
+  const t = String(userText || "").trim();
   const estadoCivil = parseEstadoCivil(t);
   // Exemplos cobertos: "casada no civil", "moro junto", "sou divorciado", "viúva"
   const solteiro = estadoCivil === "solteiro";

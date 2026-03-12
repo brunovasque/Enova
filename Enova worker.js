@@ -9113,7 +9113,7 @@ case "estado_civil": {
       next_stage: "somar_renda_solteiro",
       severity: "info",
       message: "Saindo da fase: estado_civil → somar_renda_solteiro (solteiro)",
-      details: { userText }
+      details: { userText: t }
     });
 
     await upsertState(env, st.wa_id, {
@@ -9145,7 +9145,7 @@ case "estado_civil": {
       next_stage: "confirmar_casamento",
       severity: "info",
       message: "Saindo da fase: estado_civil → confirmar_casamento (casado)",
-      details: { userText }
+      details: { userText: t }
     });
 
     await upsertState(env, st.wa_id, {
@@ -9175,7 +9175,7 @@ case "estado_civil": {
       next_stage: "financiamento_conjunto",
       severity: "info",
       message: "Saindo da fase: estado_civil → financiamento_conjunto (união estável)",
-      details: { userText }
+      details: { userText: t }
     });
 
     await upsertState(env, st.wa_id, {
@@ -9204,7 +9204,7 @@ case "estado_civil": {
       next_stage: "verificar_averbacao",
       severity: "info",
       message: "Saindo da fase: estado_civil → verificar_averbacao (separado)",
-      details: { userText }
+      details: { userText: t }
     });
 
     await upsertState(env, st.wa_id, {
@@ -9233,7 +9233,7 @@ case "estado_civil": {
       next_stage: "verificar_averbacao",
       severity: "info",
       message: "Saindo da fase: estado_civil → verificar_averbacao (divorciado)",
-      details: { userText }
+      details: { userText: t }
     });
 
     await upsertState(env, st.wa_id, {
@@ -9262,7 +9262,7 @@ case "estado_civil": {
       next_stage: "verificar_inventario",
       severity: "info",
       message: "Saindo da fase: estado_civil → verificar_inventario (viúvo)",
-      details: { userText }
+      details: { userText: t }
     });
 
     await upsertState(env, st.wa_id, {
@@ -9290,7 +9290,7 @@ case "estado_civil": {
     next_stage: "estado_civil",
     severity: "info",
     message: "Saindo da fase: estado_civil → estado_civil (fallback)",
-    details: { userText }
+    details: { userText: t }
   });
 
   return step(
@@ -9303,7 +9303,7 @@ case "estado_civil": {
     "estado_civil"
   );
 }
-
+      
 // --------------------------------------------------
 // 🧩 C6 — CONFIRMAR CASAMENTO (civil ou união estável)
 // --------------------------------------------------

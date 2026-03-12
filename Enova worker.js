@@ -6915,8 +6915,25 @@ function isEnvioDocsTextualUploadSignal(texto) {
   return /\b(doc|documento|arquivo|anexo|foto|comprovante|rg|cpf|holerite|ir|extrato)\b/.test(t);
 }
 
-function normalizeEnvioDocsIncomingMedia(msg) {
+function normalizeEnvioDocsIncomingMedia(msg, seen = new WeakSet()) {
+  const rawMsg = msg;
+  if (typeof msg === "string") {
+    const trimmed = msg.trim();
+    if (!trimmed) return msg;
+    if (/^[\[{]/.test(trimmed)) {
+      try {
+        msg = JSON.parse(trimmed);
+      } catch {
+        return rawMsg;
+      }
+    } else {
+      return rawMsg;
+    }
+  }
+
   if (!msg || typeof msg !== "object") return msg;
+  if (seen.has(msg)) return msg;
+  seen.add(msg);
 
   if (msg.image || msg.audio || msg.document || msg.video) return msg;
 
@@ -6940,6 +6957,15 @@ function normalizeEnvioDocsIncomingMedia(msg) {
     ...node,
     caption: node?.caption || fallbackCaption || null
   });
+
+  const tryNormalizeFromNode = (node, fallbackCaption = null, fallbackType = "document") => {
+    if (!hasMediaPayload(node)) return null;
+    return {
+      ...(typeof msg === "object" ? msg : {}),
+      type: msg?.type || fallbackType,
+      [fallbackType]: normalizeMediaNode(node, fallbackCaption || msg?.caption || null)
+    };
+  };
 
   const directType = String(msg.type || "").toLowerCase();
   if (knownTypes.includes(directType)) {
@@ -6968,6 +6994,13 @@ function normalizeEnvioDocsIncomingMedia(msg) {
     }
   }
 
+  const rootAsDocument = tryNormalizeFromNode(
+    msg,
+    msg.caption || null,
+    "document"
+  );
+  if (rootAsDocument) return rootAsDocument;
+
   const nested = msg.media && typeof msg.media === "object" ? msg.media : null;
   const nestedType = String(nested?.type || "").toLowerCase();
   if (nested && knownTypes.includes(nestedType)) {
@@ -6993,6 +7026,51 @@ function normalizeEnvioDocsIncomingMedia(msg) {
         ...msg,
         type: t,
         [t]: normalizeMediaNode(candidate, msg.caption || nested?.caption || null)
+      };
+    }
+  }
+
+  const wrapperCandidatesRaw = [
+    msg.media,
+    msg.payload,
+    msg.message,
+    msg.msg,
+    msg.data,
+    msg.value,
+    msg.value?.message,
+    msg.value?.messages?.[0],
+    msg.entry?.[0]?.changes?.[0]?.value,
+    msg.entry?.[0]?.changes?.[0]?.value?.messages?.[0]
+  ].filter((candidate) => candidate && typeof candidate === "object");
+
+  const wrapperCandidates = [];
+  const wrapperSeen = new Set();
+  for (const candidate of wrapperCandidatesRaw) {
+    if (wrapperSeen.has(candidate)) continue;
+    wrapperSeen.add(candidate);
+    wrapperCandidates.push(candidate);
+  }
+
+  for (const wrapper of wrapperCandidates) {
+    const normalizedWrapper = normalizeEnvioDocsIncomingMedia(wrapper, seen);
+    if (
+      normalizedWrapper &&
+      typeof normalizedWrapper === "object" &&
+      (
+        normalizedWrapper.image ||
+        normalizedWrapper.audio ||
+        normalizedWrapper.document ||
+        normalizedWrapper.video
+      )
+    ) {
+      return {
+        ...msg,
+        ...normalizedWrapper,
+        caption:
+          normalizedWrapper.caption ||
+          msg.caption ||
+          wrapper.caption ||
+          null
       };
     }
   }
@@ -7025,6 +7103,36 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
     const isTextSignal = normalizedMsg?.text_signal === true;
 
     if (!mediaObject && !isTextSignal) {
+      const safePreview = (() => {
+        if (typeof msg === "string") return msg.slice(0, 400);
+        try {
+          return JSON.stringify(msg).slice(0, 400);
+        } catch {
+          return String(msg).slice(0, 400);
+        }
+      })();
+
+      await telemetry(env, {
+        wa_id: st.wa_id,
+        event: "envio_docs_media_shape_unrecognized",
+        stage: st.fase_conversa || "envio_docs",
+        severity: "warning",
+        force: true,
+        message: "Shape de mídia não reconhecido em envio_docs",
+        details: {
+          original_msg_type: msg?.type || typeof msg,
+          normalized_type: normalizedMsg?.type || typeof normalizedMsg,
+          keys_root: normalizedMsg && typeof normalizedMsg === "object" ? Object.keys(normalizedMsg).slice(0, 30) : [],
+          keys_media: normalizedMsg?.media && typeof normalizedMsg.media === "object" ? Object.keys(normalizedMsg.media).slice(0, 30) : [],
+          keys_payload: normalizedMsg?.payload && typeof normalizedMsg.payload === "object" ? Object.keys(normalizedMsg.payload).slice(0, 30) : [],
+          has_document: !!normalizedMsg?.document,
+          has_image: !!normalizedMsg?.image,
+          has_audio: !!normalizedMsg?.audio,
+          has_video: !!normalizedMsg?.video,
+          preview_string_truncated: safePreview
+        }
+      });
+
       return {
         ok: false,
         message: [

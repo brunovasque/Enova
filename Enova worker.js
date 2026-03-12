@@ -6365,13 +6365,15 @@ function guessEnvioDocsTipoFromText(texto) {
   const t = normalizeText(texto || "");
   if (!t) return null;
 
-  if (/\b(cnh|carteira nacional de habilitacao|habilitacao)\b/.test(t)) return "cnh";
+  if (/\b(ctps|carteira de trabalho)\b/.test(t)) return "ctps";
+  if (/\b(cnh|carteira nacional de habilitacao|habilitacao|carteira de motorista)\b/.test(t)) return "cnh";
   if (/\b(rg|registro geral|identidade)\b/.test(t)) return "rg";
   if (/\bcpf\b/.test(t)) return "cpf";
 
   if (/\b(comprovante.*resid\w*|residenc\w*|conta de (luz|agua|água|internet)|iptu)\b/.test(t)) {
     return "comprovante_residencia";
   }
+  if (/\b(comprovante.*rend\w*|rend\w*.*comprovante)\b/.test(t)) return "comprovante_renda";
 
   if (/\b(holerite|contracheque)\b/.test(t)) return "holerite";
   if (/\bextrat/.test(t)) return "extrato_bancario";
@@ -6383,8 +6385,6 @@ function guessEnvioDocsTipoFromText(texto) {
   if ((/\b(declaracao|declaração)\b/.test(t)) && (/\bir\b/.test(t) || /\bimposto de renda\b/.test(t))) {
     return "declaracao_ir";
   }
-
-  if (/\b(ctps|carteira de trabalho)\b/.test(t)) return "ctps";
 
   if (/\b(certidao|certidão)\b/.test(t) && /\bnasc/.test(t)) return "certidao_nascimento_dependente";
   if (/\b(certidao|certidão)\b/.test(t) && /\bcasament/.test(t)) return "certidao_casamento";
@@ -6535,26 +6535,82 @@ function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, 
   };
 }
 
-function selectEnvioDocsItemForUpload(st, hintText = "") {
+function inferEnvioDocsParticipanteFromText(texto = "") {
+  const t = normalizeText(texto || "");
+  if (!t) return null;
+  if (/\b(parceir|espos|marid|conjuge|cônjuge|p2)\b/.test(t)) return "p2";
+  if (/\b(composicao|composição|familiar|pai|mae|mãe|avo|avó|irma|irmã|p3)\b/.test(t)) return "p3";
+  return null;
+}
+
+function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
   const itens = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
   const pendentes = itens.filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item));
-  if (!pendentes.length) return null;
+  if (!pendentes.length) {
+    return {
+      item: null,
+      debug: {
+        hinted_tipo_raw: null,
+        hinted_tipo_normalized: null,
+        detected_doc_type: null,
+        matched_item_tipo: null,
+        matched_item_participante: null,
+        expected_pending_items_before: []
+      }
+    };
+  }
 
-  const hintedTipoRaw = guessEnvioDocsTipoFromText(hintText);
+  const context = typeof selectionContext === "string"
+    ? { hintText: selectionContext }
+    : (selectionContext || {});
+  const hintText = String(context.hintText || "");
+  const fileName = String(context.fileName || context.filename || "");
+  const joinedHintText = `${hintText} ${fileName}`.trim();
+  const hintedTipoRaw = guessEnvioDocsTipoFromText(joinedHintText);
   const hintedTipo = normalizeEnvioDocsTipoForChecklist(hintedTipoRaw);
-  const hintedParticipante = /\b(parceir|espos|marid|conjuge|cônjuge|p2)\b/.test(normalizeText(hintText || "")) ? "p2" : null;
+  const detectedDocType = hintedTipoRaw || null;
+  const hintedCategoria = envioDocsCategoriaFromTipo(hintedTipoRaw);
+  const hintedParticipante = inferEnvioDocsParticipanteFromText(joinedHintText);
+  const expectedPendingItemsBefore = pendentes.map((item) => `${item.tipo}:${item.participante}`);
+
+  const toResult = (item) => ({
+    item: item || null,
+    debug: {
+      hinted_tipo_raw: hintedTipoRaw || null,
+      hinted_tipo_normalized: hintedTipo || null,
+      detected_doc_type: detectedDocType,
+      matched_item_tipo: item?.tipo || null,
+      matched_item_participante: item?.participante || null,
+      expected_pending_items_before: expectedPendingItemsBefore
+    }
+  });
 
   if (hintedTipo && hintedParticipante) {
     const match = pendentes.find((item) => envioDocsHintTipoMatchesItemTipo(hintedTipoRaw, item.tipo) && item.participante === hintedParticipante);
-    if (match) return match;
+    if (match) return toResult(match);
   }
 
   if (hintedTipo) {
     const match = pendentes.find((item) => envioDocsHintTipoMatchesItemTipo(hintedTipoRaw, item.tipo));
-    if (match) return match;
+    if (match) return toResult(match);
   }
 
-  return pendentes[0];
+  if (hintedCategoria && hintedParticipante) {
+    const match = pendentes.find((item) => envioDocsCategoriaFromTipo(item.tipo) === hintedCategoria && item.participante === hintedParticipante);
+    if (match) return toResult(match);
+  }
+
+  if (hintedCategoria) {
+    const categoryMatches = pendentes.filter((item) => envioDocsCategoriaFromTipo(item.tipo) === hintedCategoria);
+    if (categoryMatches.length === 1) return toResult(categoryMatches[0]);
+    if (categoryMatches.length > 1) return toResult(categoryMatches[0]);
+  }
+
+  if (hintedTipoRaw && hintedCategoria) {
+    return toResult(null);
+  }
+
+  return toResult(pendentes[0]);
 }
 
 function isEnvioDocsTextualUploadSignal(texto) {
@@ -6636,7 +6692,13 @@ async function handleDocumentUpload(env, st, msg) {
       st.last_user_text ||
       "";
     const itens = Array.isArray(st.envio_docs_itens_json) ? [...st.envio_docs_itens_json] : [];
-    const target = selectEnvioDocsItemForUpload(st, hintText);
+    const selection = selectEnvioDocsItemForUpload(st, {
+      hintText,
+      fileName: mediaObject?.filename || mediaObject?.file_name || "",
+      mimeType: mediaObject?.mime_type || ""
+    });
+    const target = selection?.item || null;
+    const selectionDebug = selection?.debug || {};
 
     await telemetry(env, {
       wa_id: st.wa_id,
@@ -6658,7 +6720,13 @@ async function handleDocumentUpload(env, st, msg) {
         media_id: mediaObject?.id || null,
         caption: normalizedMsg?.document?.caption || normalizedMsg?.image?.caption || normalizedMsg?.caption || null,
         target_tipo: target?.tipo || null,
-        target_participante: target?.participante || null
+        target_participante: target?.participante || null,
+        hinted_tipo_raw: selectionDebug.hinted_tipo_raw || null,
+        hinted_tipo_normalized: selectionDebug.hinted_tipo_normalized || null,
+        detected_doc_type: selectionDebug.detected_doc_type || null,
+        matched_item_tipo: selectionDebug.matched_item_tipo || null,
+        matched_item_participante: selectionDebug.matched_item_participante || null,
+        expected_pending_items_before: Array.isArray(selectionDebug.expected_pending_items_before) ? selectionDebug.expected_pending_items_before : []
       }
     });
 
@@ -6687,6 +6755,9 @@ async function handleDocumentUpload(env, st, msg) {
     }
 
     const progress = recomputeEnvioDocsProgress(itens);
+    const expectedPendingItemsAfter = itens
+      .filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item))
+      .map((item) => `${item.tipo}:${item.participante}`);
     const historicoBase = Array.isArray(st.envio_docs_historico_json) ? st.envio_docs_historico_json : [];
     const patch = {
       envio_docs_itens_json: itens,
@@ -6711,6 +6782,24 @@ async function handleDocumentUpload(env, st, msg) {
     Object.assign(patch, pacotePayload);
     await upsertState(env, st.wa_id, patch);
     Object.assign(st, patch);
+
+    await telemetry(env, {
+      wa_id: st.wa_id,
+      event: "envio_docs_media_debug_post_match",
+      stage: st.fase_conversa || "envio_docs",
+      severity: "warning",
+      force: true,
+      message: "DEBUG pós-vínculo de mídia no envio_docs",
+      details: {
+        hinted_tipo_raw: selectionDebug.hinted_tipo_raw || null,
+        hinted_tipo_normalized: selectionDebug.hinted_tipo_normalized || null,
+        detected_doc_type: selectionDebug.detected_doc_type || null,
+        matched_item_tipo: target?.tipo || null,
+        matched_item_participante: target?.participante || null,
+        expected_pending_items_before: Array.isArray(selectionDebug.expected_pending_items_before) ? selectionDebug.expected_pending_items_before : [],
+        expected_pending_items_after: expectedPendingItemsAfter
+      }
+    });
 
     const pendenciasResumo = envioDocsResumoPendencias(itens);
     const linhas = ["Recebi seu arquivo e já registrei na sua pasta ✅"];

@@ -6538,8 +6538,9 @@ function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, 
 function inferEnvioDocsParticipanteFromText(texto = "") {
   const t = normalizeText(texto || "");
   if (!t) return null;
-  if (/\b(parceir|espos|marid|conjuge|p2)\b/.test(t)) return "p2";
-  if (/\b(composicao|familiar|pai|mae|avo|irma|p3)\b/.test(t)) return "p3";
+  if (/\b(parceir\w*|espos\w*|marid\w*|conjuge|p2)\b/.test(t)) return "p2";
+  if (/\b(composicao|familiar|pai|mae|avo|irma\w*|p3)\b/.test(t)) return "p3";
+  if (/\b(titular|proponente|principal|cliente|p1)\b/.test(t)) return "p1";
   return null;
 }
 
@@ -6576,6 +6577,21 @@ function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
   const detectedDocType = hintedTipoRaw || null;
   const hintedCategoria = envioDocsCategoriaFromTipo(hintedTipoRaw);
   const hintedParticipante = inferEnvioDocsParticipanteFromText(joinedHintText);
+  const tipoMatches = hintedTipo
+    ? pendentes.filter((item) => envioDocsHintTipoMatchesItemTipo(hintedTipoRaw, item.tipo))
+    : [];
+  const categoriaMatches = hintedCategoria
+    ? pendentes.filter((item) => envioDocsCategoriaFromTipo(item.tipo) === hintedCategoria)
+    : [];
+  const extractUniqueParticipante = (matches) => {
+    const participantes = [...new Set((matches || []).map((item) => item?.participante).filter(Boolean))];
+    return participantes.length === 1 ? participantes[0] : null;
+  };
+  const detectedParticipant =
+    hintedParticipante ||
+    extractUniqueParticipante(tipoMatches) ||
+    extractUniqueParticipante(categoriaMatches) ||
+    null;
   const expectedPendingItemsBefore = pendentes.map((item) => `${item.tipo}:${item.participante}`);
 
   const toResult = (item) => ({
@@ -6584,8 +6600,10 @@ function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
       hinted_tipo_raw: hintedTipoRaw || null,
       hinted_tipo_normalized: hintedTipo || null,
       detected_doc_type: detectedDocType,
+      detected_participant: detectedParticipant,
       matched_item_tipo: item?.tipo || null,
       matched_item_participante: item?.participante || null,
+      matched_checklist_item: item ? { tipo: item.tipo || null, participante: item.participante || null } : null,
       expected_pending_items_before: expectedPendingItemsBefore
     }
   });
@@ -6596,18 +6614,19 @@ function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
   }
 
   if (hintedTipo) {
-    const match = pendentes.find((item) => envioDocsHintTipoMatchesItemTipo(hintedTipoRaw, item.tipo));
-    if (match) return toResult(match);
+    if (tipoMatches.length === 1) return toResult(tipoMatches[0]);
+    if (tipoMatches.length > 1) return toResult(null);
   }
 
   if (hintedCategoria && hintedParticipante) {
-    const match = pendentes.find((item) => envioDocsCategoriaFromTipo(item.tipo) === hintedCategoria && item.participante === hintedParticipante);
-    if (match) return toResult(match);
+    const categoryParticipantMatches = categoriaMatches.filter((item) => item.participante === hintedParticipante);
+    if (categoryParticipantMatches.length === 1) return toResult(categoryParticipantMatches[0]);
+    if (categoryParticipantMatches.length > 1) return toResult(null);
   }
 
   if (hintedCategoria) {
-    const categoryMatches = pendentes.filter((item) => envioDocsCategoriaFromTipo(item.tipo) === hintedCategoria);
-    if (categoryMatches.length > 0) return toResult(categoryMatches[0]);
+    if (categoriaMatches.length === 1) return toResult(categoriaMatches[0]);
+    if (categoriaMatches.length > 1) return toResult(null);
     // Categoria foi detectada, mas nenhum pendente é compatível.
     // Evita fallback cego para item de outra categoria e mantém sem vínculo automático.
     return toResult(null);
@@ -6731,6 +6750,7 @@ async function handleDocumentUpload(env, st, msg) {
         hinted_tipo_raw: selectionDebug.hinted_tipo_raw || null,
         hinted_tipo_normalized: selectionDebug.hinted_tipo_normalized || null,
         detected_doc_type: selectionDebug.detected_doc_type || null,
+        detected_participant: selectionDebug.detected_participant || null,
         matched_item_tipo: selectionDebug.matched_item_tipo || null,
         matched_item_participante: selectionDebug.matched_item_participante || null,
         expected_pending_items_before: Array.isArray(selectionDebug.expected_pending_items_before) ? selectionDebug.expected_pending_items_before : []
@@ -6776,6 +6796,9 @@ async function handleDocumentUpload(env, st, msg) {
           origem: "upload",
           canal_origem: st.canal_docs_escolhido || "whatsapp",
           associado: target ? { tipo: target.tipo, participante: target.participante } : null,
+          detected_doc_type: selectionDebug.detected_doc_type || null,
+          detected_participant: selectionDebug.detected_participant || null,
+          matched_checklist_item: target ? { tipo: target.tipo, participante: target.participante } : null,
           validacao_basica: validation
         }
       ]
@@ -6801,6 +6824,7 @@ async function handleDocumentUpload(env, st, msg) {
         hinted_tipo_raw: selectionDebug.hinted_tipo_raw || null,
         hinted_tipo_normalized: selectionDebug.hinted_tipo_normalized || null,
         detected_doc_type: selectionDebug.detected_doc_type || null,
+        detected_participant: selectionDebug.detected_participant || null,
         matched_item_tipo: target?.tipo || null,
         matched_item_participante: target?.participante || null,
         expected_pending_items_before: Array.isArray(selectionDebug.expected_pending_items_before) ? selectionDebug.expected_pending_items_before : [],

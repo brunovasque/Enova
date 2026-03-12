@@ -6433,7 +6433,7 @@ function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, 
   const rawFileSize = mediaObject?.file_size ?? mediaObject?.size ?? mediaObject?.bytes ?? null;
   const hasKnownFileSize = rawFileSize !== null && rawFileSize !== undefined && rawFileSize !== "";
   const fileSize = hasKnownFileSize ? Number(rawFileSize) : null;
-  
+    
   console.log("DEBUG-ENVIO-DOCS-VALIDATION:", JSON.stringify({
     sourceType,
     mimeType,
@@ -6445,7 +6445,7 @@ function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, 
     width: mediaObject?.width ?? null,
     height: mediaObject?.height ?? null
   }));
-   const width = Number(mediaObject?.width || 0);
+  const width = Number(mediaObject?.width || 0);
   const height = Number(mediaObject?.height || 0);
 
   const allowed = sourceType === "image" || sourceType === "document";
@@ -6457,10 +6457,6 @@ function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, 
   if (inferredCategory === "nao_documento") {
     return { status: "invalido", reason: "mime_nao_documental", details: { sourceType, mimeType, fileSize, fileName } };
   }
-
-  const rawFileSize = mediaObject?.file_size ?? mediaObject?.size ?? mediaObject?.bytes ?? null;
-  const hasKnownFileSize = rawFileSize !== null && rawFileSize !== undefined && rawFileSize !== "";
-  const fileSize = hasKnownFileSize ? Number(rawFileSize) : null;
 
   if (hasKnownFileSize && (!Number.isFinite(fileSize) || fileSize <= 0)) {
     return { status: "ilegivel", reason: "arquivo_vazio_ou_corrompido", details: { sourceType, mimeType, fileSize, fileName } };

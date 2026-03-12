@@ -15905,6 +15905,7 @@ case "envio_docs": {
   // =====================================================
   // 2 — TEXTO DO CLIENTE (quando não enviou mídia)
   // =====================================================
+  const t = String(userText || "");
   const canal = parseEnvioDocsCanal(normalizeText(t));
   const pronto = isYes(t) || /(sim|ok|pode mandar|manda|pode enviar|pode ser|por aqui|vamos|blz|beleza)/i.test(t);
   const negar  = isNo(t) || /(nao|não agora|depois|mais tarde|agora nao)/i.test(t);

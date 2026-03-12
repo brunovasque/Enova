@@ -6364,19 +6364,33 @@ function buildPacoteCorrespondentePayloadFromState(st, itens = [], analisePayloa
 function guessEnvioDocsTipoFromText(texto) {
   const t = normalizeText(texto || "");
   if (!t) return null;
+
   if (/\b(cnh|carteira nacional de habilitacao|habilitacao)\b/.test(t)) return "cnh";
   if (/\b(rg|registro geral|identidade)\b/.test(t)) return "rg";
   if (/\bcpf\b/.test(t)) return "cpf";
-  if (/\b(comprovante.*resid\w*|residenc\w*|conta de (luz|agua|água|internet)|iptu)\b/.test(t)) return "comprovante_residencia";
-  if (/\bcomprovante.*renda\b/.test(t)) return "comprovante_renda";
+
+  if (/\b(comprovante.*resid\w*|residenc\w*|conta de (luz|agua|água|internet)|iptu)\b/.test(t)) {
+    return "comprovante_residencia";
+  }
+
   if (/\b(holerite|contracheque)\b/.test(t)) return "holerite";
   if (/\bextrat/.test(t)) return "extrato_bancario";
-  if (/\b(recibo|darf)\b/.test(t) && (/\bir\b/.test(t) || /\bimposto de renda\b/.test(t))) return "recibo_ir";
-  if (/\b(declaracao|declaração)\b/.test(t) && (/\bir\b/.test(t) || /\bimposto de renda\b/.test(t))) return "declaracao_ir";
+
+  if ((/\b(recibo|darf)\b/.test(t)) && (/\bir\b/.test(t) || /\bimposto de renda\b/.test(t))) {
+    return "recibo_ir";
+  }
+
+  if ((/\b(declaracao|declaração)\b/.test(t)) && (/\bir\b/.test(t) || /\bimposto de renda\b/.test(t))) {
+    return "declaracao_ir";
+  }
+
+  if (/\b(ctps|carteira de trabalho)\b/.test(t)) return "ctps";
+
+  if (/\b(certidao|certidão)\b/.test(t) && /\bnasc/.test(t)) return "certidao_nascimento_dependente";
+  if (/\b(certidao|certidão)\b/.test(t) && /\bcasament/.test(t)) return "certidao_casamento";
+
   if (/\bir\b/.test(t)) return "declaracao_ir";
-  if (/\bcertidao|certidão\b/.test(t) && /\bnasc/.test(t)) return "certidao_nascimento_dependente";
-  if (/\bcertidao|certidão\b/.test(t) && /\bcasament/.test(t)) return "certidao_casamento";
-  if (/\bctps|carteira de trabalho\b/.test(t)) return "ctps";
+
   return null;
 }
 

@@ -1477,18 +1477,21 @@ async function supabaseUpdate(env, table, filter, patch) {
 // 🧱 A3.1 — Reset TOTAL (blindado e compatível com tabela atual)
 // =============================================================
 async function resetTotal(env, wa_id) {
+  const simCtx = getSimulationContext(env);
 
   // 1) Apaga completamente o estado anterior via Proxy V2
-  await supabaseProxyFetch(env, {
-    path: "/rest/v1/enova_state",
-    method: "DELETE",
-    query: {
-      wa_id: `eq.${wa_id}`
-    },
-    headers: {
-      Accept: "application/json"
-    }
-  });
+  if (!simCtx?.active) {
+    await supabaseProxyFetch(env, {
+      path: "/rest/v1/enova_state",
+      method: "DELETE",
+      query: {
+        wa_id: `eq.${wa_id}`
+      },
+      headers: {
+        Accept: "application/json"
+      }
+    });
+  }
 
   // 2) Recria estado 100% limpo e compatível com enova_state atual
   await upsertState(env, wa_id, {
@@ -1662,6 +1665,86 @@ async function resetTotal(env, wa_id) {
   });
 
   return;
+}
+
+const QA_RESET_COMMANDS = {
+  DOCS: "reset docs vasques",
+  VISITA: "reset visita vasques",
+  CORRESPONDENTE: "reset correspondente vasques"
+};
+
+function buildQaResetPatch(command) {
+  const nowIso = new Date().toISOString();
+
+  if (command === QA_RESET_COMMANDS.DOCS) {
+    return {
+      fase_conversa: "envio_docs",
+      updated_at: nowIso,
+      nome: "JOAO TESTE",
+      docs_lista_enviada: false,
+      envio_docs_lista_enviada: false,
+      envio_docs_status: "aguardando_envio",
+      envio_docs_lembrete_count: 0,
+      envio_docs_ultimo_pedido_em: nowIso,
+      canal_docs_status: "pendente",
+      canal_docs_escolhido: null,
+      canal_docs_recusa_whatsapp: false,
+      canal_docs_motivo_recusa: null,
+      canal_docs_agendamento_pendente: false,
+      canal_docs_opcoes_liberadas_json: {
+        principal: "whatsapp",
+        alternativas_digitais: ["site"],
+        visita: "reativa"
+      },
+      visita_origem: null,
+      visita_agendamento_status: null,
+      visita_convite_status: null
+    };
+  }
+
+  if (command === QA_RESET_COMMANDS.VISITA) {
+    const firstSlotIso = new Date(Date.now() + (24 * 60 * 60 * 1000)).toISOString();
+    return {
+      fase_conversa: "agendamento_visita",
+      updated_at: nowIso,
+      nome: "JOAO TESTE",
+      processo_enviado_correspondente: true,
+      retorno_correspondente_status: "aprovado",
+      visita_origem: "aprovado",
+      visita_convite_status: "pendente",
+      visita_agendamento_status: "convite",
+      visita_confirmada: false,
+      visita_confirmada_em: null,
+      visita_data_escolhida: null,
+      visita_slot_escolhido: null,
+      visita_dia_hora: null,
+      visita_primeiro_slot_disponivel_em: firstSlotIso
+    };
+  }
+
+  if (command === QA_RESET_COMMANDS.CORRESPONDENTE) {
+    return {
+      fase_conversa: "aguardando_retorno_correspondente",
+      updated_at: nowIso,
+      nome: "JOAO TESTE",
+      nome_parceiro_normalizado: "MARIA TESTE",
+      processo_enviado_correspondente: true,
+      corr_publicacao_status: "publicado_grupo_pendente_assumir",
+      retorno_correspondente_bruto: null,
+      retorno_correspondente_status: null,
+      retorno_correspondente_motivo: null
+    };
+  }
+
+  return null;
+}
+
+async function applyQaPhaseReset(env, wa_id, command) {
+  await resetTotal(env, wa_id);
+  const patch = buildQaResetPatch(command);
+  if (!patch) return null;
+  await upsertState(env, wa_id, patch);
+  return await getState(env, wa_id);
 }
 
 function createSimulationState(wa_id, startStage) {
@@ -2442,6 +2525,14 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "topo_inicio_nacionalidade", grupo: "topo", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "inicio_nacionalidade", input: "sou estrangeiro", expected: { type: "single", equals: "inicio_rnm" } },
     { id: "topo_inicio_rnm", grupo: "topo", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "inicio_rnm", input: "sim", expected: { type: "single", equals: "inicio_rnm_validade" } },
     { id: "topo_inicio_rnm_validade", grupo: "topo", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "inicio_rnm_validade", input: "12/2030", expected: { type: "multiple", in: ["estado_civil","inicio_rnm_validade"] } },
+
+    { id: "qa_reset_global_padrao", grupo: "qa_reset", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "reset", expected: { type: "single", equals: "inicio_programa" }, assert_state_write: ["fase_conversa"] },
+    { id: "qa_reset_docs_vasques", grupo: "qa_reset", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "reset docs vasques", expected: { type: "single", equals: "envio_docs" }, assert_state_write: ["fase_conversa","envio_docs_status","canal_docs_status"] },
+    { id: "qa_reset_visita_vasques", grupo: "qa_reset", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "reset visita vasques", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["fase_conversa","visita_origem","visita_agendamento_status","processo_enviado_correspondente"] },
+    { id: "qa_reset_correspondente_vasques", grupo: "qa_reset", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "reset correspondente vasques", expected: { type: "single", equals: "aguardando_retorno_correspondente" }, assert_state_write: ["fase_conversa","processo_enviado_correspondente","corr_publicacao_status","nome"] },
+    { id: "qa_reset_sem_vasques_nao_ativa_atalho", grupo: "qa_reset", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "reset docs", expected: { type: "single", equals: "inicio_programa" }, assert_state_write: ["fase_conversa"] },
+    { id: "qa_reset_docs_preset_campos_minimos", grupo: "qa_reset", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_base_topo_v1", start_stage: "renda", input: "reset docs vasques", expected: { type: "single", equals: "envio_docs" }, assert_state_write: ["nome","envio_docs_status","canal_docs_status","docs_lista_enviada"] },
+    { id: "qa_reset_global_sem_regressao_em_fase_final", grupo: "qa_reset", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "reset", expected: { type: "single", equals: "inicio_programa" }, assert_state_write: ["fase_conversa"] },
 
     { id: "civil_estado_civil_solteiro", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "solteiro", expected: { type: "single", equals: "somar_renda_solteiro" } },
     { id: "civil_estado_civil_casado", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "casado", expected: { type: "single", equals: "confirmar_casamento" } },
@@ -7811,6 +7902,37 @@ async function runFunnel(env, st, userText) {
 
   const stage = st.fase_conversa || "inicio";
   const normalizedUserText = normalizeText(userText || "");
+
+  const isQaReset =
+    normalizedUserText === QA_RESET_COMMANDS.DOCS ||
+    normalizedUserText === QA_RESET_COMMANDS.VISITA ||
+    normalizedUserText === QA_RESET_COMMANDS.CORRESPONDENTE;
+
+  if (isQaReset) {
+    const stageBeforeReset = st.fase_conversa || "inicio";
+    const qaState = await applyQaPhaseReset(env, st.wa_id, normalizedUserText);
+    const targetStage = qaState?.fase_conversa || stageBeforeReset;
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "reset_qa_fase",
+      stage: stageBeforeReset,
+      next_stage: targetStage,
+      severity: "info",
+      message: "Reset QA por fase executado",
+      details: {
+        command: normalizedUserText,
+        stage_after: targetStage
+      }
+    });
+
+    return step(
+      env,
+      qaState || st,
+      [`Pronto ✅ Reposicionei seu teste em *${targetStage}*.`],
+      targetStage
+    );
+  }
 
   // ============================================================
   // 🔄 RESET GLOBAL — funciona em QUALQUER FASE

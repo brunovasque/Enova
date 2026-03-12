@@ -6578,6 +6578,16 @@ function guessEnvioDocsTipoFromText(texto) {
   return null;
 }
 
+function inferEnvioDocsParticipanteFromText(texto) {
+  const t = normalizeText(texto || "");
+  if (!t) return null;
+
+  if (/\b(p1|titular|principal|cliente)\b/.test(t)) return "p1";
+  if (/\b(p2|parceir[oa]?|espos[ao]|conjuge|c[oô]njuge)\b/.test(t)) return "p2";
+  if (/\b(p3|familiar|dependente|filh[oa]|pai|mae|mãe|irma[oa]|avo|av[oó]|sogr[oa])\b/.test(t)) return "p3";
+  return null;
+}
+
 function envioDocsParticipanteLabel(participante) {
   if (participante === "p1") return "titular";
   if (participante === "p2") return "parceiro(a)";

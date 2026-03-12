@@ -6748,15 +6748,6 @@ function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, 
   };
 }
 
-function inferEnvioDocsParticipanteFromText(texto = "") {
-  const t = normalizeText(texto || "");
-  if (!t) return null;
-  if (/\b(parceir\w*|espos\w*|marid\w*|conjuge\w*|p2)\b/.test(t)) return "p2";
-  if (/\b(composicao|familiar|pai|mae|avo|irma\w*|p3)\b/.test(t)) return "p3";
-  if (/\b(titular|proponente|principal|cliente|p1)\b/.test(t)) return "p1";
-  return null;
-}
-
 function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
   const itens = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
   const pendentes = itens.filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item));
@@ -6781,34 +6772,43 @@ function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
   const context = typeof selectionContext === "string"
     ? { hintText: selectionContext }
     : (selectionContext || {});
+
   const hintText = String(context.hintText || "");
   // Aceita fileName e filename para compatibilidade com payloads legados.
   const fileName = String(context.fileName || context.filename || "");
   const joinedHintText = `${hintText} ${fileName}`.trim();
+
+  const normalizedJoinedHintText = normalizeText(joinedHintText);
   const hasHintUtil = /\b(rg|cpf|cnh|ctps|carteira|identidade|comprovante|residenc|renda|holerite|contracheque|extrat|recibo|darf|imposto de renda|ir)\b/.test(
-    normalizeText(joinedHintText)
+    normalizedJoinedHintText
   );
+
   const hintedTipoRaw = guessEnvioDocsTipoFromText(joinedHintText);
   const hintedTipo = normalizeEnvioDocsTipoForChecklist(hintedTipoRaw);
   const detectedDocType = hintedTipoRaw || null;
   const coversChecklistTypes = getEnvioDocsCoveredChecklistTypes(detectedDocType);
   const hintedCategoria = envioDocsCategoriaFromTipo(hintedTipoRaw);
   const hintedParticipante = inferEnvioDocsParticipanteFromText(joinedHintText);
+
   const tipoMatches = hintedTipo
     ? pendentes.filter((item) => envioDocsHintTipoMatchesItemTipo(hintedTipoRaw, item.tipo))
     : [];
+
   const categoriaMatches = hintedCategoria
     ? pendentes.filter((item) => envioDocsCategoriaFromTipo(item.tipo) === hintedCategoria)
     : [];
+
   const extractUniqueParticipante = (matches) => {
     const participantes = [...new Set((matches || []).map((item) => item?.participante).filter(Boolean))];
     return participantes.length === 1 ? participantes[0] : null;
   };
+
   const detectedParticipant =
     hintedParticipante ||
     extractUniqueParticipante(tipoMatches) ||
     extractUniqueParticipante(categoriaMatches) ||
     null;
+
   const expectedPendingItemsBefore = pendentes.map((item) => `${item.tipo}:${item.participante}`);
 
   const toResult = (item, itemsMatched = [], extraDebug = {}) => ({
@@ -6831,7 +6831,11 @@ function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
   });
 
   if (hintedTipo && hintedParticipante) {
-    const matches = pendentes.filter((item) => envioDocsHintTipoMatchesItemTipo(hintedTipoRaw, item.tipo) && item.participante === hintedParticipante);
+    const matches = pendentes.filter(
+      (item) =>
+        envioDocsHintTipoMatchesItemTipo(hintedTipoRaw, item.tipo) &&
+        item.participante === hintedParticipante
+    );
     if (matches.length) return toResult(matches[0], matches);
   }
 
@@ -6839,12 +6843,13 @@ function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
     const coverageMatches = pendentes.filter((item) => envioDocsHintTipoMatchesItemTipo(hintedTipoRaw, item.tipo));
     const participantFromCoverage = extractUniqueParticipante(coverageMatches);
     const participantResolved = hintedParticipante || detectedParticipant || participantFromCoverage || null;
+
     if (participantResolved) {
       const scopedMatches = coverageMatches.filter((item) => item.participante === participantResolved);
       if (scopedMatches.length) return toResult(scopedMatches[0], scopedMatches);
     }
+
     // Modo conservador: sem participante resolvido, não cruza checklist de pessoas diferentes.
-    // Ex.: CNH sem contexto quando p1 e p2 têm RG/CPF pendentes → não dá baixa automática.
     if (coverageMatches.length > 1 && !participantResolved) {
       return toResult(null, [], {
         ambiguity_reason: "coverage_participant_ambiguous",
@@ -6882,16 +6887,25 @@ function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
         ambiguity_candidates: categoriaMatches.map((item) => `${item.tipo}:${item.participante}`)
       });
     }
-    // Categoria foi detectada, mas nenhum pendente é compatível.
-    // Evita fallback cego para item de outra categoria e mantém sem vínculo automático.
-    return toResult(null, []);
+
+    // Categoria detectada, mas sem pendente compatível: não vincula automaticamente.
+    return toResult(null, [], {
+      ambiguity_reason: "category_detected_without_pending_match"
+    });
   }
 
-  if (hasHintUtil) {
-    return toResult(null, []);
+  // Se existe qualquer pista útil no texto/nome do arquivo, mas nada casou com segurança,
+  // não faz vínculo cego.
+  if (hasHintUtil || hintedTipoRaw || hintedParticipante) {
+    return toResult(null, [], {
+      ambiguity_reason: "hint_present_without_safe_match"
+    });
   }
 
-  return toResult(pendentes[0], [pendentes[0]]);
+  // Sem pista textual e sem match seguro: também não vincula automaticamente.
+  return toResult(null, [], {
+    ambiguity_reason: "no_safe_match"
+  });
 }
 
 function isEnvioDocsTextualUploadSignal(texto) {
@@ -6945,8 +6959,9 @@ function normalizeEnvioDocsIncomingMedia(msg) {
  * - Recalcula status geral da pasta (aguardando_envio/parcial/completo)
  * - Retorna mensagem humanizada mantendo etapa envio_docs
  */
-async function handleDocumentUpload(env, st, msg) {
+async function handleDocumentUpload(env, st, msg, options = {}) {
   try {
+    const silent = options?.silent === true;
     const normalizedMsg = normalizeEnvioDocsIncomingMedia(msg);
     // ==========================================================
     // 1 — DETECTAR TIPO DE ARQUIVO VINDO DO WHATSAPP
@@ -7093,6 +7108,24 @@ async function handleDocumentUpload(env, st, msg) {
         expected_pending_items_after: expectedPendingItemsAfter
       }
     });
+
+    if (silent) {
+      return {
+        ok: true,
+        silent: true,
+        keepStage: "envio_docs",
+        itemResult: {
+          matchedItems: matchedItems.map((matched) => ({
+            tipo: matched?.tipo || null,
+            participante: matched?.participante || null
+          })),
+          validation,
+          progress,
+          selectionDebug,
+          expectedPendingItemsAfter
+        }
+      };
+    }
 
     const pendenciasResumo = envioDocsResumoPendencias(itens);
     const linhas = ["Recebi seu arquivo e já registrei na sua pasta ✅"];
@@ -15864,7 +15897,7 @@ case "envio_docs": {
     const midia = st._incoming_media;
     await upsertState(env, st.wa_id, { _incoming_media: null });
 
-    const resposta = await handleDocumentUpload(env, st, midia);
+    const resposta = await handleDocumentUpload(env, st, midia, { silent: true });
 
     // Telemetria de entrada de mídia
     await funnelTelemetry(env, {
@@ -15879,9 +15912,59 @@ case "envio_docs": {
       }
     });
 
-    // resposta negativa (erro OCR, ilegível etc.)
+        // resposta negativa (erro OCR, ilegível etc.)
     if (!resposta.ok) {
       return step(env, st, resposta.message, resposta.keepStage || "envio_docs");
+    }
+
+    // modo silencioso: processa/grava, mas responde uma vez só de forma consolidada
+    if (resposta.silent === true) {
+      const itemResult = resposta.itemResult || {};
+      const matchedItems = Array.isArray(itemResult.matchedItems) ? itemResult.matchedItems : [];
+      const validation = itemResult.validation || {};
+      const progress = itemResult.progress || {};
+      const selectionDebug = itemResult.selectionDebug || {};
+
+      const linhas = ["Recebi seu arquivo e já registrei na sua pasta ✅"];
+
+      if (matchedItems.length) {
+        const statusMensagens = {
+          recebido_pendente_validacao: "recebido pendente de validação",
+          validado_basico: "validado básico",
+          ilegivel: "ilegível",
+          invalido: "inválido",
+          reenvio_solicitado: "reenvio solicitado"
+        };
+        const vinculados = [...new Set(
+          matchedItems.map((matched) =>
+            `**${prettyDocLabel(matched.tipo)}** (${envioDocsParticipanteLabel(matched.participante)})`
+          )
+        )];
+        const statusTexto = statusMensagens[validation.status] || validation.status || "recebido";
+        linhas.push(`Vinculei como ${vinculados.join(", ")}, com status *${statusTexto}*.`);
+
+        if (
+          validation.status === "ilegivel" ||
+          validation.status === "invalido" ||
+          validation.status === "reenvio_solicitado"
+        ) {
+          linhas.push("Se quiser, já pode reenviar esse documento com melhor qualidade/arquivo correto que eu atualizo aqui.");
+        }
+      } else {
+        linhas.push("Recebi o arquivo, mas não consegui identificar com segurança qual documento ele representa.");
+        linhas.push("Pode reenviar com a legenda do documento, por exemplo: *CPF titular*, *RG titular* ou *Comprovante de Renda titular*.");
+      }
+
+      if (progress.envio_docs_status === "completo") {
+        linhas.push("Recebemos sua pasta. Agora ela está em análise documental.");
+      } else {
+        const itensAtualizados = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
+        const pendenciasResumo = envioDocsResumoPendencias(itensAtualizados);
+        linhas.push("Pode me enviar os próximos documentos para concluir sua pasta.");
+        if (pendenciasResumo.length) linhas.push("", ...pendenciasResumo);
+      }
+
+      return step(env, st, linhas, "envio_docs");
     }
 
     // resposta positiva mas sem avanço

@@ -7748,6 +7748,60 @@ async function runFunnel(env, st, userText) {
 
   const stage = st.fase_conversa || "inicio";
   let t = (userText || "").trim().toLowerCase();
+  const nt = normalizeText(userText || "");
+
+  // ============================================================
+  // 🔄 RESET GLOBAL — funciona em QUALQUER FASE
+  // ============================================================
+  const isReset =
+    nt === "reset" ||
+    /\b(resetar|reset|recomecar|recomeçar|zerar tudo|comecar do zero|começar do zero|comecar tudo de novo|começar tudo de novo)\b/.test(nt);
+
+  if (isReset) {
+    await resetTotal(env, st.wa_id);
+
+    // 🔥 CORREÇÃO ABSOLUTA: recarrega estado limpo
+    const novoSt = await getState(env, st.wa_id);
+
+      await upsertState(env, st.wa_id, {
+      fase_conversa: "inicio_programa",
+      last_user_text: null,
+      last_processed_text: null,
+      last_message_id: null,
+      updated_at: new Date().toISOString()
+    });
+
+    novoSt.fase_conversa = "inicio_programa";
+    novoSt.last_user_text = null;
+    novoSt.last_processed_text = null;
+    novoSt.last_message_id = null;
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "reset_global",
+      stage,
+      next_stage: "inicio_programa",
+      severity: "info",
+      message: "Reset global solicitado pelo usuário",
+      details: {
+        previous_stage: stage,
+        normalized_text: nt,
+        last_user_text: userText
+      }
+    });
+
+    return step(
+      env,
+      novoSt,
+      [
+        "Perfeito, limpamos tudo aqui pra você 👌",
+        "Eu sou a Enova 😊, assistente do programa Minha Casa Minha Vida.",
+        "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
+        "Me responde com *sim* (já sei) ou *não* (quero que explique)."
+      ],
+      "inicio_programa"
+    );
+  }
 
   // ============================================================
   // 🧷 OFFTRACK DETERMINÍSTICO (YES/NO stages)
@@ -7937,61 +7991,6 @@ async function runFunnel(env, st, userText) {
 
     // segue o fluxo normal (não retorna)
   }
-
-// ============================================================
-// 🔄 RESET GLOBAL — funciona em QUALQUER FASE
-// ============================================================
-const nt = normalizeText(userText || "");
-
-const isReset =
-  nt === "reset" ||
-  /\b(resetar|reset|recomecar|recomeçar|zerar tudo|comecar do zero|começar do zero|comecar tudo de novo|começar tudo de novo)\b/.test(nt);
-
-if (isReset) {
-  await resetTotal(env, st.wa_id);
-
-  // 🔥 CORREÇÃO ABSOLUTA: recarrega estado limpo
-  const novoSt = await getState(env, st.wa_id);
-
-    await upsertState(env, st.wa_id, {
-    fase_conversa: "inicio_programa",
-    last_user_text: null,
-    last_processed_text: null,
-    last_message_id: null,
-    updated_at: new Date().toISOString()
-  });
-
-  novoSt.fase_conversa = "inicio_programa";
-  novoSt.last_user_text = null;
-  novoSt.last_processed_text = null;
-  novoSt.last_message_id = null;
-
-  await funnelTelemetry(env, {
-    wa_id: st.wa_id,
-    event: "reset_global",
-    stage,
-    next_stage: "inicio_programa",
-    severity: "info",
-    message: "Reset global solicitado pelo usuário",
-    details: {
-      previous_stage: stage,
-      normalized_text: nt,
-      last_user_text: userText
-    }
-  });
-
-  return step(
-    env,
-    novoSt,
-    [
-      "Perfeito, limpamos tudo aqui pra você 👌",
-      "Eu sou a Enova 😊, assistente do programa Minha Casa Minha Vida.",
-      "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
-      "Me responde com *sim* (já sei) ou *não* (quero que explique)."
-    ],
-    "inicio_programa"
-  );
-}
 
 // 2) Loop por repetição do cliente (comparar com a ÚLTIMA msg do cliente)
 // ✅ REGRA NOVA: NÃO bloquear o cliente. Repetição é válida (principalmente sim/não).

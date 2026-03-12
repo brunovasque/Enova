@@ -6538,7 +6538,7 @@ function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, 
 function inferEnvioDocsParticipanteFromText(texto = "") {
   const t = normalizeText(texto || "");
   if (!t) return null;
-  if (/\b(parceir\w*|espos\w*|marid\w*|conjuge|p2)\b/.test(t)) return "p2";
+  if (/\b(parceir\w*|espos\w*|marid\w*|conjuge\w*|p2)\b/.test(t)) return "p2";
   if (/\b(composicao|familiar|pai|mae|avo|irma\w*|p3)\b/.test(t)) return "p3";
   if (/\b(titular|proponente|principal|cliente|p1)\b/.test(t)) return "p1";
   return null;
@@ -6594,7 +6594,7 @@ function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
     null;
   const expectedPendingItemsBefore = pendentes.map((item) => `${item.tipo}:${item.participante}`);
 
-  const toResult = (item) => ({
+  const toResult = (item, extraDebug = {}) => ({
     item: item || null,
     debug: {
       hinted_tipo_raw: hintedTipoRaw || null,
@@ -6604,7 +6604,8 @@ function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
       matched_item_tipo: item?.tipo || null,
       matched_item_participante: item?.participante || null,
       matched_checklist_item: item ? { tipo: item.tipo || null, participante: item.participante || null } : null,
-      expected_pending_items_before: expectedPendingItemsBefore
+      expected_pending_items_before: expectedPendingItemsBefore,
+      ...extraDebug
     }
   });
 
@@ -6615,18 +6616,33 @@ function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
 
   if (hintedTipo) {
     if (tipoMatches.length === 1) return toResult(tipoMatches[0]);
-    if (tipoMatches.length > 1) return toResult(null);
+    if (tipoMatches.length > 1) {
+      return toResult(null, {
+        ambiguity_reason: "tipo_matches_multiple",
+        ambiguity_candidates: tipoMatches.map((item) => `${item.tipo}:${item.participante}`)
+      });
+    }
   }
 
   if (hintedCategoria && hintedParticipante) {
     const categoryParticipantMatches = categoriaMatches.filter((item) => item.participante === hintedParticipante);
     if (categoryParticipantMatches.length === 1) return toResult(categoryParticipantMatches[0]);
-    if (categoryParticipantMatches.length > 1) return toResult(null);
+    if (categoryParticipantMatches.length > 1) {
+      return toResult(null, {
+        ambiguity_reason: "category_participant_matches_multiple",
+        ambiguity_candidates: categoryParticipantMatches.map((item) => `${item.tipo}:${item.participante}`)
+      });
+    }
   }
 
   if (hintedCategoria) {
     if (categoriaMatches.length === 1) return toResult(categoriaMatches[0]);
-    if (categoriaMatches.length > 1) return toResult(null);
+    if (categoriaMatches.length > 1) {
+      return toResult(null, {
+        ambiguity_reason: "category_matches_multiple",
+        ambiguity_candidates: categoriaMatches.map((item) => `${item.tipo}:${item.participante}`)
+      });
+    }
     // Categoria foi detectada, mas nenhum pendente é compatível.
     // Evita fallback cego para item de outra categoria e mantém sem vínculo automático.
     return toResult(null);

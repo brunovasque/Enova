@@ -1,6 +1,7 @@
 console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
 
 const ENOVA_BUILD = "enova-meta-debug-stamp-2026-03-11-visit-suite-publish";
+const RESET_REPLY_SUMMARY_MAX_LEN = 140;
 
 function getSimulationContext(env) {
   return env && env.__enovaSimulationCtx ? env.__enovaSimulationCtx : null;
@@ -4493,10 +4494,9 @@ try {
           message: "Webhook real finalizou resposta para reset",
           details: {
             tag: "reset_webhook_reply",
-            reply_text_summary:
-              replyText && replyText.length > 140
-                ? replyText.slice(0, 140) + "...(truncado)"
-                : replyText,
+            reply_text_summary: replyText && replyText.length > RESET_REPLY_SUMMARY_MAX_LEN
+              ? replyText.slice(0, RESET_REPLY_SUMMARY_MAX_LEN) + "...(truncado)"
+              : replyText,
             final_fase_conversa: stAfter?.fase_conversa || null
           }
         });

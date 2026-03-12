@@ -6560,10 +6560,12 @@ function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
     };
   }
 
+  // Backward-compatible: aceita string legado (hintText) e objeto com contexto explícito.
   const context = typeof selectionContext === "string"
     ? { hintText: selectionContext }
     : (selectionContext || {});
   const hintText = String(context.hintText || "");
+  // Aceita fileName e filename para compatibilidade com payloads legados.
   const fileName = String(context.fileName || context.filename || "");
   const joinedHintText = `${hintText} ${fileName}`.trim();
   const hintedTipoRaw = guessEnvioDocsTipoFromText(joinedHintText);
@@ -6602,11 +6604,9 @@ function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
 
   if (hintedCategoria) {
     const categoryMatches = pendentes.filter((item) => envioDocsCategoriaFromTipo(item.tipo) === hintedCategoria);
-    if (categoryMatches.length === 1) return toResult(categoryMatches[0]);
-    if (categoryMatches.length > 1) return toResult(categoryMatches[0]);
-  }
-
-  if (hintedTipoRaw && hintedCategoria) {
+    if (categoryMatches.length >= 1) return toResult(categoryMatches[0]);
+    // Evita fallback cego para item de outra categoria quando o tipo já foi detectado com confiança.
+    // Nesse caso preferimos não associar automaticamente para não gravar vínculo incorreto.
     return toResult(null);
   }
 
@@ -6704,7 +6704,7 @@ async function handleDocumentUpload(env, st, msg) {
       wa_id: st.wa_id,
       event: "envio_docs_media_debug_pre_validation",
       stage: st.fase_conversa || "envio_docs",
-      severity: "warning",
+      severity: "info",
       force: true,
       message: "DEBUG pré-validação de mídia recebida no envio_docs",
       details: {
@@ -6787,7 +6787,7 @@ async function handleDocumentUpload(env, st, msg) {
       wa_id: st.wa_id,
       event: "envio_docs_media_debug_post_match",
       stage: st.fase_conversa || "envio_docs",
-      severity: "warning",
+      severity: "info",
       force: true,
       message: "DEBUG pós-vínculo de mídia no envio_docs",
       details: {

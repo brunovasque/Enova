@@ -1,6 +1,7 @@
 console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
 
 const ENOVA_BUILD = "enova-meta-debug-stamp-2026-03-11-visit-suite-publish";
+const RESET_REPLY_SUMMARY_MAX_LEN = 140;
 
 function getSimulationContext(env) {
   return env && env.__enovaSimulationCtx ? env.__enovaSimulationCtx : null;
@@ -4353,6 +4354,9 @@ let userText = null;
     });
   }
 
+  const normalizedUserText = normalizeText(userText || "");
+  const isResetCmd = type === "text" && normalizedUserText === "reset";
+
   // 10) Entrada no funil (já com telemetria da A3/A6)
   try {
 
@@ -4375,6 +4379,24 @@ let userText = null;
     // ============================================================
     // TELEMETRIA DE ENTRADA — AGORA COM STAGE REAL
     // ============================================================
+    if (isResetCmd) {
+      await telemetry(env, {
+        wa_id: waId,
+        event: "reset_webhook_received",
+        stage: st?.fase_conversa || "inicio",
+        severity: "info",
+        force: true,
+        message: "Webhook real recebeu mensagem textual reset",
+        details: {
+          tag: "reset_webhook_received",
+          wa_id: waId,
+          stage_at_webhook: st?.fase_conversa || "inicio",
+          normalized_text: normalizedUserText,
+          is_reset_cmd: true
+        }
+      });
+    }
+
     await telemetry(env, {
       wa_id: waId,
       event: "incoming_message",
@@ -4438,9 +4460,50 @@ try {
     // ============================================================
     // 2) CHAMADA CORRETA DO FUNIL
     // ============================================================
+    if (isResetCmd) {
+      await telemetry(env, {
+        wa_id: waId,
+        event: "reset_before_runfunnel",
+        stage: st?.fase_conversa || "inicio",
+        severity: "info",
+        force: true,
+        message: "Encaminhando reset para runFunnel",
+        details: {
+          tag: "reset_before_runfunnel",
+          stage_at_dispatch: st?.fase_conversa || "inicio",
+          normalized_text: normalizedUserText
+        }
+      });
+    }
+
     await runFunnel(env, st, userText);
 
     console.log("FUNIL-CALL: depois do runFunnel");
+
+    if (isResetCmd) {
+      try {
+        const stAfter = await getState(env, waId);
+        const replyText = stAfter?.last_bot_msg || null;
+        await telemetry(env, {
+          wa_id: waId,
+          event: "reset_webhook_reply",
+          stage: stAfter?.fase_conversa || st?.fase_conversa || "inicio",
+          next_stage: stAfter?.fase_conversa || null,
+          severity: "info",
+          force: true,
+          message: "Webhook real finalizou resposta para reset",
+          details: {
+            tag: "reset_webhook_reply",
+            reply_text_summary: replyText && replyText.length > RESET_REPLY_SUMMARY_MAX_LEN
+              ? replyText.slice(0, RESET_REPLY_SUMMARY_MAX_LEN) + "...(truncado)"
+              : replyText,
+            final_fase_conversa: stAfter?.fase_conversa || null
+          }
+        });
+      } catch (replyLogErr) {
+        console.error("RESET-WEBHOOK-REPLY-LOG-ERROR:", replyLogErr);
+      }
+    }
 
     return metaWebhookResponse(200, {
       reason: "runFunnel_ok",
@@ -7757,10 +7820,46 @@ async function runFunnel(env, st, userText) {
     /\b(resetar|reset|recomecar|recomeçar|zerar tudo|comecar do zero|começar do zero|comecar tudo de novo|começar tudo de novo)\b/.test(normalizedUserText);
 
   if (isReset) {
+    const isExactResetCmd = normalizedUserText === "reset";
+    const stageBeforeReset = st.fase_conversa || "inicio";
+    if (isExactResetCmd) {
+      await telemetry(env, {
+        wa_id: st.wa_id,
+        event: "reset_global_entered",
+        stage: stageBeforeReset,
+        severity: "info",
+        force: true,
+        message: "runFunnel entrou no reset global",
+        details: {
+          tag: "reset_global_entered",
+          stage_before: stageBeforeReset,
+          wa_id: st.wa_id
+        }
+      });
+    }
+
     await resetTotal(env, st.wa_id);
 
     // 🔥 CORREÇÃO ABSOLUTA: recarrega estado limpo
     const novoSt = await getState(env, st.wa_id);
+
+    if (isExactResetCmd) {
+      await telemetry(env, {
+        wa_id: st.wa_id,
+        event: "reset_after_resetTotal",
+        stage: stageBeforeReset,
+        next_stage: novoSt?.fase_conversa || null,
+        severity: "info",
+        force: true,
+        message: "runFunnel executou resetTotal e recarregou estado",
+        details: {
+          tag: "reset_after_resetTotal",
+          stage_before: stageBeforeReset,
+          stage_after: novoSt?.fase_conversa || null,
+          reset_total_called: true
+        }
+      });
+    }
 
       await upsertState(env, st.wa_id, {
       fase_conversa: "inicio_programa",

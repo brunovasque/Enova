@@ -6430,12 +6430,10 @@ function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, 
     null;
   const mimeType = String(mediaObject?.mime_type || "").toLowerCase();
   const fileName = String(mediaObject?.filename || mediaObject?.file_name || "").trim();
-  const fileSize = Number(
-    mediaObject?.file_size ||
-    mediaObject?.size ||
-    mediaObject?.bytes ||
-    0
-  );
+  const rawFileSize = mediaObject?.file_size ?? mediaObject?.size ?? mediaObject?.bytes ?? null;
+  const hasKnownFileSize = rawFileSize !== null && rawFileSize !== undefined && rawFileSize !== "";
+  const fileSize = hasKnownFileSize ? Number(rawFileSize) : null;
+    
   console.log("DEBUG-ENVIO-DOCS-VALIDATION:", JSON.stringify({
     sourceType,
     mimeType,
@@ -6460,12 +6458,12 @@ function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, 
     return { status: "invalido", reason: "mime_nao_documental", details: { sourceType, mimeType, fileSize, fileName } };
   }
 
-  if (!Number.isFinite(fileSize) || fileSize <= 0) {
+  if (hasKnownFileSize && (!Number.isFinite(fileSize) || fileSize <= 0)) {
     return { status: "ilegivel", reason: "arquivo_vazio_ou_corrompido", details: { sourceType, mimeType, fileSize, fileName } };
   }
 
   if (sourceType === "image") {
-    if (fileSize < MIN_IMAGE_SIZE_BYTES) {
+    if (!hasKnownFileSize || !Number.isFinite(fileSize) || fileSize < MIN_IMAGE_SIZE_BYTES) {
       return { status: "ilegivel", reason: "imagem_muito_pequena", details: { sourceType, mimeType, fileSize, width, height, fileName } };
     }
     if ((width && width < MIN_IMAGE_DIMENSION) || (height && height < MIN_IMAGE_DIMENSION)) {
@@ -6478,7 +6476,7 @@ function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, 
     if (!isPdf && mimeType && !mimeType.startsWith("image/")) {
       return { status: "invalido", reason: "documento_sem_formato_aceito", details: { sourceType, mimeType, fileSize, fileName } };
     }
-    if (fileSize < MIN_DOCUMENT_SIZE_BYTES) {
+    if (hasKnownFileSize && fileSize < MIN_DOCUMENT_SIZE_BYTES) {
       return { status: "ilegivel", reason: "arquivo_documento_muito_pequeno", details: { sourceType, mimeType, fileSize, fileName } };
     }
   }

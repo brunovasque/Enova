@@ -1,6 +1,6 @@
 console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
 
-const ENOVA_BUILD = "enova-meta-debug-stamp-2026-02-11";
+const ENOVA_BUILD = "enova-meta-debug-stamp-2026-03-11-visit-suite-publish";
 
 function getSimulationContext(env) {
   return env && env.__enovaSimulationCtx ? env.__enovaSimulationCtx : null;
@@ -1640,6 +1640,16 @@ async function resetTotal(env, wa_id) {
     dossie_resumo: null,
     processo_enviado_correspondente: null,
     aguardando_retorno_correspondente: null,
+    visita_origem: null,
+    visita_convite_status: null,
+    visita_data_escolhida: null,
+    visita_slot_escolhido: null,
+    visita_primeiro_slot_disponivel_em: null,
+    visita_agendamento_status: null,
+    visita_confirmada: null,
+    visita_confirmada_em: null,
+    visita_resultado_status: null,
+    visita_dia_hora: null,
 
     // Participantes (zera composição antiga)
     p1_tipo: null,
@@ -1804,6 +1814,16 @@ function createSimulationState(wa_id, startStage) {
     dossie_resumo: null,
     processo_enviado_correspondente: null,
     aguardando_retorno_correspondente: null,
+    visita_origem: null,
+    visita_convite_status: null,
+    visita_data_escolhida: null,
+    visita_slot_escolhido: null,
+    visita_primeiro_slot_disponivel_em: null,
+    visita_agendamento_status: null,
+    visita_confirmada: null,
+    visita_confirmada_em: null,
+    visita_resultado_status: null,
+    visita_dia_hora: null,
     
     // Participantes (zera composição antiga)
     p1_tipo: null,
@@ -1926,7 +1946,7 @@ async function simulateFunnel(env, { wa_id, startStage, script, dryRun }) {
 
 
 const ENOVA_V1_VALID_STAGES = Object.freeze([
-  "inicio","inicio_decisao","inicio_programa","inicio_nome","inicio_nacionalidade","inicio_rnm","inicio_rnm_validade","estado_civil","confirmar_casamento","financiamento_conjunto","parceiro_tem_renda","somar_renda_solteiro","somar_renda_familiar","pais_casados_civil_pergunta","confirmar_avo_familiar","renda_familiar_valor","inicio_multi_renda_pergunta","inicio_multi_renda_coletar","inicio_multi_regime_familiar_pergunta","inicio_multi_regime_familiar_loop","inicio_multi_renda_familiar_pergunta","inicio_multi_renda_familiar_loop","inicio_multi_regime_pergunta_parceiro","inicio_multi_regime_coletar_parceiro","inicio_multi_renda_pergunta_parceiro","inicio_multi_renda_coletar_parceiro","regime_trabalho","autonomo_ir_pergunta","autonomo_sem_ir_ir_este_ano","autonomo_sem_ir_caminho","autonomo_sem_ir_entrada","fim_inelegivel","fim_ineligivel","verificar_averbacao","verificar_inventario","p3_tipo_pergunta","regime_trabalho_parceiro_familiar","finalizacao","regime_trabalho_parceiro_familiar_p3","renda_parceiro_familiar_p3","inicio_multi_regime_p3_pergunta","inicio_multi_regime_p3_loop","inicio_multi_renda_p3_pergunta","inicio_multi_renda_p3_loop","ctps_36_parceiro_p3","restricao_parceiro_p3","regularizacao_restricao_p3","inicio_multi_regime_pergunta","inicio_multi_regime_coletar","regime_trabalho_parceiro","renda","renda_parceiro","renda_parceiro_familiar","renda_mista_detalhe","possui_renda_extra","interpretar_composicao","quem_pode_somar","sugerir_composicao_mista","ir_declarado","autonomo_compor_renda","ctps_36","ctps_36_parceiro","dependente","restricao","restricao_parceiro","regularizacao_restricao_parceiro","regularizacao_restricao","envio_docs","agendamento_visita","finalizacao_processo","aguardando_retorno_correspondente"
+  "inicio","inicio_decisao","inicio_programa","inicio_nome","inicio_nacionalidade","inicio_rnm","inicio_rnm_validade","estado_civil","confirmar_casamento","financiamento_conjunto","parceiro_tem_renda","somar_renda_solteiro","somar_renda_familiar","pais_casados_civil_pergunta","confirmar_avo_familiar","renda_familiar_valor","inicio_multi_renda_pergunta","inicio_multi_renda_coletar","inicio_multi_regime_familiar_pergunta","inicio_multi_regime_familiar_loop","inicio_multi_renda_familiar_pergunta","inicio_multi_renda_familiar_loop","inicio_multi_regime_pergunta_parceiro","inicio_multi_regime_coletar_parceiro","inicio_multi_renda_pergunta_parceiro","inicio_multi_renda_coletar_parceiro","regime_trabalho","autonomo_ir_pergunta","autonomo_sem_ir_ir_este_ano","autonomo_sem_ir_caminho","autonomo_sem_ir_entrada","fim_inelegivel","fim_ineligivel","verificar_averbacao","verificar_inventario","p3_tipo_pergunta","regime_trabalho_parceiro_familiar","finalizacao","regime_trabalho_parceiro_familiar_p3","renda_parceiro_familiar_p3","inicio_multi_regime_p3_pergunta","inicio_multi_regime_p3_loop","inicio_multi_renda_p3_pergunta","inicio_multi_renda_p3_loop","ctps_36_parceiro_p3","restricao_parceiro_p3","regularizacao_restricao_p3","inicio_multi_regime_pergunta","inicio_multi_regime_coletar","regime_trabalho_parceiro","renda","renda_parceiro","renda_parceiro_familiar","renda_mista_detalhe","possui_renda_extra","interpretar_composicao","quem_pode_somar","sugerir_composicao_mista","ir_declarado","autonomo_compor_renda","ctps_36","ctps_36_parceiro","dependente","restricao","restricao_parceiro","regularizacao_restricao_parceiro","regularizacao_restricao","envio_docs","agendamento_visita","visita_confirmada","finalizacao_processo","aguardando_retorno_correspondente"
 ]);
 
 const ENOVA_V1_BANNED_ALIASES = Object.freeze([
@@ -2240,6 +2260,98 @@ function enovaV1FixturePatch(id) {
         processo_enviado_correspondente: true
       };
 
+    case "fx_visita_data_v1":
+      return {
+        nome: "JOAO TESTE",
+        processo_enviado_correspondente: true,
+        retorno_correspondente_status: "aprovado",
+        visita_origem: "aprovado",
+        visita_convite_status: "aceito",
+        visita_agendamento_status: "data",
+        visita_primeiro_slot_disponivel_em: "2026-03-14T18:30:00.000Z"
+      };
+
+    case "fx_visita_horario_v1":
+      return {
+        nome: "JOAO TESTE",
+        processo_enviado_correspondente: true,
+        retorno_correspondente_status: "aprovado",
+        visita_origem: "aprovado",
+        visita_convite_status: "aceito",
+        visita_agendamento_status: "horario",
+        visita_data_escolhida: "2026-03-14",
+        visita_primeiro_slot_disponivel_em: "2026-03-14T18:30:00.000Z"
+      };
+
+    case "fx_visita_documental_v1":
+      return {
+        nome: "JOAO TESTE",
+        visita_origem: "trava_documental",
+        visita_agendamento_status: "convite"
+      };
+
+    case "fx_visita_documental_data_v1":
+      return {
+        nome: "JOAO TESTE",
+        visita_origem: "trava_documental",
+        visita_convite_status: "aceito",
+        visita_agendamento_status: "data",
+        visita_primeiro_slot_disponivel_em: "2026-03-14T18:30:00.000Z"
+      };
+
+    case "fx_visita_documental_horario_v1":
+      return {
+        nome: "JOAO TESTE",
+        visita_origem: "trava_documental",
+        visita_convite_status: "aceito",
+        visita_agendamento_status: "horario",
+        visita_data_escolhida: "2026-03-14",
+        visita_primeiro_slot_disponivel_em: "2026-03-14T18:30:00.000Z"
+      };
+
+    case "fx_visita_recusa_online_v1":
+      return {
+        nome: "JOAO TESTE",
+        envio_docs_status: "completo",
+        pacote_status: "pronto",
+        analise_docs_status: "validada",
+        pacote_participantes_json: [{ participante: "p1", papel: "titular" }],
+        pacote_documentos_anexados_json: [{ tipo: "rg", participante: "p1", status: "validado_basico" }],
+        pacote_renda_resumo_json: { total_geral: 2000 },
+        pacote_restricoes_json: { resumo: "sem_restricao" },
+        visita_recusa_online_tentativas_count: 1
+      };
+
+    case "fx_visita_recusa_online_zero_tentativas_v1":
+      return {
+        nome: "JOAO TESTE",
+        envio_docs_status: "completo",
+        pacote_status: "pronto",
+        analise_docs_status: "validada",
+        pacote_participantes_json: [{ participante: "p1", papel: "titular" }],
+        pacote_documentos_anexados_json: [{ tipo: "rg", participante: "p1", status: "validado_basico" }],
+        pacote_renda_resumo_json: { total_geral: 2000 },
+        pacote_restricoes_json: { resumo: "sem_restricao" },
+        visita_recusa_online_tentativas_count: 0
+      };
+
+    case "fx_visita_recusa_online_convite_v1":
+      return {
+        nome: "JOAO TESTE",
+        visita_origem: "recusa_online",
+        visita_agendamento_status: "convite"
+      };
+
+    case "fx_visita_recusa_online_horario_v1":
+      return {
+        nome: "JOAO TESTE",
+        visita_origem: "recusa_online",
+        visita_convite_status: "aceito",
+        visita_agendamento_status: "horario",
+        visita_data_escolhida: "2026-03-14",
+        visita_primeiro_slot_disponivel_em: "2026-03-14T18:30:00.000Z"
+      };
+
     default:
       return null;
   }
@@ -2547,6 +2659,117 @@ function enovaV1Scenarios(modeOverride = null) {
    
     { id: "docs_media_pendente", grupo: "docs", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", input: "segue", expected: { type: "multiple", in: ["envio_docs","finalizacao"] } },
     { id: "docs_media_completa", grupo: "docs", mode: "simulate-funnel", allowed_modes: ["simulate-funnel"], fixture: "fx_docs_media_v1", start_stage: "envio_docs", script: ["enviei tudo"], expected: { type: "multiple", in: ["envio_docs","finalizacao"] } },
+    {
+      id: "docs_trava_documental_entrada_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "ok", "quais docs faltam?", "prefiro presencial"],
+      expected: { type: "single", equals: "agendamento_visita" }
+    },
+    {
+      id: "docs_trava_documental_bloqueia_sem_followup_minimo",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "prefiro presencial"],
+      expected: { type: "multiple", in: ["envio_docs", "finalizacao"] }
+    },
+    {
+      id: "docs_trava_documental_sem_followup_minimo_nao_entra_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "prefiro presencial"],
+      expected: { type: "single", equals: "envio_docs" }
+    },
+    {
+      id: "docs_trava_documental_com_1_followup_nao_entra_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "ok", "prefiro presencial"],
+      expected: { type: "single", equals: "envio_docs" }
+    },
+    {
+      id: "docs_trava_documental_com_2_followups_e_recusa_whatsapp_entra_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "ok", "quais docs faltam?", "não quero mandar por whatsapp"],
+      expected: { type: "single", equals: "agendamento_visita" }
+    },
+    {
+      id: "docs_trava_documental_com_2_followups_e_recusa_site_entra_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "ok", "quais docs faltam?", "não quero enviar pelo site"],
+      expected: { type: "single", equals: "agendamento_visita" }
+    },
+    {
+      id: "docs_trava_documental_com_2_followups_e_prefere_presencial_entra_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "ok", "quais docs faltam?", "prefiro presencial"],
+      expected: { type: "single", equals: "agendamento_visita" }
+    },
+    {
+      id: "docs_trava_documental_com_2_followups_e_silencio_contextual_entra_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "ok", "quais docs faltam?", "nao envio online"],
+      expected: { type: "single", equals: "agendamento_visita" }
+    },
+    {
+      id: "docs_trava_documental_desinteresse_geral_nao_entra_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "ok", "quais docs faltam?", "depois vejo isso"],
+      expected: { type: "single", equals: "envio_docs" }
+    },
+    {
+      id: "docs_trava_documental_bloqueio_nao_documental_nao_entra_visita",
+      grupo: "docs",
+      mode: "simulate-funnel",
+      allowed_modes: ["simulate-funnel"],
+      fixture: "fx_restricao_v1",
+      start_stage: "regularizacao_restricao",
+      script: ["sim", "sim", "ok", "quais docs faltam?", "estou sem tempo hoje"],
+      expected: { type: "single", equals: "envio_docs" }
+    },
+    {
+      id: "visita_convite_por_trava_documental",
+      grupo: "docs",
+      mode: "simulate-from-state",
+      allowed_modes: ["simulate-from-state"],
+      fixture: "fx_visita_documental_v1",
+      start_stage: "agendamento_visita",
+      input: "sim",
+      expected: { type: "single", equals: "agendamento_visita" },
+      assert_state_write: ["visita_origem","visita_convite_status","visita_agendamento_status"]
+    },
     { id: "regressao_docs_envio_docs", grupo: "regressao", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_restricao_v1", start_stage: "regularizacao_restricao", input: "sim", expected: { type: "single", equals: "envio_docs" } },
     { id: "stage_alias_docs_banido", grupo: "docs", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_docs_text_v1", start_stage: "docs", input: "oi", expected: { type: "single", equals: "envio_docs" } },
 
@@ -2557,6 +2780,19 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "terminal_finalizacao_processo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_renda_v1", start_stage: "finalizacao", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_finalizacao_processo_publica_grupo", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_envio_ready_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_finalizacao_processo_aguarda_assumir", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "visita_recusa_online_com_0_tentativas_nao_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_zero_tentativas_v1", start_stage: "finalizacao_processo", input: "não quero atendimento online", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "visita_recusa_online_com_2_tentativas_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "prefiro presencial", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_origem","visita_agendamento_status","visita_convite_status"] },
+    { id: "visita_recusa_online_desinteresse_geral_nao_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "não quero mais, prefiro presencial", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "recusa_online_sem_followup_minimo_nao_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_zero_tentativas_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "recusa_online_com_1_followup_nao_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_zero_tentativas_v1", start_stage: "finalizacao_processo", input: "não quero atendimento online", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "recusa_online_com_2_followups_e_recusa_whatsapp_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "não quero por whatsapp", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_origem","visita_agendamento_status","visita_convite_status"] },
+    { id: "recusa_online_com_2_followups_e_recusa_online_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "não quero atendimento online", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_origem","visita_agendamento_status","visita_convite_status"] },
+    { id: "recusa_online_com_2_followups_e_prefere_presencial_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "prefiro presencial", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_origem","visita_agendamento_status","visita_convite_status"] },
+    { id: "recusa_online_desinteresse_geral_nao_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "não quero mais", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "recusa_online_silencio_generico_nao_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "ok", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "recusa_online_objecao_financeira_nao_entra_visita", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_v1", start_stage: "finalizacao_processo", input: "agora não tenho dinheiro", expected: { type: "single", equals: "finalizacao_processo" } },
+    { id: "visita_convite_por_recusa_online", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_convite_v1", start_stage: "agendamento_visita", input: "talvez", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_origem","visita_agendamento_status"] },
+    { id: "visita_horario_valido_confirma_recusa_online", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_recusa_online_horario_v1", start_stage: "agendamento_visita", input: "2", expected: { type: "single", equals: "visita_confirmada" }, assert_state_write: ["visita_origem","visita_confirmada","visita_agendamento_status","visita_slot_escolhido"] },
     { id: "terminal_assumir_token_sucesso_entrega_privada", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.ok", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_assumir_token_sucesso_entrega_privada_casal", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_casal_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.casal", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_assumir_token_sucesso_entrega_privada_restricao_regularizada", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_restricao_v1", start_stage: "finalizacao_processo", webhook_event: { object: "whatsapp_business_account", entry: [{ changes: [{ value: { messages: [{ from: "5511999999999", id: "wamid.assumir.restricao", timestamp: "1773183900", type: "text", text: { body: "ASSUMIR AB12CD34" } }], contacts: [{ wa_id: "5511999999999" }], metadata: { phone_number_id: "test" } } }] }] }, expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
@@ -2564,6 +2800,17 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "terminal_assumir_token_bloqueado_sem_transicao", grupo: "terminais", mode: "replay-webhook", allowed_modes: ["replay-webhook"], fixture: "fx_correspondente_publicado_v1", start_stage: "finalizacao_processo", input: "ASSUMIR AB12CD34", expected: { type: "single", equals: "finalizacao_processo" } },
     { id: "terminal_retorno_correspondente_aprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO APROVADO", expected: { type: "single", equals: "agendamento_visita" } },
     { id: "terminal_retorno_correspondente_aprovado_condicionado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO APROVADO CONDICIONADO", expected: { type: "single", equals: "agendamento_visita" } },
+    { id: "visita_convite_por_aprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "agendamento_visita", input: "talvez", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_agendamento_status","visita_primeiro_slot_disponivel_em"] },
+    { id: "visita_aceite_oferece_datas_fechadas", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "agendamento_visita", input: "sim", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_agendamento_status","visita_convite_status"] },
+    { id: "visita_domingo_redireciona_data", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_data_v1", start_stage: "agendamento_visita", input: "domingo", expected: { type: "single", equals: "agendamento_visita" }, assert_stayed: true },
+    { id: "visita_sabado_permitido", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_data_v1", start_stage: "agendamento_visita", input: "sábado", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_data_escolhida"] },
+    { id: "visita_horario_fora_grade_redireciona", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_horario_v1", start_stage: "agendamento_visita", input: "10:00", expected: { type: "single", equals: "agendamento_visita" }, assert_stayed: true },
+    { id: "visita_horario_valido_confirma", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_horario_v1", start_stage: "agendamento_visita", input: "2", expected: { type: "single", equals: "visita_confirmada" }, assert_state_write: ["visita_confirmada","visita_agendamento_status","visita_dia_hora","visita_slot_escolhido"] },
+    { id: "visita_aceite_oferece_datas_fechadas_trava_documental", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_documental_v1", start_stage: "agendamento_visita", input: "sim", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_origem","visita_agendamento_status","visita_convite_status"] },
+    { id: "visita_domingo_redireciona_data_trava_documental", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_documental_data_v1", start_stage: "agendamento_visita", input: "domingo", expected: { type: "single", equals: "agendamento_visita" }, assert_stayed: true },
+    { id: "visita_sabado_permitido_trava_documental", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_documental_data_v1", start_stage: "agendamento_visita", input: "sábado", expected: { type: "single", equals: "agendamento_visita" }, assert_state_write: ["visita_origem","visita_data_escolhida"] },
+    { id: "visita_horario_fora_grade_redireciona_trava_documental", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_documental_horario_v1", start_stage: "agendamento_visita", input: "10:00", expected: { type: "single", equals: "agendamento_visita" }, assert_stayed: true },
+    { id: "visita_horario_valido_confirma_trava_documental", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_visita_documental_horario_v1", start_stage: "agendamento_visita", input: "2", expected: { type: "single", equals: "visita_confirmada" }, assert_state_write: ["visita_origem","visita_confirmada","visita_agendamento_status","visita_slot_escolhido"] },
     { id: "terminal_retorno_correspondente_reprovado", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nCRÉDITO REPROVADO\nMotivo: score", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_retorno_correspondente_pendencia_documental", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência documental: comprovante de residência", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
     { id: "terminal_retorno_correspondente_pendencia_risco_conres", grupo: "terminais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state"], fixture: "fx_correspondente_retorno_v1", start_stage: "aguardando_retorno_correspondente", input: "Pré-cadastro\nJOAO TESTE\nPendência: CONRES", expected: { type: "single", equals: "aguardando_retorno_correspondente" } },
@@ -7203,12 +7450,15 @@ async function handleCorrespondenteRetorno(env, msg) {
     let proximaFase = "finalizacao";
     let mensagens = [];
 
+    // CAMINHO OFICIAL ATIVO (Worker atual):
+    // Aprovado do correspondente -> agendamento_visita.
+    // Qualquer evolução futura da fase visita deve respeitar este ponto de entrada.
     if (status === "aprovado") {
       proximaFase = "agendamento_visita";
       mensagens = [
         "Boa notícia! 🎉",
         "O correspondente bancário analisou seu cadastro e **aprovou o crédito na pré-análise**.",
-        "Agora vamos só alinhar a melhor data/horário pra sua visita aqui no plantão 😉"
+        "Agora seguimos para o agendamento da visita com opções oficiais de data e horário 😉"
       ];
     } else if (status === "reprovado") {
       proximaFase = "finalizacao";
@@ -14987,6 +15237,8 @@ case "envio_docs": {
     const pediuVisita = /\b(prefiro presencial|quero ir no plantao|plantao|presencial|escritorio|decorado|levar pessoalmente|posso levar pessoalmente|visita)\b/.test(t);
     const objecaoOnlineForte = /\b(nao quero enviar online|nao envio online|nao gosto de enviar online)\b/.test(t);
     const recusaWhatsapp = /\b(nao quero mandar documento por aqui|nao quero mandar documentos por aqui|nao quero enviar por aqui|nao quero mandar por whatsapp|nao quero enviar por whatsapp|nao quero mandar documento no whatsapp|sem whatsapp)\b/.test(t);
+    const recusaSite =
+      /\b(nao quero enviar pelo site|nao quero mandar pelo site|nao quero enviar por site|nao quero mandar por site|nao quero usar o site|nao quero usar portal|nao quero usar a plataforma)\b/.test(t);
     const pediuSite =
       /\bprefiro enviar pelo site\b/.test(t) ||
       (/\b(site|portal|plataforma|link)\b/.test(t) && /\b(enviar|envio|mandar|subir|anexar|prefiro)\b/.test(t));
@@ -14995,6 +15247,7 @@ case "envio_docs": {
       pediuVisita,
       objecaoOnlineForte,
       recusaWhatsapp,
+      recusaSite,
       pediuSite
     };
   }
@@ -15129,27 +15382,78 @@ case "envio_docs": {
   const pronto = isYes(t) || /(sim|ok|pode mandar|manda|pode enviar|pode ser|por aqui|vamos|blz|beleza)/i.test(t);
   const negar  = isNo(t) || /(nao|não agora|depois|mais tarde|agora nao)/i.test(t);
 
-  if (canal.pediuVisita || canal.objecaoOnlineForte) {
+  // GANCHO OFICIAL DO TRILHO — integração futura da fase visita documental.
+  // Não classificar como legado.
+  // Preservar como ponto de conexão da visita canônica futura.
+  // Ainda não integrado ao fluxo oficial completo da visita.
+  const tentativasAcompanhamento = Number(st.envio_docs_lembrete_count || 0);
+  const faseAtual = String(stage || st.fase_conversa || "");
+  const contextoDocumentalAtivo =
+    faseAtual === "envio_docs" &&
+    st.envio_docs_status !== "completo";
+  const naoEnviadoCorrespondente = st.processo_enviado_correspondente !== true;
+  const naoConfirmouVisita = st.visita_confirmada !== true;
+  const naoEncerrado = !["fim_ineligivel", "fim_inelegivel", "finalizacao", "finalizacao_processo", "aguardando_retorno_correspondente"].includes(String(st.fase_conversa || ""));
+  const provaMinimaDeTentativas = tentativasAcompanhamento >= 2;
+  const sinalCompativelVisitaDocumental =
+    canal.pediuVisita ||
+    canal.objecaoOnlineForte ||
+    canal.recusaWhatsapp ||
+    canal.recusaSite;
+  const elegivelVisitaDocumental =
+    contextoDocumentalAtivo &&
+    naoEnviadoCorrespondente &&
+    naoConfirmouVisita &&
+    naoEncerrado &&
+    provaMinimaDeTentativas &&
+    sinalCompativelVisitaDocumental;
+
+  if (elegivelVisitaDocumental) {
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const firstSlotIso = new Date(Date.now() + ONE_DAY_MS).toISOString();
     const patchCanal = {
       canal_docs_status: "definido",
       canal_docs_escolhido: "visita",
       canal_docs_recusa_whatsapp: canal.recusaWhatsapp || st.canal_docs_recusa_whatsapp === true,
       canal_docs_motivo_recusa: canal.recusaWhatsapp ? "nao_quer_enviar_por_whatsapp" : st.canal_docs_motivo_recusa || null,
-      canal_docs_agendamento_pendente: true,
+      canal_docs_agendamento_pendente: true, // GANCHO OFICIAL DO TRILHO (não legado): ligação ativa para entrada documental na visita canônica.
       canal_docs_opcoes_liberadas_json: {
         principal: "whatsapp",
         alternativas_digitais: ["site"],
         visita: "solicitada"
-      }
+      },
+      visita_origem: "trava_documental",
+      visita_convite_status: "pendente",
+      visita_agendamento_status: "convite",
+      visita_primeiro_slot_disponivel_em: firstSlotIso,
+      visita_data_escolhida: null,
+      visita_slot_escolhido: null,
+      visita_confirmada: false,
+      visita_confirmada_em: null,
+      visita_dia_hora: null
     };
     await upsertState(env, st.wa_id, patchCanal);
     Object.assign(st, patchCanal);
 
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "agendamento_visita",
+      severity: "info",
+      message: "Entrada documental conectada ao agendamento oficial de visita",
+      details: {
+        visita_origem: "trava_documental",
+        canal_docs_agendamento_pendente: true
+      }
+    });
+
     return step(env, st, [
       "Perfeito, seguimos com atendimento presencial ✅",
-      "Vou sinalizar seu agendamento de visita e te passo os próximos horários.",
+      "Vamos destravar sua etapa documental com visita no plantão.",
+      "Já vou abrir agora o agendamento oficial com datas e horários fechados.",
       "Se preferir adiantar, também posso liberar o envio online pelo site."
-    ], "envio_docs");
+    ], "agendamento_visita");
   }
 
   if (canal.pediuSite || canal.recusaWhatsapp) {
@@ -15223,6 +15527,8 @@ case "envio_docs": {
     const patchCanal = {
       docs_lista_enviada: true,
       envio_docs_lista_enviada: true,
+      envio_docs_lembrete_count: 0,
+      envio_docs_ultimo_pedido_em: new Date().toISOString(),
       canal_docs_status: "definido",
       canal_docs_escolhido: "whatsapp",
       canal_docs_recusa_whatsapp: false,
@@ -15304,6 +15610,14 @@ case "envio_docs": {
     message: "Cliente enviou texto sem mídia na fase envio_docs"
   });
 
+  const lembreteAtual = Number(st.envio_docs_lembrete_count || 0);
+  const lembretePatch = {
+    envio_docs_lembrete_count: lembreteAtual + 1,
+    envio_docs_ultimo_pedido_em: new Date().toISOString()
+  };
+  await upsertState(env, st.wa_id, lembretePatch);
+  Object.assign(st, lembretePatch);
+
   return step(env, st, [
     "Pode me enviar os documentos por aqui mesmo para seguir online 😊",
     "Se preferir envio digital fora do WhatsApp, eu te direciono pelo site."
@@ -15312,6 +15626,10 @@ case "envio_docs": {
 
 // =========================================================
 // 🧩 C37 — AGENDAMENTO DA VISITA
+// BLOCO TRANSITÓRIO ATIVO / IMPLEMENTAÇÃO PROVISÓRIA.
+// Este bloco ainda executa o caminho oficial atual de visita por aprovado do correspondente.
+// A modelagem interna aqui é provisória e anterior ao schema canônico da visita.
+// Não usar este conteúdo interno como base da expansão futura da visita; evoluções devem seguir o schema oficial.
 // =========================================================
 case "agendamento_visita": {
 
@@ -15325,49 +15643,220 @@ case "agendamento_visita": {
     severity: "info",
     message: "Entrando na fase: agendamento_visita",
     details: {
+      visita_agendamento_status: st.visita_agendamento_status || null,
       visita_confirmada: st.visita_confirmada || null,
       visita_dia_hora: st.visita_dia_hora || null
     }
   });
 
-  const confirmar = isYes(t) || /(sim|pode marcar|pode agendar|vamos sim|quero sim|ok|blz|beleza)/i.test(t);
-  const negar = isNo(t) || /(n[aã]o|depois|mais tarde|agora n[aã]o|ainda n[aã]o)/i.test(t);
+  const SLOT_OFICIAL = ["10:00", "14:30", "17:00", "19:30"];
+  const ENDERECO_PLANTAO = "Av. Paraná, 2474 – Boa Vista (em frente ao terminal)";
+  const dayFmt = new Intl.DateTimeFormat("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit", timeZone: "America/Sao_Paulo" });
+  const dayIsoFmt = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo", year: "numeric", month: "2-digit", day: "2-digit" });
+  const hmsFmt = new Intl.DateTimeFormat("en-GB", { timeZone: "America/Sao_Paulo", hour: "2-digit", minute: "2-digit", hour12: false });
+  const HOURS_24_MS = 24 * 60 * 60 * 1000;
+  const SATURDAY_SEARCH_DAYS = 14;
+  const SAO_PAULO_MIDNIGHT_UTC_HOUR = 3;
+  const SAFE_UTC_NOON_HOUR = 12;
+  const normalize = (txt) => String(txt || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const tNorm = normalize(t);
+  const toIsoDate = (d) => dayIsoFmt.format(d);
+  const toHM = (d) => hmsFmt.format(d);
+  const formatDayLabel = (d) => dayFmt.format(d).replace(".", "");
+  const parseSlotMinutes = (slot) => {
+    const [h, m] = slot.split(":").map((v) => Number(v || 0));
+    return (h * 60) + m;
+  };
+  const dayStart = (isoDay) => {
+    const [yy, mm, dd] = String(isoDay || "").split("-").map(Number);
+    return new Date(Date.UTC(yy, (mm || 1) - 1, dd || 1, SAO_PAULO_MIDNIGHT_UTC_HOUR, 0, 0));
+  };
+  const weekdayIndexFromIso = (isoDay) => {
+    const [yy, mm, dd] = String(isoDay || "").split("-").map(Number);
+    return new Date(Date.UTC(yy, (mm || 1) - 1, dd || 1, SAFE_UTC_NOON_HOUR, 0, 0)).getUTCDay();
+  };
+  const isSundayIso = (isoDay) => weekdayIndexFromIso(isoDay) === 0;
+  const hasSundayIntent = /\b(domingo)\b/.test(tNorm);
+  const defaultFirstSlotDate = new Date(Date.now() + HOURS_24_MS);
+  const baseFirstSlot = st.visita_primeiro_slot_disponivel_em
+    ? new Date(st.visita_primeiro_slot_disponivel_em)
+    : defaultFirstSlotDate;
+  const firstSlotIso = Number.isNaN(baseFirstSlot.getTime())
+    ? defaultFirstSlotDate.toISOString()
+    : baseFirstSlot.toISOString();
+  const firstSlotDate = new Date(firstSlotIso);
+  const firstSlotDay = toIsoDate(firstSlotDate);
+  const firstSlotHm = toHM(firstSlotDate);
+  const firstSlotMinutes = parseSlotMinutes(firstSlotHm);
 
-  // -----------------------------------------------------
-  // CLIENTE CONFIRMA QUE QUER AGENDAR
-  // -----------------------------------------------------
-  if (confirmar) {
+  const getAvailableSlotsForDay = (isoDay) => {
+    if (!isoDay || isSundayIso(isoDay)) return [];
+    if (isoDay !== firstSlotDay) return [...SLOT_OFICIAL];
+    return SLOT_OFICIAL.filter((slot) => parseSlotMinutes(slot) >= firstSlotMinutes);
+  };
 
-    await upsertState(env, st.wa_id, {
-      visita_confirmada: true
+  const buildDateOptions = (limit = 3) => {
+    const options = [];
+    let cursor = dayStart(firstSlotDay);
+    while (options.length < limit) {
+      const isoDay = toIsoDate(cursor);
+      const slots = getAvailableSlotsForDay(isoDay);
+      if (slots.length > 0) {
+        options.push({
+          iso: isoDay,
+          label: formatDayLabel(cursor)
+        });
+      }
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return options;
+  };
+
+  const buildNextSaturdayOption = () => {
+    let cursor = dayStart(firstSlotDay);
+    for (let i = 0; i < SATURDAY_SEARCH_DAYS; i += 1) {
+      const isoDay = toIsoDate(cursor);
+      if (weekdayIndexFromIso(isoDay) === 6) {
+        const slots = getAvailableSlotsForDay(isoDay);
+        if (slots.length > 0) {
+          return { iso: isoDay, label: formatDayLabel(cursor) };
+        }
+      }
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+    return null;
+  };
+
+  const dateOptions = buildDateOptions(3);
+  const saturdayOption = buildNextSaturdayOption();
+  const parseDateChoice = () => {
+    if (!dateOptions.length) return null;
+    const byIndex = tNorm.match(/\b([123])\b/);
+    if (byIndex) {
+      return dateOptions[Number(byIndex[1]) - 1] || null;
+    }
+    const byWeekday = dateOptions.find((opt) => {
+      const n = normalize(opt.label);
+      return (/\bseg/.test(n) && /\b(seg|segunda)\b/.test(tNorm)) ||
+        (/\bter/.test(n) && /\b(ter|terca)\b/.test(tNorm)) ||
+        (/\bqua/.test(n) && /\b(qua|quarta)\b/.test(tNorm)) ||
+        (/\bqui/.test(n) && /\b(qui|quinta)\b/.test(tNorm)) ||
+        (/\bsex/.test(n) && /\b(sex|sexta)\b/.test(tNorm)) ||
+        (/\bsab/.test(n) && /\b(sabado|sab)\b/.test(tNorm));
     });
+    if (byWeekday) return byWeekday;
+    if (/\b(sabado|sab)\b/.test(tNorm) && saturdayOption) return saturdayOption;
+    return null;
+  };
+  const parseSlotChoice = (allowedSlots) => {
+    const byIndex = tNorm.match(/\b([1-4])\b/);
+    if (byIndex) {
+      return allowedSlots[Number(byIndex[1]) - 1] || null;
+    }
+    if (/\b(10|10:00)\b/.test(tNorm) && allowedSlots.includes("10:00")) return "10:00";
+    if (/\b(14:30|1430|14h30)\b/.test(tNorm) && allowedSlots.includes("14:30")) return "14:30";
+    if (/\b(17|17:00)\b/.test(tNorm) && allowedSlots.includes("17:00")) return "17:00";
+    if (/\b(19:30|1930|19h30)\b/.test(tNorm) && allowedSlots.includes("19:30")) return "19:30";
+    return null;
+  };
+  const userRequestedHourText = /\b\d{1,2}(:\d{2})?\b/.test(tNorm);
+  const agendaStatus = st.visita_agendamento_status || "convite";
+  const visitaOrigemAtual = st.visita_origem || "aprovado";
+  const conviteAceito = isYes(t) || /\b(sim|quero|vamos|bora|agendar|marcar|1)\b/.test(tNorm);
+  const conviteAdiado = isNo(t) || /\b(nao|não|depois|mais tarde|agora nao|ainda nao|2)\b/.test(tNorm);
 
+  const visitaBasePatch = {
+    visita_origem: st.visita_origem || "aprovado",
+    visita_primeiro_slot_disponivel_em: firstSlotIso,
+    visita_resultado_status: st.visita_resultado_status || null
+  };
+
+  if (agendaStatus === "confirmada") {
+    const visitaResumo = st.visita_dia_hora || `${st.visita_data_escolhida || ""} ${st.visita_slot_escolhido || ""}`.trim() || "data a confirmar";
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "agendamento_visita",
+      next_stage: "visita_confirmada",
       severity: "info",
-      message: "Cliente confirmou que deseja agendar"
+      message: "Visita já confirmada anteriormente"
     });
 
     return step(env, st,
       [
-        "Perfeito! 👏",
-        "Me diga qual **dia** e **horário** ficam melhor pra você ir até o plantão:",
-        "",
-        "📍 *Av. Paraná, 2474 – Boa Vista (em frente ao terminal)*"
+        `Sua visita já está confirmada para *${visitaResumo}*. ✅`,
+        `📍 Endereço do plantão: *${ENDERECO_PLANTAO}*`,
+        "No dia, é só avisar seu nome na recepção que já te chamam 😉"
       ],
-      "agendamento_visita"
+      "visita_confirmada"
     );
   }
 
-  // -----------------------------------------------------
-  // CLIENTE NEGA / ADIA
-  // -----------------------------------------------------
-  if (negar) {
+  if (agendaStatus === "convite") {
+    if (conviteAceito) {
+      await upsertState(env, st.wa_id, {
+        ...visitaBasePatch,
+        visita_convite_status: "aceito",
+        visita_agendamento_status: "data",
+        visita_confirmada: false,
+        visita_data_escolhida: null,
+        visita_slot_escolhido: null,
+        visita_confirmada_em: null,
+        visita_dia_hora: null
+      });
+
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: "agendamento_visita",
+        severity: "info",
+        message: "Convite de visita aceito; ofertando datas fechadas"
+      });
+
+      return step(env, st,
+        [
+          "Perfeito! Vamos agendar sua visita com horários oficiais. 👇",
+          `1) ${dateOptions[0]?.label || "-"}`,
+          `2) ${dateOptions[1]?.label || "-"}`,
+          `3) ${dateOptions[2]?.label || "-"}`,
+          "Escolha uma opção (1, 2 ou 3).",
+          "Atendimento: segunda a sábado. Domingo não atendemos."
+        ],
+        "agendamento_visita"
+      );
+    }
+
+    if (conviteAdiado) {
+      await upsertState(env, st.wa_id, {
+        ...visitaBasePatch,
+        visita_convite_status: "adiado",
+        visita_agendamento_status: "convite",
+        visita_confirmada: false
+      });
+
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: "agendamento_visita",
+        severity: "info",
+        message: "Cliente adiou o convite de visita"
+      });
+
+      return step(env, st,
+        [
+          "Sem problema 🙂",
+          "Quando quiser agendar, me responda *1* que eu já te mostro as próximas datas oficiais."
+        ],
+        "agendamento_visita"
+      );
+    }
 
     await upsertState(env, st.wa_id, {
+      ...visitaBasePatch,
+      visita_convite_status: st.visita_convite_status || "pendente",
+      visita_agendamento_status: "convite",
       visita_confirmada: false
     });
 
@@ -15377,73 +15866,225 @@ case "agendamento_visita": {
       stage,
       next_stage: "agendamento_visita",
       severity: "info",
-      message: "Cliente adiou/negou agendamento"
+      message: "Convite de visita pendente"
     });
 
     return step(env, st,
-      [
-        "Sem problema 😊",
-        "Quando quiser agendar, me chama aqui rapidinho!",
-        "Eu garanto uma horinha boa pra você ser atendido(a) sem fila."
-      ],
+      visitaOrigemAtual === "trava_documental"
+        ? [
+          "Perfeito — vamos seguir pelo presencial para destravar a etapa documental. 🎯",
+          "Posso te mostrar agora as próximas datas e horários oficiais?",
+          "1) Sim, quero agendar agora",
+          "2) Prefiro ver depois"
+        ]
+        : visitaOrigemAtual === "recusa_online"
+          ? [
+            "Perfeito — vamos seguir no presencial como alternativa ao atendimento remoto. 🎯",
+            "Posso te mostrar agora as próximas datas e horários oficiais?",
+            "1) Sim, quero agendar agora",
+            "2) Prefiro ver depois"
+          ]
+        : [
+          "Ótima notícia! Seu processo avançou para a visita presencial. 🎉",
+          "Posso te mostrar agora as próximas datas e horários oficiais?",
+          "1) Sim, quero agendar agora",
+          "2) Prefiro ver depois"
+        ],
       "agendamento_visita"
     );
   }
 
-  // -----------------------------------------------------
-  // CLIENTE INFORMOU HORÁRIO (por texto)
-  // -----------------------------------------------------
-  const horarioInformado =
-    /\b(\d{1,2}:\d{2})\b/.test(t) ||
-    /(manha|manhã|tarde|noite)/i.test(t) ||
-    /(hoje|amanhã|amanha|sábado|sabado|domingo|segunda|terça|terca|quarta|quinta|sexta)/i.test(t);
+  if (agendaStatus === "data") {
+    if (hasSundayIntent) {
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: "agendamento_visita",
+        severity: "info",
+        message: "Cliente tentou domingo; redirecionando para dias oficiais"
+      });
+      return step(env, st,
+        [
+          "No domingo não temos atendimento 😕",
+          `Posso te atender em ${dateOptions[0]?.label || "dia útil"} ou ${dateOptions[1]?.label || "sábado"}.`,
+          "Escolha 1, 2 ou 3 entre as opções oficiais."
+        ],
+        "agendamento_visita"
+      );
+    }
 
-  if (horarioInformado) {
+    const dateChoice = parseDateChoice();
+    if (dateChoice) {
+      await upsertState(env, st.wa_id, {
+        ...visitaBasePatch,
+        visita_convite_status: "aceito",
+        visita_agendamento_status: "horario",
+        visita_data_escolhida: dateChoice.iso,
+        visita_slot_escolhido: null,
+        visita_confirmada: false
+      });
 
-    await upsertState(env, st.wa_id, {
-      visita_confirmada: true,
-      visita_dia_hora: t
-    });
+      const allowedSlots = getAvailableSlotsForDay(dateChoice.iso);
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: "agendamento_visita",
+        severity: "info",
+        message: "Data da visita definida; ofertando slots oficiais",
+        details: { visita_data_escolhida: dateChoice.iso, slots: allowedSlots }
+      });
+
+      return step(env, st,
+        [
+          `Perfeito, visita em *${dateChoice.label}*.`,
+          "Agora escolha o horário oficial:",
+          ...allowedSlots.map((slot, idx) => `${idx + 1}) ${slot}`),
+          "Responda com o número da opção."
+        ],
+        "agendamento_visita"
+      );
+    }
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "finalizacao",
+      next_stage: "agendamento_visita",
       severity: "info",
-      message: "Cliente informou dia/horário da visita"
+      message: "Escolha de data inválida; mantendo grade fechada"
     });
 
     return step(env, st,
       [
-        "Ótimo! 🙌",
-        "Vou deixar registrado aqui:",
-        `📅 *${userText.trim()}*`,
-        "",
-        "No dia, é só avisar seu nome na recepção que já te chamam 😉",
-        "Qualquer coisa me chama aqui!"
+        "Vamos seguir com as opções fechadas para garantir o próximo horário disponível 👇",
+        `1) ${dateOptions[0]?.label || "-"}`,
+        `2) ${dateOptions[1]?.label || "-"}`,
+        `3) ${dateOptions[2]?.label || "-"}`,
+        "Escolha 1, 2 ou 3."
       ],
-      "finalizacao"
+      "agendamento_visita"
     );
   }
 
-  // -----------------------------------------------------
-  // NÃO ENTENDIDO
-  // -----------------------------------------------------
+  if (agendaStatus === "horario") {
+    const isoSelecionado = st.visita_data_escolhida || dateOptions[0]?.iso || null;
+    const selectedDateLabel = isoSelecionado ? formatDayLabel(dayStart(isoSelecionado)) : "data escolhida";
+    const allowedSlots = getAvailableSlotsForDay(isoSelecionado);
+
+    if (hasSundayIntent || /\b(domingo)\b/.test(normalize(selectedDateLabel))) {
+      await upsertState(env, st.wa_id, {
+        ...visitaBasePatch,
+        visita_agendamento_status: "data",
+        visita_data_escolhida: null,
+        visita_slot_escolhido: null,
+        visita_confirmada: false
+      });
+      return step(env, st,
+        [
+          "Domingo não temos atendimento.",
+          "Vou te mostrar novamente as datas oficiais para escolher."
+        ],
+        "agendamento_visita"
+      );
+    }
+
+    const slotChoice = parseSlotChoice(allowedSlots);
+    if (slotChoice) {
+      const visitaDiaHora = `${selectedDateLabel} ${slotChoice}`;
+      await upsertState(env, st.wa_id, {
+        ...visitaBasePatch,
+        visita_convite_status: "aceito",
+        visita_agendamento_status: "confirmada",
+        visita_slot_escolhido: slotChoice,
+        visita_confirmada: true,
+        visita_confirmada_em: new Date().toISOString(),
+        visita_dia_hora: visitaDiaHora
+      });
+
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: "visita_confirmada",
+        severity: "success",
+        message: "Visita confirmada com slot oficial",
+        details: {
+          visita_data_escolhida: isoSelecionado,
+          visita_slot_escolhido: slotChoice
+        }
+      });
+
+      return step(env, st,
+        [
+          "Fechado! ✅ Visita confirmada.",
+          `📅 *${visitaDiaHora}*`,
+          `📍 Endereço do plantão: *${ENDERECO_PLANTAO}*`,
+          "No dia, é só avisar seu nome na recepção que já te chamam 😉"
+        ],
+        "visita_confirmada"
+      );
+    }
+
+    if (userRequestedHourText) {
+      await funnelTelemetry(env, {
+        wa_id: st.wa_id,
+        event: "exit_stage",
+        stage,
+        next_stage: "agendamento_visita",
+        severity: "info",
+        message: "Cliente pediu horário fora da grade; redirecionando para slot oficial"
+      });
+      return step(env, st,
+        [
+          "Para esse atendimento usamos somente horários oficiais.",
+          `Para *${selectedDateLabel}*, os horários disponíveis são: ${allowedSlots.join(", ")}.`,
+          "Escolha uma opção pelo número."
+        ],
+        "agendamento_visita"
+      );
+    }
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "agendamento_visita",
+      severity: "info",
+      message: "Escolha de horário inválida; reforçando grade fechada"
+    });
+
+    return step(env, st,
+      [
+        `Escolha um horário oficial para *${selectedDateLabel}*:`,
+        ...allowedSlots.map((slot, idx) => `${idx + 1}) ${slot}`)
+      ],
+      "agendamento_visita"
+    );
+  }
+
+  await upsertState(env, st.wa_id, {
+    ...visitaBasePatch,
+    visita_agendamento_status: "convite",
+    visita_convite_status: st.visita_convite_status || "pendente",
+    visita_confirmada: false
+  });
+
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
     stage,
     next_stage: "agendamento_visita",
-    severity: "info",
-    message: "Pergunta adicional — cliente não deixou claro o horário"
+    severity: "warning",
+    message: "Status de agendamento inesperado; resetando para convite"
   });
 
   return step(env, st,
     [
-      "Show! 👌",
-      "Queremos te atender da melhor forma.",
-      "Você prefere **manhã**, **tarde** ou um **horário específico**?"
+      "Vamos retomar seu agendamento por aqui.",
+      "1) Sim, quero agendar agora",
+      "2) Prefiro ver depois"
     ],
     "agendamento_visita"
   );
@@ -15537,6 +16178,100 @@ case "finalizacao_processo": {
         "Assim que um correspondente assumir, eu sigo automaticamente com a entrega privada e te aviso por aqui."
       ],
       "finalizacao_processo"
+    );
+  }
+
+  const ntFinalizacao = normalizeText(userText || "");
+  const REMOTE_CHANNEL_REFUSAL_PATTERN =
+    /\b(nao quero atendimento online|nao quero atendimento remoto|nao quero seguir online|nao quero continuar online|nao quero falar online|nao quero por whatsapp|nao quero no whatsapp|nao quero por site|nao quero no site|sem whatsapp|sem site|prefiro presencial|quero atendimento presencial|quero ir presencial)\b/;
+  const GENERAL_PROCESS_REJECTION_PATTERN =
+    /\b(nao tenho interesse|nao quero mais|nao vou continuar|desisti|desisto|cancelar processo|quero cancelar)\b/;
+  const sinalRecusaCanalRemoto = REMOTE_CHANNEL_REFUSAL_PATTERN.test(ntFinalizacao);
+  const rejeicaoProcessoGeral = GENERAL_PROCESS_REJECTION_PATTERN.test(ntFinalizacao);
+  const tentativasConducaoAtual = Number(st.visita_recusa_online_tentativas_count || 0);
+  const tentativasConducaoAposContato = tentativasConducaoAtual + (sinalRecusaCanalRemoto ? 1 : 0);
+  const contextoAtendimentoAtivo = stage === "finalizacao_processo";
+  const naoEncerrado = !["fim_ineligivel", "fim_inelegivel", "finalizacao", "aguardando_retorno_correspondente"].includes(String(st.fase_conversa || ""));
+  const naoInelegivel = String(st.funil_status || "").toLowerCase() !== "ineligivel";
+  const naoEnviadoCorrespondente = st.processo_enviado_correspondente !== true;
+  const naoConfirmouVisita = st.visita_confirmada !== true;
+  const semTravaDocumentalPrincipal =
+    st.visita_origem !== "trava_documental" &&
+    st.canal_docs_agendamento_pendente !== true;
+  const elegivelVisitaRecusaOnline =
+    contextoAtendimentoAtivo &&
+    naoEncerrado &&
+    naoInelegivel &&
+    naoEnviadoCorrespondente &&
+    naoConfirmouVisita &&
+    semTravaDocumentalPrincipal &&
+    !rejeicaoProcessoGeral &&
+    sinalRecusaCanalRemoto &&
+    tentativasConducaoAposContato >= 2;
+
+  if (sinalRecusaCanalRemoto && !elegivelVisitaRecusaOnline) {
+    const tentativaPatch = {
+      visita_recusa_online_tentativas_count: tentativasConducaoAposContato,
+      visita_recusa_online_ultimo_sinal_em: new Date().toISOString()
+    };
+    await upsertState(env, st.wa_id, tentativaPatch);
+    Object.assign(st, tentativaPatch);
+
+    return step(
+      env,
+      st,
+      rejeicaoProcessoGeral
+        ? [
+            "Entendi. Se preferir, pausamos por aqui sem problema.",
+            "Se quiser retomar depois, eu continuo do ponto certo para você."
+          ]
+        : [
+            "Entendi sua preferência.",
+            "Antes de migrarmos para o presencial, preciso fazer mais uma tentativa de condução remota por segurança do processo.",
+            "Se você mantiver a recusa ao canal online, eu já abro o agendamento da visita no plantão."
+          ],
+      "finalizacao_processo"
+    );
+  }
+
+  if (elegivelVisitaRecusaOnline) {
+    const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+    const visitaPatch = {
+      visita_origem: "recusa_online",
+      visita_convite_status: "pendente",
+      visita_agendamento_status: "convite",
+      visita_primeiro_slot_disponivel_em: new Date(Date.now() + ONE_DAY_MS).toISOString(),
+      visita_data_escolhida: null,
+      visita_slot_escolhido: null,
+      visita_confirmada: false,
+      visita_confirmada_em: null,
+      visita_dia_hora: null
+    };
+    await upsertState(env, st.wa_id, visitaPatch);
+    Object.assign(st, visitaPatch);
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "agendamento_visita",
+      severity: "info",
+      message: "Entrada de visita por recusa de atendimento online (elegibilidade canônica)",
+      details: {
+        visita_origem: "recusa_online",
+        tentativas_conducao: tentativasConducaoAposContato
+      }
+    });
+
+    return step(
+      env,
+      st,
+      [
+        "Perfeito, vamos seguir pelo presencial ✅",
+        "Como você recusou o canal remoto após as tentativas de condução, vou abrir o agendamento oficial da visita.",
+        "Já te mostro as opções fechadas de data e horário."
+      ],
+      "agendamento_visita"
     );
   }
 
@@ -15804,6 +16539,9 @@ case "aguardando_retorno_correspondente": {
   // ======================================================
   // 4 — APROVADO / APROVADO CONDICIONADO
   // ======================================================
+  // CAMINHO OFICIAL ATIVO (Worker atual):
+  // Aprovado do correspondente -> agendamento_visita.
+  // Qualquer evolução futura da fase visita deve respeitar este ponto de entrada.
   if (statusCanonico === "aprovado" || statusCanonico === "aprovado_condicionado") {
 
     await upsertState(env, st.wa_id, {
@@ -15827,7 +16565,7 @@ case "aguardando_retorno_correspondente": {
       [
         "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.",
         "Agora o próximo passo é **agendar sua visita no plantão** para fazermos as simulações e escolher o imóvel.",
-        "Qual horário você prefere para a visita? Manhã, tarde ou algum horário específico?"
+        "Vamos te conduzir com opções oficiais de data e horário para fechar esse agendamento."
       ],
       "agendamento_visita"
     );

@@ -6436,6 +6436,17 @@ function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, 
     mediaObject?.bytes ||
     0
   );
+  console.log("DEBUG-ENVIO-DOCS-VALIDATION:", JSON.stringify({
+    sourceType,
+    mimeType,
+    fileName,
+    raw_file_size: mediaObject?.file_size ?? null,
+    raw_size: mediaObject?.size ?? null,
+    raw_bytes: mediaObject?.bytes ?? null,
+    computed_fileSize: fileSize,
+    width: mediaObject?.width ?? null,
+    height: mediaObject?.height ?? null
+  }));
   const width = Number(mediaObject?.width || 0);
   const height = Number(mediaObject?.height || 0);
 
@@ -6589,6 +6600,30 @@ async function handleDocumentUpload(env, st, msg) {
       "";
     const itens = Array.isArray(st.envio_docs_itens_json) ? [...st.envio_docs_itens_json] : [];
     const target = selectEnvioDocsItemForUpload(st, hintText);
+
+    await telemetry(env, {
+      wa_id: st.wa_id,
+      event: "envio_docs_media_debug_pre_validation",
+      stage: st.fase_conversa || "envio_docs",
+      severity: "warning",
+      force: true,
+      message: "DEBUG pré-validação de mídia recebida no envio_docs",
+      details: {
+        source_type: normalizedMsg?.image ? "image" : normalizedMsg?.document ? "document" : normalizedMsg?.audio ? "audio" : normalizedMsg?.video ? "video" : null,
+        raw_type: normalizedMsg?.type || null,
+        mime_type: mediaObject?.mime_type || null,
+        filename: mediaObject?.filename || mediaObject?.file_name || null,
+        file_size: mediaObject?.file_size ?? null,
+        size: mediaObject?.size ?? null,
+        bytes: mediaObject?.bytes ?? null,
+        width: mediaObject?.width ?? null,
+        height: mediaObject?.height ?? null,
+        media_id: mediaObject?.id || null,
+        caption: normalizedMsg?.document?.caption || normalizedMsg?.image?.caption || normalizedMsg?.caption || null,
+        target_tipo: target?.tipo || null,
+        target_participante: target?.participante || null
+      }
+    });
 
     const validation = classifyEnvioDocsBasicValidation({
       mediaObject,

@@ -7048,6 +7048,10 @@ function normalizeEnvioDocsDetectedParticipant(participante) {
 }
 
 function scoreEnvioDocsParticipantInference({ documentClassification, documentAiSignals, st = {}, opts = {} } = {}) {
+  const MIN_CONFLICT_SCORE_THRESHOLD = 0.45;
+  const MAX_SCORE_DIFFERENCE_FOR_CONFLICT = 0.15;
+  const MIN_CONFIDENCE_THRESHOLD = 0.6;
+  const MAX_CONFIDENCE_FOR_UNKNOWN = 0.5;
   const participants = ["p1", "p2", "p3"];
   const score = { p1: 0, p2: 0, p3: 0 };
   const reasons = { p1: [], p2: [], p3: [] };
@@ -7188,17 +7192,17 @@ function scoreEnvioDocsParticipantInference({ documentClassification, documentAi
   const hasConflict =
     best &&
     second &&
-    best.score >= 0.45 &&
-    second.score >= 0.45 &&
-    Math.abs(best.score - second.score) <= 0.15;
-  const hasConfidence = best && best.score >= 0.6;
+    best.score >= MIN_CONFLICT_SCORE_THRESHOLD &&
+    second.score >= MIN_CONFLICT_SCORE_THRESHOLD &&
+    Math.abs(best.score - second.score) <= MAX_SCORE_DIFFERENCE_FOR_CONFLICT;
+  const hasConfidence = best && best.score >= MIN_CONFIDENCE_THRESHOLD;
   const detectedParticipant = hasConflict || !hasConfidence
     ? "desconhecido"
     : normalizeEnvioDocsDetectedParticipant(best.participant);
 
   return {
     detectedParticipant,
-    confidence: detectedParticipant === "desconhecido" ? Math.min(best?.score || 0, 0.5) : (best?.score || 0),
+    confidence: detectedParticipant === "desconhecido" ? Math.min(best?.score || 0, MAX_CONFIDENCE_FOR_UNKNOWN) : (best?.score || 0),
     matchBasis: detectedParticipant === "desconhecido"
       ? hasConflict
         ? "ambiguous_conflict"

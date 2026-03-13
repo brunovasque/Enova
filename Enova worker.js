@@ -7275,6 +7275,195 @@ function inferEnvioDocsParticipantFromSignals(documentClassification, documentAi
   }
 }
 
+function scoreEnvioDocsChecklistMatch({ item, detectedDocType, detectedDocCategory, detectedParticipant, participantConfidence }) {
+  const tipoItem = String(item?.tipo || "").trim().toLowerCase();
+  const participanteItem = String(item?.participante || "").trim().toLowerCase();
+  const docType = String(detectedDocType || "").trim().toLowerCase();
+  const docCategory = String(detectedDocCategory || "").trim().toLowerCase();
+  const participant = normalizeEnvioDocsDetectedParticipant(detectedParticipant);
+  const participantConf = Number(participantConfidence || 0);
+
+  const typeStrongMatch = envioDocsHintTipoMatchesItemTipo(docType, tipoItem);
+  const categoryMatch = docCategory && envioDocsCategoriaFromTipo(tipoItem) === docCategory;
+  const participantMatch = participant && participant !== "desconhecido"
+    ? participanteItem === participant
+    : null;
+  const participantStrong = participantMatch !== null && participantConf >= 0.75;
+
+  let score = 0;
+  if (typeStrongMatch) score += 0.8;
+  if (categoryMatch) score += 0.1;
+  if (participantStrong && participantMatch) score += 0.1;
+  if (participantStrong && !participantMatch) score -= 0.3;
+
+  return {
+    item,
+    typeStrongMatch,
+    categoryMatch,
+    participantMatch,
+    participantStrong,
+    score: Math.max(0, Math.min(1, score))
+  };
+}
+
+function normalizeEnvioDocsChecklistMatchResult(input = {}) {
+  const status = ["matched_safe", "ambiguous", "no_match"].includes(input.match_status)
+    ? input.match_status
+    : "no_match";
+  const confidence = Number(input.match_confidence || 0);
+  const matchedItems = Array.isArray(input.matched_items) ? input.matched_items : [];
+  return {
+    matched_items: matchedItems,
+    matched_item_ids: matchedItems.map((item) => `${item?.tipo || ""}:${item?.participante || ""}`),
+    match_confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+    match_status: status,
+    match_reason: String(input.match_reason || ""),
+    match_signals_json: input.match_signals_json && typeof input.match_signals_json === "object" ? input.match_signals_json : {},
+    checklist_match_version: "envio_docs_checklist_match_v1",
+    checklist_match_ok: input.checklist_match_ok === true,
+    checklist_match_error_code: input.checklist_match_error_code || null,
+    checklist_match_error_message: input.checklist_match_error_message || null
+  };
+}
+
+function buildEnvioDocsChecklistMatchResult(input = {}) {
+  return normalizeEnvioDocsChecklistMatchResult(input);
+}
+
+function matchEnvioDocsClassificationToChecklist(documentClassification, participantInference, st = {}, opts = {}) {
+  try {
+    const detectedDocType = String(documentClassification?.detected_doc_type || "").trim().toLowerCase();
+    const detectedDocCategory = String(documentClassification?.detected_doc_category || "").trim().toLowerCase();
+    const detectedParticipant = normalizeEnvioDocsDetectedParticipant(participantInference?.detected_participant);
+    const participantConfidence = Number(participantInference?.participant_confidence || 0);
+    const itens = Array.isArray(st?.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
+    const pendentes = itens.filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item));
+    const coveredTypes = getEnvioDocsCoveredChecklistTypes(detectedDocType);
+    const participantStrong = detectedParticipant && detectedParticipant !== "desconhecido" && participantConfidence >= 0.75;
+
+    if (!detectedDocType || detectedDocType === "nao_identificado") {
+      return buildEnvioDocsChecklistMatchResult({
+        matched_items: [],
+        match_confidence: 0,
+        match_status: "no_match",
+        match_reason: "document_type_not_identified",
+        match_signals_json: {
+          detected_doc_type: detectedDocType || null,
+          detected_doc_category: detectedDocCategory || null,
+          detected_participant: detectedParticipant || "desconhecido",
+          participant_confidence: participantConfidence,
+          covered_types: coveredTypes,
+          pending_items: pendentes.map((item) => ({ tipo: item?.tipo || null, participante: item?.participante || null }))
+        },
+        checklist_match_ok: true
+      });
+    }
+
+    const scored = pendentes.map((item) => scoreEnvioDocsChecklistMatch({
+      item,
+      detectedDocType,
+      detectedDocCategory,
+      detectedParticipant,
+      participantConfidence
+    }));
+
+    const strongTypeCandidates = scored.filter((entry) => entry.typeStrongMatch);
+    const participantScoped = participantStrong
+      ? strongTypeCandidates.filter((entry) => entry.participantMatch === true)
+      : strongTypeCandidates;
+    const candidates = participantScoped.filter((entry) => entry.score >= 0.75);
+
+    if (!candidates.length) {
+      return buildEnvioDocsChecklistMatchResult({
+        matched_items: [],
+        match_confidence: 0,
+        match_status: "no_match",
+        match_reason: participantStrong
+          ? "no_pending_item_for_doc_type_and_participant"
+          : "no_pending_item_for_doc_type",
+        match_signals_json: {
+          detected_doc_type: detectedDocType,
+          detected_doc_category: detectedDocCategory || null,
+          detected_participant: detectedParticipant || "desconhecido",
+          participant_confidence: participantConfidence,
+          participant_strong: participantStrong,
+          covered_types: coveredTypes,
+          candidates_scored: scored.map((entry) => ({
+            tipo: entry.item?.tipo || null,
+            participante: entry.item?.participante || null,
+            type_strong_match: entry.typeStrongMatch,
+            category_match: entry.categoryMatch,
+            participant_match: entry.participantMatch,
+            score: entry.score
+          }))
+        },
+        checklist_match_ok: true
+      });
+    }
+
+    if (candidates.length > 1) {
+      const topScore = Math.max(...candidates.map((entry) => Number(entry.score || 0)));
+      const matchedItems = candidates
+        .map((entry) => ({ tipo: entry.item?.tipo || null, participante: entry.item?.participante || null }));
+      return buildEnvioDocsChecklistMatchResult({
+        matched_items: matchedItems,
+        match_confidence: Math.min(0.69, topScore),
+        match_status: "ambiguous",
+        match_reason: participantStrong
+          ? "multiple_pending_items_for_doc_type_and_participant"
+          : "multiple_pending_items_for_doc_type",
+        match_signals_json: {
+          detected_doc_type: detectedDocType,
+          detected_doc_category: detectedDocCategory || null,
+          detected_participant: detectedParticipant || "desconhecido",
+          participant_confidence: participantConfidence,
+          participant_strong: participantStrong,
+          covered_types: coveredTypes
+        },
+        checklist_match_ok: true
+      });
+    }
+
+    const selected = candidates[0];
+    return buildEnvioDocsChecklistMatchResult({
+      matched_items: [{ tipo: selected.item?.tipo || null, participante: selected.item?.participante || null }],
+      match_confidence: Math.max(
+        0.75,
+        Math.min(
+          0.98,
+          Number(selected.score || 0) *
+            Math.max(0.6, Number(documentClassification?.classification_confidence || 0)) *
+            (participantStrong ? Math.max(0.75, participantConfidence) : 1)
+        )
+      ),
+      match_status: "matched_safe",
+      match_reason: participantStrong
+        ? "single_pending_item_strong_type_and_participant_match"
+        : "single_pending_item_strong_type_match",
+      match_signals_json: {
+        detected_doc_type: detectedDocType,
+        detected_doc_category: detectedDocCategory || null,
+        detected_participant: detectedParticipant || "desconhecido",
+        participant_confidence: participantConfidence,
+        participant_strong: participantStrong,
+        covered_types: coveredTypes
+      },
+      checklist_match_ok: true
+    });
+  } catch (err) {
+    return buildEnvioDocsChecklistMatchResult({
+      matched_items: [],
+      match_confidence: 0,
+      match_status: "no_match",
+      match_reason: "checklist_match_runtime_error",
+      match_signals_json: {},
+      checklist_match_ok: false,
+      checklist_match_error_code: "checklist_match_runtime_error",
+      checklist_match_error_message: err?.message || "Erro interno no match seguro de checklist."
+    });
+  }
+}
+
 function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   const extractedTextRaw = String(
     signals?.extracted_text_full ||
@@ -7990,6 +8179,11 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       caption: normalizedMsg?.document?.caption || normalizedMsg?.image?.caption || normalizedMsg?.caption || "",
       fileName: mediaObject?.filename || mediaObject?.file_name || ""
     });
+    const checklistMatch = matchEnvioDocsClassificationToChecklist(documentClassification, participantInference, st, {
+      documentAiSignals,
+      hintText,
+      fileName: mediaObject?.filename || mediaObject?.file_name || ""
+    });
 
     await telemetry(env, {
       wa_id: st.wa_id,
@@ -8032,7 +8226,13 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         participant_inference_detected: participantInference?.detected_participant || null,
         participant_inference_confidence: Number(participantInference?.participant_confidence || 0) || 0,
         participant_inference_ok: participantInference?.participant_inference_ok === true,
-        participant_inference_error_code: participantInference?.participant_inference_error_code || null
+        participant_inference_error_code: participantInference?.participant_inference_error_code || null,
+        checklist_match_status: checklistMatch?.match_status || null,
+        checklist_match_confidence: Number(checklistMatch?.match_confidence || 0) || 0,
+        checklist_match_reason: checklistMatch?.match_reason || null,
+        checklist_match_item_ids: Array.isArray(checklistMatch?.matched_item_ids) ? checklistMatch.matched_item_ids : [],
+        checklist_match_ok: checklistMatch?.checklist_match_ok === true,
+        checklist_match_error_code: checklistMatch?.checklist_match_error_code || null
       }
     });
 
@@ -8082,7 +8282,8 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
           matched_checklist_items: Array.isArray(selectionDebug.matched_checklist_items) ? selectionDebug.matched_checklist_items : [],
           validacao_basica: validation,
           document_classification: documentClassification,
-          participant_inference: participantInference
+          participant_inference: participantInference,
+          checklist_match: checklistMatch
         }
       ]
     };
@@ -8110,6 +8311,10 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         covers_checklist_types: Array.isArray(selectionDebug.covers_checklist_types) ? selectionDebug.covers_checklist_types : [],
         detected_participant: selectionDebug.detected_participant || null,
         inferred_participant_document: participantInference?.detected_participant || null,
+        checklist_match_status: checklistMatch?.match_status || null,
+        checklist_match_confidence: Number(checklistMatch?.match_confidence || 0) || 0,
+        checklist_match_reason: checklistMatch?.match_reason || null,
+        checklist_match_item_ids: Array.isArray(checklistMatch?.matched_item_ids) ? checklistMatch.matched_item_ids : [],
         matched_item_tipo: target?.tipo || null,
         matched_item_participante: target?.participante || null,
         matched_checklist_items: Array.isArray(selectionDebug.matched_checklist_items) ? selectionDebug.matched_checklist_items : [],
@@ -8134,6 +8339,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
           documentAiSignals,
           documentClassification,
           participantInference,
+          checklistMatch,
           expectedPendingItemsAfter
         }
       };
@@ -18346,5 +18552,9 @@ export {
   runMistralOCR,
   extractEnvioDocsSignals,
   classifyEnvioDocsDocument,
-  inferEnvioDocsParticipantFromSignals
+  inferEnvioDocsParticipantFromSignals,
+  scoreEnvioDocsChecklistMatch,
+  normalizeEnvioDocsChecklistMatchResult,
+  buildEnvioDocsChecklistMatchResult,
+  matchEnvioDocsClassificationToChecklist
 };

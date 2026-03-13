@@ -6670,6 +6670,387 @@ function inferEnvioDocsCategoriaBasica({ hintText = "", filename = "", mimeType 
   return "nao_documento";
 }
 
+function getEnvioDocsDocumentAIConfig(env) {
+  const envMode = String(env?.ENV_MODE || env?.ENOVA_ENV || "").toLowerCase();
+  const isProd = envMode === "prod";
+  const apiKey = isProd
+    ? (env?.MISTRAL_API_KEY || "")
+    : (env?.MISTRAL_API_KEY_TEST || env?.MISTRAL_API_KEY || "");
+  const model = String(env?.MISTRAL_DOC_MODEL || "mistral-ocr-latest");
+  const endpoint = String(env?.MISTRAL_OCR_ENDPOINT || "https://api.mistral.ai/v1/ocr");
+  return {
+    provider: "mistral",
+    envMode: isProd ? "prod" : "test",
+    apiKey,
+    model,
+    endpoint,
+    enabled: Boolean(apiKey)
+  };
+}
+
+function getEnvioDocsDocumentAIProvider(env) {
+  const config = getEnvioDocsDocumentAIConfig(env);
+  return {
+    ...config,
+    runOcr: (input, options = {}) => runMistralOCR(env, input, options)
+  };
+}
+
+function bufferToBase64Safe(arrayBuffer) {
+  if (!arrayBuffer) return "";
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(arrayBuffer).toString("base64");
+  }
+  const bytes = new Uint8Array(arrayBuffer);
+  const chars = Array.from(bytes, (b) => String.fromCharCode(b));
+  const binary = chars.join("");
+  if (typeof btoa === "function") return btoa(binary);
+  return "";
+}
+
+async function downloadEnvioDocsMediaAsBase64(env, mediaObject, options = {}) {
+  const fetchImpl = options?.fetchImpl || fetch;
+  const mimeType = String(mediaObject?.mime_type || mediaObject?.mimetype || "").toLowerCase();
+  const fileName = String(mediaObject?.filename || mediaObject?.file_name || "").trim() || null;
+  const sourceUrl = String(
+    mediaObject?.url ||
+    mediaObject?.link ||
+    mediaObject?.download_url ||
+    mediaObject?.media_url ||
+    ""
+  ).trim();
+
+  const inlineBase64 = String(
+    mediaObject?.base64 ||
+    mediaObject?.file_base64 ||
+    mediaObject?.data_base64 ||
+    ""
+  ).trim();
+
+  if (inlineBase64) {
+    return {
+      ok: true,
+      base64: inlineBase64,
+      source: "inline_base64",
+      mime_type: mimeType || null,
+      file_name: fileName
+    };
+  }
+
+  const dataUrl = String(mediaObject?.data_url || "").trim();
+  const dataUrlMatch = /^data:([^;]+);base64,(.+)$/i.exec(dataUrl);
+  if (dataUrlMatch) {
+    return {
+      ok: true,
+      base64: dataUrlMatch[2],
+      source: "data_url",
+      mime_type: mimeType || dataUrlMatch[1].toLowerCase(),
+      file_name: fileName
+    };
+  }
+
+  let resolvedUrl = sourceUrl;
+  if (!resolvedUrl && mediaObject?.id && env?.WHATS_TOKEN) {
+    try {
+      const metaApiVersion = String(env?.META_API_VERSION || "v20.0");
+      const metaResp = await fetchImpl(`https://graph.facebook.com/${metaApiVersion}/${mediaObject.id}`, {
+        headers: { Authorization: `Bearer ${env.WHATS_TOKEN}` }
+      });
+      if (metaResp.ok) {
+        const metaJson = await metaResp.json();
+        resolvedUrl = String(metaJson?.url || "").trim();
+      }
+    } catch {}
+  }
+
+  if (!resolvedUrl) {
+    return {
+      ok: false,
+      error_code: "missing_media_source",
+      error_message: "Sem URL/base64 para extração documental."
+    };
+  }
+
+  try {
+    const headers = {};
+    if (env?.WHATS_TOKEN) headers.Authorization = `Bearer ${env.WHATS_TOKEN}`;
+    const mediaResp = await fetchImpl(resolvedUrl, { headers });
+    if (!mediaResp?.ok) {
+      return {
+        ok: false,
+        error_code: `media_download_http_${mediaResp?.status || "unknown"}`,
+        error_message: "Falha ao baixar mídia para extração documental."
+      };
+    }
+    const arr = await mediaResp.arrayBuffer();
+    return {
+      ok: true,
+      base64: bufferToBase64Safe(arr),
+      source: "download_url",
+      mime_type: mimeType || String(mediaResp.headers.get("content-type") || "").toLowerCase() || null,
+      file_name: fileName
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error_code: "media_download_exception",
+      error_message: err?.message || "Erro ao baixar mídia para extração documental."
+    };
+  }
+}
+
+function extractMistralTextAndMetadata(payload) {
+  const pages = Array.isArray(payload?.pages) ? payload.pages : [];
+  const pieces = [];
+
+  const rootText = [
+    payload?.text,
+    payload?.output_text,
+    payload?.content,
+    payload?.document?.text
+  ].filter((v) => typeof v === "string" && v.trim().length > 0);
+  pieces.push(...rootText);
+
+  for (const p of pages) {
+    if (typeof p?.markdown === "string" && p.markdown.trim()) pieces.push(p.markdown);
+    else if (typeof p?.text === "string" && p.text.trim()) pieces.push(p.text);
+    else if (typeof p?.content === "string" && p.content.trim()) pieces.push(p.content);
+  }
+
+  const resultNodes = Array.isArray(payload?.results) ? payload.results : [];
+  for (const r of resultNodes) {
+    if (typeof r?.text === "string" && r.text.trim()) pieces.push(r.text);
+    else if (typeof r?.content === "string" && r.content.trim()) pieces.push(r.content);
+  }
+
+  const text = [...new Set(pieces.map((v) => String(v || "").trim()).filter(Boolean))].join("\n\n").trim();
+
+  const pageCount =
+    Number(payload?.page_count) ||
+    Number(payload?.pages_count) ||
+    (pages.length > 0 ? pages.length : null);
+
+  const confidenceCandidates = [
+    Number(payload?.confidence),
+    ...pages.map((p) => Number(p?.confidence)).filter((v) => Number.isFinite(v))
+  ].filter((v) => Number.isFinite(v) && v >= 0);
+  const confidenceBase = confidenceCandidates.length
+    ? confidenceCandidates.reduce((acc, n) => acc + n, 0) / confidenceCandidates.length
+    : null;
+
+  return { text, pageCount, confidenceBase };
+}
+
+async function runMistralOCR(env, input = {}, options = {}) {
+  const provider = getEnvioDocsDocumentAIProvider(env);
+  const fetchImpl = options?.fetchImpl || fetch;
+  if (!provider.enabled) {
+    return {
+      ok: false,
+      provider: provider.provider,
+      error_code: "missing_api_key",
+      error_message: "Mistral API key ausente para extração documental."
+    };
+  }
+
+  const sourceType = String(input?.sourceType || "").toLowerCase();
+  const isPdf = sourceType === "pdf";
+  const sourceUrl = String(input?.sourceUrl || "").trim();
+  const base64 = String(input?.base64 || "").trim();
+
+  if (!sourceUrl && !base64) {
+    return {
+      ok: false,
+      provider: provider.provider,
+      error_code: "missing_input",
+      error_message: "Entrada sem URL/base64 para OCR."
+    };
+  }
+
+  const document = sourceUrl
+    ? isPdf
+      ? { type: "document_url", document_url: sourceUrl }
+      : { type: "image_url", image_url: sourceUrl }
+    : isPdf
+      ? { type: "document_base64", document_base64: base64 }
+      : { type: "image_base64", image_base64: base64 };
+
+  let resp;
+  try {
+    resp = await fetchImpl(provider.endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${provider.apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: provider.model,
+        document
+      })
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      provider: provider.provider,
+      error_code: "network_error",
+      error_message: err?.message || "Erro de rede na chamada Mistral OCR."
+    };
+  }
+
+  let payload = null;
+  try {
+    payload = await resp.json();
+  } catch {
+    payload = null;
+  }
+
+  if (!resp?.ok) {
+    return {
+      ok: false,
+      provider: provider.provider,
+      status: resp?.status || null,
+      error_code: `remote_http_${resp?.status || "unknown"}`,
+      error_message:
+        payload?.error?.message ||
+        payload?.message ||
+        "Falha remota na extração documental."
+    };
+  }
+
+  const parsed = extractMistralTextAndMetadata(payload || {});
+  return {
+    ok: true,
+    provider: provider.provider,
+    model: provider.model,
+    text: parsed.text,
+    page_count: parsed.pageCount,
+    confidence_base: parsed.confidenceBase,
+    raw: payload
+  };
+}
+
+function inferEnvioDocsSignalsFromExtractedText(text, context = {}) {
+  const normalized = normalizeText(text || "");
+  if (!normalized) {
+    return {
+      doc_type_hints: [],
+      participant_hints: [],
+      has_cpf_pattern: false,
+      has_rnm_pattern: false,
+      keyword_density: 0
+    };
+  }
+
+  const docTypeHints = [];
+  const addHint = (cond, hint) => {
+    if (cond && !docTypeHints.includes(hint)) docTypeHints.push(hint);
+  };
+
+  addHint(/\b(cpf)\b/.test(normalized), "cpf");
+  addHint(/\b(rg|registro geral|identidade)\b/.test(normalized), "rg");
+  addHint(/\b(cnh|carteira nacional de habilitacao|carteira de motorista)\b/.test(normalized), "cnh");
+  addHint(/\b(holerite|contracheque)\b/.test(normalized), "holerite");
+  addHint(/\b(extrato|extratos bancarios)\b/.test(normalized), "extrato_bancario");
+  addHint(/\b(ctps|carteira de trabalho)\b/.test(normalized), "ctps");
+  addHint(/\b(comprovante de residencia|conta de luz|conta de agua|iptu)\b/.test(normalized), "comprovante_residencia");
+  addHint(/\b(declaracao de imposto de renda|declaracao ir)\b/.test(normalized), "declaracao_ir");
+  addHint(/\b(recibo ir|darf)\b/.test(normalized), "recibo_ir");
+  addHint(/\b(certidao de casamento)\b/.test(normalized), "certidao_casamento");
+  addHint(/\b(certidao de nascimento)\b/.test(normalized), "certidao_nascimento_dependente");
+
+  const participantHints = [];
+  if (/\b(titular|principal|cliente)\b/.test(normalized)) participantHints.push("p1");
+  if (/\b(parceiro|parceira|conjuge|c[oô]njuge|esposa|esposo)\b/.test(normalized)) participantHints.push("p2");
+  if (/\b(dependente|familiar|filho|filha|pai|mae|m[aã]e)\b/.test(normalized)) participantHints.push("p3");
+
+  const hasCpfPattern = /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/.test(normalized);
+  const hasRnmPattern = /\b(rnm|registro nacional migratorio)\b/.test(normalized);
+  const keywordDensity = docTypeHints.length + participantHints.length + (hasCpfPattern ? 1 : 0) + (hasRnmPattern ? 1 : 0);
+
+  return {
+    doc_type_hints: docTypeHints,
+    participant_hints: participantHints,
+    has_cpf_pattern: hasCpfPattern,
+    has_rnm_pattern: hasRnmPattern,
+    keyword_density: keywordDensity,
+    context: {
+      file_name: context?.fileName || null,
+      mime_type: context?.mimeType || null
+    }
+  };
+}
+
+async function extractEnvioDocsSignals(env, mediaObject, opts = {}) {
+  const MAX_TEXT_PREVIEW_LENGTH = 1200;
+  const sourceTypeRaw = String(
+    opts?.sourceType ||
+    mediaObject?.source_type ||
+    mediaObject?.type ||
+    ""
+  ).toLowerCase();
+  const mimeType = String(mediaObject?.mime_type || mediaObject?.mimetype || "").toLowerCase();
+  const fileName = String(mediaObject?.filename || mediaObject?.file_name || "").trim() || null;
+
+  const sourceType =
+    sourceTypeRaw === "image"
+      ? "image"
+      : sourceTypeRaw === "document" || mimeType === "application/pdf" || /\.pdf$/i.test(fileName || "")
+        ? "pdf"
+        : sourceTypeRaw;
+
+  const result = {
+    source_type: sourceType || null,
+    mime_type: mimeType || null,
+    file_name: fileName,
+    extraction_source: "mistral",
+    extracted_text_preview: null,
+    extracted_text_full: null,
+    page_count: null,
+    signals_json: {},
+    confidence_base: null,
+    extraction_ok: false,
+    extraction_error_code: null,
+    extraction_error_message: null
+  };
+
+  if (sourceType !== "pdf" && sourceType !== "image") {
+    result.extraction_error_code = "unsupported_source_type";
+    result.extraction_error_message = "Extração documental só suporta PDF/imagem nesta fase.";
+    return result;
+  }
+
+  const mediaPayload = await downloadEnvioDocsMediaAsBase64(env, mediaObject, opts);
+  if (!mediaPayload?.ok) {
+    result.extraction_error_code = mediaPayload?.error_code || "media_resolution_failed";
+    result.extraction_error_message = mediaPayload?.error_message || "Falha ao resolver mídia para extração.";
+    return result;
+  }
+
+  const ocr = await runMistralOCR(env, {
+    sourceType,
+    base64: mediaPayload.base64,
+    sourceUrl: null
+  }, opts);
+
+  if (!ocr?.ok) {
+    result.extraction_error_code = ocr?.error_code || "ocr_failed";
+    result.extraction_error_message = ocr?.error_message || "Falha na extração OCR.";
+    return result;
+  }
+
+  const textFull = String(ocr.text || "").trim();
+  result.extraction_ok = true;
+  result.page_count = ocr.page_count ?? null;
+  result.confidence_base = ocr.confidence_base ?? null;
+  result.extracted_text_full = textFull || null;
+  result.extracted_text_preview = textFull ? textFull.slice(0, MAX_TEXT_PREVIEW_LENGTH) : null;
+  result.signals_json = inferEnvioDocsSignalsFromExtractedText(textFull, {
+    fileName,
+    mimeType: result.mime_type
+  });
+  return result;
+}
+
 function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, hintText }) {
   const MIN_IMAGE_SIZE_BYTES = 15 * 1024;
   const MIN_IMAGE_DIMENSION = 320;
@@ -7167,6 +7548,21 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
     const target = selection?.item || null;
     const matchedItems = Array.isArray(selection?.items) ? selection.items : (target ? [target] : []);
     const selectionDebug = selection?.debug || {};
+    const aiSourceType = normalizedMsg?.image
+      ? "image"
+      : (
+          String(mediaObject?.mime_type || "").toLowerCase() === "application/pdf" ||
+          /\.pdf$/i.test(String(mediaObject?.filename || mediaObject?.file_name || ""))
+        )
+        ? "pdf"
+        : "document";
+    const documentAiSignals =
+      mediaObject && (normalizedMsg?.image || normalizedMsg?.document)
+        ? await extractEnvioDocsSignals(env, mediaObject, {
+            sourceType: aiSourceType,
+            fetchImpl: options?.fetchImpl
+          })
+        : null;
 
     await telemetry(env, {
       wa_id: st.wa_id,
@@ -7197,7 +7593,10 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         matched_item_tipo: selectionDebug.matched_item_tipo || null,
         matched_item_participante: selectionDebug.matched_item_participante || null,
         matched_checklist_items: Array.isArray(selectionDebug.matched_checklist_items) ? selectionDebug.matched_checklist_items : [],
-        expected_pending_items_before: Array.isArray(selectionDebug.expected_pending_items_before) ? selectionDebug.expected_pending_items_before : []
+        expected_pending_items_before: Array.isArray(selectionDebug.expected_pending_items_before) ? selectionDebug.expected_pending_items_before : [],
+        document_ai_extraction_ok: documentAiSignals?.extraction_ok === true,
+        document_ai_error_code: documentAiSignals?.extraction_error_code || null,
+        document_ai_signal_density: Number(documentAiSignals?.signals_json?.keyword_density || 0) || 0
       }
     });
 
@@ -7293,6 +7692,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
           validation,
           progress,
           selectionDebug,
+          documentAiSignals,
           expectedPendingItemsAfter
         }
       };
@@ -17499,3 +17899,9 @@ default:
 // 🧱 FIM DA FUNÇÃO runFunnel
 // =========================================================
 } // fecha async function runFunnel
+
+export {
+  getEnvioDocsDocumentAIConfig,
+  runMistralOCR,
+  extractEnvioDocsSignals
+};

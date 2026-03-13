@@ -7904,6 +7904,119 @@ function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
   });
 }
 
+function resolveEnvioDocsTargetFromDocumentEngine(itens = [], checklistMatch = {}, documentClassification = {}) {
+  const pendingItems = Array.isArray(itens)
+    ? itens.filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item))
+    : [];
+  const matchStatus = String(checklistMatch?.match_status || "").trim().toLowerCase();
+  const detectedDocType = String(documentClassification?.detected_doc_type || "").trim().toLowerCase();
+  const matchedItemsRaw = Array.isArray(checklistMatch?.matched_items) ? checklistMatch.matched_items : [];
+
+  if (matchStatus !== "matched_safe") {
+    return {
+      item: null,
+      items: [],
+      match_status: matchStatus || "no_match",
+      source: "none"
+    };
+  }
+  if (!matchedItemsRaw.length || detectedDocType === "nao_identificado") {
+    return {
+      item: null,
+      items: [],
+      match_status: matchStatus,
+      source: "none"
+    };
+  }
+
+  const matchedPendingItems = [];
+  const seen = new Set();
+  for (const matched of matchedItemsRaw) {
+    const key = getEnvioDocsChecklistItemKey(matched);
+    if (!isEnvioDocsChecklistItemKeyValid(key) || seen.has(key)) continue;
+    seen.add(key);
+    const pending = pendingItems.find((item) =>
+      item?.tipo === matched?.tipo &&
+      item?.participante === matched?.participante
+    );
+    if (pending) matchedPendingItems.push(pending);
+  }
+
+  return {
+    item: matchedPendingItems[0] || null,
+    items: matchedPendingItems,
+    match_status: matchStatus,
+    source: matchedPendingItems.length ? "document_engine" : "none"
+  };
+}
+
+function chooseEnvioDocsFinalTarget(input = {}) {
+  const itens = Array.isArray(input?.itens) ? input.itens : [];
+  const checklistMatch = input?.checklistMatch || {};
+  const documentClassification = input?.documentClassification || {};
+  const legacySelection = input?.legacySelection || {};
+  const engineResolution = input?.engineResolution || resolveEnvioDocsTargetFromDocumentEngine(itens, checklistMatch, documentClassification);
+  const matchStatus = String(checklistMatch?.match_status || "").trim().toLowerCase();
+  const fallbackAllowed = matchStatus !== "matched_safe" || !engineResolution.item;
+  const fallbackItem = fallbackAllowed ? (legacySelection?.item || null) : null;
+  const fallbackItems = fallbackAllowed && Array.isArray(legacySelection?.items) ? legacySelection.items : [];
+
+  if (engineResolution.item) {
+    return {
+      target: engineResolution.item,
+      matchedItems: engineResolution.items,
+      fallbackUsed: false,
+      finalTargetSource: "document_engine",
+      engineResolution
+    };
+  }
+
+  if (fallbackItem) {
+    return {
+      target: fallbackItem,
+      matchedItems: fallbackItems.length ? fallbackItems : [fallbackItem],
+      fallbackUsed: true,
+      finalTargetSource: "legacy_fallback",
+      engineResolution
+    };
+  }
+
+  return {
+    target: null,
+    matchedItems: [],
+    fallbackUsed: false,
+    finalTargetSource: "none",
+    engineResolution
+  };
+}
+
+function getEnvioDocsChecklistItemKey(item = {}) {
+  return `${item?.tipo || ""}:${item?.participante || ""}`;
+}
+
+function isEnvioDocsChecklistItemKeyValid(key) {
+  return !!key && key !== ":";
+}
+
+function normalizeEnvioDocsMatchedItems(items = []) {
+  const out = [];
+  const seen = new Set();
+  for (const item of Array.isArray(items) ? items : []) {
+    const key = getEnvioDocsChecklistItemKey(item);
+    if (!isEnvioDocsChecklistItemKeyValid(key) || seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
+function mapEnvioDocsItemRefs(items = []) {
+  return (Array.isArray(items) ? items : []).map((item) => ({
+    tipo: item?.tipo || null,
+    participante: item?.participante || null
+  }));
+}
+
 function isEnvioDocsTextualUploadSignal(texto) {
   const t = normalizeText(texto || "");
   if (!t) return false;
@@ -8145,14 +8258,6 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       normalizedMsg?.caption ||
       "";
     const itens = Array.isArray(st.envio_docs_itens_json) ? [...st.envio_docs_itens_json] : [];
-    const selection = selectEnvioDocsItemForUpload(st, {
-      hintText,
-      fileName: mediaObject?.filename || mediaObject?.file_name || "",
-      mimeType: mediaObject?.mime_type || ""
-    });
-    const target = selection?.item || null;
-    const matchedItems = Array.isArray(selection?.items) ? selection.items : (target ? [target] : []);
-    const selectionDebug = selection?.debug || {};
     const aiSourceType = normalizedMsg?.image
       ? "image"
       : (
@@ -8184,6 +8289,33 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       hintText,
       fileName: mediaObject?.filename || mediaObject?.file_name || ""
     });
+    const engineResolution = resolveEnvioDocsTargetFromDocumentEngine(itens, checklistMatch, documentClassification);
+    const fallbackAllowed = checklistMatch?.match_status !== "matched_safe" || !engineResolution.item;
+    const selection = fallbackAllowed
+      ? selectEnvioDocsItemForUpload(st, {
+          hintText,
+          fileName: mediaObject?.filename || mediaObject?.file_name || "",
+          mimeType: mediaObject?.mime_type || ""
+        })
+      : { item: null, items: [], debug: {} };
+    const selectionDebug = selection?.debug || {};
+    const finalTargetDecision = chooseEnvioDocsFinalTarget({
+      itens,
+      checklistMatch,
+      documentClassification,
+      engineResolution,
+      legacySelection: selection
+    });
+    const target = finalTargetDecision.target || null;
+    const matchedItemsRaw = Array.isArray(finalTargetDecision.matchedItems)
+      ? finalTargetDecision.matchedItems
+      : (target ? [target] : []);
+    const matchedItems = normalizeEnvioDocsMatchedItems(matchedItemsRaw);
+    const finalTargetSource = finalTargetDecision.finalTargetSource || "none";
+    const fallbackUsed = finalTargetDecision.fallbackUsed === true;
+    const recognitionSource = finalTargetSource === "document_engine"
+      ? "document_engine"
+      : (fallbackUsed ? "legacy_fallback" : "none");
 
     await telemetry(env, {
       wa_id: st.wa_id,
@@ -8232,7 +8364,10 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         checklist_match_reason: checklistMatch?.match_reason || null,
         checklist_match_item_ids: Array.isArray(checklistMatch?.matched_item_ids) ? checklistMatch.matched_item_ids : [],
         checklist_match_ok: checklistMatch?.checklist_match_ok === true,
-        checklist_match_error_code: checklistMatch?.checklist_match_error_code || null
+        checklist_match_error_code: checklistMatch?.checklist_match_error_code || null,
+        fallback_used: fallbackUsed,
+        final_target_source: finalTargetSource,
+        recognition_source: recognitionSource
       }
     });
 
@@ -8275,11 +8410,15 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
           origem: "upload",
           canal_origem: st.canal_docs_escolhido || "whatsapp",
           associado: target ? { tipo: target.tipo, participante: target.participante } : null,
-          detected_doc_type: selectionDebug.detected_doc_type || null,
+          recognition_source: recognitionSource,
+          final_target_source: finalTargetSource,
+          fallback_used: fallbackUsed,
+          detected_doc_type: documentClassification?.detected_doc_type || selectionDebug.detected_doc_type || null,
           covers_checklist_types: Array.isArray(selectionDebug.covers_checklist_types) ? selectionDebug.covers_checklist_types : [],
-          detected_participant: selectionDebug.detected_participant || null,
+          detected_participant: participantInference?.detected_participant || selectionDebug.detected_participant || null,
+          checklist_match_status: checklistMatch?.match_status || null,
           matched_checklist_item: target ? { tipo: target.tipo, participante: target.participante } : null,
-          matched_checklist_items: Array.isArray(selectionDebug.matched_checklist_items) ? selectionDebug.matched_checklist_items : [],
+          matched_checklist_items: mapEnvioDocsItemRefs(matchedItems),
           validacao_basica: validation,
           document_classification: documentClassification,
           participant_inference: participantInference,
@@ -8317,9 +8456,12 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         checklist_match_item_ids: Array.isArray(checklistMatch?.matched_item_ids) ? checklistMatch.matched_item_ids : [],
         matched_item_tipo: target?.tipo || null,
         matched_item_participante: target?.participante || null,
-        matched_checklist_items: Array.isArray(selectionDebug.matched_checklist_items) ? selectionDebug.matched_checklist_items : [],
+        matched_checklist_items: mapEnvioDocsItemRefs(matchedItems),
         expected_pending_items_before: Array.isArray(selectionDebug.expected_pending_items_before) ? selectionDebug.expected_pending_items_before : [],
-        expected_pending_items_after: expectedPendingItemsAfter
+        expected_pending_items_after: expectedPendingItemsAfter,
+        fallback_used: fallbackUsed,
+        final_target_source: finalTargetSource,
+        recognition_source: recognitionSource
       }
     });
 
@@ -8329,10 +8471,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         silent: true,
         keepStage: "envio_docs",
         itemResult: {
-          matchedItems: matchedItems.map((matched) => ({
-            tipo: matched?.tipo || null,
-            participante: matched?.participante || null
-          })),
+          matchedItems: mapEnvioDocsItemRefs(matchedItems),
           validation,
           progress,
           selectionDebug,
@@ -18556,5 +18695,7 @@ export {
   scoreEnvioDocsChecklistMatch,
   normalizeEnvioDocsChecklistMatchResult,
   buildEnvioDocsChecklistMatchResult,
-  matchEnvioDocsClassificationToChecklist
+  matchEnvioDocsClassificationToChecklist,
+  resolveEnvioDocsTargetFromDocumentEngine,
+  chooseEnvioDocsFinalTarget
 };

@@ -7041,6 +7041,240 @@ function buildEnvioDocsDocumentClassificationResult(input = {}) {
   };
 }
 
+function normalizeEnvioDocsDetectedParticipant(participante) {
+  const p = String(participante || "").trim().toLowerCase();
+  if (p === "p1" || p === "p2" || p === "p3") return p;
+  return "desconhecido";
+}
+
+function scoreEnvioDocsParticipantInference({ documentClassification, documentAiSignals, st = {}, opts = {} } = {}) {
+  const MIN_CONFLICT_SCORE_THRESHOLD = 0.45;
+  const MAX_SCORE_DIFFERENCE_FOR_CONFLICT = 0.15;
+  const MIN_CONFIDENCE_THRESHOLD = 0.6;
+  const MAX_CONFIDENCE_FOR_UNKNOWN = 0.5;
+  const participants = ["p1", "p2", "p3"];
+  const score = { p1: 0, p2: 0, p3: 0 };
+  const reasons = { p1: [], p2: [], p3: [] };
+  const basis = { p1: [], p2: [], p3: [] };
+
+  const addEvidence = (participant, value, reason, basisCode) => {
+    const p = normalizeEnvioDocsDetectedParticipant(participant);
+    if (p === "desconhecido") return;
+    score[p] += Number(value) || 0;
+    if (reason) reasons[p].push(reason);
+    if (basisCode) basis[p].push(basisCode);
+  };
+
+  const text = normalizeText(
+    documentAiSignals?.extracted_text_full ||
+    documentAiSignals?.extracted_text_preview ||
+    ""
+  );
+  const signalsJson = documentAiSignals?.signals_json && typeof documentAiSignals.signals_json === "object"
+    ? documentAiSignals.signals_json
+    : {};
+  const supportText = normalizeText(`${opts?.hintText || ""} ${opts?.caption || ""} ${opts?.fileName || ""}`);
+  const inferredFromSupport = inferEnvioDocsParticipanteFromText(supportText);
+  if (inferredFromSupport) {
+    addEvidence(inferredFromSupport, 0.55, "Pista explícita de participante no contexto do envio.", "context_participant_hint");
+  }
+
+  const signalParticipantHints = Array.isArray(signalsJson?.participant_hints)
+    ? signalsJson.participant_hints
+    : [];
+  for (const hint of signalParticipantHints) {
+    addEvidence(hint, 0.45, "Sinal estruturado de participante detectado no documento.", "ocr_participant_hint");
+  }
+
+  const normalizePersonName = (raw) => normalizeText(raw || "").replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+  const toTokenSet = (raw) => new Set(normalizePersonName(raw).split(" ").filter((t) => t.length >= 3));
+  const hasStrongNameMatch = (docName, candidateName) => {
+    const docTokens = toTokenSet(docName);
+    const candidateTokens = toTokenSet(candidateName);
+    if (!docTokens.size || !candidateTokens.size) return false;
+    let overlap = 0;
+    for (const token of docTokens) {
+      if (candidateTokens.has(token)) overlap += 1;
+    }
+    return overlap >= 2 || (docTokens.size === 1 && overlap === 1);
+  };
+
+  const stateParticipantNames = {
+    p1: [st?.nome, st?.nome_normalizado],
+    p2: [st?.nome_parceiro, st?.nome_parceiro_normalizado, st?.nome_parceiro_familiar],
+    p3: [st?.nome_familiar, st?.nome_p3, st?.nome_parceiro_familiar_p3]
+  };
+  const signalNames = []
+    .concat(Array.isArray(signalsJson?.names) ? signalsJson.names : [])
+    .concat(Array.isArray(signalsJson?.extracted_names) ? signalsJson.extracted_names : []);
+
+  const namesFromText = [];
+  const nomeCampoRegex = /\b(nome|titular|cliente|beneficiario)\s*[:\-]\s*([a-zà-ÿ][a-zà-ÿ\s]{4,80})/gi;
+  let nomeMatch;
+  while ((nomeMatch = nomeCampoRegex.exec(text)) !== null) {
+    namesFromText.push(nomeMatch[2]);
+  }
+  const candidateNames = [...new Set([...signalNames, ...namesFromText].map((n) => String(n || "").trim()).filter(Boolean))];
+
+  for (const candidateName of candidateNames) {
+    for (const participant of participants) {
+      const names = stateParticipantNames[participant].filter(Boolean);
+      if (!names.length) continue;
+      if (names.some((stateName) => hasStrongNameMatch(candidateName, stateName))) {
+        addEvidence(participant, 0.9, `Nome documental compatível com ${participant}.`, "name_match_strong");
+      }
+    }
+  }
+
+  const normalizeDigits = (v) => String(v || "").replace(/\D+/g, "");
+  const cpfRegex = /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/g;
+  const extractedCpfs = new Set();
+  let cpfMatch;
+  while ((cpfMatch = cpfRegex.exec(text)) !== null) {
+    const digits = normalizeDigits(cpfMatch[0]);
+    if (digits.length === 11) extractedCpfs.add(digits);
+  }
+  const signalCpfs = Array.isArray(signalsJson?.cpfs) ? signalsJson.cpfs : [];
+  for (const cpf of signalCpfs) {
+    const digits = normalizeDigits(cpf);
+    if (digits.length === 11) extractedCpfs.add(digits);
+  }
+
+  const stateIds = {
+    p1: [st?.cpf, st?.cpf_titular, st?.cpf_p1, st?.documento_cpf_p1],
+    p2: [st?.cpf_parceiro, st?.cpf_p2, st?.documento_cpf_p2],
+    p3: [st?.cpf_p3, st?.cpf_familiar, st?.documento_cpf_p3]
+  };
+  for (const participant of participants) {
+    const cpfs = new Set(stateIds[participant].map(normalizeDigits).filter((v) => v.length === 11));
+    for (const cpf of extractedCpfs) {
+      if (cpfs.has(cpf)) {
+        addEvidence(participant, 1.0, `CPF documental compatível com ${participant}.`, "cpf_match_strong");
+      }
+    }
+  }
+
+  const detectedDocType = normalizeEnvioDocsDetectedDocType(documentClassification?.detected_doc_type);
+  const coveredTypes = getEnvioDocsCoveredChecklistTypes(detectedDocType);
+  const pendingItems = Array.isArray(st?.envio_docs_itens_json)
+    ? st.envio_docs_itens_json.filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item))
+    : [];
+  if (coveredTypes.length && pendingItems.length) {
+    const compatibleByParticipant = {
+      p1: 0,
+      p2: 0,
+      p3: 0
+    };
+    for (const item of pendingItems) {
+      if (!participants.includes(item?.participante)) continue;
+      if (coveredTypes.some((tipo) => envioDocsHintTipoMatchesItemTipo(tipo, item?.tipo))) {
+        compatibleByParticipant[item.participante] += 1;
+      }
+    }
+    for (const participant of participants) {
+      if (compatibleByParticipant[participant] > 0) {
+        addEvidence(participant, 0.25, "Checklist pendente compatível com o tipo documental detectado.", "checklist_support");
+      }
+    }
+  }
+
+  const top = participants
+    .map((participant) => ({
+      participant,
+      score: Math.max(0, Math.min(1, Number(score[participant] || 0))),
+      reasons: reasons[participant],
+      basis: [...new Set(basis[participant])]
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  const best = top[0];
+  const second = top[1];
+  const hasConflict =
+    best &&
+    second &&
+    best.score >= MIN_CONFLICT_SCORE_THRESHOLD &&
+    second.score >= MIN_CONFLICT_SCORE_THRESHOLD &&
+    Math.abs(best.score - second.score) <= MAX_SCORE_DIFFERENCE_FOR_CONFLICT;
+  const hasConfidence = best && best.score >= MIN_CONFIDENCE_THRESHOLD;
+  const detectedParticipant = hasConflict || !hasConfidence
+    ? "desconhecido"
+    : normalizeEnvioDocsDetectedParticipant(best.participant);
+
+  return {
+    detectedParticipant,
+    confidence: detectedParticipant === "desconhecido" ? Math.min(best?.score || 0, MAX_CONFIDENCE_FOR_UNKNOWN) : (best?.score || 0),
+    matchBasis: detectedParticipant === "desconhecido"
+      ? hasConflict
+        ? "ambiguous_conflict"
+        : "insufficient_evidence"
+      : (best?.basis?.[0] || "heuristic_combined"),
+    reason: detectedParticipant === "desconhecido"
+      ? hasConflict
+        ? "Conflito relevante de evidências entre participantes; inferência conservadora aplicada."
+        : "Sinais insuficientes para inferência segura de participante."
+      : (best?.reasons?.[0] || "Inferência por combinação conservadora de sinais documentais."),
+    signalsJson: {
+      scoring: top.map((item) => ({
+        participante: item.participant,
+        score: item.score,
+        basis: item.basis
+      })),
+      extracted_names: candidateNames,
+      extracted_cpfs: [...extractedCpfs],
+      covered_checklist_types: coveredTypes
+    },
+    ok: detectedParticipant !== "desconhecido",
+    errorCode: detectedParticipant === "desconhecido"
+      ? hasConflict
+        ? "participant_ambiguous_conflict"
+        : "participant_insufficient_evidence"
+      : null,
+    errorMessage: detectedParticipant === "desconhecido"
+      ? hasConflict
+        ? "Há ambiguidade relevante entre participantes possíveis."
+        : "Sem prova suficiente para inferir participante com segurança."
+      : null
+  };
+}
+
+function buildEnvioDocsParticipantInferenceResult(input = {}) {
+  const confidence = Number(input.confidence || 0);
+  return {
+    detected_participant: normalizeEnvioDocsDetectedParticipant(input.detectedParticipant),
+    participant_confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+    participant_match_basis: String(input.matchBasis || "insufficient_evidence"),
+    participant_reason: String(input.reason || "Sinais insuficientes para inferência segura de participante."),
+    participant_signals_json: input.signalsJson && typeof input.signalsJson === "object" ? input.signalsJson : {},
+    participant_inference_version: "envio_docs_participant_inference_v1",
+    participant_inference_ok: input.ok === true,
+    participant_inference_error_code: input.errorCode || null,
+    participant_inference_error_message: input.errorMessage || null
+  };
+}
+
+function inferEnvioDocsParticipantFromSignals(documentClassification, documentAiSignals, st = {}, opts = {}) {
+  try {
+    const scored = scoreEnvioDocsParticipantInference({
+      documentClassification,
+      documentAiSignals,
+      st,
+      opts
+    });
+    return buildEnvioDocsParticipantInferenceResult(scored);
+  } catch (err) {
+    return buildEnvioDocsParticipantInferenceResult({
+      detectedParticipant: "desconhecido",
+      confidence: 0,
+      matchBasis: "inference_runtime_error",
+      reason: "Falha interna ao inferir participante de documento.",
+      signalsJson: {},
+      ok: false,
+      errorCode: "participant_inference_runtime_error",
+      errorMessage: err?.message || "Erro interno na inferência de participante."
+    });
+  }
+}
+
 function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   const extractedTextRaw = String(
     signals?.extracted_text_full ||
@@ -7751,6 +7985,11 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       fileName: mediaObject?.filename || mediaObject?.file_name || "",
       mimeType: mediaObject?.mime_type || ""
     });
+    const participantInference = inferEnvioDocsParticipantFromSignals(documentClassification, documentAiSignals, st, {
+      hintText,
+      caption: normalizedMsg?.document?.caption || normalizedMsg?.image?.caption || normalizedMsg?.caption || "",
+      fileName: mediaObject?.filename || mediaObject?.file_name || ""
+    });
 
     await telemetry(env, {
       wa_id: st.wa_id,
@@ -7789,7 +8028,11 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         document_classification_category: documentClassification?.detected_doc_category || null,
         document_classification_confidence: Number(documentClassification?.classification_confidence || 0) || 0,
         document_classification_ok: documentClassification?.classification_ok === true,
-        document_classification_error_code: documentClassification?.classification_error_code || null
+        document_classification_error_code: documentClassification?.classification_error_code || null,
+        participant_inference_detected: participantInference?.detected_participant || null,
+        participant_inference_confidence: Number(participantInference?.participant_confidence || 0) || 0,
+        participant_inference_ok: participantInference?.participant_inference_ok === true,
+        participant_inference_error_code: participantInference?.participant_inference_error_code || null
       }
     });
 
@@ -7838,7 +8081,8 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
           matched_checklist_item: target ? { tipo: target.tipo, participante: target.participante } : null,
           matched_checklist_items: Array.isArray(selectionDebug.matched_checklist_items) ? selectionDebug.matched_checklist_items : [],
           validacao_basica: validation,
-          document_classification: documentClassification
+          document_classification: documentClassification,
+          participant_inference: participantInference
         }
       ]
     };
@@ -7865,6 +8109,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         detected_doc_type: selectionDebug.detected_doc_type || null,
         covers_checklist_types: Array.isArray(selectionDebug.covers_checklist_types) ? selectionDebug.covers_checklist_types : [],
         detected_participant: selectionDebug.detected_participant || null,
+        inferred_participant_document: participantInference?.detected_participant || null,
         matched_item_tipo: target?.tipo || null,
         matched_item_participante: target?.participante || null,
         matched_checklist_items: Array.isArray(selectionDebug.matched_checklist_items) ? selectionDebug.matched_checklist_items : [],
@@ -7888,6 +8133,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
           selectionDebug,
           documentAiSignals,
           documentClassification,
+          participantInference,
           expectedPendingItemsAfter
         }
       };
@@ -18099,5 +18345,6 @@ export {
   getEnvioDocsDocumentAIConfig,
   runMistralOCR,
   extractEnvioDocsSignals,
-  classifyEnvioDocsDocument
+  classifyEnvioDocsDocument,
+  inferEnvioDocsParticipantFromSignals
 };

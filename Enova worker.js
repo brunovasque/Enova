@@ -6980,6 +6980,188 @@ function inferEnvioDocsSignalsFromExtractedText(text, context = {}) {
   };
 }
 
+function normalizeEnvioDocsDetectedDocType(tipo) {
+  const t = String(tipo || "").trim().toLowerCase();
+  if (!t) return "nao_identificado";
+  if (t === "ctps") return "ctps_completa";
+  if (["rg", "cpf", "cnh", "ctps_completa", "comprovante_residencia", "holerite", "extrato_bancario", "declaracao_ir", "recibo_ir"].includes(t)) {
+    return t;
+  }
+  return "nao_identificado";
+}
+
+function scoreEnvioDocsDocumentClassification({ textScores = {}, signalScores = {}, supportScores = {} } = {}) {
+  const candidates = ["rg", "cpf", "cnh", "ctps_completa", "comprovante_residencia", "holerite", "extrato_bancario", "declaracao_ir", "recibo_ir"];
+  const totals = {};
+  for (const tipo of candidates) {
+    const textWeight = 0.65;
+    const signalWeight = 0.25;
+    const supportWeight = 0.10;
+    const textScore = Number(textScores?.[tipo] || 0);
+    const signalScore = Number(signalScores?.[tipo] || 0);
+    const supportScore = Number(supportScores?.[tipo] || 0);
+    totals[tipo] = (textScore * textWeight) + (signalScore * signalWeight) + (supportScore * supportWeight);
+  }
+  const ordered = Object.entries(totals).sort((a, b) => b[1] - a[1]);
+  const best = ordered[0] || ["nao_identificado", 0];
+  const second = ordered[1] || ["nao_identificado", 0];
+  const topType = normalizeEnvioDocsDetectedDocType(best[0]);
+  const topScore = Number(best[1] || 0);
+  const secondType = normalizeEnvioDocsDetectedDocType(second[0]);
+  const secondScore = Number(second[1] || 0);
+  const hasRelevantConflict =
+    topType !== "nao_identificado" &&
+    secondType !== "nao_identificado" &&
+    secondScore >= 0.40 &&
+    Math.abs(topScore - secondScore) <= 0.12;
+  return {
+    topType,
+    topScore,
+    secondType,
+    secondScore,
+    hasRelevantConflict,
+    totals
+  };
+}
+
+function buildEnvioDocsDocumentClassificationResult(input = {}) {
+  const detectedDocType = normalizeEnvioDocsDetectedDocType(input.detected_doc_type);
+  const category = detectedDocType === "nao_identificado" ? null : (envioDocsCategoriaFromTipo(detectedDocType) || null);
+  const confidence = Number(input.classification_confidence || 0);
+  return {
+    detected_doc_type: detectedDocType,
+    detected_doc_category: category,
+    classification_confidence: Number.isFinite(confidence) ? Math.max(0, Math.min(1, confidence)) : 0,
+    classification_reason: String(input.classification_reason || "Documento sem sinais suficientes para classificação segura."),
+    detected_signals_json: input.detected_signals_json && typeof input.detected_signals_json === "object" ? input.detected_signals_json : {},
+    classifier_version: "envio_docs_classifier_v1",
+    classification_ok: input.classification_ok === true,
+    classification_error_code: input.classification_error_code || null,
+    classification_error_message: input.classification_error_message || null
+  };
+}
+
+function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
+  const extractedTextRaw = String(
+    signals?.extracted_text_full ||
+    signals?.extracted_text_preview ||
+    ""
+  );
+  const extractedText = normalizeText(extractedTextRaw);
+  const textHasContent = extractedText.length >= 20;
+  const signalsJson = signals?.signals_json && typeof signals.signals_json === "object" ? signals.signals_json : {};
+  const hintSupportText = normalizeText(
+    `${opts?.hintText || ""} ${opts?.fileName || signals?.file_name || ""} ${opts?.caption || ""}`
+  );
+  const mimeType = String(opts?.mimeType || signals?.mime_type || "").toLowerCase();
+
+  if (!signals?.extraction_ok && !textHasContent) {
+    return buildEnvioDocsDocumentClassificationResult({
+      detected_doc_type: "nao_identificado",
+      classification_confidence: 0,
+      classification_reason: "Extração OCR indisponível; sem texto suficiente para classificar com segurança.",
+      detected_signals_json: signalsJson,
+      classification_ok: false,
+      classification_error_code: "extraction_not_available",
+      classification_error_message: signals?.extraction_error_message || "Extração documental não disponível."
+    });
+  }
+
+  const textScores = {
+    cnh: /\b(cnh|carteira nacional de habilitacao|permissao para dirigir|categoria [abcde])\b/.test(extractedText) ? 1 : 0,
+    rg: /\b(registro geral|secretaria de seguranca|carteira de identidade|identidade)\b/.test(extractedText) ? 1 : (/\brg\b/.test(extractedText) ? 0.85 : 0),
+    cpf: /\b(cadastro de pessoas fisicas|comprovante de situacao cadastral no cpf)\b/.test(extractedText) ? 1 : ((/\bcpf\b/.test(extractedText) || /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/.test(extractedText)) ? 0.7 : 0),
+    ctps_completa: /\b(ctps|carteira de trabalho e previdencia social|pis\/pasep|serie)\b/.test(extractedText) ? 1 : 0,
+    comprovante_residencia: /\b(comprovante de residencia|conta de luz|conta de agua|fatura de energia|logradouro|cep)\b/.test(extractedText) ? 1 : 0,
+    holerite: /\b(holerite|contracheque|demonstrativo de pagamento|folha de pagamento)\b/.test(extractedText) ? 1 : 0,
+    extrato_bancario: /\b(extrato bancario|saldo anterior|agencia|conta corrente|lancamentos)\b/.test(extractedText) ? 1 : (/\bextrato\b/.test(extractedText) ? 0.75 : 0),
+    declaracao_ir: /\b(declaracao de ajuste anual|declaracao de imposto de renda|imposto de renda da pessoa fisica)\b/.test(extractedText) ? 1 : 0,
+    recibo_ir: /\b(recibo de entrega|darf|documento de arrecadacao de receitas federais)\b/.test(extractedText) ? 1 : 0
+  };
+
+  const hintToCanonical = {
+    rg: "rg",
+    cpf: "cpf",
+    cnh: "cnh",
+    ctps: "ctps_completa",
+    comprovante_residencia: "comprovante_residencia",
+    holerite: "holerite",
+    extrato_bancario: "extrato_bancario",
+    declaracao_ir: "declaracao_ir",
+    recibo_ir: "recibo_ir"
+  };
+  const signalScores = {};
+  for (const tipo of Object.values(hintToCanonical)) signalScores[tipo] = 0;
+  const docTypeHints = Array.isArray(signalsJson?.doc_type_hints) ? signalsJson.doc_type_hints : [];
+  for (const hint of docTypeHints) {
+    const canonical = hintToCanonical[String(hint || "").trim().toLowerCase()] || null;
+    if (!canonical) continue;
+    signalScores[canonical] = Math.max(signalScores[canonical] || 0, 0.8);
+  }
+  if (signalsJson?.has_cpf_pattern) signalScores.cpf = Math.max(signalScores.cpf || 0, 0.65);
+
+  const supportScores = {
+    cnh: /\b(cnh|habilitacao)\b/.test(hintSupportText) ? 0.8 : 0,
+    rg: /\b(rg|identidade)\b/.test(hintSupportText) ? 0.8 : 0,
+    cpf: /\b(cpf)\b/.test(hintSupportText) ? 0.8 : 0,
+    ctps_completa: /\b(ctps|carteira de trabalho)\b/.test(hintSupportText) ? 0.8 : 0,
+    comprovante_residencia: /\b(comprovante|residenc|conta de luz|conta de agua|iptu)\b/.test(hintSupportText) ? 0.8 : 0,
+    holerite: /\b(holerite|contracheque)\b/.test(hintSupportText) ? 0.8 : 0,
+    extrato_bancario: /\b(extrato)\b/.test(hintSupportText) ? 0.8 : 0,
+    declaracao_ir: /\b(declaracao.*ir|imposto de renda)\b/.test(hintSupportText) ? 0.8 : 0,
+    recibo_ir: /\b(recibo.*ir|darf)\b/.test(hintSupportText) ? 0.8 : 0
+  };
+
+  if (mimeType.startsWith("image/") || mimeType === "application/pdf") {
+    // apenas sinal fraco de apoio para documento visualmente válido
+    for (const key of Object.keys(supportScores)) supportScores[key] = Math.max(0, supportScores[key]);
+  }
+
+  const scoring = scoreEnvioDocsDocumentClassification({ textScores, signalScores, supportScores });
+  const textStrongTypes = Object.entries(textScores).filter(([, score]) => Number(score) >= 0.95).map(([tipo]) => tipo);
+  const hasTextConflict = textStrongTypes.length > 1;
+
+  if (hasTextConflict || scoring.hasRelevantConflict || scoring.topScore < 0.45) {
+    return buildEnvioDocsDocumentClassificationResult({
+      detected_doc_type: "nao_identificado",
+      classification_confidence: Math.min(0.4, Math.max(0, scoring.topScore)),
+      classification_reason: hasTextConflict
+        ? "Conflito de evidência textual forte entre tipos documentais."
+        : scoring.hasRelevantConflict
+          ? "Ambiguidade relevante entre sinais textuais/estruturados."
+          : "Sinais insuficientes para classificação documental segura.",
+      detected_signals_json: {
+        ...signalsJson,
+        text_scores: textScores,
+        signal_scores: signalScores,
+        support_scores: supportScores,
+        top_candidate: scoring.topType,
+        second_candidate: scoring.secondType
+      },
+      classification_ok: false,
+      classification_error_code: "ambiguous_or_low_confidence",
+      classification_error_message: "Classificação conservadora: retorno como nao_identificado."
+    });
+  }
+
+  return buildEnvioDocsDocumentClassificationResult({
+    detected_doc_type: scoring.topType,
+    classification_confidence: scoring.topScore,
+    classification_reason: textHasContent
+      ? "Classificação priorizada por evidência textual extraída, com sinais estruturados e apoio contextual."
+      : "Classificação sem texto forte; baseada em sinais estruturados e apoio contextual.",
+    detected_signals_json: {
+      ...signalsJson,
+      text_scores: textScores,
+      signal_scores: signalScores,
+      support_scores: supportScores,
+      top_candidate: scoring.topType,
+      second_candidate: scoring.secondType
+    },
+    classification_ok: true
+  });
+}
+
 async function extractEnvioDocsSignals(env, mediaObject, opts = {}) {
   const MAX_TEXT_PREVIEW_LENGTH = 1200;
   const sourceTypeRaw = String(
@@ -7563,6 +7745,12 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
             fetchImpl: options?.fetchImpl
           })
         : null;
+    const documentClassification = classifyEnvioDocsDocument(documentAiSignals, st, {
+      hintText,
+      caption: normalizedMsg?.document?.caption || normalizedMsg?.image?.caption || normalizedMsg?.caption || "",
+      fileName: mediaObject?.filename || mediaObject?.file_name || "",
+      mimeType: mediaObject?.mime_type || ""
+    });
 
     await telemetry(env, {
       wa_id: st.wa_id,
@@ -7596,7 +7784,12 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         expected_pending_items_before: Array.isArray(selectionDebug.expected_pending_items_before) ? selectionDebug.expected_pending_items_before : [],
         document_ai_extraction_ok: documentAiSignals?.extraction_ok === true,
         document_ai_error_code: documentAiSignals?.extraction_error_code || null,
-        document_ai_signal_density: Number(documentAiSignals?.signals_json?.keyword_density || 0) || 0
+        document_ai_signal_density: Number(documentAiSignals?.signals_json?.keyword_density || 0) || 0,
+        document_classification_type: documentClassification?.detected_doc_type || null,
+        document_classification_category: documentClassification?.detected_doc_category || null,
+        document_classification_confidence: Number(documentClassification?.classification_confidence || 0) || 0,
+        document_classification_ok: documentClassification?.classification_ok === true,
+        document_classification_error_code: documentClassification?.classification_error_code || null
       }
     });
 
@@ -7644,7 +7837,8 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
           detected_participant: selectionDebug.detected_participant || null,
           matched_checklist_item: target ? { tipo: target.tipo, participante: target.participante } : null,
           matched_checklist_items: Array.isArray(selectionDebug.matched_checklist_items) ? selectionDebug.matched_checklist_items : [],
-          validacao_basica: validation
+          validacao_basica: validation,
+          document_classification: documentClassification
         }
       ]
     };
@@ -7693,6 +7887,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
           progress,
           selectionDebug,
           documentAiSignals,
+          documentClassification,
           expectedPendingItemsAfter
         }
       };
@@ -17903,5 +18098,6 @@ default:
 export {
   getEnvioDocsDocumentAIConfig,
   runMistralOCR,
-  extractEnvioDocsSignals
+  extractEnvioDocsSignals,
+  classifyEnvioDocsDocument
 };

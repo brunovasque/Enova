@@ -6841,6 +6841,34 @@ function extractMistralTextAndMetadata(payload) {
   return { text, pageCount, confidenceBase };
 }
 
+const ENVIO_DOCS_MASKED_PREVIEW_MIN_LEN = 300;
+const ENVIO_DOCS_MASKED_PREVIEW_MAX_LEN = 500;
+const ENVIO_DOCS_MASKED_PREVIEW_SOURCE_SLICE_LEN = 900;
+
+function maskEnvioDocsExtractPreview(text, maxLen = 400) {
+  const limit = Math.max(
+    ENVIO_DOCS_MASKED_PREVIEW_MIN_LEN,
+    Math.min(ENVIO_DOCS_MASKED_PREVIEW_MAX_LEN, Number(maxLen) || 400)
+  );
+  const raw = String(text || "");
+  if (!raw) return "";
+  const source = raw.slice(0, Math.max(limit * 2, ENVIO_DOCS_MASKED_PREVIEW_SOURCE_SLICE_LEN));
+  const masked = source
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[email]")
+    .replace(/\b(?:\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b/g, "[cpf]")
+    .replace(/\b(rg|rnm)\s*[:\-]?\s*[a-z0-9.\-\/]{5,24}\b/gi, (_, prefix) => `${String(prefix || "id").toLowerCase()}:[id]`)
+    .replace(/\b(?:\d[\s.\-]?){8,}\d\b/g, "[num]")
+    .replace(/\s+/g, " ")
+    .trim();
+  return masked.slice(0, limit);
+}
+
+function logEnvioDocsDocAiDebug(payload = {}) {
+  try {
+    console.log("ENVIO_DOCS_DOC_AI_DEBUG:", JSON.stringify(payload));
+  } catch {}
+}
+
 async function runMistralOCR(env, input = {}, options = {}) {
   const provider = getEnvioDocsDocumentAIProvider(env);
   const fetchImpl = options?.fetchImpl || fetch;
@@ -7476,6 +7504,7 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   const hintSupportText = normalizeText(
     `${opts?.hintText || ""} ${opts?.fileName || signals?.file_name || ""} ${opts?.caption || ""}`
   );
+  const debugFileName = String(opts?.fileName || signals?.file_name || "").trim() || null;
   const mimeType = String(opts?.mimeType || signals?.mime_type || "").toLowerCase();
 
   if (!signals?.extraction_ok && !textHasContent) {
@@ -7543,16 +7572,68 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   const scoring = scoreEnvioDocsDocumentClassification({ textScores, signalScores, supportScores });
   const textStrongTypes = Object.entries(textScores).filter(([, score]) => Number(score) >= 0.95).map(([tipo]) => tipo);
   const hasTextConflict = textStrongTypes.length > 1;
+  const blockedByThreshold = scoring.topScore < 0.45;
+  const blockedByConflict = hasTextConflict || scoring.hasRelevantConflict;
 
-  if (hasTextConflict || scoring.hasRelevantConflict || scoring.topScore < 0.45) {
+  logEnvioDocsDocAiDebug({
+    event: "envio_docs_doc_ai_scoring_debug",
+    stage: "envio_docs",
+    message: "DEBUG scoring classificação documental",
+    details: {
+      file_name: debugFileName,
+      mime_type: mimeType || null,
+      text_has_content: textHasContent,
+      text_scores: textScores,
+      signal_scores: signalScores,
+      support_scores: supportScores,
+      top_candidate: scoring.topType,
+      second_candidate: scoring.secondType,
+      top_score: Number(scoring.topScore || 0),
+      second_score: Number(scoring.secondScore || 0),
+      has_text_conflict: hasTextConflict,
+      has_relevant_conflict: scoring.hasRelevantConflict === true,
+      threshold_min: 0.45,
+      would_return_nao_identificado: blockedByConflict || blockedByThreshold
+    }
+  });
+
+  if (blockedByConflict || blockedByThreshold) {
+    const classificationConfidence = Math.min(0.4, Math.max(0, scoring.topScore));
+    const classificationReason = hasTextConflict
+      ? "Conflito de evidência textual forte entre tipos documentais."
+      : scoring.hasRelevantConflict
+        ? "Ambiguidade relevante entre sinais textuais/estruturados."
+        : "Sinais insuficientes para classificação documental segura.";
+    const classificationErrorCode = "ambiguous_or_low_confidence";
+    const classificationErrorMessage = "Classificação conservadora: retorno como nao_identificado.";
+
+    logEnvioDocsDocAiDebug({
+      event: "envio_docs_doc_ai_block_reason",
+      stage: "envio_docs",
+      message: "DEBUG bloqueio conservador da classificação documental",
+      details: {
+        file_name: debugFileName,
+        detected_doc_type_final: "nao_identificado",
+        classification_confidence: classificationConfidence,
+        classification_reason: classificationReason,
+        classification_error_code: classificationErrorCode,
+        classification_error_message: classificationErrorMessage,
+        top_candidate: scoring.topType,
+        second_candidate: scoring.secondType,
+        top_score: Number(scoring.topScore || 0),
+        second_score: Number(scoring.secondScore || 0),
+        has_text_conflict: hasTextConflict,
+        has_relevant_conflict: scoring.hasRelevantConflict === true,
+        blocked_by_threshold: blockedByThreshold,
+        blocked_by_conflict: blockedByConflict,
+        recognition_source_candidate: "document_engine"
+      }
+    });
+
     return buildEnvioDocsDocumentClassificationResult({
       detected_doc_type: "nao_identificado",
-      classification_confidence: Math.min(0.4, Math.max(0, scoring.topScore)),
-      classification_reason: hasTextConflict
-        ? "Conflito de evidência textual forte entre tipos documentais."
-        : scoring.hasRelevantConflict
-          ? "Ambiguidade relevante entre sinais textuais/estruturados."
-          : "Sinais insuficientes para classificação documental segura.",
+      classification_confidence: classificationConfidence,
+      classification_reason: classificationReason,
       detected_signals_json: {
         ...signalsJson,
         text_scores: textScores,
@@ -7562,8 +7643,8 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
         second_candidate: scoring.secondType
       },
       classification_ok: false,
-      classification_error_code: "ambiguous_or_low_confidence",
-      classification_error_message: "Classificação conservadora: retorno como nao_identificado."
+      classification_error_code: classificationErrorCode,
+      classification_error_message: classificationErrorMessage
     });
   }
 
@@ -7652,6 +7733,26 @@ async function extractEnvioDocsSignals(env, mediaObject, opts = {}) {
   result.signals_json = inferEnvioDocsSignalsFromExtractedText(textFull, {
     fileName,
     mimeType: result.mime_type
+  });
+  logEnvioDocsDocAiDebug({
+    event: "envio_docs_doc_ai_extract_debug",
+    stage: "envio_docs",
+    message: "DEBUG extração documental",
+    details: {
+      source_type: result.source_type || null,
+      mime_type: result.mime_type || null,
+      file_name: result.file_name || null,
+      ocr_ok: result.extraction_ok === true,
+      ocr_provider: ocr?.provider || result.extraction_source || null,
+      ocr_error_code: result.extraction_error_code || null,
+      ocr_error_message: result.extraction_error_message || null,
+      extracted_text_length: textFull.length,
+      extracted_text_preview_masked: maskEnvioDocsExtractPreview(textFull, 400),
+      has_text_content: normalizeText(textFull).length >= 20,
+      doc_type_hints: Array.isArray(result?.signals_json?.doc_type_hints) ? result.signals_json.doc_type_hints : [],
+      participant_hints: Array.isArray(result?.signals_json?.participant_hints) ? result.signals_json.participant_hints : [],
+      keyword_density: Number(result?.signals_json?.keyword_density || 0) || 0
+    }
   });
   return result;
 }

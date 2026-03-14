@@ -8367,19 +8367,95 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         )
         ? "pdf"
         : "document";
-    const documentAiSignals =
-      mediaObject && (normalizedMsg?.image || normalizedMsg?.document)
-        ? await extractEnvioDocsSignals(env, mediaObject, {
-            sourceType: aiSourceType,
-            fetchImpl: options?.fetchImpl
-          })
-        : null;
+    const sourceType = normalizedMsg?.image
+      ? "image"
+      : normalizedMsg?.document
+        ? "document"
+        : normalizedMsg?.audio
+          ? "audio"
+          : normalizedMsg?.video
+            ? "video"
+            : null;
+    const shouldRunDocumentExtract = mediaObject && (normalizedMsg?.image || normalizedMsg?.document);
+    if (shouldRunDocumentExtract) {
+      await telemetry(env, {
+        wa_id: st?.wa_id || null,
+        event: "envio_docs_doc_ai_callsite_before_extract",
+        stage: "envio_docs",
+        severity: "info",
+        force: true,
+        message: "DEBUG callsite antes da extração documental",
+        details: {
+          wa_id: st?.wa_id || null,
+          source_type: sourceType,
+          mime_type: mediaObject?.mime_type || null,
+          file_name: mediaObject?.filename || mediaObject?.file_name || null,
+          has_media_object: !!mediaObject,
+          document_upload_path_active: true
+        }
+      });
+    }
+    const documentAiSignals = shouldRunDocumentExtract
+      ? await extractEnvioDocsSignals(env, mediaObject, {
+          sourceType: aiSourceType,
+          fetchImpl: options?.fetchImpl
+        })
+      : null;
+    if (shouldRunDocumentExtract) {
+      const extractedTextRaw =
+        String(documentAiSignals?.extracted_text_full || documentAiSignals?.extracted_text_preview || "");
+      const extractedTextNormalized = normalizeText(extractedTextRaw);
+      await telemetry(env, {
+        wa_id: st?.wa_id || null,
+        event: "envio_docs_doc_ai_callsite_after_extract",
+        stage: "envio_docs",
+        severity: "info",
+        force: true,
+        message: "DEBUG callsite após extração documental",
+        details: {
+          wa_id: st?.wa_id || null,
+          file_name: mediaObject?.filename || mediaObject?.file_name || null,
+          mime_type: mediaObject?.mime_type || null,
+          text_length: extractedTextRaw.length,
+          text_preview_masked: maskEnvioDocsExtractPreview(extractedTextRaw, 300),
+          has_text: extractedTextNormalized.length >= 20,
+          doc_type_hints: Array.isArray(documentAiSignals?.signals_json?.doc_type_hints) ? documentAiSignals.signals_json.doc_type_hints : [],
+          participant_hints: Array.isArray(documentAiSignals?.signals_json?.participant_hints) ? documentAiSignals.signals_json.participant_hints : [],
+          keyword_density: Number(documentAiSignals?.signals_json?.keyword_density || 0) || 0,
+          extraction_source: documentAiSignals?.extraction_source || null,
+          extraction_ok: documentAiSignals?.extraction_ok === true
+        }
+      });
+    }
     const documentClassification = classifyEnvioDocsDocument(documentAiSignals, st, {
       hintText,
       caption: normalizedMsg?.document?.caption || normalizedMsg?.image?.caption || normalizedMsg?.caption || "",
       fileName: mediaObject?.filename || mediaObject?.file_name || "",
       mimeType: mediaObject?.mime_type || ""
     });
+    if (shouldRunDocumentExtract) {
+      await telemetry(env, {
+        wa_id: st?.wa_id || null,
+        event: "envio_docs_doc_ai_callsite_after_classify",
+        stage: "envio_docs",
+        severity: "info",
+        force: true,
+        message: "DEBUG callsite após classificação documental",
+        details: {
+          wa_id: st?.wa_id || null,
+          file_name: mediaObject?.filename || mediaObject?.file_name || null,
+          mime_type: mediaObject?.mime_type || null,
+          detected_doc_type: documentClassification?.detected_doc_type || null,
+          confidence: Number(documentClassification?.classification_confidence || 0) || 0,
+          reason: documentClassification?.classification_reason || null,
+          error_code: documentClassification?.classification_error_code || null,
+          error_message: documentClassification?.classification_error_message || null,
+          participant: documentClassification?.detected_participant || null,
+          covers_checklist_types: Array.isArray(documentClassification?.covers_checklist_types) ? documentClassification.covers_checklist_types : [],
+          recognition_source: documentClassification?.recognition_source || "document_engine"
+        }
+      });
+    }
     const participantInference = inferEnvioDocsParticipantFromSignals(documentClassification, documentAiSignals, st, {
       hintText,
       caption: normalizedMsg?.document?.caption || normalizedMsg?.image?.caption || normalizedMsg?.caption || "",

@@ -6869,6 +6869,31 @@ function logEnvioDocsDocAiDebug(payload = {}) {
   } catch {}
 }
 
+function buildSafeMistralDebugPreview(input, maxLen = 400) {
+  const limit = Math.max(300, Math.min(500, Number(maxLen) || 400));
+  let raw = "";
+  if (typeof input === "string") raw = input;
+  else {
+    try {
+      raw = JSON.stringify(input || {});
+    } catch {
+      raw = String(input || "");
+    }
+  }
+  const source = String(raw || "").slice(0, 2400);
+  if (!source) return "";
+  return source
+    .replace(/\bBearer\s+[A-Za-z0-9._\-]+\b/gi, "Bearer [redacted]")
+    .replace(/("?(?:authorization|api[_-]?key|token|secret|password)"?\s*:\s*)"[^"]+"/gi, "$1\"[redacted]\"")
+    .replace(/\b[A-Za-z0-9+\/]{80,}={0,2}\b/g, "[blob]")
+    .replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, "[email]")
+    .replace(/\b(?:\d{3}\.?\d{3}\.?\d{3}-?\d{2}|\d{11})\b/g, "[cpf]")
+    .replace(/\b(?:\d[\s.\-]?){8,}\d\b/g, "[num]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, limit);
+}
+
 async function runMistralOCR(env, input = {}, options = {}) {
   const provider = getEnvioDocsDocumentAIProvider(env);
   const fetchImpl = options?.fetchImpl || fetch;
@@ -6885,6 +6910,36 @@ async function runMistralOCR(env, input = {}, options = {}) {
   const isPdf = sourceType === "pdf";
   const sourceUrl = String(input?.sourceUrl || "").trim();
   const base64 = String(input?.base64 || "").trim();
+  const waId = String(options?.wa_id || options?.waId || input?.wa_id || input?.waId || "").trim() || null;
+  const mimeTypeRaw = String(
+    input?.mime_type ||
+    input?.mimeType ||
+    options?.mime_type ||
+    options?.mimeType ||
+    ""
+  ).toLowerCase().trim();
+  const mimeType = mimeTypeRaw || null;
+  const fileName = String(
+    input?.file_name ||
+    input?.fileName ||
+    options?.file_name ||
+    options?.fileName ||
+    ""
+  ).trim() || null;
+  const base64Length = base64 ? base64.length : 0;
+  const binarySizeFromInput = Number(
+    input?.binary_size_bytes ??
+    input?.binarySizeBytes ??
+    options?.binary_size_bytes ??
+    options?.binarySizeBytes
+  );
+  const binarySizeBytes = Number.isFinite(binarySizeFromInput)
+    ? Math.max(0, Math.trunc(binarySizeFromInput))
+    : (
+      base64Length > 0
+        ? Math.max(0, Math.floor((base64Length * 3) / 4) - (base64.endsWith("==") ? 2 : (base64.endsWith("=") ? 1 : 0)))
+        : null
+    );
 
   if (!sourceUrl && !base64) {
     return {
@@ -6902,6 +6957,50 @@ async function runMistralOCR(env, input = {}, options = {}) {
     : isPdf
       ? { type: "document_base64", document_base64: base64 }
       : { type: "image_base64", image_base64: base64 };
+  const requestPayload = {
+    model: provider.model,
+    document
+  };
+  const payloadTopLevelKeys = Object.keys(requestPayload);
+  const documentObjectKeys = document && typeof document === "object" ? Object.keys(document) : [];
+  const testKeyRaw = String(env?.MISTRAL_API_KEY_TEST || "");
+  const prodKeyRaw = String(env?.MISTRAL_API_KEY || "");
+  let usingTestKey = false;
+  let usingProdKey = false;
+  if (provider.envMode === "prod") {
+    usingProdKey = Boolean(prodKeyRaw) && provider.apiKey === prodKeyRaw;
+  } else if (Boolean(testKeyRaw) && provider.apiKey === testKeyRaw) {
+    usingTestKey = true;
+  } else {
+    usingProdKey = Boolean(prodKeyRaw) && provider.apiKey === prodKeyRaw;
+  }
+
+  try {
+    await telemetry(env, {
+      wa_id: waId,
+      event: "envio_docs_mistral_request_debug",
+      stage: "envio_docs",
+      severity: "info",
+      force: true,
+      message: "DEBUG request OCR Mistral",
+      details: {
+        wa_id: waId,
+        mistral_endpoint: provider.endpoint || null,
+        mistral_model: provider.model || null,
+        document_type: document?.type || null,
+        mime_type: mimeType,
+        file_name: fileName,
+        binary_size_bytes: binarySizeBytes,
+        base64_length: base64Length,
+        payload_has_document: Boolean(requestPayload?.document),
+        payload_has_model: Boolean(requestPayload?.model),
+        payload_top_level_keys: payloadTopLevelKeys,
+        document_object_keys: documentObjectKeys,
+        using_test_key: usingTestKey === true,
+        using_prod_key: usingProdKey === true
+      }
+    });
+  } catch {}
 
   let resp;
   try {
@@ -6911,10 +7010,7 @@ async function runMistralOCR(env, input = {}, options = {}) {
         Authorization: `Bearer ${provider.apiKey}`,
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({
-        model: provider.model,
-        document
-      })
+      body: JSON.stringify(requestPayload)
     });
   } catch (err) {
     return {
@@ -6926,22 +7022,93 @@ async function runMistralOCR(env, input = {}, options = {}) {
   }
 
   let payload = null;
+  let responseText = "";
+  let responseReadError = null;
+  const responseContentType = String(resp?.headers?.get?.("content-type") || "").toLowerCase() || null;
   try {
-    payload = await resp.json();
-  } catch {
+    responseText = await resp.text();
+  } catch (err) {
+    responseText = "";
+    responseReadError = err?.message || "response_read_error";
+  }
+  if (responseText) {
+    try {
+      payload = JSON.parse(responseText);
+    } catch {
+      payload = null;
+    }
+  } else {
     payload = null;
   }
 
   if (!resp?.ok) {
+    const normalizedErrorCodeCandidate = `remote_http_${resp?.status || "unknown"}`;
+    const remoteErrorJsonKeys =
+      payload && typeof payload === "object"
+        ? Object.keys(payload).slice(0, 30)
+        : [];
+    const remoteErrorPreview = buildSafeMistralDebugPreview(
+      payload && typeof payload === "object" ? payload : responseText,
+      400
+    );
+    const normalizedErrorMessage =
+      payload?.error?.message ||
+      payload?.message ||
+      remoteErrorPreview ||
+      "Falha remota na extração documental.";
+    try {
+      await telemetry(env, {
+        wa_id: waId,
+        event: "envio_docs_mistral_response_debug",
+        stage: "envio_docs",
+        severity: "info",
+        force: true,
+        message: "DEBUG resposta OCR Mistral",
+        details: {
+          wa_id: waId,
+          mistral_endpoint: provider.endpoint || null,
+          mistral_model: provider.model || null,
+          http_status: resp?.status || null,
+          http_ok: resp?.ok === true,
+          mime_type: mimeType,
+          file_name: fileName,
+          remote_error_preview: remoteErrorPreview || null,
+          remote_error_json_keys: remoteErrorJsonKeys,
+          response_content_type: responseContentType,
+          response_read_error: responseReadError,
+          normalized_error_code_candidate: normalizedErrorCodeCandidate
+        }
+      });
+    } catch {}
+    try {
+      await telemetry(env, {
+        wa_id: waId,
+        event: "envio_docs_mistral_failure_normalized",
+        stage: "envio_docs",
+        severity: "info",
+        force: true,
+        message: "DEBUG falha OCR Mistral normalizada",
+        details: {
+          wa_id: waId,
+          file_name: fileName,
+          mime_type: mimeType,
+          http_status: resp?.status || null,
+          normalized_error_code: normalizedErrorCodeCandidate,
+          normalized_error_message: normalizedErrorMessage,
+          extraction_ok: false,
+          extraction_source: "mistral",
+          remote_error_preview: remoteErrorPreview || null,
+          mistral_endpoint: provider.endpoint || null,
+          mistral_model: provider.model || null
+        }
+      });
+    } catch {}
     return {
       ok: false,
       provider: provider.provider,
       status: resp?.status || null,
-      error_code: `remote_http_${resp?.status || "unknown"}`,
-      error_message:
-        payload?.error?.message ||
-        payload?.message ||
-        "Falha remota na extração documental."
+      error_code: normalizedErrorCodeCandidate,
+      error_message: normalizedErrorMessage
     };
   }
 

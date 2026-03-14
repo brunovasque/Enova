@@ -6966,6 +6966,32 @@ async function runMistralOCR(env, input = {}, options = {}) {
   };
   const payloadTopLevelKeys = Object.keys(requestPayload);
   const documentObjectKeys = document && typeof document === "object" ? Object.keys(document) : [];
+  const runtimeGuardVersion = "mistral-runtime-guard-v1";
+  const buildStamp = String(typeof ENOVA_BUILD === "string" ? ENOVA_BUILD : "").trim() || null;
+  const gitCommitHint = String(
+    env?.ENOVA_GIT_COMMIT ||
+    env?.GIT_COMMIT ||
+    env?.VERCEL_GIT_COMMIT_SHA ||
+    env?.CF_PAGES_COMMIT_SHA ||
+    ""
+  ).trim() || null;
+  const workerName = String(
+    env?.WORKER_NAME ||
+    env?.CF_WORKER_NAME ||
+    env?.CLOUDFLARE_WORKER_NAME ||
+    env?.ENOVA_WORKER_NAME ||
+    "nv-enova"
+  ).trim() || null;
+  const deploymentHint = String(
+    env?.ENOVA_DEPLOYMENT_HINT ||
+    env?.CF_PAGES_URL ||
+    env?.VERCEL_URL ||
+    env?.WORKER_ENV ||
+    ""
+  ).trim() || null;
+  const payloadShapeGuard = isPdf ? "pdf=document_url" : "non_pdf=unchanged";
+  const requestPathGuard = "runMistralOCR-active";
+  const documentTypeFinal = document?.type || null;
   const testKeyRaw = String(env?.MISTRAL_API_KEY_TEST || "");
   const prodKeyRaw = String(env?.MISTRAL_API_KEY || "");
   let usingTestKey = false;
@@ -6990,7 +7016,16 @@ async function runMistralOCR(env, input = {}, options = {}) {
         wa_id: waId,
         mistral_endpoint: provider.endpoint || null,
         mistral_model: provider.model || null,
+        build_stamp: buildStamp,
+        git_commit_hint: gitCommitHint,
+        runtime_guard_version: runtimeGuardVersion,
+        worker_name: workerName,
+        env_mode: provider.envMode || null,
+        deployment_hint: deploymentHint,
+        payload_shape_guard: payloadShapeGuard,
+        request_path_guard: requestPathGuard,
         document_type: document?.type || null,
+        document_type_final: documentTypeFinal,
         mime_type: mimeType,
         file_name: fileName,
         binary_size_bytes: binarySizeBytes,
@@ -7004,6 +7039,39 @@ async function runMistralOCR(env, input = {}, options = {}) {
       }
     });
   } catch {}
+
+  if (isPdf && documentTypeFinal !== "document_url") {
+    const payloadShapeGuardExpected = "pdf=document_url";
+    const payloadShapeGuardReceived = `pdf=${documentTypeFinal || "unknown"}`;
+    try {
+      await telemetry(env, {
+        wa_id: waId,
+        event: "envio_docs_mistral_pdf_shape_guard_violation",
+        stage: "envio_docs",
+        severity: "error",
+        force: true,
+        message: "Guard rail: PDF com shape inválido antes do fetch OCR Mistral",
+        details: {
+          wa_id: waId,
+          build_stamp: buildStamp,
+          runtime_guard_version: runtimeGuardVersion,
+          file_name: fileName,
+          mime_type: mimeType,
+          document_type_final: documentTypeFinal,
+          document_object_keys: documentObjectKeys,
+          payload_shape_guard_expected: payloadShapeGuardExpected,
+          payload_shape_guard_received: payloadShapeGuardReceived,
+          request_path_guard: requestPathGuard
+        }
+      });
+    } catch {}
+    return {
+      ok: false,
+      provider: provider.provider,
+      error_code: "pdf_shape_guard_violation",
+      error_message: "Guard rail bloqueou OCR: PDF precisa ser enviado como document_url."
+    };
+  }
 
   let resp;
   try {
@@ -7095,6 +7163,11 @@ async function runMistralOCR(env, input = {}, options = {}) {
           wa_id: waId,
           file_name: fileName,
           mime_type: mimeType,
+          build_stamp: buildStamp,
+          runtime_guard_version: runtimeGuardVersion,
+          payload_shape_guard: payloadShapeGuard,
+          document_type_final: documentTypeFinal,
+          document_object_keys: documentObjectKeys,
           http_status: resp?.status || null,
           normalized_error_code: normalizedErrorCodeCandidate,
           normalized_error_message: normalizedErrorMessage,

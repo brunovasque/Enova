@@ -20,8 +20,12 @@ async function run() {
   assert.equal(cfgProd.envMode, "prod");
   assert.equal(cfgProd.apiKey, "prod-key");
 
-  const fakePdfFetch = async () =>
-    new Response(
+  const fakePdfFetch = async (_url, init = {}) => {
+    const body = JSON.parse(String(init.body || "{}"));
+    assert.equal(body?.document?.type, "document_url");
+    assert.ok(String(body?.document?.document_url || "").startsWith("data:application/pdf;base64,"));
+    assert.equal("document_base64" in (body?.document || {}), false);
+    return new Response(
       JSON.stringify({
         pages: [
           { markdown: "CPF 123.456.789-00\nTitular\nComprovante de renda" }
@@ -30,6 +34,7 @@ async function run() {
       }),
       { status: 200, headers: { "content-type": "application/json" } }
     );
+  };
 
   const pdfResult = await extractEnvioDocsSignals(
     { ENOVA_ENV: "test", MISTRAL_API_KEY_TEST: "test-key" },

@@ -6950,12 +6950,15 @@ async function runMistralOCR(env, input = {}, options = {}) {
     };
   }
 
+  const pdfDocumentUrl = !sourceUrl && isPdf && base64
+    ? `data:${mimeType || "application/pdf"};base64,${base64}`
+    : null;
   const document = sourceUrl
     ? isPdf
       ? { type: "document_url", document_url: sourceUrl }
       : { type: "image_url", image_url: sourceUrl }
     : isPdf
-      ? { type: "document_base64", document_base64: base64 }
+      ? { type: "document_url", document_url: pdfDocumentUrl }
       : { type: "image_base64", image_base64: base64 };
   const requestPayload = {
     model: provider.model,

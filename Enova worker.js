@@ -7007,13 +7007,14 @@ async function runMistralOCR(env, input = {}, options = {}) {
   const pdfDocumentUrl = !sourceUrl && isPdf && base64
     ? `data:${mimeType || "application/pdf"};base64,${base64}`
     : null;
+  const imageDocumentUrl = !sourceUrl && !isPdf && base64
+    ? `data:${mimeType && mimeType.startsWith("image/") ? mimeType : "image/jpeg"};base64,${base64}`
+    : null;
   const document = sourceUrl
-    ? isPdf
-      ? { type: "document_url", document_url: sourceUrl }
-      : { type: "image_url", image_url: sourceUrl }
+    ? { type: "document_url", document_url: sourceUrl }
     : isPdf
       ? { type: "document_url", document_url: pdfDocumentUrl }
-      : { type: "image_base64", image_base64: base64 };
+      : { type: "document_url", document_url: imageDocumentUrl };
   const requestPayload = {
     model: provider.model,
     document
@@ -7037,9 +7038,13 @@ async function runMistralOCR(env, input = {}, options = {}) {
     env?.WORKER_ENV ||
     ""
   ).trim() || null;
-  const payloadShapeGuard = isPdf ? "pdf=document_url" : "non_pdf=unchanged";
+  const payloadShapeGuard = isPdf ? "pdf=document_url" : "non_pdf=document_url";
   const requestPathGuard = "runMistralOCR-active";
   const documentTypeFinal = document?.type || null;
+  const documentUrlValue = documentTypeFinal === "document_url" ? String(document?.document_url || "").trim() : null;
+  const documentUrlKind = documentTypeFinal === "document_url"
+    ? (String(documentUrlValue || "").startsWith("data:") ? "data_url" : "remote_url")
+    : null;
   const testKeyRaw = String(env?.MISTRAL_API_KEY_TEST || "");
   const prodKeyRaw = String(env?.MISTRAL_API_KEY || "");
   let usingTestKey = false;
@@ -7082,6 +7087,7 @@ async function runMistralOCR(env, input = {}, options = {}) {
         payload_has_model: Boolean(requestPayload?.model),
         payload_top_level_keys: payloadTopLevelKeys,
         document_object_keys: documentObjectKeys,
+        document_url_kind: documentUrlKind,
         using_test_key: usingTestKey === true,
         using_prod_key: usingProdKey === true
       }
@@ -9000,6 +9006,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
   try {
     const silent = options?.silent === true;
     const normalizedMsg = normalizeEnvioDocsIncomingMedia(msg);
+    const stage = st?.fase_conversa || "envio_docs";
     // ==========================================================
     // 1 — DETECTAR TIPO DE ARQUIVO VINDO DO WHATSAPP
     // ==========================================================
@@ -9048,11 +9055,12 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       };
     }
 
-    const hintText =
+    const mediaCaption =
       normalizedMsg?.document?.caption ||
       normalizedMsg?.image?.caption ||
       normalizedMsg?.caption ||
       "";
+    const hintText = mediaCaption;
     const itens = Array.isArray(st.envio_docs_itens_json) ? [...st.envio_docs_itens_json] : [];
     const aiSourceType = normalizedMsg?.image
       ? "image"
@@ -9072,6 +9080,29 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
             ? "video"
             : null;
     const shouldRunDocumentExtract = mediaObject && (normalizedMsg?.image || normalizedMsg?.document);
+    const isPdf = shouldRunDocumentExtract && aiSourceType === "pdf";
+    if (isPdf) {
+      const buildStamp = String(typeof ENOVA_BUILD === "string" ? ENOVA_BUILD : "").trim() || null;
+      await telemetry(env, {
+        wa_id: st?.wa_id || null,
+        event: "envio_docs_pdf_input_debug",
+        stage,
+        severity: "info",
+        force: true,
+        message: "PDF input debug",
+        details: {
+          wa_id: st?.wa_id || null,
+          stage,
+          msg_type: normalizedMsg?.type || msg?.type || null,
+          mime_type: mediaObject?.mime_type || null,
+          filename: mediaObject?.filename || mediaObject?.file_name || null,
+          media_id: mediaObject?.id || null,
+          source_type: aiSourceType || null,
+          is_pdf: true,
+          build_stamp: buildStamp
+        }
+      });
+    }
     if (shouldRunDocumentExtract) {
       await telemetry(env, {
         wa_id: st?.wa_id || null,
@@ -9093,9 +9124,45 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
     const documentAiSignals = shouldRunDocumentExtract
       ? await extractEnvioDocsSignals(env, mediaObject, {
           sourceType: aiSourceType,
+          wa_id: st?.wa_id || null,
+          mime_type: mediaObject?.mime_type || null,
+          file_name: mediaObject?.filename || mediaObject?.file_name || null,
           fetchImpl: options?.fetchImpl
         })
       : null;
+    if (isPdf) {
+      const extractedTextRaw = String(
+        documentAiSignals?.extracted_text_full ||
+        documentAiSignals?.extracted_text_preview ||
+        ""
+      );
+      const hintSupportText = normalizeText(
+        `${hintText || ""} ${mediaObject?.filename || mediaObject?.file_name || ""} ${mediaCaption || ""}`
+      );
+      const signalsJsonObj = documentAiSignals?.signals_json && typeof documentAiSignals.signals_json === "object"
+        ? documentAiSignals.signals_json
+        : null;
+      const signalsJsonSize = signalsJsonObj ? Object.keys(signalsJsonObj).length : 0;
+      await telemetry(env, {
+        wa_id: st?.wa_id || null,
+        event: "envio_docs_pdf_ocr_result_debug",
+        stage,
+        severity: "info",
+        force: true,
+        message: "PDF OCR result debug",
+        details: {
+          wa_id: st?.wa_id || null,
+          is_pdf: true,
+          extraction_ok: documentAiSignals?.extraction_ok === true,
+          error_code: documentAiSignals?.extraction_error_code || null,
+          text_length: extractedTextRaw.length,
+          text_preview: extractedTextRaw ? maskEnvioDocsExtractPreview(extractedTextRaw, 220) : null,
+          hint_support_length: hintSupportText.length,
+          has_signals_json: signalsJsonSize > 0,
+          source_type: documentAiSignals?.source_type || aiSourceType || null
+        }
+      });
+    }
     if (shouldRunDocumentExtract) {
       const extractedTextRaw =
         String(documentAiSignals?.extracted_text_full || documentAiSignals?.extracted_text_preview || "");
@@ -9123,11 +9190,69 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       });
     }
     const documentClassification = classifyEnvioDocsDocument(documentAiSignals, st, {
+      wa_id: st?.wa_id || null,
       hintText,
-      caption: normalizedMsg?.document?.caption || normalizedMsg?.image?.caption || normalizedMsg?.caption || "",
+      caption: mediaCaption,
       fileName: mediaObject?.filename || mediaObject?.file_name || "",
       mimeType: mediaObject?.mime_type || ""
     });
+    if (isPdf) {
+      const detectedSignals = documentClassification?.detected_signals_json && typeof documentClassification.detected_signals_json === "object"
+        ? documentClassification.detected_signals_json
+        : {};
+      const textScores = detectedSignals?.text_scores && typeof detectedSignals.text_scores === "object" ? detectedSignals.text_scores : {};
+      const signalScores = detectedSignals?.signal_scores && typeof detectedSignals.signal_scores === "object" ? detectedSignals.signal_scores : {};
+      const supportScores = detectedSignals?.support_scores && typeof detectedSignals.support_scores === "object" ? detectedSignals.support_scores : {};
+      const scoring = scoreEnvioDocsDocumentClassification({ textScores, signalScores, supportScores });
+      const textStrongTypes = Object.entries(textScores)
+        .filter(([, score]) => Number(score) >= 0.95)
+        .map(([tipo]) => tipo);
+      const hasTextConflict =
+        textStrongTypes.length > 1 &&
+        !textStrongTypes.every((tipo) => ENVIO_DOCS_TIPOS_ALVO_RENDA_RESIDENCIA.includes(String(tipo || "").trim().toLowerCase()));
+      const blockedByThreshold = Number(scoring?.topScore || 0) < 0.45;
+      const blockedByConflict = hasTextConflict || scoring?.hasRelevantConflict === true;
+      const topType = scoring?.topType || null;
+      const topTextScore = Number(textScores?.[topType] || 0);
+      const topSignalScore = Number(signalScores?.[topType] || 0);
+      const topSupportScore = Number(supportScores?.[topType] || 0);
+      const topReasonLabels = [
+        topTextScore > 0 ? "text" : null,
+        topSignalScore > 0 ? "signal" : null,
+        topSupportScore > 0 ? "support" : null
+      ].filter(Boolean);
+      const ctpsScoreRaw = scoring?.totals && Number.isFinite(Number(scoring.totals.ctps_completa))
+        ? Number(scoring.totals.ctps_completa)
+        : null;
+      const cnhOrIdentityCandidates = [
+        scoring?.totals?.cnh,
+        scoring?.totals?.rg_com_cpf,
+        scoring?.totals?.rg
+      ]
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value));
+      const cnhOrIdentityScore = cnhOrIdentityCandidates.length ? Math.max(...cnhOrIdentityCandidates) : null;
+      await telemetry(env, {
+        wa_id: st?.wa_id || null,
+        event: "envio_docs_pdf_classification_debug",
+        stage,
+        severity: "info",
+        force: true,
+        message: "PDF classification debug",
+        details: {
+          wa_id: st?.wa_id || null,
+          detected_doc_type: topType || null,
+          detected_doc_category: topType ? (envioDocsCategoriaFromTipo(topType) || null) : null,
+          top_score: Number(scoring?.topScore || 0),
+          second_score: Number(scoring?.secondScore || 0),
+          blocked_by_threshold: blockedByThreshold,
+          blocked_by_conflict: blockedByConflict,
+          ctps_score: ctpsScoreRaw,
+          cnh_or_identity_score: cnhOrIdentityScore,
+          top_reason_labels: topReasonLabels
+        }
+      });
+    }
     if (shouldRunDocumentExtract) {
       await telemetry(env, {
         wa_id: st?.wa_id || null,
@@ -9203,6 +9328,42 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
     const recommendedCtpsRuleEvaluated = finalTargetDecision?.recommendedCtpsRuleEvaluated === true;
     const recommendedCtpsRuleHit = Boolean(finalTargetDecision?.recommendedCtpsResolution?.item);
     const recommendedCtpsRuleApplied = finalTargetSource === "recommended_ctps";
+    if (isPdf) {
+      const finalDetectedDocType = documentClassification?.detected_doc_type || null;
+      const becameNaoIdentificado = finalDetectedDocType === "nao_identificado";
+      const failureReason = becameNaoIdentificado
+        ? (
+            documentClassification?.classification_error_code ||
+            documentClassification?.classification_reason ||
+            "nao_identificado"
+          )
+        : (
+            target
+              ? null
+              : (
+                  checklistMatch?.match_reason ||
+                  finalTargetDecision?.reason ||
+                  "sem_target"
+                )
+          );
+      await telemetry(env, {
+        wa_id: st?.wa_id || null,
+        event: "envio_docs_pdf_final_decision_debug",
+        stage,
+        severity: "info",
+        force: true,
+        message: "PDF final decision debug",
+        details: {
+          wa_id: st?.wa_id || null,
+          final_detected_doc_type: finalDetectedDocType,
+          final_target_source: finalTargetSource || null,
+          final_target_participant: target?.participante || null,
+          final_target_doc_key: target?.tipo || null,
+          failure_reason: failureReason,
+          became_nao_identificado: becameNaoIdentificado
+        }
+      });
+    }
 
     await telemetry(env, {
       wa_id: st.wa_id,

@@ -114,6 +114,112 @@ async function run() {
   );
   assert.equal(cpfCadastral.detected_doc_type, "cpf");
   assert.equal(cpfCadastral.classification_ok, true);
+
+  const residenciaBoleto = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "Boleto bancario. Nome do pagador: Maria. Endereco: Rua das Flores, 123. CEP 80000-000.",
+      signals_json: {}
+    },
+    {},
+    { fileName: "boleto_endereco.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(residenciaBoleto.detected_doc_type, "comprovante_residencia");
+  assert.equal(residenciaBoleto.detected_doc_category, "comprovante_residencia");
+
+  const residenciaInternet = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "Conta de internet referente ao mes atual. Logradouro e CEP do titular.",
+      signals_json: {}
+    },
+    {},
+    { fileName: "conta_internet.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(residenciaInternet.detected_doc_type, "comprovante_residencia");
+
+  const residenciaIptu = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "IPTU exercicio 2026. Endereco do imovel e CEP.",
+      signals_json: {}
+    },
+    {},
+    { fileName: "iptu.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(residenciaIptu.detected_doc_type, "comprovante_residencia");
+
+  const holerite = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "Holerite mensal com vencimentos, salario base e valor liquido.",
+      signals_json: {}
+    },
+    {},
+    { fileName: "holerite.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(holerite.detected_doc_type, "holerite");
+  assert.equal(holerite.detected_doc_category, "comprovante_renda");
+
+  const extratoMovimentacao = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "Extrato bancario de conta corrente com movimentacao, debito, credito e historico.",
+      signals_json: {}
+    },
+    {},
+    { fileName: "extrato_movimentacao.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(extratoMovimentacao.detected_doc_type, "extrato_bancario");
+  assert.equal(extratoMovimentacao.detected_doc_category, "comprovante_renda");
+
+  const extratoAposentadoria = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "Extrato de aposentadoria com beneficio INSS e previdencia social.",
+      signals_json: {}
+    },
+    {},
+    { fileName: "extrato_aposentadoria.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(extratoAposentadoria.detected_doc_type, "extrato_bancario");
+  assert.equal(extratoAposentadoria.detected_doc_category, "comprovante_renda");
+
+  const declaracaoIr = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "Declaracao de ajuste anual do imposto de renda da pessoa fisica (DIRPF).",
+      signals_json: {}
+    },
+    {},
+    { fileName: "declaracao_ir.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(declaracaoIr.detected_doc_type, "declaracao_ir");
+  assert.equal(declaracaoIr.detected_doc_category, "comprovante_renda");
+
+  const reciboIr = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "Recibo de entrega com numero do recibo e codigo de controle da declaracao.",
+      signals_json: {}
+    },
+    {},
+    { fileName: "recibo_ir.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(reciboIr.detected_doc_type, "recibo_ir");
+  assert.equal(reciboIr.detected_doc_category, "comprovante_renda");
+
+  const cnhDoc = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "Carteira Nacional de Habilitacao categoria B. Permissao para dirigir.",
+      signals_json: {}
+    },
+    {},
+    { fileName: "cnh.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(cnhDoc.detected_doc_type, "cnh");
+  assert.equal(cnhDoc.classification_ok, true);
 }
 
 await run();

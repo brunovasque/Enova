@@ -66,6 +66,28 @@ assert.equal(noMatchResolvedByDossierCoverage.target?.participante, "p1");
 assert.equal(noMatchResolvedByDossierCoverage.finalTargetSource, "dossier_coverage");
 assert.equal(noMatchResolvedByDossierCoverage.fallbackUsed, false);
 
+const noMatchRendaSoloSegueDossie = chooseEnvioDocsFinalTarget({
+  itens: [{ tipo: "comprovante_renda", participante: "p1", bucket: "obrigatorio", status: "pendente" }],
+  checklistMatch: { match_status: "no_match", matched_items: [] },
+  documentClassification: { detected_doc_type: "extrato_bancario" },
+  legacySelection: { item: null, items: [] }
+});
+assert.equal(noMatchRendaSoloSegueDossie.target?.tipo, "comprovante_renda");
+assert.equal(noMatchRendaSoloSegueDossie.target?.participante, "p1");
+assert.equal(noMatchRendaSoloSegueDossie.finalTargetSource, "dossier_coverage");
+
+const noMatchRendaConjuntoMantemAmbiguidade = chooseEnvioDocsFinalTarget({
+  itens: [
+    { tipo: "comprovante_renda", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+    { tipo: "comprovante_renda", participante: "p2", bucket: "obrigatorio", status: "pendente" }
+  ],
+  checklistMatch: { match_status: "no_match", matched_items: [] },
+  documentClassification: { detected_doc_type: "extrato_bancario" },
+  legacySelection: { item: null, items: [] }
+});
+assert.equal(noMatchRendaConjuntoMantemAmbiguidade.target, null);
+assert.equal(noMatchRendaConjuntoMantemAmbiguidade.finalTargetSource, "none");
+
 const itensRendaAmbiguo = [
   { tipo: "comprovante_renda", participante: "p1", bucket: "obrigatorio", status: "pendente" },
   { tipo: "comprovante_renda", participante: "p2", bucket: "obrigatorio", status: "pendente" }
@@ -79,6 +101,19 @@ const fallbackUploadCannotOverrideDossierAmbiguity = chooseEnvioDocsFinalTarget(
 assert.equal(fallbackUploadCannotOverrideDossierAmbiguity.target, null);
 assert.equal(fallbackUploadCannotOverrideDossierAmbiguity.finalTargetSource, "none");
 assert.equal(fallbackUploadCannotOverrideDossierAmbiguity.fallbackUsed, false);
+
+const fallbackRendaSemTipoReconhecidoNaoEUsado = chooseEnvioDocsFinalTarget({
+  itens: [{ tipo: "comprovante_renda", participante: "p1", bucket: "obrigatorio", status: "pendente" }],
+  checklistMatch: { match_status: "no_match", matched_items: [] },
+  documentClassification: { detected_doc_type: "nao_identificado" },
+  legacySelection: {
+    item: { tipo: "comprovante_renda", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+    items: [{ tipo: "comprovante_renda", participante: "p1", bucket: "obrigatorio", status: "pendente" }]
+  }
+});
+assert.equal(fallbackRendaSemTipoReconhecidoNaoEUsado.target, null);
+assert.equal(fallbackRendaSemTipoReconhecidoNaoEUsado.finalTargetSource, "none");
+assert.equal(fallbackRendaSemTipoReconhecidoNaoEUsado.fallbackUsed, false);
 
 const matchedSafeWins = chooseEnvioDocsFinalTarget({
   itens,
@@ -139,6 +174,19 @@ const matchRendaSoftParticipant = matchEnvioDocsClassificationToChecklist(
 );
 assert.equal(matchRendaSoftParticipant.match_status, "matched_safe");
 assert.deepEqual(matchRendaSoftParticipant.matched_items, [{ tipo: "comprovante_renda", participante: "p2" }]);
+
+const matchRendaParticipanteForteErradoMasDossieUnico = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "holerite", detected_doc_category: "comprovante_renda", classification_confidence: 0.83 },
+  { detected_participant: "p2", participant_confidence: 0.9 },
+  {
+    envio_docs_itens_json: [
+      { tipo: "comprovante_renda", participante: "p1", bucket: "obrigatorio", status: "pendente" }
+    ]
+  }
+);
+assert.equal(matchRendaParticipanteForteErradoMasDossieUnico.match_status, "matched_safe");
+assert.equal(matchRendaParticipanteForteErradoMasDossieUnico.match_reason, "single_pending_item_resolved_by_dossier_coverage");
+assert.deepEqual(matchRendaParticipanteForteErradoMasDossieUnico.matched_items, [{ tipo: "comprovante_renda", participante: "p1" }]);
 
 const matchResidenciaAmbiguoReal = matchEnvioDocsClassificationToChecklist(
   { detected_doc_type: "comprovante_residencia", detected_doc_category: "comprovante_residencia", classification_confidence: 0.8 },

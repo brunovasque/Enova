@@ -7938,6 +7938,16 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   const hasCtpsStrongContext = /\b(ctps digital|carteira de trabalho digital|carteira de trabalho e previdencia social|ctps)\b/.test(extractedText);
   const hasCtpsSupportiveContext = /\b(carteira de trabalho|pis\/pasep|pis pasep|serie)\b/.test(extractedText);
   const hasCpfTokenOrPattern = /\bcpf\b/.test(extractedText) || /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/.test(extractedText);
+  const hasGenericIdentityToken = /\bidentidade\b/.test(extractedText);
+  const hasRgSpecificContext = /\b(rg|registro geral|secretaria de seguranca|carteira de identidade|carteira de identidade nacional|documento nacional de identificacao|cin|instituto de identificacao)\b/.test(extractedText);
+  const hasCnhStrongContext = /\b(cnh|carteira nacional de habilitacao|permissao para dirigir|categoria [abcde])\b/.test(extractedText);
+  const hasCnhDigitalContext = /\b(cnh digital|carteira digital de transito|documento digital de habilitacao|registro nacional de condutores habilitados|renach)\b/.test(extractedText);
+  const hasResidenciaUtilityProviderContext = /\b(copel|enel|cemig|light|cpfl|neoenergia|eletropaulo|equatorial|celesc|sanepar|sabesp|caesb)\b/.test(extractedText);
+  const hasResidenciaUtilityBillingContext = /\b(tarifa|consumo|kwh|leitura|unidade consumidora|vencimento|valor a pagar|fatura|cobranca)\b/.test(extractedText);
+  const hasResidenciaAddressContext = /\b(cep|logradouro|endereco|bairro|cidade|uf)\b/.test(extractedText);
+  const hasResidenciaUtilityStrongContext =
+    hasResidenciaUtilityProviderContext &&
+    (hasResidenciaUtilityBillingContext || hasResidenciaAddressContext);
   const hasCpfStrongContext = /\b(cadastro de pessoas fisicas|comprovante de situacao cadastral no cpf)\b/.test(extractedText);
   const cpfTextScore =
     hasCpfStrongContext
@@ -7952,9 +7962,10 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
     /\bboleto\b/.test(extractedText) &&
     /\b(nome|pagador|sacado)\b/.test(extractedText) &&
     /\b(endereco|logradouro|cep)\b/.test(extractedText);
+  const UTILITY_CONTEXT_GENERIC_HINT_DAMPENED_SCORE = 0.2;
 
   const textScores = {
-  cnh: /\b(cnh|carteira nacional de habilitacao|permissao para dirigir|categoria [abcde])\b/.test(extractedText) ? 1 : 0,
+  cnh: (hasCnhStrongContext || hasCnhDigitalContext) ? 1 : 0,
 
   rg: (
     /\b(rg|registro geral|secretaria de seguranca|carteira de identidade|instituto de identificacao)\b/.test(extractedText) &&
@@ -7962,7 +7973,10 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   ) ? 1 : 0,
 
   rg_com_cpf: (
-    /\b(registro geral|secretaria de seguranca|carteira de identidade|carteira de identidade nacional|documento nacional de identificacao|cin|instituto de identificacao|identidade)\b/.test(extractedText) &&
+    (
+      hasRgSpecificContext ||
+      (hasGenericIdentityToken && !hasCtpsStrongContext && !hasCnhDigitalContext)
+    ) &&
     hasCpfTokenOrPattern
   ) ? 1 : 0,
 
@@ -7970,6 +7984,7 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   ctps_completa: hasCtpsStrongContext ? 1 : (hasCtpsSupportiveContext ? 0.85 : 0),
   comprovante_residencia: (
     /\b(comprovante de residencia|conta de luz|conta de agua|conta de internet|fatura de energia|iptu|logradouro|cep|endereco)\b/.test(extractedText) ||
+    hasResidenciaUtilityStrongContext ||
     hasBoletoWithAddressContext
   ) ? 1 : 0,
   holerite: /\b(holerite|contracheque|demonstrativo de pagamento|folha de pagamento|vencimentos|salario base|valor liquido)\b/.test(extractedText) ? 1 : 0,
@@ -7998,6 +8013,11 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
     signalScores[canonical] = Math.max(signalScores[canonical] || 0, 0.8);
   }
   if (signalsJson?.has_cpf_pattern) signalScores.cpf = Math.max(signalScores.cpf || 0, 0.65);
+  if (hasResidenciaUtilityStrongContext) {
+    signalScores.rg = Math.min(signalScores.rg || 0, UTILITY_CONTEXT_GENERIC_HINT_DAMPENED_SCORE);
+    signalScores.cpf = Math.min(signalScores.cpf || 0, UTILITY_CONTEXT_GENERIC_HINT_DAMPENED_SCORE);
+    signalScores.cnh = Math.min(signalScores.cnh || 0, UTILITY_CONTEXT_GENERIC_HINT_DAMPENED_SCORE);
+  }
 
   const supportScores = {
     cnh: /\b(cnh|habilitacao)\b/.test(hintSupportText) ? 0.8 : 0,

@@ -50,6 +50,36 @@ assert.equal(noMatchWithFallback.target?.tipo, "cpf");
 assert.equal(noMatchWithFallback.finalTargetSource, "legacy_fallback");
 assert.equal(noMatchWithFallback.fallbackUsed, true);
 
+const itensRendaResidenciaDossier = [
+  { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+  { tipo: "comprovante_renda", participante: "p1", bucket: "obrigatorio", status: "pendente" }
+];
+
+const noMatchResolvedByDossierCoverage = chooseEnvioDocsFinalTarget({
+  itens: itensRendaResidenciaDossier,
+  checklistMatch: { match_status: "no_match", matched_items: [] },
+  documentClassification: { detected_doc_type: "holerite" },
+  legacySelection: { item: null, items: [] }
+});
+assert.equal(noMatchResolvedByDossierCoverage.target?.tipo, "comprovante_renda");
+assert.equal(noMatchResolvedByDossierCoverage.target?.participante, "p1");
+assert.equal(noMatchResolvedByDossierCoverage.finalTargetSource, "dossier_coverage");
+assert.equal(noMatchResolvedByDossierCoverage.fallbackUsed, false);
+
+const itensRendaAmbiguo = [
+  { tipo: "comprovante_renda", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+  { tipo: "comprovante_renda", participante: "p2", bucket: "obrigatorio", status: "pendente" }
+];
+const fallbackUploadCannotOverrideDossierAmbiguity = chooseEnvioDocsFinalTarget({
+  itens: itensRendaAmbiguo,
+  checklistMatch: { match_status: "no_match", matched_items: [] },
+  documentClassification: { detected_doc_type: "nao_identificado" },
+  legacySelection: { item: itensRendaAmbiguo[1], items: [itensRendaAmbiguo[1]] }
+});
+assert.equal(fallbackUploadCannotOverrideDossierAmbiguity.target, null);
+assert.equal(fallbackUploadCannotOverrideDossierAmbiguity.finalTargetSource, "none");
+assert.equal(fallbackUploadCannotOverrideDossierAmbiguity.fallbackUsed, false);
+
 const matchedSafeWins = chooseEnvioDocsFinalTarget({
   itens,
   checklistMatch: { match_status: "matched_safe", matched_items: [{ tipo: "rg", participante: "p1" }] },

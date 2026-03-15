@@ -6672,6 +6672,13 @@ const ENVIO_DOCS_COVERAGE_MAP = Object.freeze({
   declaracao_ir: ["comprovante_renda"],
   recibo_ir: ["comprovante_renda"]
 });
+const ENVIO_DOCS_TIPOS_ALVO_RENDA_RESIDENCIA = Object.freeze([
+  "comprovante_residencia",
+  "holerite",
+  "extrato_bancario",
+  "declaracao_ir",
+  "recibo_ir"
+]);
 
 function getEnvioDocsCoveredChecklistTypes(detectedDocType) {
   const t = String(detectedDocType || "").trim().toLowerCase();
@@ -7956,6 +7963,24 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   const hasTextConflict = textStrongTypes.length > 1;
   const blockedByThreshold = scoring.topScore < 0.45;
   const blockedByConflict = hasTextConflict || scoring.hasRelevantConflict;
+  // Relaxamento estritamente controlado para renda/residência:
+  // - exige pista forte estruturada/contextual (>= 0.8),
+  // - baixa competição do segundo candidato (< 0.2),
+  // - e score mínimo total (>= 0.28 = 0.25*0.8 + 0.10*0.8).
+  const RELAXED_MIN_TOP_SCORE = 0.28;
+  const RELAXED_MAX_SECOND_SCORE = 0.2;
+  const RELAXED_MIN_SIGNAL_OR_SUPPORT = 0.8;
+  const topIsRendaResidencia = ENVIO_DOCS_TIPOS_ALVO_RENDA_RESIDENCIA.includes(scoring.topType);
+  const topSignalScore = Number(signalScores?.[scoring.topType] || 0);
+  const topSupportScore = Number(supportScores?.[scoring.topType] || 0);
+  const canRelaxTargetedLowEvidence =
+    blockedByThreshold &&
+    !blockedByConflict &&
+    topIsRendaResidencia &&
+    scoring.topScore >= RELAXED_MIN_TOP_SCORE &&
+    scoring.secondScore < RELAXED_MAX_SECOND_SCORE &&
+    (topSignalScore >= RELAXED_MIN_SIGNAL_OR_SUPPORT || topSupportScore >= RELAXED_MIN_SIGNAL_OR_SUPPORT);
+  const shouldBlockClassification = blockedByConflict || (blockedByThreshold && !canRelaxTargetedLowEvidence);
 
   logEnvioDocsDocAiDebug({
     event: "envio_docs_doc_ai_scoring_debug",
@@ -7975,11 +8000,14 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
       has_text_conflict: hasTextConflict,
       has_relevant_conflict: scoring.hasRelevantConflict === true,
       threshold_min: 0.45,
-      would_return_nao_identificado: blockedByConflict || blockedByThreshold
+      top_signal_score: topSignalScore,
+      top_support_score: topSupportScore,
+      can_relax_targeted_low_evidence: canRelaxTargetedLowEvidence,
+      would_return_nao_identificado: shouldBlockClassification
     }
   });
 
-  if (blockedByConflict || blockedByThreshold) {
+  if (shouldBlockClassification) {
     const classificationConfidence = Math.min(0.4, Math.max(0, scoring.topScore));
     const classificationReason = hasTextConflict
       ? "Conflito de evidência textual forte entre tipos documentais."
@@ -8008,6 +8036,7 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
         has_relevant_conflict: scoring.hasRelevantConflict === true,
         blocked_by_threshold: blockedByThreshold,
         blocked_by_conflict: blockedByConflict,
+        can_relax_targeted_low_evidence: canRelaxTargetedLowEvidence,
         recognition_source_candidate: "document_engine"
       }
     });
@@ -8559,6 +8588,36 @@ function chooseEnvioDocsFinalTarget(input = {}) {
   const fallbackAllowed = matchStatus !== "matched_safe" || !engineResolution.item;
   const fallbackItem = fallbackAllowed ? (legacySelection?.item || null) : null;
   const fallbackItems = fallbackAllowed && Array.isArray(legacySelection?.items) ? legacySelection.items : [];
+  const pendingItems = itens.filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item));
+  const detectedDocType = String(documentClassification?.detected_doc_type || "").trim().toLowerCase();
+  const detectedRendaResidencia = ENVIO_DOCS_TIPOS_ALVO_RENDA_RESIDENCIA.includes(detectedDocType);
+  const dossierCoverageCandidates = detectedRendaResidencia
+    ? pendingItems.filter((item) => envioDocsHintTipoMatchesItemTipo(detectedDocType, item?.tipo))
+    : [];
+  const dossierCoverageResolution =
+    dossierCoverageCandidates.length === 1
+      ? {
+          item: dossierCoverageCandidates[0],
+          items: dossierCoverageCandidates,
+          source: "dossier_coverage"
+        }
+      : {
+          item: null,
+          items: [],
+          source: "none"
+        };
+  const fallbackTargetsRendaResidencia =
+    fallbackItem &&
+    ["comprovante_residencia", "comprovante_renda"].includes(String(fallbackItem?.tipo || "").trim().toLowerCase());
+  const fallbackTipoNormalizado = String(fallbackItem?.tipo || "").trim().toLowerCase();
+  const fallbackSameTypePending = fallbackTargetsRendaResidencia
+    ? pendingItems.filter((item) => String(item?.tipo || "").trim().toLowerCase() === fallbackTipoNormalizado)
+    : [];
+  const canUseFallbackSafelyWithDossier =
+    !fallbackTargetsRendaResidencia ||
+    (fallbackSameTypePending.length === 1 &&
+      fallbackSameTypePending[0]?.tipo === fallbackItem?.tipo &&
+      fallbackSameTypePending[0]?.participante === fallbackItem?.participante);
 
   if (engineResolution.item) {
     return {
@@ -8578,6 +8637,30 @@ function chooseEnvioDocsFinalTarget(input = {}) {
       matchedItems: recommendedCtpsResolution.items,
       fallbackUsed: false,
       finalTargetSource: "recommended_ctps",
+      engineResolution,
+      recommendedCtpsResolution,
+      recommendedCtpsRuleEvaluated: true
+      };
+  }
+
+  if (dossierCoverageResolution.item) {
+    return {
+      target: dossierCoverageResolution.item,
+      matchedItems: dossierCoverageResolution.items,
+      fallbackUsed: false,
+      finalTargetSource: "dossier_coverage",
+      engineResolution,
+      recommendedCtpsResolution,
+      recommendedCtpsRuleEvaluated: true
+    };
+  }
+
+  if (fallbackItem && !canUseFallbackSafelyWithDossier) {
+    return {
+      target: null,
+      matchedItems: [],
+      fallbackUsed: false,
+      finalTargetSource: "none",
       engineResolution,
       recommendedCtpsResolution,
       recommendedCtpsRuleEvaluated: true

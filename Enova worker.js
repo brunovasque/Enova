@@ -8351,15 +8351,63 @@ function resolveEnvioDocsRecommendedCtpsTarget(itens = [], checklistMatch = {}, 
     };
   }
 
-  const detectedParticipant = normalizeEnvioDocsDetectedParticipant(checklistMatch?.match_signals_json?.detected_participant);
-  const participantConfidence = Number(checklistMatch?.match_signals_json?.participant_confidence || 0);
-  const participantStrong = detectedParticipant !== "desconhecido" && participantConfidence >= 0.75;
+  const detectedParticipant = normalizeEnvioDocsDetectedParticipant(
+    checklistMatch?.match_signals_json?.detected_participant
+  );
+  const participantConfidence = Number(
+    checklistMatch?.match_signals_json?.participant_confidence || 0
+  );
+  const participantStrong =
+    detectedParticipant !== "desconhecido" && participantConfidence >= 0.75;
+
   if (participantStrong) {
-    const scoped = recommendedCtpsItems.filter((item) => item?.participante === detectedParticipant);
-    if (scoped.length === 1) {
+    const scoped = recommendedCtpsItems.filter(
+      (item) => normalizeEnvioDocsDetectedParticipant(item?.participante) === detectedParticipant
+    );
+    if (scoped.length >= 1) {
       return {
         item: scoped[0],
         items: scoped,
+        source: "recommended_ctps"
+      };
+    }
+  }
+
+  const itemsByParticipant = new Map();
+  for (const item of recommendedCtpsItems) {
+    const participant = normalizeEnvioDocsDetectedParticipant(item?.participante);
+    if (!itemsByParticipant.has(participant)) {
+      itemsByParticipant.set(participant, []);
+    }
+    itemsByParticipant.get(participant).push(item);
+  }
+
+  if (detectedParticipant !== "desconhecido") {
+    const detectedScoped = itemsByParticipant.get(detectedParticipant) || [];
+    if (detectedScoped.length >= 1) {
+      return {
+        item: detectedScoped[0],
+        items: detectedScoped,
+        source: "recommended_ctps"
+      };
+    }
+  }
+
+  const titularItems = itemsByParticipant.get("p1") || [];
+  if (titularItems.length >= 1) {
+    return {
+      item: titularItems[0],
+      items: titularItems,
+      source: "recommended_ctps"
+    };
+  }
+
+  if (itemsByParticipant.size === 1) {
+    const onlyGroup = Array.from(itemsByParticipant.values())[0] || [];
+    if (onlyGroup.length >= 1) {
+      return {
+        item: onlyGroup[0],
+        items: onlyGroup,
         source: "recommended_ctps"
       };
     }

@@ -79,6 +79,8 @@ assert.equal(ctpsRecommendedTarget.target?.tipo, "ctps_completa");
 assert.equal(ctpsRecommendedTarget.target?.participante, "p1");
 assert.equal(ctpsRecommendedTarget.finalTargetSource, "recommended_ctps");
 assert.equal(ctpsRecommendedTarget.fallbackUsed, false);
+assert.notEqual(ctpsRecommendedTarget.target?.tipo, "identidade_cpf");
+assert.notEqual(ctpsRecommendedTarget.target?.tipo, "comprovante_renda");
 assert.equal(itensWithRecommendedCtps[0].status, "pendente");
 assert.equal(itensWithRecommendedCtps[1].status, "pendente");
 

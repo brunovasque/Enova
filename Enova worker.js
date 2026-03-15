@@ -8330,7 +8330,7 @@ function resolveEnvioDocsRecommendedCtpsTarget(itens = [], checklistMatch = {}, 
     };
   }
 
-  const recommendedCtpsItems = (Array.isArray(itens) ? itens : []).filter((item) =>
+  const recommendedCtpsItems = itens.filter((item) =>
     String(item?.tipo || "").trim().toLowerCase() === "ctps_completa" &&
     (
       String(item?.bucket || "").trim().toLowerCase() === "recomendado" ||

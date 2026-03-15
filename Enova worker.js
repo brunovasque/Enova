@@ -8307,12 +8307,80 @@ function resolveEnvioDocsTargetFromDocumentEngine(itens = [], checklistMatch = {
   };
 }
 
+function resolveEnvioDocsRecommendedCtpsTarget(itens = [], checklistMatch = {}, documentClassification = {}) {
+  const detectedDocType = String(documentClassification?.detected_doc_type || "").trim().toLowerCase();
+  if (detectedDocType !== "ctps_completa") {
+    return {
+      item: null,
+      items: [],
+      source: "none"
+    };
+  }
+
+  const matchStatus = String(checklistMatch?.match_status || "").trim().toLowerCase();
+  const matchReason = String(checklistMatch?.match_reason || "").trim().toLowerCase();
+  const noPendingReason =
+    matchReason === "no_pending_item_for_doc_type" ||
+    matchReason === "no_pending_item_for_doc_type_and_participant";
+  if (matchStatus !== "no_match" || !noPendingReason) {
+    return {
+      item: null,
+      items: [],
+      source: "none"
+    };
+  }
+
+  const recommendedCtpsItems = (Array.isArray(itens) ? itens : []).filter((item) =>
+    String(item?.tipo || "").trim().toLowerCase() === "ctps_completa" &&
+    (
+      String(item?.bucket || "").trim().toLowerCase() === "recomendado" ||
+      Boolean(item?.recomendacao)
+    )
+  );
+  if (!recommendedCtpsItems.length) {
+    return {
+      item: null,
+      items: [],
+      source: "none"
+    };
+  }
+
+  const detectedParticipant = normalizeEnvioDocsDetectedParticipant(checklistMatch?.match_signals_json?.detected_participant);
+  const participantConfidence = Number(checklistMatch?.match_signals_json?.participant_confidence || 0);
+  const participantStrong = detectedParticipant !== "desconhecido" && participantConfidence >= 0.75;
+  if (participantStrong) {
+    const scoped = recommendedCtpsItems.filter((item) => item?.participante === detectedParticipant);
+    if (scoped.length === 1) {
+      return {
+        item: scoped[0],
+        items: scoped,
+        source: "recommended_ctps"
+      };
+    }
+  }
+
+  if (recommendedCtpsItems.length === 1) {
+    return {
+      item: recommendedCtpsItems[0],
+      items: recommendedCtpsItems,
+      source: "recommended_ctps"
+    };
+  }
+
+  return {
+    item: null,
+    items: [],
+    source: "none"
+  };
+}
+
 function chooseEnvioDocsFinalTarget(input = {}) {
   const itens = Array.isArray(input?.itens) ? input.itens : [];
   const checklistMatch = input?.checklistMatch || {};
   const documentClassification = input?.documentClassification || {};
   const legacySelection = input?.legacySelection || {};
   const engineResolution = input?.engineResolution || resolveEnvioDocsTargetFromDocumentEngine(itens, checklistMatch, documentClassification);
+  const recommendedCtpsResolution = resolveEnvioDocsRecommendedCtpsTarget(itens, checklistMatch, documentClassification);
   const matchStatus = String(checklistMatch?.match_status || "").trim().toLowerCase();
   const fallbackAllowed = matchStatus !== "matched_safe" || !engineResolution.item;
   const fallbackItem = fallbackAllowed ? (legacySelection?.item || null) : null;
@@ -8324,6 +8392,16 @@ function chooseEnvioDocsFinalTarget(input = {}) {
       matchedItems: engineResolution.items,
       fallbackUsed: false,
       finalTargetSource: "document_engine",
+      engineResolution
+    };
+  }
+
+  if (recommendedCtpsResolution.item) {
+    return {
+      target: recommendedCtpsResolution.item,
+      matchedItems: recommendedCtpsResolution.items,
+      fallbackUsed: false,
+      finalTargetSource: "recommended_ctps",
       engineResolution
     };
   }
@@ -8748,6 +8826,8 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
     const fallbackUsed = finalTargetDecision.fallbackUsed === true;
     const recognitionSource = finalTargetSource === "document_engine"
       ? "document_engine"
+      : finalTargetSource === "recommended_ctps"
+        ? "recommended_ctps"
       : (fallbackUsed ? "legacy_fallback" : "none");
 
     await telemetry(env, {

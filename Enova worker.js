@@ -6343,10 +6343,15 @@ function mensagemPendenciasHumanizada(list) {
 }
 
 function envioDocsResumoPendencias(itens = []) {
-  return itens
-    .filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item))
-    .slice(0, 4)
-    .map((item) => `• ${prettyDocLabel(item.tipo)} (${item.participante === "p1" ? "titular" : "composição"})`);
+  const pendentes = itens
+    .filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item));
+  const base = pendentes.slice(0, 4);
+  const ctpsPendente = pendentes.find((item) => String(item?.tipo || "").trim().toLowerCase() === "ctps_completa");
+  const ctpsJaIncluida = base.some((item) => String(item?.tipo || "").trim().toLowerCase() === "ctps_completa");
+  const resumo = (!ctpsJaIncluida && ctpsPendente)
+    ? [...base.slice(0, 3), ctpsPendente]
+    : base;
+  return resumo.map((item) => `• ${prettyDocLabel(item.tipo)} (${item.participante === "p1" ? "titular" : "composição"})`);
 }
 
 function isEnvioDocsBlockingItem(item) {
@@ -7647,6 +7652,12 @@ function matchEnvioDocsClassificationToChecklist(documentClassification, partici
     const pendentes = itens.filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item));
     const coveredTypes = getEnvioDocsCoveredChecklistTypes(detectedDocType);
     const participantStrong = detectedParticipant && detectedParticipant !== "desconhecido" && participantConfidence >= 0.75;
+    const participantSoft =
+      detectedParticipant &&
+      detectedParticipant !== "desconhecido" &&
+      participantConfidence >= 0.6;
+    const allowsSoftParticipantScope =
+      ["comprovante_residencia", "holerite", "extrato_bancario", "declaracao_ir", "recibo_ir"].includes(detectedDocType);
 
     if (!detectedDocType || detectedDocType === "nao_identificado") {
       return buildEnvioDocsChecklistMatchResult({
@@ -7677,7 +7688,11 @@ function matchEnvioDocsClassificationToChecklist(documentClassification, partici
     const strongTypeCandidates = scored.filter((entry) => entry.typeStrongMatch);
     const participantScoped = participantStrong
       ? strongTypeCandidates.filter((entry) => entry.participantMatch === true)
-      : strongTypeCandidates;
+      : (
+          allowsSoftParticipantScope && participantSoft
+            ? strongTypeCandidates.filter((entry) => entry.participantMatch === true)
+            : strongTypeCandidates
+        );
     const candidates = participantScoped.filter((entry) => entry.score >= 0.75);
 
     if (!candidates.length) {
@@ -18119,6 +18134,12 @@ case "envio_docs": {
   // =====================================================
   if (pronto && !listaEnviada) {
     const hasP2Confirmado = hasComposicaoConfirmadaP2(st);
+    const itensEnvioDocs = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
+    const hasCtpsTitularNoChecklist = itensEnvioDocs.some((item) =>
+      String(item?.tipo || "").trim().toLowerCase() === "ctps_completa" &&
+      String(item?.participante || "").trim().toLowerCase() === "p1" &&
+      isEnvioDocsBlockingItem(item)
+    );
     const mensagemLista = [
       "Show! 👏",
       "Fechamos por envio online aqui no WhatsApp.",
@@ -18130,7 +18151,7 @@ case "envio_docs": {
       "- Comprovante de residência (atual)",
       "- Comprovante de renda (de acordo com o perfil)"
     ];
-    if (st.ctps_36 === true) {
+    if (hasCtpsTitularNoChecklist) {
       mensagemLista.push("- CTPS (carteira de trabalho) completa");
     }
     if (hasP2Confirmado) {

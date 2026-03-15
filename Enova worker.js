@@ -7724,6 +7724,63 @@ function matchEnvioDocsClassificationToChecklist(documentClassification, partici
     }
 
     if (candidates.length > 1) {
+      const allowsConservativeParticipantTieBreak =
+        ["comprovante_residencia", "holerite", "extrato_bancario", "declaracao_ir", "recibo_ir"].includes(detectedDocType);
+      if (allowsConservativeParticipantTieBreak) {
+        const participantScoringRaw = Array.isArray(participantInference?.participant_signals_json?.scoring)
+          ? participantInference.participant_signals_json.scoring
+          : [];
+        const participantScoring = participantScoringRaw
+          .map((entry) => ({
+            participante: normalizeEnvioDocsDetectedParticipant(entry?.participante),
+            score: Number(entry?.score || 0)
+          }))
+          .filter((entry) => entry.participante !== "desconhecido" && Number.isFinite(entry.score))
+          .sort((a, b) => b.score - a.score);
+        const topParticipant = participantScoring[0] || null;
+        const secondParticipantScore = Number(participantScoring[1]?.score || 0);
+        const hasSafeParticipantTieBreakSignal =
+          topParticipant &&
+          topParticipant.score >= 0.6 &&
+          (topParticipant.score - secondParticipantScore) >= 0.2;
+
+        if (hasSafeParticipantTieBreakSignal) {
+          const participantScopedCandidates = candidates.filter(
+            (entry) => normalizeEnvioDocsDetectedParticipant(entry?.item?.participante) === topParticipant.participante
+          );
+          if (participantScopedCandidates.length === 1) {
+            const selected = participantScopedCandidates[0];
+            return buildEnvioDocsChecklistMatchResult({
+              matched_items: [{ tipo: selected.item?.tipo || null, participante: selected.item?.participante || null }],
+              match_confidence: Math.max(
+                0.75,
+                Math.min(
+                  0.95,
+                  Number(selected.score || 0) *
+                    Math.max(0.6, Number(documentClassification?.classification_confidence || 0)) *
+                    Math.max(0.75, topParticipant.score)
+                )
+              ),
+              match_status: "matched_safe",
+              match_reason: "single_pending_item_resolved_by_participant_signal",
+              match_signals_json: {
+                detected_doc_type: detectedDocType,
+                detected_doc_category: detectedDocCategory || null,
+                detected_participant: detectedParticipant || "desconhecido",
+                participant_confidence: participantConfidence,
+                participant_strong: participantStrong,
+                covered_types: coveredTypes,
+                participant_tiebreak: {
+                  participante: topParticipant.participante,
+                  score: topParticipant.score,
+                  second_score: secondParticipantScore
+                }
+              },
+              checklist_match_ok: true
+            });
+          }
+        }
+      }
       const topScore = Math.max(...candidates.map((entry) => Number(entry.score || 0)));
       const matchedItems = candidates
         .map((entry) => ({ tipo: entry.item?.tipo || null, participante: entry.item?.participante || null }));

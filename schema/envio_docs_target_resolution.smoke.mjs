@@ -117,6 +117,52 @@ const matchResidenciaAmbiguoReal = matchEnvioDocsClassificationToChecklist(
 );
 assert.equal(matchResidenciaAmbiguoReal.match_status, "ambiguous");
 
+const matchResidenciaDesempateSeguroPorSinal = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "comprovante_residencia", detected_doc_category: "comprovante_residencia", classification_confidence: 0.82 },
+  {
+    detected_participant: "desconhecido",
+    participant_confidence: 0.5,
+    participant_signals_json: {
+      scoring: [
+        { participante: "p1", score: 0.81 },
+        { participante: "p2", score: 0.52 }
+      ]
+    }
+  },
+  { envio_docs_itens_json: itensComprovantes }
+);
+assert.equal(matchResidenciaDesempateSeguroPorSinal.match_status, "matched_safe");
+assert.equal(matchResidenciaDesempateSeguroPorSinal.match_reason, "single_pending_item_resolved_by_participant_signal");
+assert.deepEqual(matchResidenciaDesempateSeguroPorSinal.matched_items, [{ tipo: "comprovante_residencia", participante: "p1" }]);
+assert.deepEqual(matchResidenciaDesempateSeguroPorSinal.match_signals_json?.participant_tiebreak, {
+  participante: "p1",
+  score: 0.81,
+  second_score: 0.52
+});
+
+const matchRendaDesempateSeguroPorSinal = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "holerite", detected_doc_category: "comprovante_renda", classification_confidence: 0.83 },
+  {
+    detected_participant: "desconhecido",
+    participant_confidence: 0.5,
+    participant_signals_json: {
+      scoring: [
+        { participante: "p2", score: 0.86 },
+        { participante: "p1", score: 0.54 }
+      ]
+    }
+  },
+  { envio_docs_itens_json: itensComprovantes }
+);
+assert.equal(matchRendaDesempateSeguroPorSinal.match_status, "matched_safe");
+assert.equal(matchRendaDesempateSeguroPorSinal.match_reason, "single_pending_item_resolved_by_participant_signal");
+assert.deepEqual(matchRendaDesempateSeguroPorSinal.matched_items, [{ tipo: "comprovante_renda", participante: "p2" }]);
+assert.deepEqual(matchRendaDesempateSeguroPorSinal.match_signals_json?.participant_tiebreak, {
+  participante: "p2",
+  score: 0.86,
+  second_score: 0.54
+});
+
 const matchCnhNaoRegrediu = matchEnvioDocsClassificationToChecklist(
   { detected_doc_type: "cnh", detected_doc_category: "identidade", classification_confidence: 0.85 },
   { detected_participant: "desconhecido", participant_confidence: 0.5 },

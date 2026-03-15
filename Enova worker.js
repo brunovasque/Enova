@@ -7336,7 +7336,12 @@ function scoreEnvioDocsDocumentClassification({ textScores = {}, signalScores = 
   const conflictOnlyWithinRendaResidencia =
     ENVIO_DOCS_TIPOS_ALVO_RENDA_RESIDENCIA.includes(topType) &&
     ENVIO_DOCS_TIPOS_ALVO_RENDA_RESIDENCIA.includes(secondType);
-  const hasStrongTargetConflict = conflictOnlyWithinRendaResidencia && secondScore >= 0.55;
+  // Em renda/residência, tratamos conflito como "forte" apenas quando o segundo candidato
+  // permanece muito alto (>= 0.55), para evitar desbloqueio indevido em ambiguidade real.
+  const STRONG_TARGET_CONFLICT_MIN_SECOND_SCORE = 0.55;
+  const hasStrongTargetConflict =
+    conflictOnlyWithinRendaResidencia &&
+    secondScore >= STRONG_TARGET_CONFLICT_MIN_SECOND_SCORE;
   const hasRelevantConflict =
     hasRelevantConflictBase &&
     (!conflictOnlyWithinRendaResidencia || hasStrongTargetConflict);
@@ -7718,11 +7723,21 @@ function matchEnvioDocsClassificationToChecklist(documentClassification, partici
         strongTypeCandidates.length === 1;
       if (canUseDossierSingleCoverageFallback) {
         const selected = strongTypeCandidates[0];
+        const DOSSIER_SINGLE_COVERAGE_CONFIDENCE_CAP = 0.92;
+        const DOSSIER_SINGLE_COVERAGE_CLASSIFICATION_FLOOR = 0.7;
         return buildEnvioDocsChecklistMatchResult({
           matched_items: [{ tipo: selected.item?.tipo || null, participante: selected.item?.participante || null }],
           match_confidence: Math.max(
             0.75,
-            Math.min(0.92, Number(selected.score || 0) * Math.max(0.7, Number(documentClassification?.classification_confidence || 0)))
+            // Cap/floor conservadores para fallback por cobertura única do dossiê:
+            // mantém confiança alta o suficiente para vínculo seguro, sem equiparar a um match textual pleno.
+            Math.min(
+              DOSSIER_SINGLE_COVERAGE_CONFIDENCE_CAP,
+              Number(selected.score || 0) * Math.max(
+                DOSSIER_SINGLE_COVERAGE_CLASSIFICATION_FLOOR,
+                Number(documentClassification?.classification_confidence || 0)
+              )
+            )
           ),
           match_status: "matched_safe",
           match_reason: "single_pending_item_resolved_by_dossier_coverage",
@@ -8687,7 +8702,7 @@ function chooseEnvioDocsFinalTarget(input = {}) {
     ["comprovante_residencia", "comprovante_renda"].includes(String(fallbackItem?.tipo || "").trim().toLowerCase());
   const fallbackTipoNormalizado = String(fallbackItem?.tipo || "").trim().toLowerCase();
   const detectedCoveredTypes = getEnvioDocsCoveredChecklistTypes(detectedDocType);
-  const fallbackCoverageCoherentWithDetectedType =
+  const isFallbackCoverageCoherent =
     !fallbackTargetsRendaResidencia ||
     (detectedRendaResidencia && detectedCoveredTypes.includes(fallbackTipoNormalizado));
   const fallbackSameTypePending = fallbackTargetsRendaResidencia
@@ -8695,7 +8710,7 @@ function chooseEnvioDocsFinalTarget(input = {}) {
     : [];
   const canUseFallbackSafelyWithDossier =
     !fallbackTargetsRendaResidencia ||
-    (fallbackCoverageCoherentWithDetectedType &&
+    (isFallbackCoverageCoherent &&
       fallbackSameTypePending.length === 1 &&
       fallbackSameTypePending[0]?.tipo === fallbackItem?.tipo &&
       fallbackSameTypePending[0]?.participante === fallbackItem?.participante);

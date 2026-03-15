@@ -55,14 +55,18 @@ async function run() {
   assert.equal(pdfResult.extraction_error_code, null);
   assert.ok(Array.isArray(pdfResult.signals_json.doc_type_hints));
 
-  const fakeImageFetch = async () =>
-    new Response(
+  const fakeImageFetch = async (_url, init = {}) => {
+    const body = JSON.parse(String(init.body || "{}"));
+    assert.equal(body?.document?.type, "document_url");
+    assert.ok(String(body?.document?.document_url || "").startsWith("data:image/jpeg;base64,"));
+    return new Response(
       JSON.stringify({
         text: "RG do parceiro. Documento de identidade.",
         page_count: 1
       }),
       { status: 200, headers: { "content-type": "application/json" } }
     );
+  };
 
   const imageResult = await extractEnvioDocsSignals(
     { ENOVA_ENV: "test", MISTRAL_API_KEY_TEST: "test-key" },

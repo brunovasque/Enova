@@ -7007,13 +7007,14 @@ async function runMistralOCR(env, input = {}, options = {}) {
   const pdfDocumentUrl = !sourceUrl && isPdf && base64
     ? `data:${mimeType || "application/pdf"};base64,${base64}`
     : null;
+  const imageDocumentUrl = !sourceUrl && !isPdf && base64
+    ? `data:${mimeType && mimeType.startsWith("image/") ? mimeType : "image/jpeg"};base64,${base64}`
+    : null;
   const document = sourceUrl
-    ? isPdf
-      ? { type: "document_url", document_url: sourceUrl }
-      : { type: "image_url", image_url: sourceUrl }
+    ? { type: "document_url", document_url: sourceUrl }
     : isPdf
       ? { type: "document_url", document_url: pdfDocumentUrl }
-      : { type: "image_base64", image_base64: base64 };
+      : { type: "document_url", document_url: imageDocumentUrl };
   const requestPayload = {
     model: provider.model,
     document
@@ -7037,9 +7038,13 @@ async function runMistralOCR(env, input = {}, options = {}) {
     env?.WORKER_ENV ||
     ""
   ).trim() || null;
-  const payloadShapeGuard = isPdf ? "pdf=document_url" : "non_pdf=unchanged";
+  const payloadShapeGuard = isPdf ? "pdf=document_url" : "non_pdf=document_url";
   const requestPathGuard = "runMistralOCR-active";
   const documentTypeFinal = document?.type || null;
+  const documentUrlValue = documentTypeFinal === "document_url" ? String(document?.document_url || "").trim() : null;
+  const documentUrlKind = documentTypeFinal === "document_url"
+    ? (String(documentUrlValue || "").startsWith("data:") ? "data_url" : "remote_url")
+    : null;
   const testKeyRaw = String(env?.MISTRAL_API_KEY_TEST || "");
   const prodKeyRaw = String(env?.MISTRAL_API_KEY || "");
   let usingTestKey = false;
@@ -7082,6 +7087,7 @@ async function runMistralOCR(env, input = {}, options = {}) {
         payload_has_model: Boolean(requestPayload?.model),
         payload_top_level_keys: payloadTopLevelKeys,
         document_object_keys: documentObjectKeys,
+        document_url_kind: documentUrlKind,
         using_test_key: usingTestKey === true,
         using_prod_key: usingProdKey === true
       }

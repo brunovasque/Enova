@@ -7883,7 +7883,12 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
             : 0
         );
 
-    const textScores = {
+  const hasBoletoWithAddressContext =
+    /\bboleto\b/.test(extractedText) &&
+    /\b(nome|pagador|sacado)\b/.test(extractedText) &&
+    /\b(endereco|logradouro|cep)\b/.test(extractedText);
+
+  const textScores = {
   cnh: /\b(cnh|carteira nacional de habilitacao|permissao para dirigir|categoria [abcde])\b/.test(extractedText) ? 1 : 0,
 
   rg: (
@@ -7898,11 +7903,14 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
 
   cpf: cpfTextScore,
   ctps_completa: hasCtpsStrongContext ? 1 : (hasCtpsSupportiveContext ? 0.85 : 0),
-  comprovante_residencia: /\b(comprovante de residencia|conta de luz|conta de agua|fatura de energia|logradouro|cep)\b/.test(extractedText) ? 1 : 0,
-  holerite: /\b(holerite|contracheque|demonstrativo de pagamento|folha de pagamento)\b/.test(extractedText) ? 1 : 0,
-  extrato_bancario: /\b(extrato bancario|saldo anterior|agencia|conta corrente|lancamentos)\b/.test(extractedText) ? 1 : (/\bextrato\b/.test(extractedText) ? 0.75 : 0),
-  declaracao_ir: /\b(declaracao de ajuste anual|declaracao de imposto de renda|imposto de renda da pessoa fisica)\b/.test(extractedText) ? 1 : 0,
-  recibo_ir: /\b(recibo de entrega|darf|documento de arrecadacao de receitas federais)\b/.test(extractedText) ? 1 : 0
+  comprovante_residencia: (
+    /\b(comprovante de residencia|conta de luz|conta de agua|conta de internet|fatura de energia|iptu|logradouro|cep|endereco)\b/.test(extractedText) ||
+    hasBoletoWithAddressContext
+  ) ? 1 : 0,
+  holerite: /\b(holerite|contracheque|demonstrativo de pagamento|folha de pagamento|vencimentos|salario base|valor liquido)\b/.test(extractedText) ? 1 : 0,
+  extrato_bancario: /\b(extrato bancario|saldo anterior|agencia|conta corrente|lancamentos|movimentacao|debito|credito|historico|beneficio inss|aposentadoria|previdencia social)\b/.test(extractedText) ? 1 : (/\bextrato\b/.test(extractedText) ? 0.75 : 0),
+  declaracao_ir: /\b(declaracao de ajuste anual|declaracao de imposto de renda|imposto de renda da pessoa fisica|dirpf)\b/.test(extractedText) ? 1 : 0,
+  recibo_ir: /\b(recibo de entrega|numero do recibo|codigo de controle|darf|documento de arrecadacao de receitas federais)\b/.test(extractedText) ? 1 : 0
 };
 
   const hintToCanonical = {
@@ -7931,11 +7939,11 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
     rg: /\b(rg|identidade)\b/.test(hintSupportText) ? 0.8 : 0,
     cpf: /\b(cpf)\b/.test(hintSupportText) ? 0.8 : 0,
     ctps_completa: /\b(ctps|carteira de trabalho)\b/.test(hintSupportText) ? 0.8 : 0,
-    comprovante_residencia: /\b(comprovante|residenc|conta de luz|conta de agua|iptu)\b/.test(hintSupportText) ? 0.8 : 0,
-    holerite: /\b(holerite|contracheque)\b/.test(hintSupportText) ? 0.8 : 0,
-    extrato_bancario: /\b(extrato)\b/.test(hintSupportText) ? 0.8 : 0,
-    declaracao_ir: /\b(declaracao.*ir|imposto de renda)\b/.test(hintSupportText) ? 0.8 : 0,
-    recibo_ir: /\b(recibo.*ir|darf)\b/.test(hintSupportText) ? 0.8 : 0
+    comprovante_residencia: /\b(comprovante|residenc|conta de luz|conta de agua|conta de internet|fatura de energia|boleto|iptu|logradouro|cep|endereco)\b/.test(hintSupportText) ? 0.8 : 0,
+    holerite: /\b(holerite|contracheque|folha de pagamento|vencimentos)\b/.test(hintSupportText) ? 0.8 : 0,
+    extrato_bancario: /\b(extrato|movimentacao|aposentadoria|inss|beneficio)\b/.test(hintSupportText) ? 0.8 : 0,
+    declaracao_ir: /\b(declaracao.*ir|imposto de renda|dirpf)\b/.test(hintSupportText) ? 0.8 : 0,
+    recibo_ir: /\b(recibo.*ir|numero do recibo|darf)\b/.test(hintSupportText) ? 0.8 : 0
   };
 
   if (mimeType.startsWith("image/") || mimeType === "application/pdf") {

@@ -6012,12 +6012,20 @@ function buildDocumentDossierFromState(st) {
     });
   }
 
-  const docsObrigatorios = participantes.flatMap((p) => ([
-    { participante: p.id, tipo: "rg", obrigatorio: true },
-    { participante: p.id, tipo: "cpf", obrigatorio: true },
-    { participante: p.id, tipo: "comprovante_residencia", obrigatorio: true },
-    { participante: p.id, tipo: "comprovante_renda", obrigatorio: true }
-  ]));
+    const docsObrigatorios = participantes.flatMap((p) => {
+    const docsBase = [
+      { participante: p.id, tipo: "rg", obrigatorio: true },
+      { participante: p.id, tipo: "cpf", obrigatorio: true },
+      { participante: p.id, tipo: "comprovante_residencia", obrigatorio: true },
+      { participante: p.id, tipo: "comprovante_renda", obrigatorio: true }
+    ];
+
+    if (p.id === "p1") {
+      docsBase.push({ participante: p.id, tipo: "ctps_completa", obrigatorio: true });
+    }
+
+    return docsBase;
+  });
 
   const docsCondicionais = [];
   if (st.estado_civil === "casado") {
@@ -6054,11 +6062,6 @@ function buildDocumentDossierFromState(st) {
   const docsRecomendados = [];
   const observacoesCliente = [];
   const observacoesCorrespondente = [];
-  if (dossieIsYes(st.ctps_36)) {
-    docsRecomendados.push({ participante: "p1", tipo: "ctps_completa", recomendacao: "estrategica" });
-    observacoesCliente.push("CTPS completa é recomendada para melhorar taxa de juros e perfil de financiamento.");
-    observacoesCorrespondente.push("CTPS completa recomendada (não obrigatória) para potencial ganho de taxa e alçada.");
-  }
 
   const rendaTotalFormal = participantes
     .filter((p) => ["clt", "servidor", "aposentado", "pensionista"].includes(String(p.regime_trabalho || "")))
@@ -6266,15 +6269,42 @@ async function updateDocsStatusV2(env, st) {
   // ================================
   const checklist = await gerarChecklistDocumentos(st);
 
-  // ================================
+    // ================================
   // 3 — COMPARAR (pendências)
   // ================================
   const pendencias = [];
 
-  for (const item of checklist) {
-    const achou = recebidos.some(
-      d => d.tipo === item.tipo && (d.participante || d.participant) === item.participante
+    for (const item of checklist) {
+    const participanteChecklist = String(item?.participante || "").trim().toLowerCase();
+    const tipoChecklist = String(item?.tipo || "").trim().toLowerCase();
+
+    const docsDoParticipante = recebidos.filter((d) => {
+      const participanteDoc = String(d?.participante || d?.participant || "").trim().toLowerCase();
+      return participanteDoc === participanteChecklist;
+    });
+
+    const tiposRecebidos = new Set(
+      docsDoParticipante
+        .map((d) => String(d?.tipo || "").trim().toLowerCase())
+        .filter(Boolean)
     );
+
+    const achou = (() => {
+      if (tiposRecebidos.has(tipoChecklist)) return true;
+
+      if (tipoChecklist === "identidade_cpf") {
+  if (tiposRecebidos.has("cnh")) return true;
+  if (tiposRecebidos.has("rg_com_cpf")) return true;
+  if (tiposRecebidos.has("rg") && tiposRecebidos.has("cpf")) return true;
+}
+
+      if (tipoChecklist === "ctps_completa" && tiposRecebidos.has("ctps")) return true;
+      if (tipoChecklist === "holerites" && tiposRecebidos.has("holerite")) return true;
+      if (tipoChecklist === "extratos_bancarios" && tiposRecebidos.has("extrato_bancario")) return true;
+
+      return false;
+    })();
+
     if (!achou) pendencias.push(item);
   }
 
@@ -7261,14 +7291,14 @@ function normalizeEnvioDocsDetectedDocType(tipo) {
   const t = String(tipo || "").trim().toLowerCase();
   if (!t) return "nao_identificado";
   if (t === "ctps") return "ctps_completa";
-  if (["rg", "cpf", "cnh", "ctps_completa", "comprovante_residencia", "holerite", "extrato_bancario", "declaracao_ir", "recibo_ir"].includes(t)) {
+  if (["rg", "rg_com_cpf", "cpf", "cnh", "ctps_completa", "comprovante_residencia", "holerite", "extrato_bancario", "declaracao_ir", "recibo_ir"].includes(t)) {
     return t;
   }
   return "nao_identificado";
 }
 
 function scoreEnvioDocsDocumentClassification({ textScores = {}, signalScores = {}, supportScores = {} } = {}) {
-  const candidates = ["rg", "cpf", "cnh", "ctps_completa", "comprovante_residencia", "holerite", "extrato_bancario", "declaracao_ir", "recibo_ir"];
+  const candidates = ["rg", "rg_com_cpf", "cpf", "cnh", "ctps_completa", "comprovante_residencia", "holerite", "extrato_bancario", "declaracao_ir", "recibo_ir"];
   const totals = {};
   for (const tipo of candidates) {
     const textWeight = 0.65;
@@ -7781,17 +7811,27 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
             : 0
         );
 
-  const textScores = {
-    cnh: /\b(cnh|carteira nacional de habilitacao|permissao para dirigir|categoria [abcde])\b/.test(extractedText) ? 1 : 0,
-    rg: /\b(registro geral|secretaria de seguranca|carteira de identidade|identidade)\b/.test(extractedText) ? 1 : (/\brg\b/.test(extractedText) ? 0.85 : 0),
-    cpf: cpfTextScore,
-    ctps_completa: hasCtpsStrongContext ? 1 : (hasCtpsSupportiveContext ? 0.85 : 0),
-    comprovante_residencia: /\b(comprovante de residencia|conta de luz|conta de agua|fatura de energia|logradouro|cep)\b/.test(extractedText) ? 1 : 0,
-    holerite: /\b(holerite|contracheque|demonstrativo de pagamento|folha de pagamento)\b/.test(extractedText) ? 1 : 0,
-    extrato_bancario: /\b(extrato bancario|saldo anterior|agencia|conta corrente|lancamentos)\b/.test(extractedText) ? 1 : (/\bextrato\b/.test(extractedText) ? 0.75 : 0),
-    declaracao_ir: /\b(declaracao de ajuste anual|declaracao de imposto de renda|imposto de renda da pessoa fisica)\b/.test(extractedText) ? 1 : 0,
-    recibo_ir: /\b(recibo de entrega|darf|documento de arrecadacao de receitas federais)\b/.test(extractedText) ? 1 : 0
-  };
+    const textScores = {
+  cnh: /\b(cnh|carteira nacional de habilitacao|permissao para dirigir|categoria [abcde])\b/.test(extractedText) ? 1 : 0,
+
+  rg: (
+    /\b(rg|registro geral|secretaria de seguranca|carteira de identidade|instituto de identificacao)\b/.test(extractedText) &&
+    !hasCpfTokenOrPattern
+  ) ? 1 : 0,
+
+  rg_com_cpf: (
+    /\b(registro geral|secretaria de seguranca|carteira de identidade|carteira de identidade nacional|documento nacional de identificacao|cin|instituto de identificacao|identidade)\b/.test(extractedText) &&
+    hasCpfTokenOrPattern
+  ) ? 1 : 0,
+
+  cpf: cpfTextScore,
+  ctps_completa: hasCtpsStrongContext ? 1 : (hasCtpsSupportiveContext ? 0.85 : 0),
+  comprovante_residencia: /\b(comprovante de residencia|conta de luz|conta de agua|fatura de energia|logradouro|cep)\b/.test(extractedText) ? 1 : 0,
+  holerite: /\b(holerite|contracheque|demonstrativo de pagamento|folha de pagamento)\b/.test(extractedText) ? 1 : 0,
+  extrato_bancario: /\b(extrato bancario|saldo anterior|agencia|conta corrente|lancamentos)\b/.test(extractedText) ? 1 : (/\bextrato\b/.test(extractedText) ? 0.75 : 0),
+  declaracao_ir: /\b(declaracao de ajuste anual|declaracao de imposto de renda|imposto de renda da pessoa fisica)\b/.test(extractedText) ? 1 : 0,
+  recibo_ir: /\b(recibo de entrega|darf|documento de arrecadacao de receitas federais)\b/.test(extractedText) ? 1 : 0
+};
 
   const hintToCanonical = {
     rg: "rg",

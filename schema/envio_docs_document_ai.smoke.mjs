@@ -221,6 +221,23 @@ async function run() {
   assert.equal(holeriteLowEvidenceButStructured.detected_doc_type, "holerite");
   assert.equal(holeriteLowEvidenceButStructured.classification_ok, true);
 
+  const holeriteComEnderecoResolvidoPeloDossie = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "Holerite mensal com salario base e valor liquido. Endereco do colaborador e CEP no rodape.",
+      signals_json: {}
+    },
+    {
+      envio_docs_itens_json: [
+        { tipo: "comprovante_renda", participante: "p1", bucket: "obrigatorio", status: "pendente" }
+      ]
+    },
+    { fileName: "holerite_endereco.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(holeriteComEnderecoResolvidoPeloDossie.detected_doc_type, "holerite");
+  assert.equal(holeriteComEnderecoResolvidoPeloDossie.detected_doc_category, "comprovante_renda");
+  assert.equal(holeriteComEnderecoResolvidoPeloDossie.classification_ok, true);
+
   const cnhDoc = classifyEnvioDocsDocument(
     {
       extraction_ok: true,

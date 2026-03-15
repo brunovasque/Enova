@@ -7938,6 +7938,8 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   const hasCtpsStrongContext = /\b(ctps digital|carteira de trabalho digital|carteira de trabalho e previdencia social|ctps)\b/.test(extractedText);
   const hasCtpsSupportiveContext = /\b(carteira de trabalho|pis\/pasep|pis pasep|serie)\b/.test(extractedText);
   const hasCpfTokenOrPattern = /\bcpf\b/.test(extractedText) || /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/.test(extractedText);
+  const hasGenericIdentityToken = /\bidentidade\b/.test(extractedText);
+  const hasRgSpecificContext = /\b(rg|registro geral|secretaria de seguranca|carteira de identidade|carteira de identidade nacional|documento nacional de identificacao|cin|instituto de identificacao)\b/.test(extractedText);
   const hasCpfStrongContext = /\b(cadastro de pessoas fisicas|comprovante de situacao cadastral no cpf)\b/.test(extractedText);
   const cpfTextScore =
     hasCpfStrongContext
@@ -7962,7 +7964,10 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   ) ? 1 : 0,
 
   rg_com_cpf: (
-    /\b(registro geral|secretaria de seguranca|carteira de identidade|carteira de identidade nacional|documento nacional de identificacao|cin|instituto de identificacao|identidade)\b/.test(extractedText) &&
+    (
+      hasRgSpecificContext ||
+      (hasGenericIdentityToken && !hasCtpsStrongContext)
+    ) &&
     hasCpfTokenOrPattern
   ) ? 1 : 0,
 

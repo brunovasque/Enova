@@ -107,6 +107,19 @@ async function run() {
   assert.equal(ctpsDigitalWithCpf.detected_doc_type, "ctps_completa");
   assert.equal(ctpsDigitalWithCpf.classification_ok, true);
 
+  const ctpsDigitalWithGenericIdentity = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "CTPS Digital do titular. Documento de identidade do trabalhador. CPF 123.456.789-00. Carteira de trabalho digital.",
+      signals_json: { doc_type_hints: ["ctps", "rg", "cpf"], has_cpf_pattern: true }
+    },
+    {},
+    { fileName: "ctps_digital_identidade.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(ctpsDigitalWithGenericIdentity.detected_doc_type, "ctps_completa");
+  assert.equal(ctpsDigitalWithGenericIdentity.classification_ok, true);
+  assert.equal(ctpsDigitalWithGenericIdentity.detected_signals_json?.text_scores?.rg_com_cpf, 0);
+
   const cpfCadastral = classifyEnvioDocsDocument(
     {
       extraction_ok: true,
@@ -253,6 +266,18 @@ async function run() {
   );
   assert.equal(cnhDoc.detected_doc_type, "cnh");
   assert.equal(cnhDoc.classification_ok, true);
+
+  const identidadeVsCnhAmbiguo = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "Carteira nacional de habilitacao categoria B. Documento de identidade com CPF 123.456.789-00.",
+      signals_json: { doc_type_hints: ["cnh", "rg", "cpf"], has_cpf_pattern: true }
+    },
+    {},
+    { fileName: "ambiguidade_identidade_cnh.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(identidadeVsCnhAmbiguo.detected_doc_type, "nao_identificado");
+  assert.equal(identidadeVsCnhAmbiguo.classification_ok, false);
 }
 
 await run();

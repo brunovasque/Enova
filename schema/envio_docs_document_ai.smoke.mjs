@@ -267,6 +267,30 @@ async function run() {
   assert.equal(cnhDoc.detected_doc_type, "cnh");
   assert.equal(cnhDoc.classification_ok, true);
 
+  const cnhPdfDigital = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "Carteira Digital de Trânsito. Documento digital de habilitação. Registro Nacional de Condutores Habilitados (RENACH). Categoria B.",
+      signals_json: {}
+    },
+    {},
+    { fileName: "cnh_digital.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(cnhPdfDigital.detected_doc_type, "cnh");
+  assert.equal(cnhPdfDigital.classification_ok, true);
+
+  const residenciaImagemUtilidade = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "COPEL Distribuição S.A. Tarifa de energia elétrica. Unidade consumidora 123456. Consumo 250 kWh. Valor a pagar. CEP 80000-000. Curitiba PR.",
+      signals_json: { doc_type_hints: ["cpf", "rg"], has_cpf_pattern: true }
+    },
+    {},
+    { fileName: "conta_copel.jpg", mimeType: "image/jpeg" }
+  );
+  assert.equal(residenciaImagemUtilidade.detected_doc_type, "comprovante_residencia");
+  assert.equal(residenciaImagemUtilidade.classification_ok, true);
+
   const identidadeVsCnhAmbiguo = classifyEnvioDocsDocument(
     {
       extraction_ok: true,

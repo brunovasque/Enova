@@ -59,4 +59,29 @@ assert.equal(matchedSafeWins.target?.tipo, "rg");
 assert.equal(matchedSafeWins.finalTargetSource, "document_engine");
 assert.equal(matchedSafeWins.fallbackUsed, false);
 
+const itensWithRecommendedCtps = [
+  { tipo: "identidade_cpf", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+  { tipo: "comprovante_renda", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+  { tipo: "ctps_completa", participante: "p1", bucket: "recomendado", status: "recomendado", recomendacao: "estrategica" }
+];
+
+const ctpsRecommendedTarget = chooseEnvioDocsFinalTarget({
+  itens: itensWithRecommendedCtps,
+  checklistMatch: {
+    match_status: "no_match",
+    match_reason: "no_pending_item_for_doc_type_and_participant",
+    match_signals_json: { detected_participant: "p1", participant_confidence: 0.9 }
+  },
+  documentClassification: { detected_doc_type: "ctps_completa" },
+  legacySelection: { item: null, items: [] }
+});
+assert.equal(ctpsRecommendedTarget.target?.tipo, "ctps_completa");
+assert.equal(ctpsRecommendedTarget.target?.participante, "p1");
+assert.equal(ctpsRecommendedTarget.finalTargetSource, "recommended_ctps");
+assert.equal(ctpsRecommendedTarget.fallbackUsed, false);
+assert.notEqual(ctpsRecommendedTarget.target?.tipo, "identidade_cpf");
+assert.notEqual(ctpsRecommendedTarget.target?.tipo, "comprovante_renda");
+assert.equal(itensWithRecommendedCtps[0].status, "pendente");
+assert.equal(itensWithRecommendedCtps[1].status, "pendente");
+
 console.log("envio_docs_target_resolution.smoke: ok");

@@ -209,6 +209,18 @@ async function run() {
   assert.equal(reciboIr.detected_doc_type, "recibo_ir");
   assert.equal(reciboIr.detected_doc_category, "comprovante_renda");
 
+  const holeriteLowEvidenceButStructured = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "doc",
+      signals_json: { doc_type_hints: ["holerite"] }
+    },
+    {},
+    { fileName: "holerite_titular.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(holeriteLowEvidenceButStructured.detected_doc_type, "holerite");
+  assert.equal(holeriteLowEvidenceButStructured.classification_ok, true);
+
   const cnhDoc = classifyEnvioDocsDocument(
     {
       extraction_ok: true,

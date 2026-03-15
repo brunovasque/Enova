@@ -8380,6 +8380,121 @@ function resolveEnvioDocsRecommendedCtpsTarget(itens = [], checklistMatch = {}, 
   };
 }
 
+function resolveEnvioDocsRecommendedCtpsTarget(itens = [], checklistMatch = {}, documentClassification = {}) {
+  const detectedDocType = String(documentClassification?.detected_doc_type || "").trim().toLowerCase();
+  if (detectedDocType !== "ctps_completa") {
+    return {
+      item: null,
+      items: [],
+      source: "none"
+    };
+  }
+
+  const matchStatus = String(checklistMatch?.match_status || "").trim().toLowerCase();
+  const matchReason = String(checklistMatch?.match_reason || "").trim().toLowerCase();
+  const noPendingReason =
+    matchReason === "no_pending_item_for_doc_type" ||
+    matchReason === "no_pending_item_for_doc_type_and_participant";
+  if (matchStatus !== "no_match" || !noPendingReason) {
+    return {
+      item: null,
+      items: [],
+      source: "none"
+    };
+  }
+
+  const recommendedCtpsItems = itens.filter((item) =>
+    String(item?.tipo || "").trim().toLowerCase() === "ctps_completa" &&
+    (
+      String(item?.bucket || "").trim().toLowerCase() === "recomendado" ||
+      Boolean(item?.recomendacao)
+    )
+  );
+  if (!recommendedCtpsItems.length) {
+    return {
+      item: null,
+      items: [],
+      source: "none"
+    };
+  }
+
+  const detectedParticipant = normalizeEnvioDocsDetectedParticipant(
+    checklistMatch?.match_signals_json?.detected_participant
+  );
+  const participantConfidence = Number(
+    checklistMatch?.match_signals_json?.participant_confidence || 0
+  );
+  const participantStrong =
+    detectedParticipant !== "desconhecido" && participantConfidence >= 0.75;
+
+  if (participantStrong) {
+    const scoped = recommendedCtpsItems.filter(
+      (item) => normalizeEnvioDocsDetectedParticipant(item?.participante) === detectedParticipant
+    );
+    if (scoped.length >= 1) {
+      return {
+        item: scoped[0],
+        items: scoped,
+        source: "recommended_ctps"
+      };
+    }
+  }
+
+  const itemsByParticipant = new Map();
+  for (const item of recommendedCtpsItems) {
+    const participant = normalizeEnvioDocsDetectedParticipant(item?.participante);
+    if (!itemsByParticipant.has(participant)) {
+      itemsByParticipant.set(participant, []);
+    }
+    itemsByParticipant.get(participant).push(item);
+  }
+
+  if (detectedParticipant !== "desconhecido") {
+    const detectedScoped = itemsByParticipant.get(detectedParticipant) || [];
+    if (detectedScoped.length >= 1) {
+      return {
+        item: detectedScoped[0],
+        items: detectedScoped,
+        source: "recommended_ctps"
+      };
+    }
+  }
+
+  const titularItems = itemsByParticipant.get("p1") || [];
+  if (titularItems.length >= 1) {
+    return {
+      item: titularItems[0],
+      items: titularItems,
+      source: "recommended_ctps"
+    };
+  }
+
+  if (itemsByParticipant.size === 1) {
+    const onlyGroup = Array.from(itemsByParticipant.values())[0] || [];
+    if (onlyGroup.length >= 1) {
+      return {
+        item: onlyGroup[0],
+        items: onlyGroup,
+        source: "recommended_ctps"
+      };
+    }
+  }
+
+  if (recommendedCtpsItems.length === 1) {
+    return {
+      item: recommendedCtpsItems[0],
+      items: recommendedCtpsItems,
+      source: "recommended_ctps"
+    };
+  }
+
+  return {
+    item: null,
+    items: [],
+    source: "none"
+  };
+}
+
 function chooseEnvioDocsFinalTarget(input = {}) {
   const itens = Array.isArray(input?.itens) ? input.itens : [];
   const checklistMatch = input?.checklistMatch || {};

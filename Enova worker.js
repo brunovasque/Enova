@@ -1,10 +1,22 @@
 console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
 
 const ENOVA_BUILD = "enova-meta-debug-stamp-2026-03-11-visit-suite-publish";
+const CTPS_TARGET_RUNTIME_GUARD_VERSION = "ctps-target-guard-v1";
+const CTPS_RESOLUTION_PATH_GUARD = "handleDocumentUpload:post_match_target_resolution";
 const RESET_REPLY_SUMMARY_MAX_LEN = 140;
 
 function getSimulationContext(env) {
   return env && env.__enovaSimulationCtx ? env.__enovaSimulationCtx : null;
+}
+
+function getRuntimeGitCommitHint(env) {
+  return String(
+    env?.ENOVA_GIT_COMMIT ||
+    env?.GIT_COMMIT ||
+    env?.VERCEL_GIT_COMMIT_SHA ||
+    env?.CF_PAGES_COMMIT_SHA ||
+    ""
+  ).trim() || null;
 }
 
 // =============================================================
@@ -6968,13 +6980,7 @@ async function runMistralOCR(env, input = {}, options = {}) {
   const documentObjectKeys = document && typeof document === "object" ? Object.keys(document) : [];
   const runtimeGuardVersion = "mistral-runtime-guard-v1";
   const buildStamp = String(typeof ENOVA_BUILD === "string" ? ENOVA_BUILD : "").trim() || null;
-  const gitCommitHint = String(
-    env?.ENOVA_GIT_COMMIT ||
-    env?.GIT_COMMIT ||
-    env?.VERCEL_GIT_COMMIT_SHA ||
-    env?.CF_PAGES_COMMIT_SHA ||
-    ""
-  ).trim() || null;
+  const gitCommitHint = getRuntimeGitCommitHint(env);
   const workerName = String(
     env?.WORKER_NAME ||
     env?.CF_WORKER_NAME ||
@@ -8392,7 +8398,9 @@ function chooseEnvioDocsFinalTarget(input = {}) {
       matchedItems: engineResolution.items,
       fallbackUsed: false,
       finalTargetSource: "document_engine",
-      engineResolution
+      engineResolution,
+      recommendedCtpsResolution,
+      recommendedCtpsRuleEvaluated: true
     };
   }
 
@@ -8402,7 +8410,9 @@ function chooseEnvioDocsFinalTarget(input = {}) {
       matchedItems: recommendedCtpsResolution.items,
       fallbackUsed: false,
       finalTargetSource: "recommended_ctps",
-      engineResolution
+      engineResolution,
+      recommendedCtpsResolution,
+      recommendedCtpsRuleEvaluated: true
     };
   }
 
@@ -8412,7 +8422,9 @@ function chooseEnvioDocsFinalTarget(input = {}) {
       matchedItems: fallbackItems.length ? fallbackItems : [fallbackItem],
       fallbackUsed: true,
       finalTargetSource: "legacy_fallback",
-      engineResolution
+      engineResolution,
+      recommendedCtpsResolution,
+      recommendedCtpsRuleEvaluated: true
     };
   }
 
@@ -8421,7 +8433,9 @@ function chooseEnvioDocsFinalTarget(input = {}) {
     matchedItems: [],
     fallbackUsed: false,
     finalTargetSource: "none",
-    engineResolution
+    engineResolution,
+    recommendedCtpsResolution,
+    recommendedCtpsRuleEvaluated: true
   };
 }
 
@@ -8829,6 +8843,19 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       : finalTargetSource === "recommended_ctps"
         ? "recommended_ctps"
       : (fallbackUsed ? "legacy_fallback" : "none");
+    const expectedPendingItemsBefore = Array.isArray(selectionDebug.expected_pending_items_before) ? selectionDebug.expected_pending_items_before : [];
+    const targetResolutionBuildStamp = String(typeof ENOVA_BUILD === "string" ? ENOVA_BUILD : "").trim() || null;
+    const targetResolutionGitCommitHint = getRuntimeGitCommitHint(env);
+    const targetResolutionLogicalBranchExecuted = finalTargetSource === "document_engine"
+      ? "document_engine_matched_safe"
+      : finalTargetSource === "recommended_ctps"
+        ? "recommended_ctps_applied"
+        : finalTargetSource === "legacy_fallback"
+          ? "legacy_fallback_selected"
+          : "none_selected";
+    const recommendedCtpsRuleEvaluated = finalTargetDecision?.recommendedCtpsRuleEvaluated === true;
+    const recommendedCtpsRuleHit = Boolean(finalTargetDecision?.recommendedCtpsResolution?.item);
+    const recommendedCtpsRuleApplied = finalTargetSource === "recommended_ctps";
 
     await telemetry(env, {
       wa_id: st.wa_id,
@@ -8859,7 +8886,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         matched_item_tipo: selectionDebug.matched_item_tipo || null,
         matched_item_participante: selectionDebug.matched_item_participante || null,
         matched_checklist_items: Array.isArray(selectionDebug.matched_checklist_items) ? selectionDebug.matched_checklist_items : [],
-        expected_pending_items_before: Array.isArray(selectionDebug.expected_pending_items_before) ? selectionDebug.expected_pending_items_before : [],
+        expected_pending_items_before: expectedPendingItemsBefore,
         document_ai_extraction_ok: documentAiSignals?.extraction_ok === true,
         document_ai_error_code: documentAiSignals?.extraction_error_code || null,
         document_ai_signal_density: Number(documentAiSignals?.signals_json?.keyword_density || 0) || 0,
@@ -8951,6 +8978,32 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
 
     await telemetry(env, {
       wa_id: st.wa_id,
+      event: "envio_docs_ctps_target_resolution_debug",
+      stage: st.fase_conversa || "envio_docs",
+      severity: "info",
+      force: true,
+      message: "DEBUG resolução final de target CTPS no pós-match",
+      details: {
+        build_stamp: targetResolutionBuildStamp,
+        runtime_guard_version: CTPS_TARGET_RUNTIME_GUARD_VERSION,
+        git_commit_hint: targetResolutionGitCommitHint,
+        resolution_path_guard: CTPS_RESOLUTION_PATH_GUARD,
+        detected_doc_type_classification: documentClassification?.detected_doc_type || null,
+        checklist_match_status: checklistMatch?.match_status || null,
+        checklist_match_reason: checklistMatch?.match_reason || null,
+        final_target_source: finalTargetSource,
+        recognition_source: recognitionSource,
+        logical_branch_executed: targetResolutionLogicalBranchExecuted,
+        recommended_ctps_rule_evaluated: recommendedCtpsRuleEvaluated,
+        recommended_ctps_rule_hit: recommendedCtpsRuleHit,
+        recommended_ctps_rule_applied: recommendedCtpsRuleApplied,
+        expected_pending_items_before: expectedPendingItemsBefore,
+        expected_pending_items_after: expectedPendingItemsAfter
+      }
+    });
+
+    await telemetry(env, {
+      wa_id: st.wa_id,
       event: "envio_docs_media_debug_post_match",
       stage: st.fase_conversa || "envio_docs",
       severity: "info",
@@ -8970,7 +9023,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         matched_item_tipo: target?.tipo || null,
         matched_item_participante: target?.participante || null,
         matched_checklist_items: mapEnvioDocsItemRefs(matchedItems),
-        expected_pending_items_before: Array.isArray(selectionDebug.expected_pending_items_before) ? selectionDebug.expected_pending_items_before : [],
+        expected_pending_items_before: expectedPendingItemsBefore,
         expected_pending_items_after: expectedPendingItemsAfter,
         fallback_used: fallbackUsed,
         final_target_source: finalTargetSource,

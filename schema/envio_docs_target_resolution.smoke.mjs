@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 const workerModule = await import(new URL("../Enova worker.js", import.meta.url).href);
 const {
+  matchEnvioDocsClassificationToChecklist,
   resolveEnvioDocsTargetFromDocumentEngine,
   chooseEnvioDocsFinalTarget
 } = workerModule;
@@ -83,5 +84,46 @@ assert.notEqual(ctpsRecommendedTarget.target?.tipo, "identidade_cpf");
 assert.notEqual(ctpsRecommendedTarget.target?.tipo, "comprovante_renda");
 assert.equal(itensWithRecommendedCtps[0].status, "pendente");
 assert.equal(itensWithRecommendedCtps[1].status, "pendente");
+
+const itensComprovantes = [
+  { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+  { tipo: "comprovante_residencia", participante: "p2", bucket: "obrigatorio", status: "pendente" },
+  { tipo: "comprovante_renda", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+  { tipo: "comprovante_renda", participante: "p2", bucket: "obrigatorio", status: "pendente" },
+  { tipo: "rg", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+  { tipo: "cpf", participante: "p1", bucket: "obrigatorio", status: "pendente" }
+];
+
+const matchResidenciaSoftParticipant = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "comprovante_residencia", detected_doc_category: "comprovante_residencia", classification_confidence: 0.8 },
+  { detected_participant: "p1", participant_confidence: 0.6 },
+  { envio_docs_itens_json: itensComprovantes }
+);
+assert.equal(matchResidenciaSoftParticipant.match_status, "matched_safe");
+assert.deepEqual(matchResidenciaSoftParticipant.matched_items, [{ tipo: "comprovante_residencia", participante: "p1" }]);
+
+const matchRendaSoftParticipant = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "holerite", detected_doc_category: "comprovante_renda", classification_confidence: 0.8 },
+  { detected_participant: "p2", participant_confidence: 0.61 },
+  { envio_docs_itens_json: itensComprovantes }
+);
+assert.equal(matchRendaSoftParticipant.match_status, "matched_safe");
+assert.deepEqual(matchRendaSoftParticipant.matched_items, [{ tipo: "comprovante_renda", participante: "p2" }]);
+
+const matchResidenciaAmbiguoReal = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "comprovante_residencia", detected_doc_category: "comprovante_residencia", classification_confidence: 0.8 },
+  { detected_participant: "desconhecido", participant_confidence: 0.5 },
+  { envio_docs_itens_json: itensComprovantes }
+);
+assert.equal(matchResidenciaAmbiguoReal.match_status, "ambiguous");
+
+const matchCnhNaoRegrediu = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "cnh", detected_doc_category: "identidade", classification_confidence: 0.85 },
+  { detected_participant: "desconhecido", participant_confidence: 0.5 },
+  { envio_docs_itens_json: itensComprovantes }
+);
+assert.equal(matchCnhNaoRegrediu.match_status, "ambiguous");
+assert.equal(Array.isArray(matchCnhNaoRegrediu.matched_items), true);
+assert.equal(matchCnhNaoRegrediu.matched_items.length, 2);
 
 console.log("envio_docs_target_resolution.smoke: ok");

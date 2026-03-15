@@ -7762,11 +7762,24 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
     });
   }
 
+  const hasCtpsStrongContext = /\b(ctps digital|carteira de trabalho digital|carteira de trabalho e previdencia social|ctps)\b/.test(extractedText);
+  const hasCtpsSupportiveContext = /\b(carteira de trabalho|pis\/pasep|pis pasep|serie)\b/.test(extractedText);
+  const hasCpfTokenOrPattern = /\bcpf\b/.test(extractedText) || /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/.test(extractedText);
+  const hasCpfStrongContext = /\b(cadastro de pessoas fisicas|comprovante de situacao cadastral no cpf)\b/.test(extractedText);
+  const cpfTextScore =
+    hasCpfStrongContext
+      ? 1
+      : (
+          hasCpfTokenOrPattern
+            ? (hasCtpsStrongContext ? 0.35 : 0.7)
+            : 0
+        );
+
   const textScores = {
     cnh: /\b(cnh|carteira nacional de habilitacao|permissao para dirigir|categoria [abcde])\b/.test(extractedText) ? 1 : 0,
     rg: /\b(registro geral|secretaria de seguranca|carteira de identidade|identidade)\b/.test(extractedText) ? 1 : (/\brg\b/.test(extractedText) ? 0.85 : 0),
-    cpf: /\b(cadastro de pessoas fisicas|comprovante de situacao cadastral no cpf)\b/.test(extractedText) ? 1 : ((/\bcpf\b/.test(extractedText) || /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/.test(extractedText)) ? 0.7 : 0),
-    ctps_completa: /\b(ctps|carteira de trabalho e previdencia social|pis\/pasep|serie)\b/.test(extractedText) ? 1 : 0,
+    cpf: cpfTextScore,
+    ctps_completa: hasCtpsStrongContext ? 1 : (hasCtpsSupportiveContext ? 0.85 : 0),
     comprovante_residencia: /\b(comprovante de residencia|conta de luz|conta de agua|fatura de energia|logradouro|cep)\b/.test(extractedText) ? 1 : 0,
     holerite: /\b(holerite|contracheque|demonstrativo de pagamento|folha de pagamento)\b/.test(extractedText) ? 1 : 0,
     extrato_bancario: /\b(extrato bancario|saldo anterior|agencia|conta corrente|lancamentos)\b/.test(extractedText) ? 1 : (/\bextrato\b/.test(extractedText) ? 0.75 : 0),

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 
 const workerModule = await import(new URL("../Enova worker.js", import.meta.url).href);
-const { getEnvioDocsDocumentAIConfig, extractEnvioDocsSignals } = workerModule;
+const {
+  getEnvioDocsDocumentAIConfig,
+  extractEnvioDocsSignals,
+  classifyEnvioDocsDocument
+} = workerModule;
 
 async function run() {
   const cfgTest = getEnvioDocsDocumentAIConfig({
@@ -86,6 +90,30 @@ async function run() {
 
   assert.equal(noKeyResult.extraction_ok, false);
   assert.equal(noKeyResult.extraction_error_code, "missing_api_key");
+
+  const ctpsDigitalWithCpf = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "Carteira de Trabalho Digital CTPS do titular. CPF 123.456.789-00. Dados do trabalhador e vínculos.",
+      signals_json: { doc_type_hints: ["cpf"], has_cpf_pattern: true }
+    },
+    {},
+    { fileName: "ctps_digital.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(ctpsDigitalWithCpf.detected_doc_type, "ctps_completa");
+  assert.equal(ctpsDigitalWithCpf.classification_ok, true);
+
+  const cpfCadastral = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "Comprovante de situacao cadastral no CPF. Cadastro de pessoas fisicas.",
+      signals_json: { doc_type_hints: ["cpf"], has_cpf_pattern: true }
+    },
+    {},
+    { fileName: "cpf.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(cpfCadastral.detected_doc_type, "cpf");
+  assert.equal(cpfCadastral.classification_ok, true);
 }
 
 await run();

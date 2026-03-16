@@ -8151,7 +8151,7 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
     !hasCnhStrongHint;
   const cnhTextScore = (hasCnhStrongContext || hasCnhDigitalContext) ? SCORE_MAX : (hasCnhStrongHint ? SCORE_STRONG_HINT : 0);
   const hasHoleritePayrollColumns =
-    /\b(proventos|descontos|total liquido|total líquido|valor liquido|valor líquido|liquido a receber|líquido a receber|liquido a pagar|líquido a pagar|liquido liquido|líquido líquido)\b/.test(extractedText);
+    /\b(proventos|descontos|total liquido|total líquido|valor liquido|valor líquido|liquido a receber|líquido a receber|liquido a pagar|líquido a pagar)\b/.test(extractedText);
   const hasHoleriteReceiptContext = /\b(recibo de pagamento(?: de salario| de salário)?)\b/.test(extractedText);
   const holeriteTextScore =
     /\b(holerite|contracheque|demonstrativo de pagamento|demonstrativo de salario|demonstrativo de salário|folha de pagamento|vencimentos|salario base|salário base|valor liquido|valor líquido)\b/.test(extractedText) ||

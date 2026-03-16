@@ -8144,6 +8144,12 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
     for (const key of Object.keys(supportScores)) supportScores[key] = Math.max(0, supportScores[key]);
   }
 
+  if (hasCtpsStrongContext || hasCtpsStrongHint) {
+  textScores.comprovante_residencia = 0;
+  signalScores.comprovante_residencia = 0;
+  supportScores.comprovante_residencia = 0;
+}
+
   const scoring = scoreEnvioDocsDocumentClassification({ textScores, signalScores, supportScores });
   const textStrongTypes = Object.entries(textScores).filter(([, score]) => Number(score) >= 0.95).map(([tipo]) => tipo);
   const hasTextConflict =

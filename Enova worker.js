@@ -8231,20 +8231,32 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
 async function extractEnvioDocsSignals(env, mediaObject, opts = {}) {
   const MAX_TEXT_PREVIEW_LENGTH = 1200;
   const sourceTypeRaw = String(
-    opts?.sourceType ||
-    mediaObject?.source_type ||
-    mediaObject?.type ||
-    ""
+    opts?.sourceType || mediaObject?.source_type || mediaObject?.type || ""
   ).toLowerCase();
   const mimeType = String(mediaObject?.mime_type || mediaObject?.mimetype || "").toLowerCase();
   const fileName = String(mediaObject?.filename || mediaObject?.file_name || "").trim() || null;
+  const buildStamp = String(typeof ENOVA_BUILD === "string" ? ENOVA_BUILD : "").trim() || null;
+  const runtimeGitCommit = getRuntimeGitCommitHint(env);
 
   const sourceType =
     sourceTypeRaw === "image"
       ? "image"
-      : sourceTypeRaw === "document" || mimeType === "application/pdf" || /\.pdf$/i.test(fileName || "")
+      : sourceTypeRaw === "document" ||
+          mimeType === "application/pdf" ||
+          /\.pdf$/i.test(fileName || "")
         ? "pdf"
         : sourceTypeRaw;
+
+  const rawFileSize =
+    mediaObject?.file_size ??
+    mediaObject?.size ??
+    mediaObject?.bytes ??
+    mediaObject?.fileSize ??
+    null;
+
+  const binarySizeBytes = Number.isFinite(Number(rawFileSize))
+    ? Number(rawFileSize)
+    : null;
 
   const result = {
     source_type: sourceType || null,
@@ -8264,58 +8276,155 @@ async function extractEnvioDocsSignals(env, mediaObject, opts = {}) {
   if (sourceType !== "pdf" && sourceType !== "image") {
     result.extraction_error_code = "unsupported_source_type";
     result.extraction_error_message = "Extração documental só suporta PDF/imagem nesta fase.";
+
+    logEnvioDocsDocAiDebug({
+      event: "envio_docs_doc_ai_extract_debug",
+      stage: "envio_docs",
+      message: "DEBUG extração documental — source_type não suportado",
+      details: {
+        source_type: result.source_type || null,
+        source_type_raw: sourceTypeRaw || null,
+        mime_type: result.mime_type || null,
+        file_name: result.file_name || null,
+        binary_size_bytes: binarySizeBytes,
+        extraction_ok: false,
+        extraction_error_code: result.extraction_error_code,
+        extraction_error_message: result.extraction_error_message,
+        build_stamp: buildStamp,
+        runtime_git_commit: runtimeGitCommit
+      }
+    });
+
     return result;
   }
 
   const mediaPayload = await downloadEnvioDocsMediaAsBase64(env, mediaObject, opts);
+
   if (!mediaPayload?.ok) {
     result.extraction_error_code = mediaPayload?.error_code || "media_resolution_failed";
-    result.extraction_error_message = mediaPayload?.error_message || "Falha ao resolver mídia para extração.";
+    result.extraction_error_message =
+      mediaPayload?.error_message || "Falha ao resolver mídia para extração.";
+
+    logEnvioDocsDocAiDebug({
+      event: "envio_docs_doc_ai_extract_debug",
+      stage: "envio_docs",
+      message: "DEBUG extração documental — falha ao resolver mídia",
+      details: {
+        source_type: result.source_type || null,
+        source_type_raw: sourceTypeRaw || null,
+        mime_type: result.mime_type || null,
+        file_name: result.file_name || null,
+        binary_size_bytes: binarySizeBytes,
+        extraction_ok: false,
+        extraction_error_code: result.extraction_error_code,
+        extraction_error_message: result.extraction_error_message,
+        media_payload_ok: false,
+        build_stamp: buildStamp,
+        runtime_git_commit: runtimeGitCommit
+      }
+    });
+
     return result;
   }
 
-  const ocr = await runMistralOCR(env, {
-    sourceType,
-    base64: mediaPayload.base64,
-    sourceUrl: null
-  }, opts);
+  const mediaPayloadBase64Length = String(mediaPayload?.base64 || "").length;
+
+  const ocr = await runMistralOCR(
+    env,
+    {
+      sourceType,
+      base64: mediaPayload.base64,
+      sourceUrl: null,
+      mime_type: result.mime_type,
+      file_name: result.file_name,
+      binary_size_bytes: binarySizeBytes
+    },
+    opts
+  );
 
   if (!ocr?.ok) {
     result.extraction_error_code = ocr?.error_code || "ocr_failed";
     result.extraction_error_message = ocr?.error_message || "Falha na extração OCR.";
+
+    logEnvioDocsDocAiDebug({
+      event: "envio_docs_doc_ai_extract_debug",
+      stage: "envio_docs",
+      message: "DEBUG extração documental — OCR falhou",
+      details: {
+        source_type: result.source_type || null,
+        source_type_raw: sourceTypeRaw || null,
+        mime_type: result.mime_type || null,
+        file_name: result.file_name || null,
+        binary_size_bytes: binarySizeBytes,
+        media_payload_ok: true,
+        media_payload_base64_length: mediaPayloadBase64Length,
+        extraction_ok: false,
+        extraction_error_code: result.extraction_error_code,
+        extraction_error_message: result.extraction_error_message,
+        ocr_provider: ocr?.provider || result.extraction_source || null,
+        build_stamp: buildStamp,
+        runtime_git_commit: runtimeGitCommit
+      }
+    });
+
     return result;
   }
 
-  const textFull = String(ocr.text || "").trim();
+  const textFull = String(ocr?.text || "").trim();
+  const normalizedText = normalizeText(textFull);
+
   result.extraction_ok = true;
-  result.page_count = ocr.page_count ?? null;
-  result.confidence_base = ocr.confidence_base ?? null;
+  result.page_count = ocr?.page_count ?? null;
+  result.confidence_base = ocr?.confidence_base ?? null;
   result.extracted_text_full = textFull || null;
-  result.extracted_text_preview = textFull ? textFull.slice(0, MAX_TEXT_PREVIEW_LENGTH) : null;
+  result.extracted_text_preview = textFull
+    ? textFull.slice(0, MAX_TEXT_PREVIEW_LENGTH)
+    : null;
   result.signals_json = inferEnvioDocsSignalsFromExtractedText(textFull, {
     fileName,
     mimeType: result.mime_type
   });
+
+  const docTypeHints = Array.isArray(result?.signals_json?.doc_type_hints)
+    ? result.signals_json.doc_type_hints
+    : [];
+  const participantHints = Array.isArray(result?.signals_json?.participant_hints)
+    ? result.signals_json.participant_hints
+    : [];
+  const hasCpfPattern = result?.signals_json?.has_cpf_pattern === true;
+  const keywordDensity = Number(result?.signals_json?.keyword_density || 0) || 0;
+
   logEnvioDocsDocAiDebug({
     event: "envio_docs_doc_ai_extract_debug",
     stage: "envio_docs",
     message: "DEBUG extração documental",
     details: {
       source_type: result.source_type || null,
+      source_type_raw: sourceTypeRaw || null,
       mime_type: result.mime_type || null,
       file_name: result.file_name || null,
-      ocr_ok: result.extraction_ok === true,
+      binary_size_bytes: binarySizeBytes,
+      media_payload_ok: true,
+      media_payload_base64_length: mediaPayloadBase64Length,
+      extraction_ok: true,
+      extraction_source: result.extraction_source || null,
       ocr_provider: ocr?.provider || result.extraction_source || null,
       ocr_error_code: result.extraction_error_code || null,
       ocr_error_message: result.extraction_error_message || null,
+      page_count: result.page_count,
+      confidence_base: result.confidence_base,
       extracted_text_length: textFull.length,
       extracted_text_preview_masked: maskEnvioDocsExtractPreview(textFull, 400),
-      has_text_content: normalizeText(textFull).length >= 20,
-      doc_type_hints: Array.isArray(result?.signals_json?.doc_type_hints) ? result.signals_json.doc_type_hints : [],
-      participant_hints: Array.isArray(result?.signals_json?.participant_hints) ? result.signals_json.participant_hints : [],
-      keyword_density: Number(result?.signals_json?.keyword_density || 0) || 0
+      has_text_content: normalizedText.length >= 20,
+      doc_type_hints: docTypeHints,
+      participant_hints: participantHints,
+      has_cpf_pattern: hasCpfPattern,
+      keyword_density: keywordDensity,
+      build_stamp: buildStamp,
+      runtime_git_commit: runtimeGitCommit
     }
   });
+
   return result;
 }
 

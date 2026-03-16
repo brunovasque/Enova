@@ -8427,7 +8427,6 @@ async function extractEnvioDocsSignals(env, mediaObject, opts = {}) {
 
   return result;
 }
-__name(extractEnvioDocsSignals, "extractEnvioDocsSignals");
 
 function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, hintText }) {
   const MIN_IMAGE_SIZE_BYTES = 15 * 1024;

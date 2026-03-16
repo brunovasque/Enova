@@ -7913,16 +7913,18 @@ function matchEnvioDocsClassificationToChecklist(documentClassification, partici
       const candidatesParticipants = new Set(
         candidates.map((entry) => normalizeEnvioDocsDetectedParticipant(entry?.item?.participante))
       );
-      const allCandidatesSameParticipant = candidatesParticipants.size === 1 && !candidatesParticipants.has("desconhecido");
+      const candidatesShareSingleKnownParticipant =
+        candidatesParticipants.size === 1 && !candidatesParticipants.has("desconhecido");
       const normalizedCandidateTypes = new Set(
         candidates.map((entry) => normalizeEnvioDocsTipoForChecklist(entry?.item?.tipo))
       );
+      const IDENTITY_CPF_PAIR_TYPES = ["rg", "cpf", "identidade_cpf"];
       const resolvesIdentityCpfPair =
         detectedDocType === "rg_com_cpf" &&
         coveredTypes.includes("rg") &&
         coveredTypes.includes("cpf") &&
-        allCandidatesSameParticipant &&
-        [...normalizedCandidateTypes].every((tipo) => ["rg", "cpf", "identidade_cpf"].includes(tipo)) &&
+        candidatesShareSingleKnownParticipant &&
+        [...normalizedCandidateTypes].every((tipo) => IDENTITY_CPF_PAIR_TYPES.includes(tipo)) &&
         normalizedCandidateTypes.size <= 2;
       if (resolvesIdentityCpfPair) {
         const matchedItems = normalizeEnvioDocsMatchedItems(

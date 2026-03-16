@@ -4353,9 +4353,9 @@ if (msg && type !== "text" && type !== "interactive" && !isSupportedMediaType) {
   });
 
   return metaWebhookResponse(200, {
-  reason: "ignored_non_text_payload",
-  type
-});
+    reason: "ignored_non_text_payload",
+    type
+  });
 }
 
 // Chave para futura deduplicação real

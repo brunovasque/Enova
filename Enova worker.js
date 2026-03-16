@@ -7262,35 +7262,109 @@ function inferEnvioDocsSignalsFromExtractedText(text, context = {}) {
       participant_hints: [],
       has_cpf_pattern: false,
       has_rnm_pattern: false,
-      keyword_density: 0
+      keyword_density: 0,
+      context: {
+        file_name: context?.fileName || null,
+        mime_type: context?.mimeType || null
+      }
     };
   }
+
+  const fileNameNormalized = normalizeText(context?.fileName || "");
+  const combined = `${normalized} ${fileNameNormalized}`.trim();
 
   const docTypeHints = [];
   const addHint = (cond, hint) => {
     if (cond && !docTypeHints.includes(hint)) docTypeHints.push(hint);
   };
 
-  addHint(/\b(cpf)\b/.test(normalized), "cpf");
-  addHint(/\b(rg|registro geral|identidade)\b/.test(normalized), "rg");
-  addHint(/\b(cnh|carteira nacional de habilitacao|carteira de motorista)\b/.test(normalized), "cnh");
-  addHint(/\b(holerite|contracheque)\b/.test(normalized), "holerite");
-  addHint(/\b(extrato|extratos bancarios)\b/.test(normalized), "extrato_bancario");
-  addHint(/\b(ctps|carteira de trabalho)\b/.test(normalized), "ctps");
-  addHint(/\b(comprovante de residencia|conta de luz|conta de agua|iptu)\b/.test(normalized), "comprovante_residencia");
-  addHint(/\b(declaracao de imposto de renda|declaracao ir)\b/.test(normalized), "declaracao_ir");
-  addHint(/\b(recibo ir|darf)\b/.test(normalized), "recibo_ir");
-  addHint(/\b(certidao de casamento)\b/.test(normalized), "certidao_casamento");
-  addHint(/\b(certidao de nascimento)\b/.test(normalized), "certidao_nascimento_dependente");
-
   const participantHints = [];
-  if (/\b(titular|principal|cliente)\b/.test(normalized)) participantHints.push("p1");
-  if (/\b(parceiro|parceira|conjuge|c[oô]njuge|esposa|esposo)\b/.test(normalized)) participantHints.push("p2");
-  if (/\b(dependente|familiar|filho|filha|pai|mae|m[aã]e)\b/.test(normalized)) participantHints.push("p3");
+  const addParticipantHint = (cond, hint) => {
+    if (cond && !participantHints.includes(hint)) participantHints.push(hint);
+  };
 
-  const hasCpfPattern = /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/.test(normalized);
-  const hasRnmPattern = /\b(rnm|registro nacional migratorio)\b/.test(normalized);
-  const keywordDensity = docTypeHints.length + participantHints.length + (hasCpfPattern ? 1 : 0) + (hasRnmPattern ? 1 : 0);
+  const hasCpfPattern = /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/.test(combined);
+  const hasRnmPattern = /\b(rnm|registro nacional migratorio)\b/.test(combined);
+
+  const hasCpfStrongContext =
+    /\b(cadastro de pessoa fisica|cadastro pessoa fisica|comprovante de inscricao no cpf|comprovante de situacao cadastral|receita federal)\b/.test(combined);
+
+  const hasRgStrongContext =
+    /\b(rg|registro geral|carteira de identidade|documento de identidade|identidade civil|instituto de identificacao|secretaria de seguranca)\b/.test(combined);
+
+  const hasCnhStrongContext =
+    /\b(cnh|cnh digital|cnh-e|carteira nacional de habilitacao|carteira nacional de habilitação|carteira digital de transito|carteira digital de trânsito|renach)\b/.test(combined);
+
+  const hasCtpsStrongContext =
+    /\b(ctps|ctpsdigital|ctps digital|carteira de trabalho digital|carteira de trabalho e previdencia social|carteira de trabalho e previdência social)\b/.test(combined);
+
+  const hasCtpsSupportiveContext =
+    /\b(pis\/pasep|pis pasep|pis|pasep|data de admissao|data de admissão|admissao|admissão|contrato de trabalho|vinculo empregaticio|vínculo empregatício)\b/.test(combined);
+
+  const hasHoleriteContext =
+    /\b(holerite|contracheque|demonstrativo de pagamento|demonstrativo de salario|demonstrativo de salário|folha de pagamento|salario liquido|salário líquido|salario base|salário base|valor liquido|valor líquido)\b/.test(combined);
+
+  const hasBankStatementContext =
+    /\b(extrato bancario|extrato bancário|movimentacao bancaria|movimentação bancária|saldo anterior|saldo atual|lancamentos|lançamentos|debito|débito|credito|crédito)\b/.test(combined);
+
+  const hasRetirementStatementContext =
+    /\b(extrato de aposentadoria|beneficio do inss|benefício do inss|meu inss|historico de credito|histórico de crédito|competencia|competência)\b/.test(combined);
+
+  const hasIrDeclarationContext =
+    /\b(declaracao de imposto de renda|declaração de imposto de renda|imposto de renda pessoa fisica|imposto de renda pessoa física|dirpf|bens e direitos|rendimentos tributaveis|rendimentos tributáveis)\b/.test(combined);
+
+  const hasIrReceiptContext =
+    /\b(recibo de entrega|numero do recibo|número do recibo|recibo irpf|recibo dirpf)\b/.test(combined);
+
+  const hasResidenceUtilityContext =
+    /\b(conta de luz|energia eletrica|energia elétrica|equatorial|copel|cemig|enel|neoenergia|cpfl|light|edp|conta de agua|conta de água|sanepar|sabesp|iguá|igua|conta de gas|conta de gás|naturgy|comprovante de residencia|comprovante de residência|fatura|boleto|cep|logradouro|endereco|endereço|bairro|cidade|numero da instalacao|número da instalação|unidade consumidora)\b/.test(combined);
+
+  const hasBoletoResidenceContext =
+    /\b(vencimento|codigo de barras|código de barras|pagavel preferencialmente|pagável preferencialmente)\b/.test(combined) &&
+    /\b(cep|logradouro|endereco|endereço|bairro|cidade)\b/.test(combined);
+
+  const keywordDensity =
+    [
+      hasCpfStrongContext,
+      hasRgStrongContext,
+      hasCnhStrongContext,
+      hasCtpsStrongContext || hasCtpsSupportiveContext,
+      hasHoleriteContext,
+      hasBankStatementContext,
+      hasRetirementStatementContext,
+      hasIrDeclarationContext,
+      hasIrReceiptContext,
+      hasResidenceUtilityContext || hasBoletoResidenceContext,
+      hasCpfPattern,
+      hasRnmPattern
+    ].filter(Boolean).length;
+
+  addHint(hasCpfStrongContext, "cpf");
+  addHint(hasRgStrongContext, "rg");
+  addHint(hasCnhStrongContext, "cnh");
+
+  // CNH pode continuar carregando sinais de RG e CPF sem perder o tipo principal CNH
+  if (hasCnhStrongContext) {
+    addHint(true, "rg");
+    if (hasCpfPattern) addHint(true, "cpf");
+  }
+
+  addHint(hasCtpsStrongContext || (hasCtpsSupportiveContext && /\b(trabalho|emprego|empregaticio|empregatício|admissao|admissão)\b/.test(combined)), "ctps_completa");
+  addHint(hasHoleriteContext, "holerite");
+  addHint(hasBankStatementContext, "extrato_bancario");
+  addHint(hasRetirementStatementContext, "extrato_aposentadoria");
+  addHint(hasIrDeclarationContext, "declaracao_ir");
+  addHint(hasIrReceiptContext, "recibo_ir");
+  addHint(hasResidenceUtilityContext || hasBoletoResidenceContext, "comprovante_residencia");
+
+  if (!hasCpfStrongContext && hasCpfPattern && !hasResidenceUtilityContext && !hasCnhStrongContext && !hasCtpsStrongContext) {
+    addHint(true, "cpf");
+  }
+
+  // Não gerar P3 por filiação solta em documento
+  // P3 só deve nascer no fluxo do processo, nunca por "pai", "mãe" ou "filiação" lidos no OCR
+  addParticipantHint(/\b(titular)\b/.test(combined), "titular");
+  addParticipantHint(/\b(conjuge|cônjuge|esposo|esposa|marido|mulher)\b/.test(combined), "parceiro");
 
   return {
     doc_type_hints: docTypeHints,

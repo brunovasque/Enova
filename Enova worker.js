@@ -6655,6 +6655,7 @@ function normalizeEnvioDocsTipoForChecklist(tipo) {
   const t = String(tipo || "").trim().toLowerCase();
   if (!t) return null;
   if (t === "cnh") return "rg";
+  if (t === "rg_com_cpf") return "rg";
   if (t === "holerite") return "holerite_ultimo";
   if (t === "extrato_bancario") return "extratos_bancarios_3_meses";
   if (t === "ctps") return "ctps_completa";

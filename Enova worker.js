@@ -9339,6 +9339,209 @@ function normalizeEnvioDocsIncomingMedia(msg, seen = new WeakSet()) {
   return msg;
 }
 
+// =============================================================
+// 🧱 AUX — BUFFER DE RESPOSTA PARA BURST CURTO DE ARQUIVOS
+// =============================================================
+const ENVIO_DOCS_BURST_WINDOW_MS = 1200;
+const envioDocsBurstBuffers = new Map();
+
+function mergeEnvioDocsBurstPayloads(payloads = []) {
+  const last = payloads[payloads.length - 1] || {};
+  const allMatched = [];
+  const allValidationStatuses = [];
+
+  for (const p of payloads) {
+    if (Array.isArray(p.matchedItems)) {
+      allMatched.push(...p.matchedItems);
+    }
+    const status = p?.validation?.status;
+    if (status) allValidationStatuses.push(status);
+  }
+
+  const matchedUnique = [];
+  const seen = new Set();
+  for (const m of allMatched) {
+    const key = `${m?.tipo || ""}:${m?.participante || ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    matchedUnique.push(m);
+  }
+
+  return {
+    burstCount: payloads.length,
+    matchedItems: matchedUnique,
+    validationStatuses: allValidationStatuses,
+    lastValidation: last.validation || {},
+    progress: last.progress || {},
+    selectionDebug: last.selectionDebug || {},
+    documentAiSignals: last.documentAiSignals || null,
+    documentClassification: last.documentClassification || null,
+    participantInference: last.participantInference || null,
+    checklistMatch: last.checklistMatch || null,
+    expectedPendingItemsAfter: last.expectedPendingItemsAfter || [],
+    itensAtualizados: Array.isArray(last.itensAtualizados) ? last.itensAtualizados : [],
+    silent: last.silent === true,
+    keepStage: last.keepStage || "envio_docs"
+  };
+}
+
+function buildEnvioDocsMessageFromMerged(merged) {
+  const { matchedItems, validationStatuses, lastValidation, progress, itensAtualizados, selectionDebug } = merged;
+  const linhas = ["Recebi seu arquivo e já registrei na sua pasta ✅"];
+
+  if (matchedItems.length) {
+    const statusMensagens = {
+      recebido_pendente_validacao: "recebido pendente de validação",
+      validado_basico: "validado básico",
+      ilegivel: "ilegível",
+      invalido: "inválido",
+      reenvio_solicitado: "reenvio solicitado"
+    };
+
+    const statusSet = new Set(validationStatuses.length ? validationStatuses : [lastValidation.status].filter(Boolean));
+    const vinculados = [...new Set(
+      matchedItems.map((matched) => `**${prettyDocLabel(matched.tipo)}** (${envioDocsParticipanteLabel(matched.participante)})`)
+    )];
+
+    if (statusSet.size <= 1) {
+      const statusTexto = statusMensagens[[...statusSet][0]] || [...statusSet][0] || "recebido";
+      if (matchedItems.length === 1) {
+        linhas.push(`Vinculei como ${vinculados.join(", ")}, com status *${statusTexto}*.`);
+      } else {
+        linhas.push(`Vinculei como ${vinculados.join(", ")}, todos com status *${statusTexto}*.`);
+      }
+    } else {
+      const statusTextos = [...statusSet].map((s) => statusMensagens[s] || s).filter(Boolean);
+      linhas.push(`Vinculei os documentos enviados com status registrados: ${statusTextos.join(", ")}.`);
+    }
+
+    if (
+      statusSet.has("ilegivel") ||
+      statusSet.has("ilegível") ||
+      statusSet.has("invalido") ||
+      statusSet.has("inválido") ||
+      statusSet.has("reenvio_solicitado")
+    ) {
+      linhas.push("Se quiser, já pode reenviar qualquer documento ilegível/inválido com melhor qualidade que eu atualizo aqui.");
+    }
+  } else {
+    const checklistMatchReason = String(
+      selectionDebug?.checklist_match_reason ||
+      selectionDebug?.checklistMatchReason ||
+      (selectionDebug?.checklistMatch && selectionDebug.checklistMatch.match_reason) ||
+      ""
+    ).trim().toLowerCase();
+    const detectedDocType = String(
+      selectionDebug?.detectedDocType ||
+      selectionDebug?.document_classification_type ||
+      selectionDebug?.doc_type ||
+      (selectionDebug?.documentClassification && selectionDebug.documentClassification.detected_doc_type) ||
+      ""
+    ).trim().toLowerCase();
+
+    if (detectedDocType && checklistMatchReason === "no_pending_item_for_doc_type") {
+      const docLabelMap = {
+        rg: "RG",
+        rg_com_cpf: "RG com CPF",
+        cpf: "CPF",
+        cnh: "CNH",
+        comprovante_residencia: "Comprovante de Residência",
+        holerite: "Holerite",
+        extrato_bancario: "Extrato Bancário",
+        declaracao_ir: "Declaração de IR",
+        recibo_ir: "Recibo de IR",
+        ctps: "Carteira de Trabalho"
+      };
+
+      const docLabel = docLabelMap[detectedDocType] || prettyDocLabel(detectedDocType) || "documento";
+      linhas.push(`Recebi seu ${docLabel} ✅`);
+      linhas.push("Esse documento foi identificado, mas neste momento ele não está entre as pendências ativas da sua pasta.");
+    } else {
+      linhas.push("Recebi o arquivo, mas não consegui identificar com segurança qual documento ele representa.");
+      linhas.push("Pode reenviar com a legenda do documento, por exemplo: *CPF titular*, *RG titular* ou *Comprovante de Renda titular*.");
+    }
+  }
+
+  if (progress.envio_docs_status === "completo") {
+    linhas.push("Recebemos sua pasta. Agora ela está em análise documental.");
+  } else {
+    const pendenciasResumo = envioDocsResumoPendencias(itensAtualizados);
+    linhas.push("Pode me enviar os próximos documentos para concluir sua pasta.");
+    if (pendenciasResumo.length) linhas.push("", ...pendenciasResumo);
+  }
+
+  return linhas;
+}
+
+function buildEnvioDocsResponseFromMerged(merged) {
+  const baseItemResult = {
+    matchedItems: merged.matchedItems,
+    validation: merged.lastValidation,
+    progress: merged.progress,
+    selectionDebug: merged.selectionDebug,
+    documentAiSignals: merged.documentAiSignals,
+    documentClassification: merged.documentClassification,
+    participantInference: merged.participantInference,
+    checklistMatch: merged.checklistMatch,
+    expectedPendingItemsAfter: merged.expectedPendingItemsAfter,
+    burstCombined: merged.burstCount > 1,
+    burstCount: merged.burstCount,
+    burstValidationStatuses: merged.validationStatuses
+  };
+
+  if (merged.silent) {
+    return {
+      ok: true,
+      silent: true,
+      keepStage: merged.keepStage,
+      itemResult: baseItemResult
+    };
+  }
+
+  const linhas = buildEnvioDocsMessageFromMerged(merged);
+
+  return {
+    ok: true,
+    message: linhas,
+    keepStage: merged.keepStage
+  };
+}
+
+function applyEnvioDocsBurstBuffer(payload) {
+  const waId = payload?.wa_id || "unknown";
+  const existing = envioDocsBurstBuffers.get(waId);
+
+  if (existing) {
+    existing.payloads.push(payload);
+    clearTimeout(existing.timer);
+    existing.timer = setTimeout(() => {
+      const merged = mergeEnvioDocsBurstPayloads(existing.payloads);
+      envioDocsBurstBuffers.delete(waId);
+      existing.resolve(buildEnvioDocsResponseFromMerged(merged));
+    }, ENVIO_DOCS_BURST_WINDOW_MS);
+    return existing.promise;
+  }
+
+  let resolve;
+  const promise = new Promise((res) => {
+    resolve = res;
+  });
+  const timer = setTimeout(() => {
+    const merged = mergeEnvioDocsBurstPayloads([payload]);
+    envioDocsBurstBuffers.delete(waId);
+    resolve(buildEnvioDocsResponseFromMerged(merged));
+  }, ENVIO_DOCS_BURST_WINDOW_MS);
+
+  envioDocsBurstBuffers.set(waId, {
+    payloads: [payload],
+    timer,
+    resolve,
+    promise
+  });
+
+  return promise;
+}
+
 // ======================================================================
 // 🧱 BLOCO 19 — ROTEADOR DE MÍDIA PARA DOCUMENTOS (FINAL MASTER)
 // ======================================================================
@@ -9889,63 +10092,24 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       }
     });
 
-    if (silent) {
-      return {
-        ok: true,
-        silent: true,
-        keepStage: "envio_docs",
-        itemResult: {
-          matchedItems: mapEnvioDocsItemRefs(matchedItems),
-          validation,
-          progress,
-          selectionDebug,
-          documentAiSignals,
-          documentClassification,
-          participantInference,
-          checklistMatch,
-          expectedPendingItemsAfter
-        }
-      };
-    }
-
-    const pendenciasResumo = envioDocsResumoPendencias(itens);
-    const linhas = ["Recebi seu arquivo e já registrei na sua pasta ✅"];
-
-    if (matchedItems.length) {
-      const statusMensagens = {
-        recebido_pendente_validacao: "recebido pendente de validação",
-        validado_basico: "validado básico",
-        ilegivel: "ilegível",
-        invalido: "inválido",
-        reenvio_solicitado: "reenvio solicitado"
-      };
-      const vinculados = [...new Set(matchedItems
-        .map((matched) => `**${prettyDocLabel(matched.tipo)}** (${envioDocsParticipanteLabel(matched.participante)})`))];
-      const statusTexto = statusMensagens[validation.status] || validation.status;
-      if (matchedItems.length === 1) {
-        linhas.push(`Vinculei como ${vinculados.join(", ")}, com status *${statusTexto}*.`);
-      } else {
-        linhas.push(`Vinculei como ${vinculados.join(", ")}, todos com status *${statusTexto}*.`);
-      }
-      if (validation.status === "ilegivel" || validation.status === "invalido" || validation.status === "reenvio_solicitado") {
-        linhas.push("Se quiser, já pode reenviar esse documento com melhor qualidade/arquivo correto que eu atualizo aqui.");
-      }
-    } else {
-      linhas.push("Registrei o recebimento e sigo com sua pasta; a validação detalhada acontece na próxima etapa interna.");
-    }
-
-    if (progress.envio_docs_status === "completo") {
-      linhas.push("Recebemos sua pasta. Agora ela está em análise documental.");
-    } else {
-      linhas.push("Pode me enviar os próximos documentos para concluir sua pasta.");
-      if (pendenciasResumo.length) linhas.push("", ...pendenciasResumo);
-    }
-
-    return {
-      ok: true,
-      message: linhas,
+    const itensAtualizados = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
+    const burstPayload = {
+      wa_id: st.wa_id,
+      silent,
+      matchedItems: mapEnvioDocsItemRefs(matchedItems),
+      validation,
+      progress,
+      selectionDebug,
+      documentAiSignals,
+      documentClassification,
+      participantInference,
+      checklistMatch,
+      expectedPendingItemsAfter,
+      itensAtualizados,
       keepStage: "envio_docs"
     };
+
+    return await applyEnvioDocsBurstBuffer(burstPayload);
 
   } catch (err) {
     console.error("Erro handleDocumentUpload:", err);
@@ -18705,6 +18869,10 @@ case "envio_docs": {
       const validation = itemResult.validation || {};
       const progress = itemResult.progress || {};
       const selectionDebug = itemResult.selectionDebug || {};
+      const burstCombined = itemResult.burstCombined === true;
+      const validationStatuses = Array.isArray(itemResult.burstValidationStatuses) && itemResult.burstValidationStatuses.length
+        ? itemResult.burstValidationStatuses
+        : (validation?.status ? [validation.status] : []);
 
       const linhas = ["Recebi seu arquivo e já registrei na sua pasta ✅"];
 
@@ -18716,20 +18884,29 @@ case "envio_docs": {
           invalido: "inválido",
           reenvio_solicitado: "reenvio solicitado"
         };
+        const statusSet = new Set(validationStatuses);
         const vinculados = [...new Set(
           matchedItems.map((matched) =>
             `**${prettyDocLabel(matched.tipo)}** (${envioDocsParticipanteLabel(matched.participante)})`
           )
         )];
-        const statusTexto = statusMensagens[validation.status] || validation.status || "recebido";
-        linhas.push(`Vinculei como ${vinculados.join(", ")}, com status *${statusTexto}*.`);
+
+        if (statusSet.size <= 1) {
+          const statusTexto = statusMensagens[[...statusSet][0]] || [...statusSet][0] || "recebido";
+          linhas.push(`Vinculei como ${vinculados.join(", ")}, com status *${statusTexto}*.`);
+        } else {
+          const statusTextos = [...statusSet].map((s) => statusMensagens[s] || s).filter(Boolean);
+          linhas.push(`Vinculei os documentos enviados com status registrados: ${statusTextos.join(", ")}.`);
+        }
 
         if (
-          validation.status === "ilegivel" ||
-          validation.status === "invalido" ||
-          validation.status === "reenvio_solicitado"
+          statusSet.has("ilegivel") ||
+          statusSet.has("ilegível") ||
+          statusSet.has("invalido") ||
+          statusSet.has("inválido") ||
+          statusSet.has("reenvio_solicitado")
         ) {
-          linhas.push("Se quiser, já pode reenviar esse documento com melhor qualidade/arquivo correto que eu atualizo aqui.");
+          linhas.push("Se quiser, já pode reenviar qualquer documento ilegível/inválido com melhor qualidade que eu atualizo aqui.");
         }
       } else {
         const checklistMatchReason = String(
@@ -18774,7 +18951,7 @@ case "envio_docs": {
       } else {
         const itensAtualizados = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
         const pendenciasResumo = envioDocsResumoPendencias(itensAtualizados);
-        linhas.push("Pode me enviar os próximos documentos para concluir sua pasta.");
+        linhas.push(burstCombined ? "Consolidei os arquivos que você enviou em sequência." : "Pode me enviar os próximos documentos para concluir sua pasta.");
         if (pendenciasResumo.length) linhas.push("", ...pendenciasResumo);
       }
 

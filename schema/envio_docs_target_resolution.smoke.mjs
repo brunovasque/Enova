@@ -218,6 +218,42 @@ assert.deepEqual(matchResidenciaDesempateSeguroPorSinal.match_signals_json?.part
   second_score: 0.52
 });
 
+// rg_com_cpf deve resolver rg+cpf do mesmo participante sem ambiguidade
+const itensRgCpfMesmoParticipante = [
+  { tipo: "rg", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+  { tipo: "cpf", participante: "p1", bucket: "obrigatorio", status: "pendente" }
+];
+const matchRgComCpf = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "rg_com_cpf", detected_doc_category: "identidade", classification_confidence: 0.83 },
+  { detected_participant: "p1", participant_confidence: 0.8 },
+  { envio_docs_itens_json: itensRgCpfMesmoParticipante }
+);
+assert.equal(matchRgComCpf.match_status, "matched_safe");
+assert.equal(matchRgComCpf.match_reason, "rg_com_cpf_resolves_identity_and_cpf_same_participant");
+assert.deepEqual(
+  matchRgComCpf.matched_items
+    .map(({ tipo, participante }) => ({ tipo, participante }))
+    .sort((a, b) => a.tipo.localeCompare(b.tipo)),
+  itensRgCpfMesmoParticipante
+    .map(({ tipo, participante }) => ({ tipo, participante }))
+    .sort((a, b) => a.tipo.localeCompare(b.tipo))
+);
+const engineRgComCpf = resolveEnvioDocsTargetFromDocumentEngine(
+  itensRgCpfMesmoParticipante,
+  matchRgComCpf,
+  { detected_doc_type: "rg_com_cpf" }
+);
+assert.equal(engineRgComCpf.source, "document_engine");
+assert.equal(engineRgComCpf.item?.participante, "p1");
+const finalTargetRgComCpf = chooseEnvioDocsFinalTarget({
+  itens: itensRgCpfMesmoParticipante,
+  checklistMatch: matchRgComCpf,
+  documentClassification: { detected_doc_type: "rg_com_cpf" },
+  legacySelection: { item: null, items: [] }
+});
+assert.equal(finalTargetRgComCpf.finalTargetSource, "document_engine");
+assert.equal(finalTargetRgComCpf.matchedItems?.length, 2);
+
 const matchRendaDesempateSeguroPorSinal = matchEnvioDocsClassificationToChecklist(
   { detected_doc_type: "holerite", detected_doc_category: "comprovante_renda", classification_confidence: 0.83 },
   {

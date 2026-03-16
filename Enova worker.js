@@ -7910,6 +7910,52 @@ function matchEnvioDocsClassificationToChecklist(documentClassification, partici
     }
 
     if (candidates.length > 1) {
+      const candidatesParticipants = new Set(
+        candidates.map((entry) => normalizeEnvioDocsDetectedParticipant(entry?.item?.participante))
+      );
+      const allCandidatesSameParticipant = candidatesParticipants.size === 1 && !candidatesParticipants.has("desconhecido");
+      const normalizedCandidateTypes = new Set(
+        candidates.map((entry) => normalizeEnvioDocsTipoForChecklist(entry?.item?.tipo))
+      );
+      const resolvesIdentityCpfPair =
+        detectedDocType === "rg_com_cpf" &&
+        coveredTypes.includes("rg") &&
+        coveredTypes.includes("cpf") &&
+        allCandidatesSameParticipant &&
+        [...normalizedCandidateTypes].every((tipo) => ["rg", "cpf", "identidade_cpf"].includes(tipo)) &&
+        normalizedCandidateTypes.size <= 2;
+      if (resolvesIdentityCpfPair) {
+        const matchedItems = normalizeEnvioDocsMatchedItems(
+          candidates.map((entry) => ({ tipo: entry.item?.tipo || null, participante: entry.item?.participante || null }))
+        );
+        const topScore = Math.max(...candidates.map((entry) => Number(entry.score || 0)));
+        return buildEnvioDocsChecklistMatchResult({
+          matched_items: matchedItems,
+          match_confidence: Math.max(
+            0.8,
+            Math.min(
+              0.95,
+              topScore * Math.max(0.7, Number(documentClassification?.classification_confidence || 0))
+            )
+          ),
+          match_status: "matched_safe",
+          match_reason: "rg_com_cpf_resolves_identity_and_cpf_same_participant",
+          match_signals_json: {
+            detected_doc_type: detectedDocType,
+            detected_doc_category: detectedDocCategory || null,
+            detected_participant: detectedParticipant || "desconhecido",
+            participant_confidence: participantConfidence,
+            participant_strong: participantStrong,
+            covered_types: coveredTypes,
+            resolved_identity_cpf_pair: {
+              participant: [...candidatesParticipants][0],
+              candidate_types: [...normalizedCandidateTypes],
+              candidate_count: candidates.length
+            }
+          },
+          checklist_match_ok: true
+        });
+      }
       const allowsConservativeParticipantTieBreak =
         ["comprovante_residencia", "holerite", "extrato_bancario", "declaracao_ir", "recibo_ir"].includes(detectedDocType);
       if (allowsConservativeParticipantTieBreak) {

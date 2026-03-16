@@ -18627,8 +18627,40 @@ case "envio_docs": {
           linhas.push("Se quiser, já pode reenviar esse documento com melhor qualidade/arquivo correto que eu atualizo aqui.");
         }
       } else {
-        linhas.push("Recebi o arquivo, mas não consegui identificar com segurança qual documento ele representa.");
-        linhas.push("Pode reenviar com a legenda do documento, por exemplo: *CPF titular*, *RG titular* ou *Comprovante de Renda titular*.");
+        const detectedDocType = String(
+          selectionDebug.detectedDocType ||
+          selectionDebug.document_classification_type ||
+          selectionDebug.doc_type ||
+          ""
+        ).trim().toLowerCase();
+
+        const checklistMatchReason = String(
+          selectionDebug.checklist_match_reason ||
+          selectionDebug.checklistMatchReason ||
+          ""
+        ).trim().toLowerCase();
+
+        if (detectedDocType && checklistMatchReason === "no_pending_item_for_doc_type") {
+          const docLabelMap = {
+            rg: "RG",
+            rg_com_cpf: "RG com CPF",
+            cpf: "CPF",
+            cnh: "CNH",
+            comprovante_residencia: "Comprovante de Residência",
+            holerite: "Holerite",
+            extrato_bancario: "Extrato Bancário",
+            declaracao_ir: "Declaração de IR",
+            recibo_ir: "Recibo de IR",
+            ctps: "Carteira de Trabalho"
+          };
+
+          const docLabel = docLabelMap[detectedDocType] || prettyDocLabel(detectedDocType) || "documento";
+          linhas.push(`Recebi seu ${docLabel} ✅`);
+          linhas.push("Esse documento foi identificado, mas neste momento ele não está entre as pendências ativas da sua pasta.");
+        } else {
+          linhas.push("Recebi o arquivo, mas não consegui identificar com segurança qual documento ele representa.");
+          linhas.push("Pode reenviar com a legenda do documento, por exemplo: *CPF titular*, *RG titular* ou *Comprovante de Renda titular*.");
+        }
       }
 
       if (progress.envio_docs_status === "completo") {

@@ -300,8 +300,32 @@ async function run() {
     {},
     { fileName: "ambiguidade_identidade_cnh.pdf", mimeType: "application/pdf" }
   );
-  assert.equal(identidadeVsCnhAmbiguo.detected_doc_type, "nao_identificado");
-  assert.equal(identidadeVsCnhAmbiguo.classification_ok, false);
+  assert.equal(identidadeVsCnhAmbiguo.detected_doc_type, "cnh");
+  assert.equal(identidadeVsCnhAmbiguo.classification_ok, true);
+
+  const ctpsPdfHintComOcrParcial = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "Dados do trabalhador. CPF 123.456.789-00.",
+      signals_json: { doc_type_hints: ["cpf"], has_cpf_pattern: true }
+    },
+    {},
+    { fileName: "CTPSDigital_titular.pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(ctpsPdfHintComOcrParcial.detected_doc_type, "ctps_completa");
+  assert.equal(ctpsPdfHintComOcrParcial.classification_ok, true);
+
+  const residenciaImagemSemConcessionariaMasComFaturaEndereco = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "Fatura mensal com leitura atual, unidade consumidora 12345 e consumo 200 kWh. Endereco Rua B, 200. CEP 22222-222. CPF 123.456.789-00.",
+      signals_json: { doc_type_hints: ["cpf"], has_cpf_pattern: true }
+    },
+    {},
+    { fileName: "fatura_endereco.jpg", mimeType: "image/jpeg" }
+  );
+  assert.equal(residenciaImagemSemConcessionariaMasComFaturaEndereco.detected_doc_type, "comprovante_residencia");
+  assert.equal(residenciaImagemSemConcessionariaMasComFaturaEndereco.classification_ok, true);
 }
 
 await run();

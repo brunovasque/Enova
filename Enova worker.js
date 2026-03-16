@@ -7935,8 +7935,8 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
     });
   }
 
-  const hasCtpsStrongContext = /\b(ctps digital|carteira de trabalho digital|carteira de trabalho e previdencia social|ctps)\b/.test(extractedText);
-  const hasCtpsSupportiveContext = /\b(carteira de trabalho|pis\/pasep|pis pasep|serie)\b/.test(extractedText);
+  const hasCtpsStrongContext = /\b(ctps digital|ctpsdigital|carteira de trabalho digital|carteira de trabalho e previdencia social|ctps)\b/.test(extractedText);
+  const hasCtpsSupportiveContext = /\b(carteira de trabalho|pis\/pasep|pis pasep)\b/.test(extractedText);
   const hasCpfTokenOrPattern = /\bcpf\b/.test(extractedText) || /\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/.test(extractedText);
   const hasGenericIdentityToken = /\bidentidade\b/.test(extractedText);
   const hasRgSpecificContext = /\b(rg|registro geral|secretaria de seguranca|carteira de identidade|carteira de identidade nacional|documento nacional de identificacao|cin|instituto de identificacao)\b/.test(extractedText);
@@ -7948,13 +7948,24 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   const hasResidenciaUtilityStrongContext =
     hasResidenciaUtilityProviderContext &&
     (hasResidenciaUtilityBillingContext || hasResidenciaAddressContext);
+  const hasResidenciaStrongContext =
+    hasResidenciaUtilityStrongContext ||
+    (hasResidenciaUtilityBillingContext && hasResidenciaAddressContext);
+  const hasCnhStrongHint = /\b(cnh[-\s]?e|cnh digital|carteira nacional de habilitacao|renach|carteira digital de transito)\b/.test(hintSupportText);
+  const hasCtpsStrongHint = /\b(ctpsdigital|ctps digital|ctps|carteira de trabalho digital|carteira de trabalho e previdencia social|carteira de trabalho)\b/.test(hintSupportText);
   const hasCpfStrongContext = /\b(cadastro de pessoas fisicas|comprovante de situacao cadastral no cpf)\b/.test(extractedText);
+  const hasStrongNonCpfDocumentContext =
+    hasCtpsStrongContext ||
+    hasCnhStrongContext ||
+    hasCnhDigitalContext ||
+    hasCnhStrongHint ||
+    hasResidenciaStrongContext;
   const cpfTextScore =
     hasCpfStrongContext
       ? 1
       : (
           hasCpfTokenOrPattern
-            ? (hasCtpsStrongContext ? 0.35 : 0.7)
+            ? (hasStrongNonCpfDocumentContext ? 0.2 : 0.45)
             : 0
         );
 
@@ -7965,7 +7976,7 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   const UTILITY_CONTEXT_GENERIC_HINT_DAMPENED_SCORE = 0.2;
 
   const textScores = {
-  cnh: (hasCnhStrongContext || hasCnhDigitalContext) ? 1 : 0,
+  cnh: (hasCnhStrongContext || hasCnhDigitalContext) ? 1 : (hasCnhStrongHint ? 0.85 : 0),
 
   rg: (
     /\b(rg|registro geral|secretaria de seguranca|carteira de identidade|instituto de identificacao)\b/.test(extractedText) &&
@@ -7975,16 +7986,16 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   rg_com_cpf: (
     (
       hasRgSpecificContext ||
-      (hasGenericIdentityToken && !hasCtpsStrongContext && !hasCnhDigitalContext)
+      (hasGenericIdentityToken && !hasCtpsStrongContext && !hasCnhStrongContext && !hasCnhDigitalContext && !hasCnhStrongHint)
     ) &&
     hasCpfTokenOrPattern
   ) ? 1 : 0,
 
   cpf: cpfTextScore,
-  ctps_completa: hasCtpsStrongContext ? 1 : (hasCtpsSupportiveContext ? 0.85 : 0),
+  ctps_completa: hasCtpsStrongContext ? 1 : (hasCtpsStrongHint ? 0.9 : (hasCtpsSupportiveContext ? 0.8 : 0)),
   comprovante_residencia: (
     /\b(comprovante de residencia|conta de luz|conta de agua|conta de internet|fatura de energia|iptu|logradouro|cep|endereco)\b/.test(extractedText) ||
-    hasResidenciaUtilityStrongContext ||
+    hasResidenciaStrongContext ||
     hasBoletoWithAddressContext
   ) ? 1 : 0,
   holerite: /\b(holerite|contracheque|demonstrativo de pagamento|folha de pagamento|vencimentos|salario base|valor liquido)\b/.test(extractedText) ? 1 : 0,
@@ -8013,17 +8024,23 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
     signalScores[canonical] = Math.max(signalScores[canonical] || 0, 0.8);
   }
   if (signalsJson?.has_cpf_pattern) signalScores.cpf = Math.max(signalScores.cpf || 0, 0.65);
-  if (hasResidenciaUtilityStrongContext) {
+  if (hasCnhStrongContext || hasCnhDigitalContext || hasCnhStrongHint) {
+    signalScores.rg = Math.min(signalScores.rg || 0, UTILITY_CONTEXT_GENERIC_HINT_DAMPENED_SCORE);
+    signalScores.cpf = Math.min(signalScores.cpf || 0, UTILITY_CONTEXT_GENERIC_HINT_DAMPENED_SCORE);
+  }
+  if (hasResidenciaStrongContext) {
     signalScores.rg = Math.min(signalScores.rg || 0, UTILITY_CONTEXT_GENERIC_HINT_DAMPENED_SCORE);
     signalScores.cpf = Math.min(signalScores.cpf || 0, UTILITY_CONTEXT_GENERIC_HINT_DAMPENED_SCORE);
     signalScores.cnh = Math.min(signalScores.cnh || 0, UTILITY_CONTEXT_GENERIC_HINT_DAMPENED_SCORE);
   }
+  if (hasCnhStrongHint) signalScores.cnh = Math.max(signalScores.cnh || 0, 0.85);
+  if (hasCtpsStrongHint) signalScores.ctps_completa = Math.max(signalScores.ctps_completa || 0, 0.85);
 
   const supportScores = {
-    cnh: /\b(cnh|habilitacao)\b/.test(hintSupportText) ? 0.8 : 0,
+    cnh: /\b(cnh[-\s]?e|cnh|cnh digital|habilitacao|carteira nacional de habilitacao|renach)\b/.test(hintSupportText) ? 0.8 : 0,
     rg: /\b(rg|identidade)\b/.test(hintSupportText) ? 0.8 : 0,
     cpf: /\b(cpf)\b/.test(hintSupportText) ? 0.8 : 0,
-    ctps_completa: /\b(ctps|carteira de trabalho)\b/.test(hintSupportText) ? 0.8 : 0,
+    ctps_completa: /\b(ctpsdigital|ctps digital|ctps|carteira de trabalho digital|carteira de trabalho)\b/.test(hintSupportText) ? 0.8 : 0,
     comprovante_residencia: /\b(comprovante|residenc|conta de luz|conta de agua|conta de internet|fatura de energia|boleto|iptu|logradouro|cep|endereco)\b/.test(hintSupportText) ? 0.8 : 0,
     holerite: /\b(holerite|contracheque|folha de pagamento|vencimentos)\b/.test(hintSupportText) ? 0.8 : 0,
     extrato_bancario: /\b(extrato|movimentacao|aposentadoria|inss|beneficio)\b/.test(hintSupportText) ? 0.8 : 0,

@@ -7364,11 +7364,14 @@ function inferEnvioDocsSignalsFromExtractedText(text, context = {}) {
     /\b(recibo de entrega|numero do recibo|número do recibo|recibo irpf|recibo dirpf)\b/.test(combined);
 
   const hasResidenceUtilityContext =
-    /\b(conta de luz|energia eletrica|energia elétrica|equatorial|copel|cemig|enel|neoenergia|cpfl|light|edp|conta de agua|conta de água|sanepar|sabesp|iguá|igua|conta de gas|conta de gás|naturgy|comprovante de residencia|comprovante de residência|fatura|boleto|cep|logradouro|endereco|endereço|bairro|cidade|numero da instalacao|número da instalação|unidade consumidora)\b/.test(combined);
+    /\b(conta de luz|energia eletrica|energia elétrica|equatorial|copel|cemig|enel|neoenergia|cpfl|light|edp|conta de agua|conta de água|sanepar|sabesp|iguá|igua|conta de gas|conta de gás|naturgy|comprovante de residencia|comprovante de residência|fatura|numero da instalacao|número da instalação|unidade consumidora)\b/.test(combined);
+
+  const hasResidenceAddressContext =
+    /\b(cep|logradouro|endereco|endereço|bairro|cidade)\b/.test(combined);
 
   const hasBoletoResidenceContext =
-    /\b(vencimento|codigo de barras|código de barras|pagavel preferencialmente|pagável preferencialmente)\b/.test(combined) &&
-    /\b(cep|logradouro|endereco|endereço|bairro|cidade)\b/.test(combined);
+    /\b(vencimento|codigo de barras|código de barras|pagavel preferencialmente|pagável preferencialmente|boleto)\b/.test(combined) &&
+  hasResidenceAddressContext;
 
   const keywordDensity =
     [

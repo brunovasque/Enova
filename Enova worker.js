@@ -7909,6 +7909,12 @@ function matchEnvioDocsClassificationToChecklist(documentClassification, partici
 }
 
 function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
+  const SCORE_MAX = 1;
+  const SCORE_STRONG_HINT = 0.85;
+  const SCORE_SUPPORTIVE = 0.8;
+  const SCORE_CPF_GENERIC = 0.45;
+  const SCORE_CPF_DAMPENED = 0.2;
+  const SCORE_CTPS_HINT_TEXT = 0.9;
   const extractedTextRaw = String(
     signals?.extracted_text_full ||
     signals?.extracted_text_preview ||
@@ -7962,12 +7968,23 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
     hasResidenciaStrongContext;
   const cpfTextScore =
     hasCpfStrongContext
-      ? 1
+      ? SCORE_MAX
       : (
           hasCpfTokenOrPattern
-            ? (hasStrongNonCpfDocumentContext ? 0.2 : 0.45)
+            ? (hasStrongNonCpfDocumentContext ? SCORE_CPF_DAMPENED : SCORE_CPF_GENERIC)
             : 0
         );
+  const hasGenericIdentityWithoutSpecificDocContext =
+    hasGenericIdentityToken &&
+    !hasCtpsStrongContext &&
+    !hasCnhStrongContext &&
+    !hasCnhDigitalContext &&
+    !hasCnhStrongHint;
+  const cnhTextScore = (hasCnhStrongContext || hasCnhDigitalContext) ? SCORE_MAX : (hasCnhStrongHint ? SCORE_STRONG_HINT : 0);
+  const ctpsTextScore =
+    hasCtpsStrongContext
+      ? SCORE_MAX
+      : (hasCtpsStrongHint ? SCORE_CTPS_HINT_TEXT : (hasCtpsSupportiveContext ? SCORE_SUPPORTIVE : 0));
 
   const hasBoletoWithAddressContext =
     /\bboleto\b/.test(extractedText) &&
@@ -7976,7 +7993,7 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   const UTILITY_CONTEXT_GENERIC_HINT_DAMPENED_SCORE = 0.2;
 
   const textScores = {
-  cnh: (hasCnhStrongContext || hasCnhDigitalContext) ? 1 : (hasCnhStrongHint ? 0.85 : 0),
+  cnh: cnhTextScore,
 
   rg: (
     /\b(rg|registro geral|secretaria de seguranca|carteira de identidade|instituto de identificacao)\b/.test(extractedText) &&
@@ -7986,13 +8003,13 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   rg_com_cpf: (
     (
       hasRgSpecificContext ||
-      (hasGenericIdentityToken && !hasCtpsStrongContext && !hasCnhStrongContext && !hasCnhDigitalContext && !hasCnhStrongHint)
+      hasGenericIdentityWithoutSpecificDocContext
     ) &&
     hasCpfTokenOrPattern
   ) ? 1 : 0,
 
   cpf: cpfTextScore,
-  ctps_completa: hasCtpsStrongContext ? 1 : (hasCtpsStrongHint ? 0.9 : (hasCtpsSupportiveContext ? 0.8 : 0)),
+  ctps_completa: ctpsTextScore,
   comprovante_residencia: (
     /\b(comprovante de residencia|conta de luz|conta de agua|conta de internet|fatura de energia|iptu|logradouro|cep|endereco)\b/.test(extractedText) ||
     hasResidenciaStrongContext ||
@@ -8033,8 +8050,8 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
     signalScores.cpf = Math.min(signalScores.cpf || 0, UTILITY_CONTEXT_GENERIC_HINT_DAMPENED_SCORE);
     signalScores.cnh = Math.min(signalScores.cnh || 0, UTILITY_CONTEXT_GENERIC_HINT_DAMPENED_SCORE);
   }
-  if (hasCnhStrongHint) signalScores.cnh = Math.max(signalScores.cnh || 0, 0.85);
-  if (hasCtpsStrongHint) signalScores.ctps_completa = Math.max(signalScores.ctps_completa || 0, 0.85);
+  if (hasCnhStrongHint) signalScores.cnh = Math.max(signalScores.cnh || 0, SCORE_STRONG_HINT);
+  if (hasCtpsStrongHint) signalScores.ctps_completa = Math.max(signalScores.ctps_completa || 0, SCORE_STRONG_HINT);
 
   const supportScores = {
     cnh: /\b(cnh[-\s]?e|cnh|cnh digital|habilitacao|carteira nacional de habilitacao|renach)\b/.test(hintSupportText) ? 0.8 : 0,

@@ -6664,6 +6664,7 @@ function normalizeEnvioDocsTipoForChecklist(tipo) {
 const ENVIO_DOCS_COVERAGE_MAP = Object.freeze({
   cnh: ["rg", "cpf"],
   rg: ["rg"],
+  rg_com_cpf: ["rg", "cpf"],
   cpf: ["cpf"],
   comprovante_residencia: ["comprovante_residencia"],
   holerite: ["comprovante_renda"],

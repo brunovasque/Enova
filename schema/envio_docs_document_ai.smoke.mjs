@@ -178,6 +178,19 @@ async function run() {
   assert.equal(holerite.detected_doc_type, "holerite");
   assert.equal(holerite.detected_doc_category, "comprovante_renda");
 
+  const holeriteComCampoCtps = classifyEnvioDocsDocument(
+    {
+      extraction_ok: true,
+      extracted_text_full: "Demonstrativo de Pagamento de Salario. Proventos e Descontos com Total Liquido. Campo CTPS 12345.",
+      signals_json: { doc_type_hints: ["holerite"] }
+    },
+    {},
+    { fileName: "Holerite 01-2026 (4).pdf", mimeType: "application/pdf" }
+  );
+  assert.equal(holeriteComCampoCtps.detected_doc_type, "holerite");
+  assert.equal(holeriteComCampoCtps.classification_ok, true);
+  assert.equal(holeriteComCampoCtps.classification_error_code, null);
+
   const extratoMovimentacao = classifyEnvioDocsDocument(
     {
       extraction_ok: true,

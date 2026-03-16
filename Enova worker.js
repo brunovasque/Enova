@@ -8150,9 +8150,21 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
     !hasCnhDigitalContext &&
     !hasCnhStrongHint;
   const cnhTextScore = (hasCnhStrongContext || hasCnhDigitalContext) ? SCORE_MAX : (hasCnhStrongHint ? SCORE_STRONG_HINT : 0);
+  const hasHoleritePayrollColumns =
+    /\b(proventos|descontos|total liquido|total líquido|valor liquido|valor líquido|liquido a receber|líquido a receber|liquido a pagar|líquido a pagar|liquido liquido|líquido líquido)\b/.test(extractedText);
+  const hasHoleriteReceiptContext = /\b(recibo de pagamento(?: de salario| de salário)?)\b/.test(extractedText);
+  const holeriteTextScore =
+    /\b(holerite|contracheque|demonstrativo de pagamento|demonstrativo de salario|demonstrativo de salário|folha de pagamento|vencimentos|salario base|salário base|valor liquido|valor líquido)\b/.test(extractedText) ||
+    hasHoleritePayrollColumns ||
+    hasHoleriteReceiptContext
+      ? 1
+      : 0;
+  const holeriteContextDominant =
+    holeriteTextScore >= SCORE_MAX &&
+    (hasHoleritePayrollColumns || hasHoleriteReceiptContext);
   const ctpsTextScore =
     hasCtpsStrongContext
-      ? SCORE_MAX
+      ? (holeriteContextDominant ? SCORE_SUPPORTIVE : SCORE_MAX)
       : (hasCtpsStrongHint ? SCORE_CTPS_HINT_TEXT : (hasCtpsSupportiveContext ? SCORE_SUPPORTIVE : 0));
 
   const hasBoletoWithAddressContext =
@@ -8184,7 +8196,7 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
     hasResidenciaStrongContext ||
     hasBoletoWithAddressContext
   ) ? 1 : 0,
-  holerite: /\b(holerite|contracheque|demonstrativo de pagamento|folha de pagamento|vencimentos|salario base|valor liquido)\b/.test(extractedText) ? 1 : 0,
+  holerite: holeriteTextScore,
   extrato_bancario: /\b(extrato bancario|saldo anterior|agencia|conta corrente|lancamentos|movimentacao|debito|credito|historico|beneficio inss|aposentadoria|previdencia social)\b/.test(extractedText) ? 1 : (/\bextrato\b/.test(extractedText) ? 0.75 : 0),
   declaracao_ir: /\b(declaracao de ajuste anual|declaracao de imposto de renda|imposto de renda da pessoa fisica|dirpf)\b/.test(extractedText) ? 1 : 0,
   recibo_ir: /\b(recibo de entrega|numero do recibo|codigo de controle|darf|documento de arrecadacao de receitas federais)\b/.test(extractedText) ? 1 : 0

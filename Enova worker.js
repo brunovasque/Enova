@@ -4405,6 +4405,44 @@ if (dedupKey) {
 }
 // ============================================================
 
+// ============================================================
+// 🔒 ANTI-DUPLICAÇÃO ADICIONAL (processados) — mensagens com ID
+// ============================================================
+let dedupProcessedHit = false;
+if (messageId) {
+  try {
+    const now = Date.now();
+    const PROCESSED_WINDOW_MS = 120000; // 2 minutos
+    const CACHE_KEY_PROCESSED = "__enova_meta_processed_cache";
+    const cacheProcessed =
+      (globalThis[CACHE_KEY_PROCESSED] = globalThis[CACHE_KEY_PROCESSED] || new Map());
+    const processedKey = `processed:${messageId}`;
+    const lastProcessed = cacheProcessed.get(processedKey);
+
+    if (lastProcessed && now - lastProcessed < PROCESSED_WINDOW_MS) {
+      dedupProcessedHit = true;
+      await telemetry(env, {
+        wa_id: waId,
+        event: "meta_duplicate_webhook_processed_suppressed",
+        stage: "meta_message",
+        severity: "warning",
+        message: "Webhook META suprimido por dedupe de processados (janela 2min)",
+        details: {
+          processedKey,
+          lastProcessed,
+          now,
+          deltaMs: now - lastProcessed
+        }
+      });
+    } else {
+      cacheProcessed.set(processedKey, now);
+    }
+  } catch (err) {
+    console.error("DEDUP-META-PROCESSED-ERROR:", err);
+  }
+}
+// ============================================================
+
 await telemetry(env, {
   wa_id: waId,
   event: "webhook_message_received",
@@ -4418,6 +4456,13 @@ await telemetry(env, {
     phone_number_id: metadata.phone_number_id || null
   }
 });
+
+// Se já processado recentemente, aborta antes de acionar funil
+if (dedupProcessedHit) {
+  return metaWebhookResponse(200, {
+    reason: "meta_duplicate_webhook_processed_suppressed"
+  });
+}
 
 // 9) Extração do texto do cliente (para o funil)
 let userText = null;
@@ -18627,16 +18672,17 @@ case "envio_docs": {
           linhas.push("Se quiser, já pode reenviar esse documento com melhor qualidade/arquivo correto que eu atualizo aqui.");
         }
       } else {
+        const checklistMatchReason = String(
+          selectionDebug.checklist_match_reason ||
+          selectionDebug.checklistMatchReason ||
+          (itemResult.checklistMatch && itemResult.checklistMatch.match_reason) ||
+          ""
+        ).trim().toLowerCase();
         const detectedDocType = String(
           selectionDebug.detectedDocType ||
           selectionDebug.document_classification_type ||
           selectionDebug.doc_type ||
-          ""
-        ).trim().toLowerCase();
-
-        const checklistMatchReason = String(
-          selectionDebug.checklist_match_reason ||
-          selectionDebug.checklistMatchReason ||
+          (itemResult.documentClassification && itemResult.documentClassification.detected_doc_type) ||
           ""
         ).trim().toLowerCase();
 

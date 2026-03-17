@@ -6220,6 +6220,87 @@ function hasComposicaoConfirmadaP3(st) {
   );
 }
 
+function describeEnvioDocsRendaByChecklist(itensParticipante = []) {
+  const tipos = new Set(
+    (Array.isArray(itensParticipante) ? itensParticipante : [])
+      .map((item) => String(item?.tipo || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  if (tipos.has("comprovante_aposentadoria") || tipos.has("comprovante_pensao")) {
+    return "extrato do benefício";
+  }
+
+  const hasDeclaracaoIr = tipos.has("declaracao_ir");
+  const hasReciboIr = tipos.has("recibo_ir");
+  if (hasDeclaracaoIr && hasReciboIr) return "declaração e recibo do IR";
+  if (hasDeclaracaoIr) return "declaração do IR";
+  if (hasReciboIr) return "recibo do IR";
+
+  if (tipos.has("extratos_bancarios") || tipos.has("extrato_bancario") || tipos.has("extratos_bancarios_3_meses")) {
+    return "extrato bancário dos últimos 3 meses";
+  }
+
+  if (tipos.has("holerites") || tipos.has("holerite") || tipos.has("holerite_ultimo") || tipos.has("holerites_ultimos_3")) {
+    return "último holerite";
+  }
+
+  if (tipos.has("comprovante_renda")) return "comprovante de renda do seu perfil";
+
+  return "comprovante de renda do seu perfil";
+}
+
+function buildEnvioDocsCallToAction(participanteAtual) {
+  if (participanteAtual === "p2") {
+    return "Agora vamos para os documentos da pessoa que vai entrar com você no processo.\nMe envie primeiro o documento de identificação dela. Assim que eu confirmar, já peço o próximo.";
+  }
+  if (participanteAtual === "p3") {
+    return "Agora vamos para os documentos da terceira pessoa que vai entrar com vocês no processo.\nMe envie primeiro o documento de identificação dela. Assim que eu confirmar, já peço o próximo.";
+  }
+  return "Vamos começar pelos seus documentos para não misturar com os da outra pessoa e evitar erro na análise.\nMe envie primeiro seu documento de identificação. Assim que eu confirmar, já peço o próximo.";
+}
+
+function buildEnvioDocsListaMensagens(itensEnvioDocs = []) {
+  const itens = Array.isArray(itensEnvioDocs) ? itensEnvioDocs : [];
+  const ordemParticipantes = ["p1", "p2", "p3"];
+  const participantesComItens = ordemParticipantes.filter((participante) =>
+    itens.some((item) => String(item?.participante || "").trim().toLowerCase() === participante)
+  );
+  const participantes = participantesComItens.length ? participantesComItens : ["p1"];
+
+  const participantesPendentes = new Set(
+    itens
+      .filter((item) => {
+        const participante = String(item?.participante || "").trim().toLowerCase();
+        return (
+          ordemParticipantes.includes(participante) &&
+          isEnvioDocsBlockingItem(item) &&
+          !isEnvioDocsItemReceived(item)
+        );
+      })
+      .map((item) => String(item?.participante || "").trim().toLowerCase())
+  );
+
+  const participanteAtual =
+    participantes.find((participante) => participantesPendentes.has(participante)) ||
+    participantes[0] ||
+    "p1";
+  const itensParticipanteAtual = itens.filter(
+    (item) => String(item?.participante || "").trim().toLowerCase() === participanteAtual
+  );
+  const tiposParticipanteAtual = new Set(
+    itensParticipanteAtual.map((item) => String(item?.tipo || "").trim().toLowerCase()).filter(Boolean)
+  );
+  const rendaLabel = describeEnvioDocsRendaByChecklist(itensParticipanteAtual);
+  const incluirCtps = tiposParticipanteAtual.has("ctps_completa") || tiposParticipanteAtual.has("ctps");
+
+  const mensagemPrincipal = incluirCtps
+    ? `Fechamos por envio online aqui no WhatsApp.\nA lista é simples: RG ou CNH, CPF (se não constar no documento), comprovante de residência atual, ${rendaLabel} e CTPS completa. Pode ser foto, imagem ou PDF.`
+    : `Fechamos por envio online aqui no WhatsApp.\nA lista é simples: RG ou CNH, CPF (se não constar no documento), comprovante de residência atual e ${rendaLabel}. Pode ser foto, imagem ou PDF.`;
+
+  return [mensagemPrincipal, buildEnvioDocsCallToAction(participanteAtual)];
+}
+
 function appendChecklistByRegime(checklist, participante, regime, irDeclarado) {
   if (regime === "clt" || regime === "servidor") {
     checklist.push({ tipo: "holerites", participante });
@@ -19169,39 +19250,10 @@ case "envio_docs": {
   // CLIENTE ACEITOU RECEBER A LISTA
   // =====================================================
   if (pronto && !listaEnviada) {
-    const hasP2Confirmado = hasComposicaoConfirmadaP2(st);
-    const itensEnvioDocs = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
-    const hasCtpsTitularNoChecklist = itensEnvioDocs.some((item) =>
-      String(item?.tipo || "").trim().toLowerCase() === "ctps_completa" &&
-      String(item?.participante || "").trim().toLowerCase() === "p1"
-    );
-    const mensagemLista = [
-      "Show! 👏",
-      "Fechamos por envio online aqui no WhatsApp.",
-      "A lista é bem simples, olha só:",
-      "",
-      "📄 **Documentos do titular:**",
-      "- RG ou CNH",
-      "- CPF (se não tiver na CNH)",
-      "- Comprovante de residência (atual)",
-      "- Comprovante de renda (de acordo com o perfil)"
-    ];
-    if (hasCtpsTitularNoChecklist) {
-  mensagemLista.push("- CTPS (carteira de trabalho) completa");
-}
-if (hasP2Confirmado) {
-  mensagemLista.push(
-    "",
-    "📄 **Documentos da outra pessoa da composição:**",
-    "Mesmos documentos da outra pessoa 🙌"
-  );
-}
-mensagemLista.push(
-  "",
-  "Vamos fazer por etapas para não misturar seus documentos e evitar erro na análise, tudo bem?",
-  "Me envie primeiro seu documento de identificação.",
-  "Assim que eu confirmar o recebimento, já te peço o próximo."
-);
+    const itensEnvioDocs = Array.isArray(st.envio_docs_itens_json) && st.envio_docs_itens_json.length
+      ? st.envio_docs_itens_json
+      : generateChecklistForDocs(st);
+    const mensagemLista = buildEnvioDocsListaMensagens(itensEnvioDocs);
 
 const patchCanal = {
   docs_lista_enviada: true,
@@ -20410,6 +20462,7 @@ export {
   matchEnvioDocsClassificationToChecklist,
   resolveEnvioDocsTargetFromDocumentEngine,
   chooseEnvioDocsFinalTarget,
+  buildEnvioDocsListaMensagens,
   generateChecklistForDocs,
   isEnvioDocsBlockingItem,
   recomputeEnvioDocsProgress,

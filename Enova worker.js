@@ -6245,8 +6245,6 @@ function describeEnvioDocsRendaByChecklist(itensParticipante = []) {
     return "último holerite";
   }
 
-  if (tipos.has("comprovante_renda")) return "comprovante de renda do seu perfil";
-
   return "comprovante de renda do seu perfil";
 }
 

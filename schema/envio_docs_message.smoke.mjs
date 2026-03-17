@@ -16,7 +16,7 @@ function markParticipantAsReceived(itens, participante) {
 function assertSharedExpectations(messages) {
   assert.equal(messages.length, 2);
   const joined = messages.join("\n");
-  assert.equal(/\bp1\b|\bp2\b|\bp3\b/i.test(joined), false);
+  assert.equal(/\bp1\b|\bp2\b|\bp3\b/i.test(joined), false, "mensagem ao cliente não deve expor identificadores internos de participante");
   assert.equal(joined.includes("Documentos do titular"), false);
   assert.equal(joined.includes("Comprovante de renda (de acordo com o perfil)"), false);
   assert.equal(joined.includes("Mesmos documentos da outra pessoa"), false);

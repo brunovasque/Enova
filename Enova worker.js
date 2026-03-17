@@ -6188,6 +6188,7 @@ function prettyDocLabel(type) {
     ctps_completa: "Carteira de Trabalho Completa",
     holerites: "Holerites",
     declaracao_ir: "Declaração de IR",
+    recibo_ir: "Recibo de IR",
     extratos_bancarios: "Extratos Bancários",
     comprovante_residencia: "Comprovante de Residência",
     certidao_casamento: "Certidão de Casamento",
@@ -6208,30 +6209,91 @@ function hasComposicaoConfirmadaP2(st) {
   );
 }
 
+function hasComposicaoConfirmadaP3(st) {
+  return Boolean(
+    st.p3_required ||
+    st.regime_trabalho_parceiro_familiar_p3 ||
+    st.renda_parceiro_familiar_p3 ||
+    st.p3_tipo ||
+    st.composicao_pessoa === "familiar_p3"
+  );
+}
+
+function appendChecklistByRegime(checklist, participante, regime, irDeclarado) {
+  if (regime === "clt" || regime === "servidor") {
+    checklist.push({ tipo: "holerites", participante });
+    return;
+  }
+
+  if (regime === "autonomo") {
+    if (irDeclarado) {
+      checklist.push(
+        { tipo: "declaracao_ir", participante },
+        { tipo: "recibo_ir", participante }
+      );
+    } else {
+      checklist.push({ tipo: "extratos_bancarios", participante });
+    }
+    return;
+  }
+
+  if (regime === "aposentado" || regime === "beneficio") {
+    checklist.push({ tipo: "comprovante_aposentadoria", participante });
+    return;
+  }
+
+  if (regime === "pensionista") {
+    checklist.push({ tipo: "comprovante_pensao", participante });
+  }
+}
+
+function resolveAutonomoIrDeclarado(st, participante) {
+  const readBool = (value) => {
+    if (value === true) return true;
+    if (value === false || value == null) return false;
+    const txt = String(value).trim().toLowerCase();
+    if (["true", "1", "sim", "yes"].includes(txt)) return true;
+    if (["false", "0", "nao", "não", "no"].includes(txt)) return false;
+    return false;
+  };
+
+  if (participante === "p1") {
+    if (st.autonomo_ir === true || st.autonomo_ir === false) return st.autonomo_ir;
+    return readBool(st.ir_declarado);
+  }
+
+  if (participante === "p2") {
+    if (st.ir_declarado_parceiro === true || st.ir_declarado_parceiro === false) return st.ir_declarado_parceiro;
+    return readBool(st.ir_declarado_p2);
+  }
+
+  return false;
+}
+
 // 17.2 — Gera checklist dinâmico p/ P1 e P2
 function generateChecklistForDocs(st) {
   const checklist = [];
   const hasP2Confirmado = hasComposicaoConfirmadaP2(st);
+  const hasP3Confirmado = hasComposicaoConfirmadaP3(st);
 
-  // Documentos obrigatórios P1
-  checklist.push({ tipo: "identidade_cpf", participante: "p1" });
-  checklist.push({ tipo: "comprovante_residencia", participante: "p1" });
-  checklist.push({ tipo: "ctps_completa", participante: "p1" });
+  const addChecklistBase = (participante) => {
+    checklist.push(
+      { tipo: "identidade_cpf", participante },
+      { tipo: "comprovante_residencia", participante },
+      { tipo: "ctps_completa", participante }
+    );
+  };
 
-  if (st.regime_trabalho === "clt") {
-    checklist.push({ tipo: "holerites", participante: "p1" });
-  }
-
-  if (st.regime_trabalho === "autonomo") {
-    if (st.ir_declarado) {
-      checklist.push({ tipo: "declaracao_ir", participante: "p1" });
-    } else {
-      checklist.push({ tipo: "extratos_bancarios", participante: "p1" });
-    }
-  }
+  addChecklistBase("p1");
+  appendChecklistByRegime(
+    checklist,
+    "p1",
+    String(st.regime_trabalho || "").trim().toLowerCase(),
+    resolveAutonomoIrDeclarado(st, "p1")
+  );
 
   // Casamento civil → certidão
-  if (st.casamento_formal === "civil_papel") {
+  if (st.casamento_formal === "civil_papel" || st.estado_civil === "casado") {
     checklist.push({ tipo: "certidao_casamento", participante: "p1" });
   }
 
@@ -6245,21 +6307,23 @@ function generateChecklistForDocs(st) {
 
   // Documentos P2 caso somar renda
   if (hasP2Confirmado) {
-    checklist.push({ tipo: "identidade_cpf", participante: "p2" });
-    checklist.push({ tipo: "comprovante_residencia", participante: "p2" });
-    checklist.push({ tipo: "ctps_completa", participante: "p2" });
+    addChecklistBase("p2");
+    appendChecklistByRegime(
+      checklist,
+      "p2",
+      String(st.regime_trabalho_parceiro || st.regime_trabalho_parceiro_familiar || "").trim().toLowerCase(),
+      resolveAutonomoIrDeclarado(st, "p2")
+    );
+  }
 
-    if (st.regime_trabalho_parceiro === "clt") {
-      checklist.push({ tipo: "holerites", participante: "p2" });
-    }
-
-    if (st.regime_trabalho_parceiro === "autonomo") {
-      if (st.ir_declarado_parceiro) {
-        checklist.push({ tipo: "declaracao_ir", participante: "p2" });
-      } else {
-        checklist.push({ tipo: "extratos_bancarios", participante: "p2" });
-      }
-    }
+  if (hasP3Confirmado) {
+    addChecklistBase("p3");
+    appendChecklistByRegime(
+      checklist,
+      "p3",
+      String(st.regime_trabalho_parceiro_familiar_p3 || "").trim().toLowerCase(),
+      resolveAutonomoIrDeclarado(st, "p3")
+    );
   }
 
   return dedupeChecklist(checklist);

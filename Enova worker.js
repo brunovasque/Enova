@@ -10081,7 +10081,7 @@ function buildCorrespondentePrivateDossierFromState(st) {
     for (const value of values) {
       if (value === true) return true;
       if (value === false) return false;
-      if (value == null) continue;
+      if (value === null || value === undefined) continue;
       const txt = String(value).trim().toLowerCase();
       if (["true", "1", "sim", "yes"].includes(txt)) return true;
       if (["false", "0", "nao", "não", "no"].includes(txt)) return false;
@@ -10229,8 +10229,9 @@ function buildCorrespondentePrivateDossierFromState(st) {
 
   const blocosParticipantes = participantesOrdem.flatMap((p, idx) => {
     const observacoes = [];
+    const p3IrNotice = "IR/autônomo: sem campo final canônico comprovado para P3 no state atual; validar manualmente no parecer.";
     if (p.id === "p3" && p.ir_declarado == null) {
-      observacoes.push("IR/autônomo: sem campo final canônico comprovado para P3 no state atual.");
+      observacoes.push(p3IrNotice);
     }
     const lines = [
       `👤 *${participantLabel(p.id, p.role)}*`,
@@ -10239,7 +10240,7 @@ function buildCorrespondentePrivateDossierFromState(st) {
       `Regime de trabalho: ${p.regime_trabalho || "não informado"}`,
       `Renda: ${moneyToLabel(p.renda)}`,
       p.id === "p3"
-        ? "IR/autônomo: não comprovado em campo final canônico para P3"
+        ? p3IrNotice
         : `IR/autônomo: ${boolToLabel(p.ir_declarado, "não informado")}`,
       `CTPS 36: ${boolToLabel(p.ctps_36, "não informado")}`,
       p.dependente == null ? null : `Dependente: ${boolToLabel(p.dependente, "não informado")}`,

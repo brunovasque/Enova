@@ -6264,31 +6264,36 @@ function buildEnvioDocsCallToAction(participanteAtual) {
   return "Vamos começar pelos seus documentos para não misturar com os da outra pessoa e evitar erro na análise.\nMe envie primeiro seu documento de identificação. Assim que eu confirmar, já peço o próximo.";
 }
 
-function buildEnvioDocsListaMensagens(itensEnvioDocs = []) {
+const ENVIO_DOCS_ORDEM_PARTICIPANTES = Object.freeze(["p1", "p2", "p3"]);
+
+function resolveEnvioDocsCurrentParticipant(itensEnvioDocs = []) {
   const itens = Array.isArray(itensEnvioDocs) ? itensEnvioDocs : [];
-  const ordemParticipantes = ["p1", "p2", "p3"];
-  const participantesComItens = ordemParticipantes.filter((participante) =>
+  const participantesComItens = ENVIO_DOCS_ORDEM_PARTICIPANTES.filter((participante) =>
     itens.some((item) => String(item?.participante || "").trim().toLowerCase() === participante)
   );
   const participantes = participantesComItens.length ? participantesComItens : ["p1"];
-
   const participantesPendentes = new Set(
     itens
       .filter((item) => {
         const participante = String(item?.participante || "").trim().toLowerCase();
         return (
-          ordemParticipantes.includes(participante) &&
+          ENVIO_DOCS_ORDEM_PARTICIPANTES.includes(participante) &&
           isEnvioDocsBlockingItem(item) &&
           !isEnvioDocsItemReceived(item)
         );
       })
       .map((item) => String(item?.participante || "").trim().toLowerCase())
   );
-
-  const participanteAtual =
+  return (
     participantes.find((participante) => participantesPendentes.has(participante)) ||
     participantes[0] ||
-    "p1";
+    "p1"
+  );
+}
+
+function buildEnvioDocsListaMensagens(itensEnvioDocs = []) {
+  const itens = Array.isArray(itensEnvioDocs) ? itensEnvioDocs : [];
+  const participanteAtual = resolveEnvioDocsCurrentParticipant(itens);
   const itensParticipanteAtual = itens.filter(
     (item) => String(item?.participante || "").trim().toLowerCase() === participanteAtual
   );
@@ -8100,7 +8105,7 @@ function matchEnvioDocsClassificationToChecklist(documentClassification, partici
       );
       const IDENTITY_CPF_PAIR_TYPES = ["rg", "cpf", "identidade_cpf"];
       const resolvesIdentityCpfPair =
-        detectedDocType === "rg_com_cpf" &&
+        (detectedDocType === "rg_com_cpf" || detectedDocType === "cnh") &&
         coveredTypes.includes("rg") &&
         coveredTypes.includes("cpf") &&
         candidatesShareSingleKnownParticipant &&
@@ -8137,6 +8142,54 @@ function matchEnvioDocsClassificationToChecklist(documentClassification, partici
           },
           checklist_match_ok: true
         });
+      }
+      const canResolveIdentityByCurrentParticipantBlock =
+        ["cnh", "rg", "cpf", "rg_com_cpf"].includes(detectedDocType) &&
+        coveredTypes.some((tipo) => tipo === "rg" || tipo === "cpf") &&
+        [...normalizedCandidateTypes].every((tipo) => IDENTITY_CPF_PAIR_TYPES.includes(tipo));
+      if (canResolveIdentityByCurrentParticipantBlock) {
+        const participanteAtualBloco = resolveEnvioDocsCurrentParticipant(itens);
+        const hasSafeCurrentParticipantContext = ENVIO_DOCS_ORDEM_PARTICIPANTES.includes(participanteAtualBloco);
+        if (hasSafeCurrentParticipantContext) {
+          const scopedByCurrentParticipant = candidates.filter(
+            (entry) => normalizeEnvioDocsDetectedParticipant(entry?.item?.participante) === participanteAtualBloco
+          );
+          if (scopedByCurrentParticipant.length >= 1) {
+            const matchedItems = normalizeEnvioDocsMatchedItems(
+              scopedByCurrentParticipant.map((entry) => ({
+                tipo: entry.item?.tipo || null,
+                participante: entry.item?.participante || null
+              }))
+            );
+            const topScore = Math.max(...scopedByCurrentParticipant.map((entry) => Number(entry.score || 0)));
+            return buildEnvioDocsChecklistMatchResult({
+              matched_items: matchedItems,
+              match_confidence: Math.max(
+                0.8,
+                Math.min(
+                  0.95,
+                  topScore * Math.max(0.7, Number(documentClassification?.classification_confidence || 0))
+                )
+              ),
+              match_status: "matched_safe",
+              match_reason: "identity_resolved_by_current_envio_docs_participant",
+              match_signals_json: {
+                detected_doc_type: detectedDocType,
+                detected_doc_category: detectedDocCategory || null,
+                detected_participant: detectedParticipant || "desconhecido",
+                participant_confidence: participantConfidence,
+                participant_strong: participantStrong,
+                covered_types: coveredTypes,
+                current_participant_tiebreak: {
+                  participante_atual: participanteAtualBloco,
+                  candidate_count: candidates.length,
+                  selected_count: scopedByCurrentParticipant.length
+                }
+              },
+              checklist_match_ok: true
+            });
+          }
+        }
       }
       const allowsConservativeParticipantTieBreak =
         ["comprovante_residencia", "holerite", "extrato_bancario", "declaracao_ir", "recibo_ir"].includes(detectedDocType);

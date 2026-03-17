@@ -6264,10 +6264,11 @@ function buildEnvioDocsCallToAction(participanteAtual) {
   return "Vamos começar pelos seus documentos para não misturar com os da outra pessoa e evitar erro na análise.\nMe envie primeiro seu documento de identificação. Assim que eu confirmar, já peço o próximo.";
 }
 
+const ENVIO_DOCS_ORDEM_PARTICIPANTES = Object.freeze(["p1", "p2", "p3"]);
+
 function resolveEnvioDocsCurrentParticipant(itensEnvioDocs = []) {
   const itens = Array.isArray(itensEnvioDocs) ? itensEnvioDocs : [];
-  const ordemParticipantes = ["p1", "p2", "p3"];
-  const participantesComItens = ordemParticipantes.filter((participante) =>
+  const participantesComItens = ENVIO_DOCS_ORDEM_PARTICIPANTES.filter((participante) =>
     itens.some((item) => String(item?.participante || "").trim().toLowerCase() === participante)
   );
   const participantes = participantesComItens.length ? participantesComItens : ["p1"];
@@ -6276,7 +6277,7 @@ function resolveEnvioDocsCurrentParticipant(itensEnvioDocs = []) {
       .filter((item) => {
         const participante = String(item?.participante || "").trim().toLowerCase();
         return (
-          ordemParticipantes.includes(participante) &&
+          ENVIO_DOCS_ORDEM_PARTICIPANTES.includes(participante) &&
           isEnvioDocsBlockingItem(item) &&
           !isEnvioDocsItemReceived(item)
         );
@@ -6286,13 +6287,13 @@ function resolveEnvioDocsCurrentParticipant(itensEnvioDocs = []) {
   return (
     participantes.find((participante) => participantesPendentes.has(participante)) ||
     participantes[0] ||
-    null
+    "p1"
   );
 }
 
 function buildEnvioDocsListaMensagens(itensEnvioDocs = []) {
   const itens = Array.isArray(itensEnvioDocs) ? itensEnvioDocs : [];
-  const participanteAtual = resolveEnvioDocsCurrentParticipant(itens) || "p1";
+  const participanteAtual = resolveEnvioDocsCurrentParticipant(itens);
   const itensParticipanteAtual = itens.filter(
     (item) => String(item?.participante || "").trim().toLowerCase() === participanteAtual
   );
@@ -8148,7 +8149,7 @@ function matchEnvioDocsClassificationToChecklist(documentClassification, partici
         [...normalizedCandidateTypes].every((tipo) => IDENTITY_CPF_PAIR_TYPES.includes(tipo));
       if (canResolveIdentityByCurrentParticipantBlock) {
         const participanteAtualBloco = resolveEnvioDocsCurrentParticipant(itens);
-        const hasSafeCurrentParticipantContext = ["p1", "p2", "p3"].includes(participanteAtualBloco);
+        const hasSafeCurrentParticipantContext = ENVIO_DOCS_ORDEM_PARTICIPANTES.includes(participanteAtualBloco);
         if (hasSafeCurrentParticipantContext) {
           const scopedByCurrentParticipant = candidates.filter(
             (entry) => normalizeEnvioDocsDetectedParticipant(entry?.item?.participante) === participanteAtualBloco

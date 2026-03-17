@@ -6220,6 +6220,118 @@ function hasComposicaoConfirmadaP3(st) {
   );
 }
 
+function describeEnvioDocsRendaByChecklist(itensParticipante = []) {
+  const tipos = new Set(
+    (Array.isArray(itensParticipante) ? itensParticipante : [])
+      .map((item) => String(item?.tipo || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  if (tipos.has("comprovante_aposentadoria") || tipos.has("comprovante_pensao")) {
+    return "extrato do benefício";
+  }
+
+  const hasDeclaracaoIr = tipos.has("declaracao_ir");
+  const hasReciboIr = tipos.has("recibo_ir");
+  const hasExtratos =
+    tipos.has("extratos_bancarios") ||
+    tipos.has("extrato_bancario") ||
+    tipos.has("extratos_bancarios_3_meses");
+
+  if (hasDeclaracaoIr && hasReciboIr && hasExtratos) return "declaração de IR com recibo e extratos de movimentação";
+  if (hasDeclaracaoIr && hasReciboIr) return "declaração de IR com recibo";
+  if (hasDeclaracaoIr) return "declaração do IR";
+  if (hasReciboIr) return "recibo do IR";
+
+  if (hasExtratos) return "extratos de movimentação bancária";
+
+  if (tipos.has("holerites") || tipos.has("holerite") || tipos.has("holerite_ultimo") || tipos.has("holerites_ultimos_3")) {
+    return "holerite";
+  }
+
+  if (tipos.has("comprovante_renda")) return "comprovante de renda";
+
+  return null;
+}
+
+function buildEnvioDocsCallToAction(participanteAtual) {
+  if (participanteAtual === "p2") {
+    return "Agora vamos para os documentos da pessoa que vai entrar com você no processo.\nMe envie primeiro o documento de identificação dela. Assim que eu confirmar, já peço o próximo.";
+  }
+  if (participanteAtual === "p3") {
+    return "Agora vamos para os documentos da próxima pessoa que também vai entrar no processo.\nMe envie primeiro o documento de identificação dela. Assim que eu confirmar, já peço o próximo.";
+  }
+  return "Vamos começar pelos seus documentos para não misturar com os da outra pessoa e evitar erro na análise.\nMe envie primeiro seu documento de identificação. Assim que eu confirmar, já peço o próximo.";
+}
+
+function buildEnvioDocsListaMensagens(itensEnvioDocs = []) {
+  const itens = Array.isArray(itensEnvioDocs) ? itensEnvioDocs : [];
+  const ordemParticipantes = ["p1", "p2", "p3"];
+  const participantesComItens = ordemParticipantes.filter((participante) =>
+    itens.some((item) => String(item?.participante || "").trim().toLowerCase() === participante)
+  );
+  const participantes = participantesComItens.length ? participantesComItens : ["p1"];
+
+  const participantesPendentes = new Set(
+    itens
+      .filter((item) => {
+        const participante = String(item?.participante || "").trim().toLowerCase();
+        return (
+          ordemParticipantes.includes(participante) &&
+          isEnvioDocsBlockingItem(item) &&
+          !isEnvioDocsItemReceived(item)
+        );
+      })
+      .map((item) => String(item?.participante || "").trim().toLowerCase())
+  );
+
+  const participanteAtual =
+    participantes.find((participante) => participantesPendentes.has(participante)) ||
+    participantes[0] ||
+    "p1";
+  const itensParticipanteAtual = itens.filter(
+    (item) => String(item?.participante || "").trim().toLowerCase() === participanteAtual
+  );
+  const tiposParticipanteAtual = new Set(
+    itensParticipanteAtual.map((item) => String(item?.tipo || "").trim().toLowerCase()).filter(Boolean)
+  );
+  const listaCondensada = [];
+  const incluirIdentidade =
+    tiposParticipanteAtual.has("identidade_cpf") ||
+    tiposParticipanteAtual.has("rg") ||
+    tiposParticipanteAtual.has("rg_com_cpf") ||
+    tiposParticipanteAtual.has("cnh");
+  if (incluirIdentidade) listaCondensada.push("RG ou CNH");
+
+  const incluirCpf =
+    tiposParticipanteAtual.has("identidade_cpf") ||
+    tiposParticipanteAtual.has("cpf") ||
+    tiposParticipanteAtual.has("rg");
+  if (incluirCpf) listaCondensada.push("CPF (se não constar no documento)");
+
+  if (tiposParticipanteAtual.has("comprovante_residencia")) listaCondensada.push("comprovante de residência atual");
+
+  const rendaLabel = describeEnvioDocsRendaByChecklist(itensParticipanteAtual);
+  if (rendaLabel) listaCondensada.push(rendaLabel);
+
+  if (tiposParticipanteAtual.has("ctps_completa") || tiposParticipanteAtual.has("ctps")) {
+    listaCondensada.push("CTPS completa");
+  }
+  if (tiposParticipanteAtual.has("certidao_casamento")) {
+    listaCondensada.push("certidão de casamento");
+  }
+  if (tiposParticipanteAtual.has("certidao_nascimento_dependente")) {
+    listaCondensada.push("certidão de nascimento do dependente");
+  }
+
+  const listaTexto = listaCondensada.length
+    ? listaCondensada.join(", ")
+    : "documento de identificação e comprovantes do seu processo";
+  const mensagemPrincipal = `Fechamos por envio online aqui no WhatsApp.\nA lista é simples: ${listaTexto}. Pode ser foto, imagem ou PDF.`;
+
+  return [mensagemPrincipal, buildEnvioDocsCallToAction(participanteAtual)];
+}
+
 function appendChecklistByRegime(checklist, participante, regime, irDeclarado) {
   if (regime === "clt" || regime === "servidor") {
     checklist.push({ tipo: "holerites", participante });
@@ -19169,39 +19281,10 @@ case "envio_docs": {
   // CLIENTE ACEITOU RECEBER A LISTA
   // =====================================================
   if (pronto && !listaEnviada) {
-    const hasP2Confirmado = hasComposicaoConfirmadaP2(st);
-    const itensEnvioDocs = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
-    const hasCtpsTitularNoChecklist = itensEnvioDocs.some((item) =>
-      String(item?.tipo || "").trim().toLowerCase() === "ctps_completa" &&
-      String(item?.participante || "").trim().toLowerCase() === "p1"
-    );
-    const mensagemLista = [
-      "Show! 👏",
-      "Fechamos por envio online aqui no WhatsApp.",
-      "A lista é bem simples, olha só:",
-      "",
-      "📄 **Documentos do titular:**",
-      "- RG ou CNH",
-      "- CPF (se não tiver na CNH)",
-      "- Comprovante de residência (atual)",
-      "- Comprovante de renda (de acordo com o perfil)"
-    ];
-    if (hasCtpsTitularNoChecklist) {
-  mensagemLista.push("- CTPS (carteira de trabalho) completa");
-}
-if (hasP2Confirmado) {
-  mensagemLista.push(
-    "",
-    "📄 **Documentos da outra pessoa da composição:**",
-    "Mesmos documentos da outra pessoa 🙌"
-  );
-}
-mensagemLista.push(
-  "",
-  "Vamos fazer por etapas para não misturar seus documentos e evitar erro na análise, tudo bem?",
-  "Me envie primeiro seu documento de identificação.",
-  "Assim que eu confirmar o recebimento, já te peço o próximo."
-);
+    const itensEnvioDocs = Array.isArray(st.envio_docs_itens_json) && st.envio_docs_itens_json.length
+      ? st.envio_docs_itens_json
+      : generateChecklistForDocs(st);
+    const mensagemLista = buildEnvioDocsListaMensagens(itensEnvioDocs);
 
 const patchCanal = {
   docs_lista_enviada: true,
@@ -20410,6 +20493,7 @@ export {
   matchEnvioDocsClassificationToChecklist,
   resolveEnvioDocsTargetFromDocumentEngine,
   chooseEnvioDocsFinalTarget,
+  buildEnvioDocsListaMensagens,
   generateChecklistForDocs,
   isEnvioDocsBlockingItem,
   recomputeEnvioDocsProgress,

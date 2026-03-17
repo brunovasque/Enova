@@ -277,13 +277,104 @@ assert.deepEqual(matchRendaDesempateSeguroPorSinal.match_signals_json?.participa
   second_score: 0.54
 });
 
-const matchCnhNaoRegrediu = matchEnvioDocsClassificationToChecklist(
+const matchCnhSoloIdentidade = matchEnvioDocsClassificationToChecklist(
   { detected_doc_type: "cnh", detected_doc_category: "identidade", classification_confidence: 0.85 },
   { detected_participant: "desconhecido", participant_confidence: 0.5 },
-  { envio_docs_itens_json: itensComprovantes }
+  {
+    envio_docs_itens_json: [
+      { tipo: "rg", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+      { tipo: "cpf", participante: "p1", bucket: "obrigatorio", status: "pendente" }
+    ]
+  }
 );
-assert.equal(matchCnhNaoRegrediu.match_status, "ambiguous");
-assert.equal(Array.isArray(matchCnhNaoRegrediu.matched_items), true);
-assert.equal(matchCnhNaoRegrediu.matched_items.length, 2);
+assert.equal(matchCnhSoloIdentidade.match_status, "matched_safe");
+assert.equal(matchCnhSoloIdentidade.match_reason, "rg_com_cpf_resolves_identity_and_cpf_same_participant");
+assert.deepEqual(
+  matchCnhSoloIdentidade.matched_items
+    .map(({ tipo, participante }) => ({ tipo, participante }))
+    .sort((a, b) => a.tipo.localeCompare(b.tipo)),
+  [
+    { tipo: "cpf", participante: "p1" },
+    { tipo: "rg", participante: "p1" }
+  ].sort((a, b) => a.tipo.localeCompare(b.tipo))
+);
+
+const itensIdentidadeConjuntoPendentes = [
+  { tipo: "rg", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+  { tipo: "cpf", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+  { tipo: "rg", participante: "p2", bucket: "obrigatorio", status: "pendente" },
+  { tipo: "cpf", participante: "p2", bucket: "obrigatorio", status: "pendente" }
+];
+const matchCnhConjuntoBlocoPrimeiroParticipante = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "cnh", detected_doc_category: "identidade", classification_confidence: 0.86 },
+  { detected_participant: "desconhecido", participant_confidence: 0.4 },
+  { envio_docs_itens_json: itensIdentidadeConjuntoPendentes }
+);
+assert.equal(matchCnhConjuntoBlocoPrimeiroParticipante.match_status, "matched_safe");
+assert.equal(matchCnhConjuntoBlocoPrimeiroParticipante.match_reason, "identity_resolved_by_current_envio_docs_participant");
+assert.deepEqual(
+  matchCnhConjuntoBlocoPrimeiroParticipante.matched_items
+    .map(({ tipo, participante }) => ({ tipo, participante }))
+    .sort((a, b) => a.tipo.localeCompare(b.tipo)),
+  [
+    { tipo: "cpf", participante: "p1" },
+    { tipo: "rg", participante: "p1" }
+  ].sort((a, b) => a.tipo.localeCompare(b.tipo))
+);
+const finalCnhConjuntoBlocoPrimeiroParticipante = chooseEnvioDocsFinalTarget({
+  itens: itensIdentidadeConjuntoPendentes,
+  checklistMatch: matchCnhConjuntoBlocoPrimeiroParticipante,
+  documentClassification: { detected_doc_type: "cnh" },
+  legacySelection: { item: null, items: [] }
+});
+assert.equal(finalCnhConjuntoBlocoPrimeiroParticipante.finalTargetSource, "document_engine");
+assert.equal(finalCnhConjuntoBlocoPrimeiroParticipante.target?.participante, "p1");
+
+const itensIdentidadeConjuntoBlocoSegundoParticipante = [
+  { tipo: "rg", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+  { tipo: "cpf", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+  { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+  { tipo: "holerite", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+  { tipo: "rg", participante: "p2", bucket: "obrigatorio", status: "pendente" },
+  { tipo: "cpf", participante: "p2", bucket: "obrigatorio", status: "pendente" }
+];
+const matchCnhConjuntoBlocoSegundoParticipante = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "cnh", detected_doc_category: "identidade", classification_confidence: 0.86 },
+  { detected_participant: "desconhecido", participant_confidence: 0.4 },
+  { envio_docs_itens_json: itensIdentidadeConjuntoBlocoSegundoParticipante }
+);
+assert.equal(matchCnhConjuntoBlocoSegundoParticipante.match_status, "matched_safe");
+assert.deepEqual(
+  matchCnhConjuntoBlocoSegundoParticipante.matched_items
+    .map(({ tipo, participante }) => ({ tipo, participante }))
+    .sort((a, b) => a.tipo.localeCompare(b.tipo)),
+  [
+    { tipo: "cpf", participante: "p2" },
+    { tipo: "rg", participante: "p2" }
+  ].sort((a, b) => a.tipo.localeCompare(b.tipo))
+);
+const finalCnhConjuntoBlocoSegundoParticipante = chooseEnvioDocsFinalTarget({
+  itens: itensIdentidadeConjuntoBlocoSegundoParticipante,
+  checklistMatch: matchCnhConjuntoBlocoSegundoParticipante,
+  documentClassification: { detected_doc_type: "cnh" },
+  legacySelection: { item: null, items: [] }
+});
+assert.equal(finalCnhConjuntoBlocoSegundoParticipante.finalTargetSource, "document_engine");
+assert.equal(finalCnhConjuntoBlocoSegundoParticipante.target?.participante, "p2");
+
+const matchCnhSemContextoSeguro = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "cnh", detected_doc_category: "identidade", classification_confidence: 0.86 },
+  { detected_participant: "desconhecido", participant_confidence: 0.4 },
+  {
+    envio_docs_itens_json: [
+      { tipo: "rg", participante: "titular", bucket: "obrigatorio", status: "pendente" },
+      { tipo: "cpf", participante: "titular", bucket: "obrigatorio", status: "pendente" },
+      { tipo: "rg", participante: "conjuge", bucket: "obrigatorio", status: "pendente" },
+      { tipo: "cpf", participante: "conjuge", bucket: "obrigatorio", status: "pendente" }
+    ]
+  }
+);
+assert.equal(matchCnhSemContextoSeguro.match_status, "ambiguous");
+assert.equal(matchCnhSemContextoSeguro.match_reason, "multiple_pending_items_for_doc_type");
 
 console.log("envio_docs_target_resolution.smoke: ok");

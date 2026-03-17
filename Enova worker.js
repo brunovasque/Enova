@@ -3,6 +3,7 @@ console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
 const ENOVA_BUILD = "enova-meta-debug-stamp-2026-03-11-visit-suite-publish";
 const CTPS_TARGET_RUNTIME_GUARD_VERSION = "ctps-target-guard-v1";
 const CTPS_RESOLUTION_PATH_GUARD = "handleDocumentUpload:post_match_target_resolution";
+const CTPS_NON_BLOCKING_DOC_TYPES = new Set(["ctps_completa", "ctps"]);
 const RESET_REPLY_SUMMARY_MAX_LEN = 140;
 
 function getSimulationContext(env) {
@@ -6465,6 +6466,9 @@ function envioDocsResumoPendencias(itens = []) {
 
 function isEnvioDocsBlockingItem(item) {
   if (!item || typeof item !== "object") return false;
+  const tipo = String(item?.tipo || "").trim().toLowerCase();
+  // Regra canônica: CTPS continua na checklist/processo, mas não entra no gate bloqueante de envio ao correspondente.
+  if (CTPS_NON_BLOCKING_DOC_TYPES.has(tipo)) return false;
   if (item.bucket === "obrigatorio") return true;
   if (item.bucket === "condicional") return false;
   if (item.bucket === "recomendado") return false;
@@ -18989,8 +18993,7 @@ case "envio_docs": {
     const itensEnvioDocs = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
     const hasCtpsTitularNoChecklist = itensEnvioDocs.some((item) =>
       String(item?.tipo || "").trim().toLowerCase() === "ctps_completa" &&
-      String(item?.participante || "").trim().toLowerCase() === "p1" &&
-      isEnvioDocsBlockingItem(item)
+      String(item?.participante || "").trim().toLowerCase() === "p1"
     );
     const mensagemLista = [
       "Show! 👏",
@@ -20225,5 +20228,9 @@ export {
   buildEnvioDocsChecklistMatchResult,
   matchEnvioDocsClassificationToChecklist,
   resolveEnvioDocsTargetFromDocumentEngine,
-  chooseEnvioDocsFinalTarget
+  chooseEnvioDocsFinalTarget,
+  generateChecklistForDocs,
+  isEnvioDocsBlockingItem,
+  recomputeEnvioDocsProgress,
+  isCorrespondentePacoteReady
 };

@@ -15493,7 +15493,7 @@ case "regime_trabalho_parceiro": {
     }
   });
 
-  const regimeParceiro = parseRegimeTrabalho(t);
+  const regimeParceiro = parseRegimeTrabalho(normalizeText(userText));
   // Exemplos cobertos: "parceiro é CLT", "ela faz bico", "ele é concursado"
   const clt      = regimeParceiro === "clt";
   const auto     = regimeParceiro === "autonomo";

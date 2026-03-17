@@ -17908,13 +17908,13 @@ case "restricao": {
   const temTermoRestricao = hasRestricaoIndicador(userText);
 
   const sim =
-    !temNaoTenho && (
-      isYes(userText)
-      /^\s*tem\s*$/i.test(userText) ||
-      (!isNo(userText) && temTermoRestricao) ||
-      /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(userText) ||
-      /\b(tenho|tem)\s+(restri[cç][aã]o|nome sujo|cpf sujo|d[ií]vida|divida|protesto)\b/i.test(userText)
-    );
+  !temNaoTenho && (
+    isYes(userText) ||
+    /^\s*tem\s*$/i.test(userText) ||
+    (!isNo(userText) && temTermoRestricao) ||
+    /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(userText) ||
+    /\b(tenho|tem)\s+(restri[cç][aã]o|nome sujo|cpf sujo|d[ií]vida|divida|protesto)\b/i.test(userText)
+  );
 
   const incerto =
     /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(userText);

@@ -15823,7 +15823,7 @@ case "renda_parceiro": {
     }
   });
 
-  const valor = parseMoneyBR(t);
+  const valor = parseMoneyBR(userText);
 
   // -----------------------------------
   // VALOR INVÁLIDO

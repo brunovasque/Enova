@@ -15313,9 +15313,9 @@ case "restricao_parceiro_p3": {
 }
 
 case "regularizacao_restricao_p3": {
-  const sim = isYes(t) || /(sim|ja estou|estou resolvendo|pagando|negociando|acordo|parcelando|renegociando|ja quitei|ja paguei)/i.test(t);
-  const nao = isNo(t) || /(ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|vou negociar depois)/i.test(t);
-  const talvez = /(talvez|acho|nao sei|não sei|pode ser)/i.test(t);
+  const sim = isYes(userText) || /(sim|ja estou|estou resolvendo|pagando|negociando|acordo|parcelando|renegociando|ja quitei|ja paguei)/i.test(userText);
+  const nao = isNo(userText) || /(ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|vou negociar depois)/i.test(userText);
+  const talvez = /(talvez|acho|nao sei|não sei|pode ser)/i.test(userText);
 
   if (sim || nao || talvez) {
     st.p3_done = true;
@@ -17904,26 +17904,26 @@ case "restricao": {
   });
   
   // Exemplos cobertos: "nome sujo", "negativado no serasa", "cpf limpo", "não sei"
-  const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(t);
-  const temTermoRestricao = hasRestricaoIndicador(t);
+  const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(userText);
+  const temTermoRestricao = hasRestricaoIndicador(userText);
 
   const sim =
     !temNaoTenho && (
-      isYes(t) ||
-      /^\s*tem\s*$/i.test(t) ||
-      (!isNo(t) && temTermoRestricao) ||
-      /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(t) ||
-      /\b(tenho|tem)\s+(restri[cç][aã]o|nome sujo|cpf sujo|d[ií]vida|divida|protesto)\b/i.test(t)
+      isYes(userText)
+      /^\s*tem\s*$/i.test(userText) ||
+      (!isNo(userText) && temTermoRestricao) ||
+      /(sou negativad[oa]|estou negativad[oa]|negativad[oa]|serasa|spc)/i.test(userText) ||
+      /\b(tenho|tem)\s+(restri[cç][aã]o|nome sujo|cpf sujo|d[ií]vida|divida|protesto)\b/i.test(userText)
     );
 
   const incerto =
-    /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(t);
+    /(nao sei|não sei|talvez|acho|pode ser|não lembro|nao lembro)/i.test(userText);
 
   const nao =
     !incerto && (
-      isNo(t) ||
+      isNo(userText) ||
       temNaoTenho ||
-      /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo)/i.test(t)
+      /(tudo certo|cpf limpo|sem restri[cç][aã]o|sem divida|sem d[ií]vida|nome limpo)/i.test(userText)
     );
 
   const ehFluxoConjunto =
@@ -18526,9 +18526,9 @@ case "regularizacao_restricao": {
   };
 
   // Exemplos cobertos: "já tô negociando", "estou pagando acordo", "ainda não fiz nada", "já quitei"
-  const sim = isYes(t) || /(sim|já estou|ja estou|estou vendo|to vendo|estou resolvendo|tô resolvendo|pagando|negociando|acordo|parcelando|renegociando|ja quitei|já quitei|ja paguei|já paguei)/i.test(t);
-  const nao = isNo(t) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|pretendo negociar|vou negociar depois)/i.test(t);
-  const talvez = /(talvez|acho|nao sei|não sei|pode ser)/i.test(t);
+  const sim = isYes(userText) || /(sim|já estou|ja estou|estou vendo|to vendo|estou resolvendo|tô resolvendo|pagando|negociando|acordo|parcelando|renegociando|ja quitei|já quitei|ja paguei|já paguei)/i.test(userText);
+  const nao = isNo(userText) || /(n[aã]o|não estou|nao estou|ainda não|ainda nao|não mexi|nao mexi|não fiz nada|nao fiz nada|pretendo negociar|vou negociar depois)/i.test(userText);
+  const talvez = /(talvez|acho|nao sei|não sei|pode ser)/i.test(userText);
 
   // Se não veio sim/não/talvez, tenta capturar VALOR e repetir a pergunta no mesmo stage
   if (!sim && !nao && !talvez) {

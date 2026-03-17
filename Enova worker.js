@@ -6247,6 +6247,29 @@ function appendChecklistByRegime(checklist, participante, regime, irDeclarado) {
   }
 }
 
+function resolveAutonomoIrDeclarado(st, participante) {
+  const readBool = (value) => {
+    if (value === true) return true;
+    if (value === false || value == null) return false;
+    const txt = String(value).trim().toLowerCase();
+    if (["true", "1", "sim", "yes"].includes(txt)) return true;
+    if (["false", "0", "nao", "não", "no"].includes(txt)) return false;
+    return false;
+  };
+
+  if (participante === "p1") {
+    if (st.autonomo_ir === true || st.autonomo_ir === false) return st.autonomo_ir;
+    return readBool(st.ir_declarado);
+  }
+
+  if (participante === "p2") {
+    if (st.ir_declarado_parceiro === true || st.ir_declarado_parceiro === false) return st.ir_declarado_parceiro;
+    return readBool(st.ir_declarado_p2);
+  }
+
+  return false;
+}
+
 // 17.2 — Gera checklist dinâmico p/ P1 e P2
 function generateChecklistForDocs(st) {
   const checklist = [];
@@ -6266,7 +6289,7 @@ function generateChecklistForDocs(st) {
     checklist,
     "p1",
     String(st.regime_trabalho || "").trim().toLowerCase(),
-    Boolean(st.ir_declarado || st.autonomo_ir_pergunta)
+    resolveAutonomoIrDeclarado(st, "p1")
   );
 
   // Casamento civil → certidão
@@ -6289,7 +6312,7 @@ function generateChecklistForDocs(st) {
       checklist,
       "p2",
       String(st.regime_trabalho_parceiro || st.regime_trabalho_parceiro_familiar || "").trim().toLowerCase(),
-      Boolean(st.ir_declarado_parceiro || st.ir_declarado_p2)
+      resolveAutonomoIrDeclarado(st, "p2")
     );
   }
 
@@ -6299,7 +6322,7 @@ function generateChecklistForDocs(st) {
       checklist,
       "p3",
       String(st.regime_trabalho_parceiro_familiar_p3 || "").trim().toLowerCase(),
-      Boolean(st.ir_declarado_p3)
+      resolveAutonomoIrDeclarado(st, "p3")
     );
   }
 

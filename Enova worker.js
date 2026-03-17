@@ -15671,7 +15671,7 @@ case "renda": {
   });
 
   // Exemplos cobertos: "2500", "2.500", "2,5k", "r$ 2.500"
-  const valor = parseMoneyBR(t); // captura número digitado
+  const valor = parseMoneyBR(userText); // captura número digitado
 
   // -----------------------------------
   // VALOR VÁLIDO

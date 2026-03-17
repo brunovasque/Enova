@@ -14462,7 +14462,7 @@ case "regime_trabalho": {
     }
   });
 
-  const regimeDetectado = parseRegimeTrabalho(t);
+  const regimeDetectado = parseRegimeTrabalho(normalizeText(userText));
   // Exemplos cobertos: "registro em carteira", "faço freela", "sou servidor estatutário"
   const clt = regimeDetectado === "clt";
   const aut = regimeDetectado === "autonomo";
@@ -14616,8 +14616,8 @@ case "regime_trabalho": {
 }
 
 case "autonomo_ir_pergunta": {
- const nao = /^(n[aã]o|nao)$/i.test(String(t || "").trim());
-  const sim = /\b(sim|yes)\b/i.test(t);
+ const nao = /^(n[aã]o|nao)$/i.test(String(userText || "").trim());
+ const sim = /\b(sim|yes)\b/i.test(userText);
 
   if (nao) {
     await upsertState(env, st.wa_id, { autonomo_ir: false });
@@ -14676,8 +14676,8 @@ case "autonomo_ir_pergunta": {
 }
 
 case "autonomo_sem_ir_ir_este_ano": {
-  const sim = /\b(sim|pretendo|vou|declarar)\b/i.test(t);
-  const nao = /\b(n[aã]o|nao|não)\b/i.test(t);
+  const sim = /\b(sim|pretendo|vou|declarar)\b/i.test(userText);
+  const nao = /\b(n[aã]o|nao|não)\b/i.test(userText);
 
   if (sim) {
     return step(
@@ -14717,12 +14717,10 @@ case "autonomo_sem_ir_ir_este_ano": {
 
 case "autonomo_sem_ir_caminho": {
   // FASE 1 — decidir composição (parceiro/familiar/ninguém)
-  const parceiro = /\b(parceir\w*|c[oô]njuge|espos\w*|marid\w*|namorad\w*)\b/i.test(t);
-  const familiar = /\b(familiar|pai|m[aã]e|mae|irm[aã]o|irma|av[oó]|tia|tio|primo|prima)\b/i.test(t);
-  const ninguem = /\b(ningu[eé]m|sozinh|s[oó]\s*eu|apenas eu|somente eu)\b/i.test(t);
-
-  // “não” aqui significa “não vou compor” => tratar como “ninguém”
-  const nao = /^(n[aã]o|nao)$/i.test(String(t || "").trim());
+  const parceiro = /\b(parceir\w*|c[oô]njuge|espos\w*|marid\w*|namorad\w*)\b/i.test(userText);
+  const familiar = /\b(familiar|pai|m[aã]e|mae|irm[aã]o|irma|av[oó]|tia|tio|primo|prima)\b/i.test(userText);
+  const ninguem = /\b(ningu[eé]m|sozinh|s[oó]\s*eu|apenas eu|somente eu)\b/i.test(userText);
+  const nao = /^(n[aã]o|nao)$/i.test(String(userText || "").trim());
 
   if (parceiro) {
     return step(
@@ -14766,8 +14764,8 @@ case "autonomo_sem_ir_caminho": {
 
 case "autonomo_sem_ir_entrada": {
   // FASE 2 — decidir entrada (sim/não)
-  const sim = /\b(sim|yes)\b/i.test(t) || /\b(tenho entrada|com entrada|entrada sim)\b/i.test(t);
-  const nao = /\b(n[aã]o|nao)\b/i.test(t) || /\b(sem entrada|nao tenho entrada|não tenho entrada|entrada n[aã]o)\b/i.test(t);
+  const sim = /\b(sim|yes)\b/i.test(userText) || /\b(tenho entrada|com entrada|entrada sim)\b/i.test(userText);
+  const nao = /\b(n[aã]o|nao)\b/i.test(userText) || /\b(sem entrada|nao tenho entrada|não tenho entrada|entrada n[aã]o)\b/i.test(userText);
 
   if (sim) {
     return step(

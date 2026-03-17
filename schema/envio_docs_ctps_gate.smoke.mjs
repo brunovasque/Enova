@@ -34,7 +34,8 @@ const cltComCtpsPendente = [
   { tipo: "holerites", participante: "p1", bucket: "obrigatorio", status: recebido },
   { tipo: "ctps_completa", participante: "p1", bucket: "obrigatorio", status: pendente }
 ];
-assert.equal(isEnvioDocsBlockingItem(cltComCtpsPendente[3]), false);
+const cltComCtpsItem = cltComCtpsPendente.find((item) => item.tipo === "ctps_completa" && item.participante === "p1");
+assert.equal(isEnvioDocsBlockingItem(cltComCtpsItem), false);
 assert.equal(recomputeEnvioDocsProgress(cltComCtpsPendente).envio_docs_status, "completo");
 assert.equal(isCorrespondentePacoteReady(withReadyStatus(cltComCtpsPendente)), true);
 

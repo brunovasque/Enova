@@ -6233,19 +6233,25 @@ function describeEnvioDocsRendaByChecklist(itensParticipante = []) {
 
   const hasDeclaracaoIr = tipos.has("declaracao_ir");
   const hasReciboIr = tipos.has("recibo_ir");
-  if (hasDeclaracaoIr && hasReciboIr) return "declaração e recibo do IR";
+  const hasExtratos =
+    tipos.has("extratos_bancarios") ||
+    tipos.has("extrato_bancario") ||
+    tipos.has("extratos_bancarios_3_meses");
+
+  if (hasDeclaracaoIr && hasReciboIr && hasExtratos) return "declaração de IR com recibo e extratos de movimentação";
+  if (hasDeclaracaoIr && hasReciboIr) return "declaração de IR com recibo";
   if (hasDeclaracaoIr) return "declaração do IR";
   if (hasReciboIr) return "recibo do IR";
 
-  if (tipos.has("extratos_bancarios") || tipos.has("extrato_bancario") || tipos.has("extratos_bancarios_3_meses")) {
-    return "extrato bancário dos últimos 3 meses";
-  }
+  if (hasExtratos) return "extratos de movimentação bancária";
 
   if (tipos.has("holerites") || tipos.has("holerite") || tipos.has("holerite_ultimo") || tipos.has("holerites_ultimos_3")) {
-    return "último holerite";
+    return "holerite";
   }
 
-  return "comprovante de renda do seu perfil";
+  if (tipos.has("comprovante_renda")) return "comprovante de renda";
+
+  return null;
 }
 
 function buildEnvioDocsCallToAction(participanteAtual) {
@@ -6253,7 +6259,7 @@ function buildEnvioDocsCallToAction(participanteAtual) {
     return "Agora vamos para os documentos da pessoa que vai entrar com você no processo.\nMe envie primeiro o documento de identificação dela. Assim que eu confirmar, já peço o próximo.";
   }
   if (participanteAtual === "p3") {
-    return "Agora vamos para os documentos da terceira pessoa que vai entrar com vocês no processo.\nMe envie primeiro o documento de identificação dela. Assim que eu confirmar, já peço o próximo.";
+    return "Agora vamos para os documentos da próxima pessoa que também vai entrar no processo.\nMe envie primeiro o documento de identificação dela. Assim que eu confirmar, já peço o próximo.";
   }
   return "Vamos começar pelos seus documentos para não misturar com os da outra pessoa e evitar erro na análise.\nMe envie primeiro seu documento de identificação. Assim que eu confirmar, já peço o próximo.";
 }
@@ -6289,12 +6295,39 @@ function buildEnvioDocsListaMensagens(itensEnvioDocs = []) {
   const tiposParticipanteAtual = new Set(
     itensParticipanteAtual.map((item) => String(item?.tipo || "").trim().toLowerCase()).filter(Boolean)
   );
-  const rendaLabel = describeEnvioDocsRendaByChecklist(itensParticipanteAtual);
-  const incluirCtps = tiposParticipanteAtual.has("ctps_completa") || tiposParticipanteAtual.has("ctps");
+  const listaCondensada = [];
+  const incluirIdentidade =
+    tiposParticipanteAtual.has("identidade_cpf") ||
+    tiposParticipanteAtual.has("rg") ||
+    tiposParticipanteAtual.has("rg_com_cpf") ||
+    tiposParticipanteAtual.has("cnh");
+  if (incluirIdentidade) listaCondensada.push("RG ou CNH");
 
-  const mensagemPrincipal = incluirCtps
-    ? `Fechamos por envio online aqui no WhatsApp.\nA lista é simples: RG ou CNH, CPF (se não constar no documento), comprovante de residência atual, ${rendaLabel} e CTPS completa. Pode ser foto, imagem ou PDF.`
-    : `Fechamos por envio online aqui no WhatsApp.\nA lista é simples: RG ou CNH, CPF (se não constar no documento), comprovante de residência atual e ${rendaLabel}. Pode ser foto, imagem ou PDF.`;
+  const incluirCpf =
+    tiposParticipanteAtual.has("identidade_cpf") ||
+    tiposParticipanteAtual.has("cpf") ||
+    tiposParticipanteAtual.has("rg");
+  if (incluirCpf) listaCondensada.push("CPF (se não constar no documento)");
+
+  if (tiposParticipanteAtual.has("comprovante_residencia")) listaCondensada.push("comprovante de residência atual");
+
+  const rendaLabel = describeEnvioDocsRendaByChecklist(itensParticipanteAtual);
+  if (rendaLabel) listaCondensada.push(rendaLabel);
+
+  if (tiposParticipanteAtual.has("ctps_completa") || tiposParticipanteAtual.has("ctps")) {
+    listaCondensada.push("CTPS completa");
+  }
+  if (tiposParticipanteAtual.has("certidao_casamento")) {
+    listaCondensada.push("certidão de casamento");
+  }
+  if (tiposParticipanteAtual.has("certidao_nascimento_dependente")) {
+    listaCondensada.push("certidão de nascimento do dependente");
+  }
+
+  const listaTexto = listaCondensada.length
+    ? listaCondensada.join(", ")
+    : "documento de identificação e comprovantes do seu processo";
+  const mensagemPrincipal = `Fechamos por envio online aqui no WhatsApp.\nA lista é simples: ${listaTexto}. Pode ser foto, imagem ou PDF.`;
 
   return [mensagemPrincipal, buildEnvioDocsCallToAction(participanteAtual)];
 }

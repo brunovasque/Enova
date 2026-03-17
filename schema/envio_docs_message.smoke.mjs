@@ -22,13 +22,20 @@ function assertSharedExpectations(messages) {
   assert.equal(joined.includes("Mesmos documentos da outra pessoa"), false);
 }
 
+function printScenario(nome, messages) {
+  console.log(`\n[${nome}]`);
+  console.log(messages[0]);
+  console.log(messages[1]);
+}
+
 {
   const stSoloClt = { regime_trabalho: "clt" };
   const itensSoloClt = generateChecklistForDocs(stSoloClt);
   const messages = buildEnvioDocsListaMensagens(itensSoloClt);
   assertSharedExpectations(messages);
-  assert.equal(messages[0].includes("último holerite"), true);
+  assert.equal(messages[0].includes("holerite"), true);
   assert.equal(messages[1].includes("Vamos começar pelos seus documentos"), true);
+  printScenario("solo CLT", messages);
 }
 
 {
@@ -41,16 +48,28 @@ function assertSharedExpectations(messages) {
   const itensComP1Concluido = markParticipantAsReceived(itensConjuntoClt, "p1");
   const messages = buildEnvioDocsListaMensagens(itensComP1Concluido);
   assertSharedExpectations(messages);
-  assert.equal(messages[0].includes("último holerite"), true);
+  assert.equal(messages[0].includes("holerite"), true);
   assert.equal(messages[1].includes("pessoa que vai entrar com você no processo"), true);
+  printScenario("conjunto CLT + CLT", messages);
 }
 
 {
   const stAutonomoIr = { regime_trabalho: "autonomo", autonomo_ir: true };
   const itensAutonomoIr = generateChecklistForDocs(stAutonomoIr);
+  itensAutonomoIr.push({ tipo: "extratos_bancarios", participante: "p1", bucket: "obrigatorio", status: "pendente" });
   const messages = buildEnvioDocsListaMensagens(itensAutonomoIr);
   assertSharedExpectations(messages);
-  assert.equal(messages[0].includes("declaração e recibo do IR"), true);
+  assert.equal(messages[0].includes("declaração de IR com recibo e extratos de movimentação"), true);
+  printScenario("autônomo com IR", messages);
+}
+
+{
+  const stCasamentoCivil = { regime_trabalho: "clt", casamento_formal: "civil_papel" };
+  const itensCasamentoCivil = generateChecklistForDocs(stCasamentoCivil);
+  const messages = buildEnvioDocsListaMensagens(itensCasamentoCivil);
+  assertSharedExpectations(messages);
+  assert.equal(messages[0].includes("certidão de casamento"), true);
+  printScenario("casamento civil", messages);
 }
 
 {
@@ -66,8 +85,9 @@ function assertSharedExpectations(messages) {
   const itensComP1P2Concluidos = markParticipantAsReceived(itensComP1Concluido, "p2");
   const messages = buildEnvioDocsListaMensagens(itensComP1P2Concluidos);
   assertSharedExpectations(messages);
-  assert.equal(messages[0].includes("extrato bancário dos últimos 3 meses"), true);
-  assert.equal(messages[1].includes("terceira pessoa que vai entrar com vocês no processo"), true);
+  assert.equal(messages[0].includes("extratos de movimentação bancária"), true);
+  assert.equal(messages[1].includes("próxima pessoa que também vai entrar no processo"), true);
+  printScenario("terceiro participante", messages);
 }
 
 console.log("envio_docs_message.smoke: ok");

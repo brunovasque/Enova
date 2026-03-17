@@ -12459,6 +12459,7 @@ case "estado_civil": {
 // 🧩 C6 — CONFIRMAR CASAMENTO (civil ou união estável)
 // --------------------------------------------------
 case "confirmar_casamento": {
+  const t = String(userText || "").trim();
 
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "confirmar_casamento"
@@ -12593,6 +12594,7 @@ case "confirmar_casamento": {
 // 🧩 C7 — FINANCIAMENTO CONJUNTO (casado / união estável)
 // --------------------------------------------------
 case "financiamento_conjunto": {
+  const t = String(userText || "").trim();
 
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "financiamento_conjunto"
@@ -12736,6 +12738,7 @@ case "financiamento_conjunto": {
 // C8 — PARCEIRO TEM RENDA
 // =========================================================
 case "parceiro_tem_renda": {
+  const t = String(userText || "").trim();
 
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "parceiro_tem_renda"
@@ -13540,6 +13543,7 @@ case "pais_casados_civil_pergunta": {
 // C11 — CONFIRMAR AVO FAMILIAR
 // =========================================================
 case "confirmar_avo_familiar": {
+  const t = String(userText || "").trim();
 
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "confirmar_avo_familiar"
@@ -13721,6 +13725,7 @@ case "confirmar_avo_familiar": {
 // =========================================================
 
 case "renda_familiar_valor": {
+  const t = String(userText || "").trim();
 
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "renda_familiar_valor"
@@ -15252,6 +15257,7 @@ case "ctps_36_parceiro_p3": {
 }
 
 case "restricao_parceiro_p3": {
+  const t = String(userText || "").trim();
   const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(t);
   const temTermoRestricao = hasRestricaoIndicador(t);
   const sim =
@@ -15969,6 +15975,7 @@ case "renda_parceiro_familiar": {
 // 🧩 C24 — RENDA MISTA DETALHE (ex: 2000 CLT + 1200 Uber)
 // =========================================================
 case "renda_mista_detalhe": {
+  const t = String(userText || "").trim();
 
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "renda_mista_detalhe"
@@ -16064,6 +16071,7 @@ case "renda_mista_detalhe": {
 // 🧩 C25 — POSSUI RENDA EXTRA? (CLT abaixo do mínimo)
 // =========================================================
 case "possui_renda_extra": {
+  const t = String(userText || "").trim();
 
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "possui_renda_extra"
@@ -16166,6 +16174,7 @@ case "possui_renda_extra": {
 // 🧩 C26 — INTERPRETAR COMPOSIÇÃO (quando renda não fecha)
 // =========================================================
 case "interpretar_composicao": {
+  const t = String(userText || "").trim();
 
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "interpretar_composicao"
@@ -16577,6 +16586,7 @@ case "quem_pode_somar": {
 // 🧩 C28 — SUGERIR COMPOSIÇÃO PARA RENDA MISTA BAIXA
 // =========================================================
 case "sugerir_composicao_mista": {
+  const t = String(userText || "").trim();
 
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "sugerir_composicao_mista"
@@ -16680,6 +16690,7 @@ case "sugerir_composicao_mista": {
 // 🧩 C29 — IR DECLARADO (titular ou parceiro autônomo)
 // =========================================================
 case "ir_declarado": {
+  const t = String(userText || "").trim();
 
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "ir_declarado"
@@ -16843,6 +16854,7 @@ case "ir_declarado": {
 // 🧩 C30 — AUTÔNOMO COMPOR RENDA
 // =========================================================
 case "autonomo_compor_renda": {
+  const t = String(userText || "").trim();
 
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "autonomo_compor_renda"
@@ -18235,6 +18247,7 @@ if (incerto) {
 // 🧩 C34B — RESTRIÇÃO NO CPF (PARCEIRO)
 // =========================================================
 case "restricao_parceiro": {
+  const t = String(userText || "").trim();
 
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
@@ -19298,6 +19311,7 @@ const patchCanal = {
 // Não usar este conteúdo interno como base da expansão futura da visita; evoluções devem seguir o schema oficial.
 // =========================================================
 case "agendamento_visita": {
+  const t = String(userText || "").trim();
 
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "agendamento_visita"

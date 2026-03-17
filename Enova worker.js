@@ -6465,6 +6465,8 @@ function envioDocsResumoPendencias(itens = []) {
 
 function isEnvioDocsBlockingItem(item) {
   if (!item || typeof item !== "object") return false;
+  const tipo = String(item?.tipo || "").trim().toLowerCase();
+  if (tipo === "ctps_completa" || tipo === "ctps") return false;
   if (item.bucket === "obrigatorio") return true;
   if (item.bucket === "condicional") return false;
   if (item.bucket === "recomendado") return false;
@@ -18989,8 +18991,7 @@ case "envio_docs": {
     const itensEnvioDocs = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
     const hasCtpsTitularNoChecklist = itensEnvioDocs.some((item) =>
       String(item?.tipo || "").trim().toLowerCase() === "ctps_completa" &&
-      String(item?.participante || "").trim().toLowerCase() === "p1" &&
-      isEnvioDocsBlockingItem(item)
+      String(item?.participante || "").trim().toLowerCase() === "p1"
     );
     const mensagemLista = [
       "Show! 👏",
@@ -20225,5 +20226,9 @@ export {
   buildEnvioDocsChecklistMatchResult,
   matchEnvioDocsClassificationToChecklist,
   resolveEnvioDocsTargetFromDocumentEngine,
-  chooseEnvioDocsFinalTarget
+  chooseEnvioDocsFinalTarget,
+  generateChecklistForDocs,
+  isEnvioDocsBlockingItem,
+  recomputeEnvioDocsProgress,
+  isCorrespondentePacoteReady
 };

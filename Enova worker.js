@@ -18940,37 +18940,38 @@ case "envio_docs": {
       "- Comprovante de renda (de acordo com o perfil)"
     ];
     if (hasCtpsTitularNoChecklist) {
-      mensagemLista.push("- CTPS (carteira de trabalho) completa");
-    }
-    if (hasP2Confirmado) {
-      mensagemLista.push(
-        "",
-        "📄 **Documentos da outra pessoa da composição:**",
-        "Mesmos documentos da outra pessoa 🙌"
-      );
-    }
-    mensagemLista.push(
-      "",
-      "Assim que tiver tudo em mãos, pode enviar por aqui mesmo.",
-      "Pode mandar uma foto de cada documento 😉"
-    );
+  mensagemLista.push("- CTPS (carteira de trabalho) completa");
+}
+if (hasP2Confirmado) {
+  mensagemLista.push(
+    "",
+    "📄 **Documentos da outra pessoa da composição:**",
+    "Mesmos documentos da outra pessoa 🙌"
+  );
+}
+mensagemLista.push(
+  "",
+  "Vamos fazer por etapas para não misturar seus documentos e evitar erro na análise, tudo bem?",
+  "Me envie primeiro seu documento de identificação.",
+  "Assim que eu confirmar o recebimento, já te peço o próximo."
+);
 
-    const patchCanal = {
-      docs_lista_enviada: true,
-      envio_docs_lista_enviada: true,
-      envio_docs_lembrete_count: 0,
-      envio_docs_ultimo_pedido_em: new Date().toISOString(),
-      canal_docs_status: "definido",
-      canal_docs_escolhido: "whatsapp",
-      canal_docs_recusa_whatsapp: false,
-      canal_docs_motivo_recusa: null,
-      canal_docs_agendamento_pendente: false,
-      canal_docs_opcoes_liberadas_json: {
-        principal: "whatsapp",
-        alternativas_digitais: ["site"],
-        visita: "reativa"
-      }
-    };
+const patchCanal = {
+  docs_lista_enviada: true,
+  envio_docs_lista_enviada: true,
+  envio_docs_lembrete_count: 0,
+  envio_docs_ultimo_pedido_em: new Date().toISOString(),
+  canal_docs_status: "definido",
+  canal_docs_escolhido: "whatsapp",
+  canal_docs_recusa_whatsapp: false,
+  canal_docs_motivo_recusa: null,
+  canal_docs_agendamento_pendente: false,
+  canal_docs_opcoes_liberadas_json: {
+    principal: "whatsapp",
+    alternativas_digitais: ["site"],
+    visita: "reativa"
+  }
+};
     await upsertState(env, st.wa_id, patchCanal);
     Object.assign(st, patchCanal);
 

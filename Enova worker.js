@@ -6569,16 +6569,68 @@ function mensagemPendenciasHumanizada(list) {
   return linhas;
 }
 
-function envioDocsResumoPendencias(itens = []) {
-  const pendentes = itens
-    .filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item));
-  const base = pendentes.slice(0, 4);
-  const ctpsPendente = pendentes.find((item) => String(item?.tipo || "").trim().toLowerCase() === "ctps_completa");
-  const ctpsJaIncluida = base.some((item) => String(item?.tipo || "").trim().toLowerCase() === "ctps_completa");
-  const resumo = (!ctpsJaIncluida && ctpsPendente)
-    ? [...base.slice(0, 3), ctpsPendente]
-    : base;
+function envioDocsResumoPendencias(itens = [], options = {}) {
+  const includeNonBlocking = options?.includeNonBlocking === true;
+  const requestedLimit = Number(options?.limit);
+  const limit = Number.isFinite(requestedLimit) && requestedLimit >= 0 ? Math.floor(requestedLimit) : 4;
+  const pendentes = (Array.isArray(itens) ? itens : [])
+    .filter((item) => !isEnvioDocsItemReceived(item))
+    .filter((item) => includeNonBlocking || isEnvioDocsBlockingItem(item));
+  const resumo = limit === 0 ? pendentes : pendentes.slice(0, limit);
   return resumo.map((item) => `• ${prettyDocLabel(item.tipo)} (${item.participante === "p1" ? "titular" : "composição"})`);
+}
+
+function resolveEnvioDocsNextPendingItemForClient(itens = []) {
+  const pendentes = (Array.isArray(itens) ? itens : []).filter((item) => !isEnvioDocsItemReceived(item));
+  if (!pendentes.length) return null;
+  const pendenteBloqueante = pendentes.find((item) => isEnvioDocsBlockingItem(item));
+  if (pendenteBloqueante) return pendenteBloqueante;
+  const pendenteCtps = pendentes.find((item) => {
+    const tipo = String(item?.tipo || "").trim().toLowerCase();
+    return CTPS_NON_BLOCKING_DOC_TYPES.has(tipo);
+  });
+  return pendenteCtps || pendentes[0];
+}
+
+function buildEnvioDocsNextPendingPrompt(item) {
+  if (!item) return null;
+  const tipo = String(item?.tipo || "").trim().toLowerCase();
+  const participante = String(item?.participante || "").trim().toLowerCase();
+  const docMap = {
+    identidade_cpf: "o documento de identificação",
+    comprovante_residencia: "o comprovante de residência",
+    holerites: "o holerite",
+    holerite: "o holerite",
+    comprovante_renda: "o comprovante de renda",
+    declaracao_ir: "a declaração de IR",
+    recibo_ir: "o recibo de IR",
+    extratos_bancarios: "os extratos bancários",
+    extrato_bancario: "o extrato bancário",
+    ctps_completa: "a CTPS completa",
+    ctps: "a CTPS completa",
+    certidao_casamento: "a certidão de casamento",
+    certidao_nascimento_dependente: "a certidão de nascimento do dependente"
+  };
+  const documento = docMap[tipo] || `o documento ${prettyDocLabel(tipo).toLowerCase()}`;
+  const alvo =
+    participante === "p1"
+      ? "do titular"
+      : participante === "p2"
+        ? "da composição (parceiro(a))"
+        : participante === "p3"
+          ? "da composição (familiar)"
+          : "da composição";
+  return `Agora me envie ${documento} ${alvo}.`;
+}
+
+function buildEnvioDocsUploadGuidanceLines(itens = [], progress = {}) {
+  if (progress?.envio_docs_status === "completo") {
+    return ["Recebemos sua pasta. Agora ela está em análise documental."];
+  }
+  const proximoItem = resolveEnvioDocsNextPendingItemForClient(itens);
+  const proximoPedido = buildEnvioDocsNextPendingPrompt(proximoItem);
+  if (proximoPedido) return [proximoPedido];
+  return ["Pode me enviar o próximo documento para concluir sua pasta."];
 }
 
 function isEnvioDocsBlockingItem(item) {
@@ -10141,7 +10193,6 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       };
     }
 
-    const pendenciasResumo = envioDocsResumoPendencias(itens);
     const linhas = ["Recebi seu arquivo e já registrei na sua pasta ✅"];
 
     if (matchedItems.length) {
@@ -10167,12 +10218,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       linhas.push("Registrei o recebimento e sigo com sua pasta; a validação detalhada acontece na próxima etapa interna.");
     }
 
-    if (progress.envio_docs_status === "completo") {
-      linhas.push("Recebemos sua pasta. Agora ela está em análise documental.");
-    } else {
-      linhas.push("Pode me enviar os próximos documentos para concluir sua pasta.");
-      if (pendenciasResumo.length) linhas.push("", ...pendenciasResumo);
-    }
+    linhas.push(...buildEnvioDocsUploadGuidanceLines(itens, progress));
 
     return {
       ok: true,
@@ -18996,13 +19042,16 @@ case "envio_docs": {
     const pediuSite =
       /\bprefiro enviar pelo site\b/.test(t) ||
       (/\b(site|portal|plataforma|link)\b/.test(t) && /\b(enviar|envio|mandar|subir|anexar|prefiro)\b/.test(t));
+    const pediuResumoPendencias =
+      /\b(o que falta|quais docs faltam|quais documentos faltam|falta algo|falta[m]? documento[s]?|lista de pendenc|resumo de pendenc|pendencias?)\b/.test(t);
 
     return {
       pediuVisita,
       objecaoOnlineForte,
       recusaWhatsapp,
       recusaSite,
-      pediuSite
+      pediuSite,
+      pediuResumoPendencias
     };
   }
 
@@ -19182,14 +19231,8 @@ case "envio_docs": {
         }
       }
 
-      if (progress.envio_docs_status === "completo") {
-        linhas.push("Recebemos sua pasta. Agora ela está em análise documental.");
-      } else {
-        const itensAtualizados = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
-        const pendenciasResumo = envioDocsResumoPendencias(itensAtualizados);
-        linhas.push("Pode me enviar os próximos documentos para concluir sua pasta.");
-        if (pendenciasResumo.length) linhas.push("", ...pendenciasResumo);
-      }
+      const itensAtualizados = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
+      linhas.push(...buildEnvioDocsUploadGuidanceLines(itensAtualizados, progress));
 
       return step(env, st, linhas, "envio_docs");
     }
@@ -19318,6 +19361,22 @@ case "envio_docs": {
       "Perfeito, seguimos pelo site ✅",
       "Te passo o canal online para envio dos documentos do seu caso.",
       "Assim que anexar tudo, já continuo sua pasta por aqui."
+    ], "envio_docs");
+  }
+
+  if (canal.pediuResumoPendencias) {
+    const itensAtualizados = Array.isArray(st.envio_docs_itens_json) && st.envio_docs_itens_json.length
+      ? st.envio_docs_itens_json
+      : generateChecklistForDocs(st);
+    const pendenciasResumo = envioDocsResumoPendencias(itensAtualizados, { includeNonBlocking: true, limit: 0 });
+    if (!pendenciasResumo.length) {
+      return step(env, st, [
+        "No momento sua pasta está sem pendências documentais abertas ✅"
+      ], "envio_docs");
+    }
+    return step(env, st, [
+      "Claro! Hoje faltam estes documentos na sua pasta:",
+      ...pendenciasResumo
     ], "envio_docs");
   }
 
@@ -20547,6 +20606,10 @@ export {
   resolveEnvioDocsTargetFromDocumentEngine,
   chooseEnvioDocsFinalTarget,
   buildEnvioDocsListaMensagens,
+  envioDocsResumoPendencias,
+  resolveEnvioDocsNextPendingItemForClient,
+  buildEnvioDocsNextPendingPrompt,
+  buildEnvioDocsUploadGuidanceLines,
   generateChecklistForDocs,
   isEnvioDocsBlockingItem,
   recomputeEnvioDocsProgress,

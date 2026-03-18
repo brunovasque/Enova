@@ -422,4 +422,73 @@ const matchCnhSemContextoSeguro = matchEnvioDocsClassificationToChecklist(
 assert.equal(matchCnhSemContextoSeguro.match_status, "ambiguous");
 assert.equal(matchCnhSemContextoSeguro.match_reason, "multiple_pending_items_for_doc_type");
 
+const itensCtpsAtivaP1 = [
+  { tipo: "identidade_cpf", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+  { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+  { tipo: "ctps_completa", participante: "p1", bucket: "obrigatorio", status: "pendente" }
+];
+const matchCtpsAtivaP1 = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "ctps_completa", detected_doc_category: "comprovante_renda", classification_confidence: 0.9 },
+  { detected_participant: "desconhecido", participant_confidence: 0.4 },
+  { envio_docs_itens_json: itensCtpsAtivaP1 }
+);
+assert.equal(matchCtpsAtivaP1.match_status, "matched_safe");
+assert.deepEqual(matchCtpsAtivaP1.matched_items, [{ tipo: "ctps_completa", participante: "p1" }]);
+const engineCtpsAtivaP1 = resolveEnvioDocsTargetFromDocumentEngine(
+  itensCtpsAtivaP1,
+  matchCtpsAtivaP1,
+  { detected_doc_type: "ctps_completa" }
+);
+assert.equal(engineCtpsAtivaP1.source, "document_engine");
+assert.equal(engineCtpsAtivaP1.item?.tipo, "ctps_completa");
+const finalCtpsAtivaP1 = chooseEnvioDocsFinalTarget({
+  itens: itensCtpsAtivaP1,
+  checklistMatch: matchCtpsAtivaP1,
+  documentClassification: { detected_doc_type: "ctps_completa" },
+  legacySelection: { item: null, items: [] }
+});
+assert.equal(finalCtpsAtivaP1.finalTargetSource, "document_engine");
+
+const matchBloqueanteSemRegressao = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "holerite", detected_doc_category: "comprovante_renda", classification_confidence: 0.86 },
+  { detected_participant: "p1", participant_confidence: 0.8 },
+  {
+    envio_docs_itens_json: [
+      { tipo: "comprovante_renda", participante: "p1", bucket: "obrigatorio", status: "pendente" }
+    ]
+  }
+);
+assert.equal(matchBloqueanteSemRegressao.match_status, "matched_safe");
+assert.deepEqual(matchBloqueanteSemRegressao.matched_items, [{ tipo: "comprovante_renda", participante: "p1" }]);
+
+const matchCtpsNaoAtiva = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "ctps_completa", detected_doc_category: "comprovante_renda", classification_confidence: 0.9 },
+  { detected_participant: "p1", participant_confidence: 0.9 },
+  {
+    envio_docs_itens_json: [
+      { tipo: "ctps_completa", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "comprovante_renda", participante: "p1", bucket: "obrigatorio", status: "pendente" }
+    ]
+  }
+);
+assert.equal(matchCtpsNaoAtiva.match_status, "no_match");
+assert.equal(matchCtpsNaoAtiva.match_reason, "no_pending_item_for_doc_type_and_participant");
+
+const matchCtpsParticipanteAtivoP2 = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "ctps_completa", detected_doc_category: "comprovante_renda", classification_confidence: 0.9 },
+  { detected_participant: "desconhecido", participant_confidence: 0.4 },
+  {
+    envio_docs_itens_json: [
+      { tipo: "identidade_cpf", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "ctps_completa", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "identidade_cpf", participante: "p2", bucket: "obrigatorio", status: "pendente" },
+      { tipo: "comprovante_residencia", participante: "p2", bucket: "obrigatorio", status: "pendente" },
+      { tipo: "ctps_completa", participante: "p2", bucket: "obrigatorio", status: "pendente" }
+    ]
+  }
+);
+assert.equal(matchCtpsParticipanteAtivoP2.match_status, "matched_safe");
+assert.deepEqual(matchCtpsParticipanteAtivoP2.matched_items, [{ tipo: "ctps_completa", participante: "p2" }]);
+
 console.log("envio_docs_target_resolution.smoke: ok");

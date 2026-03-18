@@ -193,7 +193,39 @@ const matchResidenciaAmbiguoReal = matchEnvioDocsClassificationToChecklist(
   { detected_participant: "desconhecido", participant_confidence: 0.5 },
   { envio_docs_itens_json: itensComprovantes }
 );
-assert.equal(matchResidenciaAmbiguoReal.match_status, "ambiguous");
+assert.equal(matchResidenciaAmbiguoReal.match_status, "matched_safe");
+assert.equal(matchResidenciaAmbiguoReal.match_reason, "resolved_by_current_envio_docs_participant");
+assert.deepEqual(matchResidenciaAmbiguoReal.matched_items, [{ tipo: "comprovante_residencia", participante: "p1" }]);
+
+const matchResidenciaParticipanteAtivoAvancaParaP2 = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "comprovante_residencia", detected_doc_category: "comprovante_residencia", classification_confidence: 0.82 },
+  { detected_participant: "desconhecido", participant_confidence: 0.5 },
+  {
+    envio_docs_itens_json: [
+      { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "comprovante_renda", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "comprovante_residencia", participante: "p2", bucket: "obrigatorio", status: "pendente" }
+    ]
+  }
+);
+assert.equal(matchResidenciaParticipanteAtivoAvancaParaP2.match_status, "matched_safe");
+assert.deepEqual(matchResidenciaParticipanteAtivoAvancaParaP2.matched_items, [{ tipo: "comprovante_residencia", participante: "p2" }]);
+
+const matchResidenciaParticipanteAtivoAvancaParaP3 = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "comprovante_residencia", detected_doc_category: "comprovante_residencia", classification_confidence: 0.82 },
+  { detected_participant: "desconhecido", participant_confidence: 0.5 },
+  {
+    envio_docs_itens_json: [
+      { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "comprovante_renda", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "comprovante_residencia", participante: "p2", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "comprovante_renda", participante: "p2", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "comprovante_residencia", participante: "p3", bucket: "obrigatorio", status: "pendente" }
+    ]
+  }
+);
+assert.equal(matchResidenciaParticipanteAtivoAvancaParaP3.match_status, "matched_safe");
+assert.deepEqual(matchResidenciaParticipanteAtivoAvancaParaP3.matched_items, [{ tipo: "comprovante_residencia", participante: "p3" }]);
 
 const matchResidenciaDesempateSeguroPorSinal = matchEnvioDocsClassificationToChecklist(
   { detected_doc_type: "comprovante_residencia", detected_doc_category: "comprovante_residencia", classification_confidence: 0.82 },
@@ -210,13 +242,26 @@ const matchResidenciaDesempateSeguroPorSinal = matchEnvioDocsClassificationToChe
   { envio_docs_itens_json: itensComprovantes }
 );
 assert.equal(matchResidenciaDesempateSeguroPorSinal.match_status, "matched_safe");
-assert.equal(matchResidenciaDesempateSeguroPorSinal.match_reason, "single_pending_item_resolved_by_participant_signal");
+assert.equal(matchResidenciaDesempateSeguroPorSinal.match_reason, "resolved_by_current_envio_docs_participant");
 assert.deepEqual(matchResidenciaDesempateSeguroPorSinal.matched_items, [{ tipo: "comprovante_residencia", participante: "p1" }]);
-assert.deepEqual(matchResidenciaDesempateSeguroPorSinal.match_signals_json?.participant_tiebreak, {
-  participante: "p1",
-  score: 0.81,
-  second_score: 0.52
+assert.deepEqual(matchResidenciaDesempateSeguroPorSinal.match_signals_json?.current_participant_tiebreak, {
+  participante_atual: "p1",
+  candidate_count: 2,
+  selected_count: 1
 });
+
+const matchResidenciaAmbiguoFallbackLegitimo = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "comprovante_residencia", detected_doc_category: "comprovante_residencia", classification_confidence: 0.82 },
+  { detected_participant: "desconhecido", participant_confidence: 0.5 },
+  {
+    envio_docs_itens_json: [
+      { tipo: "comprovante_residencia", participante: "titular", bucket: "obrigatorio", status: "pendente" },
+      { tipo: "comprovante_residencia", participante: "conjuge", bucket: "obrigatorio", status: "pendente" }
+    ]
+  }
+);
+assert.equal(matchResidenciaAmbiguoFallbackLegitimo.match_status, "ambiguous");
+assert.equal(matchResidenciaAmbiguoFallbackLegitimo.match_reason, "multiple_pending_items_for_doc_type");
 
 // rg_com_cpf deve resolver rg+cpf do mesmo participante sem ambiguidade
 const itensRgCpfMesmoParticipante = [
@@ -269,12 +314,12 @@ const matchRendaDesempateSeguroPorSinal = matchEnvioDocsClassificationToChecklis
   { envio_docs_itens_json: itensComprovantes }
 );
 assert.equal(matchRendaDesempateSeguroPorSinal.match_status, "matched_safe");
-assert.equal(matchRendaDesempateSeguroPorSinal.match_reason, "single_pending_item_resolved_by_participant_signal");
-assert.deepEqual(matchRendaDesempateSeguroPorSinal.matched_items, [{ tipo: "comprovante_renda", participante: "p2" }]);
-assert.deepEqual(matchRendaDesempateSeguroPorSinal.match_signals_json?.participant_tiebreak, {
-  participante: "p2",
-  score: 0.86,
-  second_score: 0.54
+assert.equal(matchRendaDesempateSeguroPorSinal.match_reason, "resolved_by_current_envio_docs_participant");
+assert.deepEqual(matchRendaDesempateSeguroPorSinal.matched_items, [{ tipo: "comprovante_renda", participante: "p1" }]);
+assert.deepEqual(matchRendaDesempateSeguroPorSinal.match_signals_json?.current_participant_tiebreak, {
+  participante_atual: "p1",
+  candidate_count: 2,
+  selected_count: 1
 });
 
 const matchCnhSoloIdentidade = matchEnvioDocsClassificationToChecklist(

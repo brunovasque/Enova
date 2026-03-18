@@ -6451,6 +6451,75 @@ function generateChecklistForDocs(st) {
   return dedupeChecklist(checklist);
 }
 
+function normalizeEnvioDocsParticipantId(value) {
+  const participante = String(value || "").trim().toLowerCase();
+  return ENVIO_DOCS_ORDEM_PARTICIPANTES.includes(participante) ? participante : null;
+}
+
+function resolveEnvioDocsCanonicalParticipantsFromState(st = {}) {
+  const fromDossie = Array.isArray(st?.dossie_participantes_json) ? st.dossie_participantes_json : [];
+  const fromPacote = Array.isArray(st?.pacote_participantes_json) ? st.pacote_participantes_json : [];
+  const participantes = [...fromDossie, ...fromPacote]
+    .map((item) => normalizeEnvioDocsParticipantId(item?.id || item?.participante))
+    .filter(Boolean);
+  return ENVIO_DOCS_ORDEM_PARTICIPANTES.filter((participante) => participantes.includes(participante));
+}
+
+function resolveEnvioDocsCanonicalChecklistFromDossier(st = {}, participantesCanonicos = []) {
+  const pendenciasDossie = Array.isArray(st?.dossie_pendencias_json) ? st.dossie_pendencias_json : [];
+  const docsObrigatorios = Array.isArray(st?.dossie_docs_obrigatorios_json) ? st.dossie_docs_obrigatorios_json : [];
+  const docsCondicionais = Array.isArray(st?.dossie_docs_condicionais_json) ? st.dossie_docs_condicionais_json : [];
+  const base = pendenciasDossie.length ? pendenciasDossie : [...docsObrigatorios, ...docsCondicionais];
+  const participantesSet = new Set(Array.isArray(participantesCanonicos) ? participantesCanonicos : []);
+  const checklist = dedupeChecklist(
+    base
+      .map((item) => {
+        const participante = normalizeEnvioDocsParticipantId(item?.participante);
+        const tipo = String(item?.tipo || "").trim().toLowerCase();
+        if (!participante || !tipo) return null;
+        if (participantesSet.size && !participantesSet.has(participante)) return null;
+        const bucket =
+          String(item?.bucket || "").trim().toLowerCase() ||
+          (item?.obrigatorio === true ? "obrigatorio" : item?.regra ? "condicional" : "obrigatorio");
+        return {
+          tipo,
+          participante,
+          bucket,
+          status: "pendente"
+        };
+      })
+      .filter(Boolean)
+  );
+  return checklist;
+}
+
+function reconcileEnvioDocsItensWithSavedDossier(st = {}, itensEnvioDocs = []) {
+  const itensAtuais = Array.isArray(itensEnvioDocs) ? itensEnvioDocs : [];
+  const participantesCanonicos = resolveEnvioDocsCanonicalParticipantsFromState(st);
+  if (!participantesCanonicos.length) return itensAtuais;
+
+  const participantesSet = new Set(participantesCanonicos);
+  const itensFiltrados = itensAtuais.filter((item) => participantesSet.has(normalizeEnvioDocsParticipantId(item?.participante)));
+  const checklistCanonico = resolveEnvioDocsCanonicalChecklistFromDossier(st, participantesCanonicos);
+  if (!checklistCanonico.length) return itensFiltrados;
+
+  const itensAtuaisMap = new Map(
+    itensFiltrados.map((item) => [getEnvioDocsChecklistItemKey(item), item])
+  );
+  return checklistCanonico.map((item) => {
+    const key = getEnvioDocsChecklistItemKey(item);
+    const atual = itensAtuaisMap.get(key);
+    if (!atual) return item;
+    return {
+      ...item,
+      ...atual,
+      tipo: item.tipo,
+      participante: item.participante,
+      bucket: item.bucket || atual.bucket
+    };
+  });
+}
+
 // 17.3 — Salva o status no Supabase
 async function saveDocumentStatus(env, st, status) {
   await sbFetch(env, "/rest/v1/enova_docs_status", {
@@ -9777,7 +9846,8 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       normalizedMsg?.caption ||
       "";
     const hintText = mediaCaption;
-    const itens = Array.isArray(st.envio_docs_itens_json) ? [...st.envio_docs_itens_json] : [];
+    const itensBase = Array.isArray(st.envio_docs_itens_json) ? [...st.envio_docs_itens_json] : [];
+    const itens = reconcileEnvioDocsItensWithSavedDossier(st, itensBase);
     const aiSourceType = normalizedMsg?.image
       ? "image"
       : (
@@ -19184,6 +19254,12 @@ case "envio_docs": {
   }
 
   if (Array.isArray(st.envio_docs_itens_json)) {
+    const itensReconciliados = reconcileEnvioDocsItensWithSavedDossier(st, st.envio_docs_itens_json);
+    const itensChanged = JSON.stringify(itensReconciliados) !== JSON.stringify(st.envio_docs_itens_json);
+    if (itensChanged) {
+      await upsertState(env, st.wa_id, { envio_docs_itens_json: itensReconciliados });
+      st.envio_docs_itens_json = itensReconciliados;
+    }
     const progressSeed = recomputeEnvioDocsProgress(st.envio_docs_itens_json);
     const progressChanged =
       st.envio_docs_status !== progressSeed.envio_docs_status ||
@@ -19446,9 +19522,12 @@ case "envio_docs": {
   }
 
   if (canal.pediuResumoPendencias) {
-    const itensAtualizados = Array.isArray(st.envio_docs_itens_json) && st.envio_docs_itens_json.length
-      ? st.envio_docs_itens_json
-      : generateChecklistForDocs(st);
+    const itensAtualizados = reconcileEnvioDocsItensWithSavedDossier(
+      st,
+      Array.isArray(st.envio_docs_itens_json) && st.envio_docs_itens_json.length
+        ? st.envio_docs_itens_json
+        : generateChecklistForDocs(st)
+    );
     const pendenciasResumo = envioDocsResumoPendencias(itensAtualizados, { includeNonBlocking: true, limit: 0 });
     if (!pendenciasResumo.length) {
       return step(env, st, [
@@ -19474,9 +19553,12 @@ case "envio_docs": {
   // CLIENTE ACEITOU RECEBER A LISTA
   // =====================================================
   if (pronto && !listaEnviada) {
-    const itensEnvioDocs = Array.isArray(st.envio_docs_itens_json) && st.envio_docs_itens_json.length
-      ? st.envio_docs_itens_json
-      : generateChecklistForDocs(st);
+    const itensEnvioDocs = reconcileEnvioDocsItensWithSavedDossier(
+      st,
+      Array.isArray(st.envio_docs_itens_json) && st.envio_docs_itens_json.length
+        ? st.envio_docs_itens_json
+        : generateChecklistForDocs(st)
+    );
     const mensagemLista = buildEnvioDocsListaMensagens(itensEnvioDocs);
 
 const patchCanal = {
@@ -20692,6 +20774,7 @@ export {
   buildEnvioDocsNextPendingPrompt,
   buildEnvioDocsUploadGuidanceLines,
   generateChecklistForDocs,
+  reconcileEnvioDocsItensWithSavedDossier,
   buildDocumentDossierFromState,
   resolveEnvioDocsCurrentParticipant,
   isEnvioDocsConversationalFlowComplete,

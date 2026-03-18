@@ -8,6 +8,7 @@ const {
   buildEnvioDocsNextPendingPrompt,
   buildEnvioDocsUploadGuidanceLines,
   recomputeEnvioDocsProgress,
+  reconcileEnvioDocsItensWithSavedDossier,
   isCorrespondentePacoteReady
 } = workerModule;
 
@@ -103,6 +104,110 @@ function markReceived(itens, tipo, participante = "p1") {
   const guidance = buildEnvioDocsUploadGuidanceLines(itens, recomputeEnvioDocsProgress(itens));
   assert.equal(guidance.length, 1);
   assert.equal(guidance[0].startsWith("Agora me envie"), true);
+}
+
+// 6) Perfil salvo só com P1: conclui e encerra pasta normalmente
+{
+  const st = {
+    dossie_participantes_json: [{ id: "p1", role: "titular" }],
+    dossie_pendencias_json: [
+      { tipo: "identidade_cpf", participante: "p1", obrigatorio: true },
+      { tipo: "comprovante_residencia", participante: "p1", obrigatorio: true },
+      { tipo: "holerites", participante: "p1", obrigatorio: true }
+    ]
+  };
+  const itens = [
+    { tipo: "identidade_cpf", participante: "p1", bucket: "obrigatorio", status: recebido },
+    { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: recebido },
+    { tipo: "holerites", participante: "p1", bucket: "obrigatorio", status: recebido }
+  ];
+  const reconciled = reconcileEnvioDocsItensWithSavedDossier(st, itens);
+  const guidance = buildEnvioDocsUploadGuidanceLines(reconciled, recomputeEnvioDocsProgress(reconciled));
+  assert.equal(guidance[0], "Recebemos sua pasta. Agora ela está em análise documental.");
+}
+
+// 7) Perfil salvo P1+P2: nunca encerra cedo após P1 completo, avança para P2
+{
+  const st = {
+    dossie_participantes_json: [{ id: "p1" }, { id: "p2" }],
+    dossie_pendencias_json: [
+      { tipo: "identidade_cpf", participante: "p1", obrigatorio: true },
+      { tipo: "comprovante_residencia", participante: "p1", obrigatorio: true },
+      { tipo: "holerites", participante: "p1", obrigatorio: true },
+      { tipo: "identidade_cpf", participante: "p2", obrigatorio: true },
+      { tipo: "comprovante_residencia", participante: "p2", obrigatorio: true },
+      { tipo: "comprovante_renda", participante: "p2", obrigatorio: true }
+    ]
+  };
+  const itens = [
+    { tipo: "identidade_cpf", participante: "p1", bucket: "obrigatorio", status: recebido },
+    { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: recebido },
+    { tipo: "holerites", participante: "p1", bucket: "obrigatorio", status: recebido }
+  ];
+  const reconciled = reconcileEnvioDocsItensWithSavedDossier(st, itens);
+  const guidance = buildEnvioDocsUploadGuidanceLines(reconciled, recomputeEnvioDocsProgress(reconciled));
+  assert.equal(guidance[0].includes("documento de identificação da composição (parceiro(a))"), true);
+  assert.equal(guidance[0].includes("análise documental"), false);
+}
+
+// 8) Perfil salvo P1+P2+P3: avança em cadeia e só encerra no final
+{
+  const st = {
+    dossie_participantes_json: [{ id: "p1" }, { id: "p2" }, { id: "p3" }],
+    dossie_pendencias_json: [
+      { tipo: "identidade_cpf", participante: "p1", obrigatorio: true },
+      { tipo: "identidade_cpf", participante: "p2", obrigatorio: true },
+      { tipo: "identidade_cpf", participante: "p3", obrigatorio: true }
+    ]
+  };
+  const aposP1 = reconcileEnvioDocsItensWithSavedDossier(st, [
+    { tipo: "identidade_cpf", participante: "p1", bucket: "obrigatorio", status: recebido }
+  ]);
+  const guidanceP2 = buildEnvioDocsUploadGuidanceLines(aposP1, recomputeEnvioDocsProgress(aposP1));
+  assert.equal(guidanceP2[0].includes("parceiro(a)"), true);
+
+  const aposP2 = markReceived(aposP1, "identidade_cpf", "p2");
+  const guidanceP3 = buildEnvioDocsUploadGuidanceLines(aposP2, recomputeEnvioDocsProgress(aposP2));
+  assert.equal(guidanceP3[0].includes("composição (familiar)"), true);
+
+  const aposP3 = markReceived(aposP2, "identidade_cpf", "p3");
+  const guidanceFinal = buildEnvioDocsUploadGuidanceLines(aposP3, recomputeEnvioDocsProgress(aposP3));
+  assert.equal(guidanceFinal[0], "Recebemos sua pasta. Agora ela está em análise documental.");
+}
+
+// 9) Perfil salvo sem P2/P3: não inventa participantes extras
+{
+  const st = {
+    dossie_participantes_json: [{ id: "p1" }],
+    dossie_pendencias_json: [
+      { tipo: "identidade_cpf", participante: "p1", obrigatorio: true }
+    ]
+  };
+  const itens = [
+    { tipo: "identidade_cpf", participante: "p1", bucket: "obrigatorio", status: recebido },
+    { tipo: "identidade_cpf", participante: "p2", bucket: "obrigatorio", status: pendente }
+  ];
+  const reconciled = reconcileEnvioDocsItensWithSavedDossier(st, itens);
+  assert.equal(reconciled.some((item) => item.participante === "p2" || item.participante === "p3"), false);
+}
+
+// 10) Não regressão: binding por participante ativo permanece no participante da vez
+{
+  const st = {
+    dossie_participantes_json: [{ id: "p1" }, { id: "p2" }],
+    dossie_pendencias_json: [
+      { tipo: "identidade_cpf", participante: "p1", obrigatorio: true },
+      { tipo: "identidade_cpf", participante: "p2", obrigatorio: true },
+      { tipo: "comprovante_residencia", participante: "p2", obrigatorio: true }
+    ]
+  };
+  const reconciled = reconcileEnvioDocsItensWithSavedDossier(st, [
+    { tipo: "identidade_cpf", participante: "p1", bucket: "obrigatorio", status: recebido },
+    { tipo: "identidade_cpf", participante: "p2", bucket: "obrigatorio", status: pendente },
+    { tipo: "comprovante_residencia", participante: "p2", bucket: "obrigatorio", status: pendente }
+  ]);
+  const nextItem = resolveEnvioDocsNextPendingItemForClient(reconciled);
+  assert.equal(nextItem?.participante, "p2");
 }
 
 console.log("envio_docs_upload_guidance.smoke: ok");

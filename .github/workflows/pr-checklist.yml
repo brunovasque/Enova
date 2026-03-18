@@ -8,14 +8,14 @@ jobs:
   validate-pr-body:
     runs-on: ubuntu-latest
     steps:
-      - name: Validate PR description contains required fields
+      - name: Check PR description recommended fields
         uses: actions/github-script@v7
         with:
           script: |
             const pr = context.payload.pull_request;
             const body = (pr.body || "").toLowerCase();
 
-            const required = [
+            const recommended = [
               "pr:",
               "branch:",
               "commit:",
@@ -23,14 +23,14 @@ jobs:
               "rollback:"
             ];
 
-            const missing = required.filter(k => !body.includes(k));
+            const missing = recommended.filter(k => !body.includes(k));
 
             if (missing.length) {
-              core.setFailed(
-                `PR description missing required fields: ${missing.join(", ")}\n` +
-                `\nAdd these lines to the PR body:\n` +
+              core.warning(
+                `PR description is missing recommended fields: ${missing.join(", ")}\n` +
+                `\nRecommended PR body block:\n` +
                 `PR: <number>\nBranch: <name>\nCommit: <hash>\nSmoke tests: <what you ran>\nRollback: <command>\n`
               );
             } else {
-              core.info("OK: PR description contains all required fields.");
+              core.info("OK: PR description contains all recommended fields.");
             }

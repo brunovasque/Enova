@@ -9,6 +9,7 @@ const {
   buildEnvioDocsUploadGuidanceLines,
   recomputeEnvioDocsProgress,
   reconcileEnvioDocsItensWithSavedDossier,
+  buildDocumentDossierFromState,
   isCorrespondentePacoteReady
 } = workerModule;
 
@@ -208,6 +209,49 @@ function markReceived(itens, tipo, participante = "p1") {
   ]);
   const nextItem = resolveEnvioDocsNextPendingItemForClient(reconciled);
   assert.equal(nextItem?.participante, "p2");
+}
+
+// 11) Dossiê nasce com P2 somente quando o perfil canônico explicita p2_tipo
+{
+  const dossieComP2 = buildDocumentDossierFromState({
+    regime_trabalho: "clt",
+    renda: 3500,
+    p2_tipo: "parceiro",
+    regime_trabalho_parceiro: "clt",
+    renda_parceiro: 1800
+  });
+  assert.deepEqual(
+    (dossieComP2.dossie_participantes_json || []).map((p) => p.id),
+    ["p1", "p2"]
+  );
+
+  const dossieSemP2 = buildDocumentDossierFromState({
+    regime_trabalho: "clt",
+    renda: 3500,
+    financiamento_conjunto: true,
+    somar_renda: true
+  });
+  assert.deepEqual(
+    (dossieSemP2.dossie_participantes_json || []).map((p) => p.id),
+    ["p1"]
+  );
+}
+
+// 12) Dossiê com composição familiar + P3 explícito percorre P1 -> P2 -> P3
+{
+  const dossie = buildDocumentDossierFromState({
+    regime_trabalho: "clt",
+    renda: 3200,
+    p2_tipo: "familiar",
+    regime_trabalho_parceiro_familiar: "clt",
+    renda_parceiro_familiar: 1500,
+    p3_required: true,
+    p3_tipo: "pai",
+    regime_trabalho_parceiro_familiar_p3: "clt",
+    renda_parceiro_familiar_p3: 1400
+  });
+  const ids = (dossie.dossie_participantes_json || []).map((p) => p.id);
+  assert.deepEqual(ids, ["p1", "p2", "p3"]);
 }
 
 console.log("envio_docs_upload_guidance.smoke: ok");

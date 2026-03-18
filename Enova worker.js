@@ -6018,8 +6018,10 @@ function dossieRendaVariavel(st, participanteId) {
 }
 
 function buildDocumentDossierFromState(st) {
-  const hasP2 = hasComposicaoConfirmadaP2(st);
-  const hasP3 = hasComposicaoConfirmadaP3(st);
+  const participantesCanonicos = resolveDossierCanonicalParticipantsFromState(st);
+  const hasP2 = participantesCanonicos.some((p) => p.id === "p2");
+  const hasP3 = participantesCanonicos.some((p) => p.id === "p3");
+  const p2Tipo = participantesCanonicos.find((p) => p.id === "p2")?.tipo || null;
 
   const participantes = [
     {
@@ -6035,7 +6037,7 @@ function buildDocumentDossierFromState(st) {
   if (hasP2) {
     participantes.push({
       id: "p2",
-      role: "parceiro_familiar",
+      role: p2Tipo === "parceiro" ? "parceiro" : "parceiro_familiar",
       regime_trabalho: st.regime_trabalho_parceiro || st.regime_trabalho_parceiro_familiar || null,
       renda: dossieToMoney(st.renda_parceiro || st.renda_parceiro_familiar),
       restricao: dossieIsYes(st.restricao_parceiro),
@@ -6128,7 +6130,7 @@ function buildDocumentDossierFromState(st) {
   let tipoProcesso = "solo";
   if (hasP3) tipoProcesso = "p3";
   else if (!hasP2) tipoProcesso = "solo";
-  else if (st.composicao_pessoa === "familiar" || st.familiar_tipo) tipoProcesso = "familiar";
+  else if (p2Tipo === "familiar") tipoProcesso = "familiar";
   else tipoProcesso = "casal";
   const pendencias = [...docsObrigatorios, ...docsCondicionais].map((item) => ({
     ...item,
@@ -6199,21 +6201,24 @@ function prettyDocLabel(type) {
 }
 
 function hasComposicaoConfirmadaP2(st) {
-  return (
-    st.financiamento_conjunto === true ||
-    Boolean(st.p2_tipo) ||
-    Boolean(st.composicao_pessoa)
-  );
+  return resolveDossierCanonicalParticipantsFromState(st).some((p) => p.id === "p2");
 }
 
 function hasComposicaoConfirmadaP3(st) {
-  return Boolean(
-    st.p3_required ||
-    st.regime_trabalho_parceiro_familiar_p3 ||
-    st.renda_parceiro_familiar_p3 ||
-    st.p3_tipo ||
-    st.composicao_pessoa === "familiar_p3"
-  );
+  return resolveDossierCanonicalParticipantsFromState(st).some((p) => p.id === "p3");
+}
+
+function resolveDossierCanonicalParticipantsFromState(st = {}) {
+  const participantes = [{ id: "p1", tipo: "titular" }];
+  const p2Tipo = String(st.p2_tipo || "").trim().toLowerCase();
+  if (p2Tipo === "parceiro" || p2Tipo === "familiar") {
+    participantes.push({ id: "p2", tipo: p2Tipo });
+  }
+  const p3Tipo = String(st.p3_tipo || "").trim().toLowerCase();
+  if (st.p3_required === true || Boolean(p3Tipo)) {
+    participantes.push({ id: "p3", tipo: p3Tipo || "familiar_p3" });
+  }
+  return participantes;
 }
 
 function describeEnvioDocsRendaByChecklist(itensParticipante = []) {
@@ -12633,7 +12638,8 @@ case "estado_civil": {
       estado_civil: "solteiro",
       solteiro_sozinho: true,
       financiamento_conjunto: false,
-      somar_renda: false
+      somar_renda: false,
+      p2_tipo: null
     });
 
     return step(
@@ -12881,7 +12887,8 @@ case "confirmar_casamento": {
     await upsertState(env, st.wa_id, {
       casamento_formal: "civil_papel",
       financiamento_conjunto: true,
-      somar_renda: true
+      somar_renda: true,
+      p2_tipo: "parceiro"
     });
 
     return step(
@@ -12996,7 +13003,8 @@ case "financiamento_conjunto": {
 
     await upsertState(env, st.wa_id, {
       financiamento_conjunto: true,
-      somar_renda: true
+      somar_renda: true,
+      p2_tipo: "parceiro"
     });
 
     return step(
@@ -13027,7 +13035,8 @@ case "financiamento_conjunto": {
 
     await upsertState(env, st.wa_id, {
       financiamento_conjunto: false,
-      somar_renda: false
+      somar_renda: false,
+      p2_tipo: null
     });
 
     return step(
@@ -13057,7 +13066,8 @@ case "financiamento_conjunto": {
     });
 
     await upsertState(env, st.wa_id, {
-      financiamento_conjunto: "se_precisar"
+      financiamento_conjunto: "se_precisar",
+      p2_tipo: null
     });
 
     return step(
@@ -13160,7 +13170,8 @@ const sim =
 
     await upsertState(env, st.wa_id, {
       parceiro_tem_renda: true,
-      somar_renda: true
+      somar_renda: true,
+      p2_tipo: "parceiro"
     });
 
     return step(
@@ -13201,7 +13212,8 @@ const sim =
   await upsertState(env, st.wa_id, {
     parceiro_tem_renda: false,
     somar_renda: true,
-    financiamento_conjunto: true
+    financiamento_conjunto: true,
+    p2_tipo: "parceiro"
   });
 
   if (titularTemDadosBasicos) {
@@ -13341,6 +13353,7 @@ case "somar_renda_solteiro": {
       await upsertState(env, st.wa_id, {
         somar_renda: false,
         financiamento_conjunto: false,
+        p2_tipo: null,
         renda_familiar: false,
         motivo_ineligivel: "renda_baixa_sem_composicao",
         funil_status: "ineligivel"
@@ -13390,6 +13403,7 @@ case "somar_renda_solteiro": {
     await upsertState(env, st.wa_id, {
       somar_renda: false,
       financiamento_conjunto: false,
+      p2_tipo: null,
       renda_familiar: false
     });
 
@@ -13435,6 +13449,7 @@ case "somar_renda_solteiro": {
   await upsertState(env, st.wa_id, {
     somar_renda: true,
     financiamento_conjunto: true,
+    p2_tipo: "parceiro",
     renda_familiar: false
   });
 
@@ -13478,6 +13493,7 @@ case "somar_renda_solteiro": {
       await upsertState(env, st.wa_id, {
         somar_renda: true,
         financiamento_conjunto: false,
+        p2_tipo: "familiar",
         renda_familiar: true,
         familiar_tipo: familiarTipo,
         p3_required: false,
@@ -13511,6 +13527,7 @@ case "somar_renda_solteiro": {
     await upsertState(env, st.wa_id, {
       somar_renda: true,
       financiamento_conjunto: false,
+      p2_tipo: "familiar",
       renda_familiar: true
     });
 
@@ -13636,7 +13653,7 @@ await funnelTelemetry(env, {
       details: { userText, txt }
     });
 
-    await upsertState(env, st.wa_id, { familiar_tipo: "mae", p3_required: false, p3_done: false, p3_tipo: null });
+    await upsertState(env, st.wa_id, { familiar_tipo: "mae", p2_tipo: "familiar", p3_required: false, p3_done: false, p3_tipo: null });
 
     return step(
       env,
@@ -13664,7 +13681,7 @@ await funnelTelemetry(env, {
       details: { userText, txt }
     });
 
-    await upsertState(env, st.wa_id, { familiar_tipo: "pai", p3_required: false, p3_done: false, p3_tipo: null });
+    await upsertState(env, st.wa_id, { familiar_tipo: "pai", p2_tipo: "familiar", p3_required: false, p3_done: false, p3_tipo: null });
 
     return step(
       env,
@@ -13692,7 +13709,7 @@ await funnelTelemetry(env, {
       details: { userText, txt }
     });
 
-    await upsertState(env, st.wa_id, { familiar_tipo: "avo" });
+    await upsertState(env, st.wa_id, { familiar_tipo: "avo", p2_tipo: "familiar" });
 
     return step(
       env,
@@ -13722,7 +13739,7 @@ await funnelTelemetry(env, {
       details: { userText, txt }
     });
 
-    await upsertState(env, st.wa_id, { familiar_tipo: "tio" });
+    await upsertState(env, st.wa_id, { familiar_tipo: "tio", p2_tipo: "familiar" });
 
     return step(
       env,
@@ -13751,7 +13768,7 @@ await funnelTelemetry(env, {
       details: { userText, txt }
     });
 
-    await upsertState(env, st.wa_id, { familiar_tipo: "irmao" });
+    await upsertState(env, st.wa_id, { familiar_tipo: "irmao", p2_tipo: "familiar" });
 
     return step(
       env,
@@ -13780,7 +13797,7 @@ await funnelTelemetry(env, {
       details: { userText, txt }
     });
 
-    await upsertState(env, st.wa_id, { familiar_tipo: "primo" });
+    await upsertState(env, st.wa_id, { familiar_tipo: "primo", p2_tipo: "familiar" });
 
     return step(
       env,
@@ -13809,7 +13826,7 @@ await funnelTelemetry(env, {
       details: { userText, txt }
     });
 
-    await upsertState(env, st.wa_id, { familiar_tipo: "nao_especificado" });
+    await upsertState(env, st.wa_id, { familiar_tipo: "nao_especificado", p2_tipo: "familiar" });
 
     return step(
       env,
@@ -14144,7 +14161,8 @@ case "renda_familiar_valor": {
   await upsertState(env, st.wa_id, {
     renda_parceiro: valor,
     somar_renda: true,
-    financiamento_conjunto: true
+    financiamento_conjunto: true,
+    p2_tipo: "familiar"
   });
 
   // Soma renda total (titular + familiar) com fallback defensivo
@@ -16222,7 +16240,8 @@ case "renda_parceiro": {
   await upsertState(env, st.wa_id, {
     renda_parceiro: valor,
     parceiro_tem_renda: true,
-    somar_renda: true
+    somar_renda: true,
+    p2_tipo: "parceiro"
   });
 
   // Renda parcial (titular + base parceiro)
@@ -16323,7 +16342,8 @@ case "renda_parceiro_familiar": {
     renda_parceiro: valor,
     renda_total_para_fluxo: rendaTotal,
     somar_renda: true,
-    financiamento_conjunto: true
+    financiamento_conjunto: true,
+    p2_tipo: "parceiro"
   });
 
   const p3Required = st.p3_required === true;
@@ -16563,6 +16583,7 @@ case "interpretar_composicao": {
   // OPÇÃO 1 — COMPOR COM PARCEIRO(A)
   // ============================================================
   if (parceiro) {
+    await upsertState(env, st.wa_id, { p2_tipo: "parceiro" });
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -16590,6 +16611,7 @@ case "interpretar_composicao": {
   // OPÇÃO 2 — COMPOR COM FAMILIAR
   // ============================================================
   if (familia) {
+    await upsertState(env, st.wa_id, { p2_tipo: "familiar" });
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -16617,6 +16639,7 @@ case "interpretar_composicao": {
   // OPÇÃO 3 — SEGUIR SOZINHO(A)
   // ============================================================
   if (sozinho) {
+    await upsertState(env, st.wa_id, { p2_tipo: null });
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -16775,6 +16798,7 @@ case "quem_pode_somar": {
     await upsertState(env, st.wa_id, {
       somar_renda: false,
       financiamento_conjunto: false,
+      p2_tipo: null,
       motivo_ineligivel: "renda_baixa_sem_composicao",
       funil_status: "ineligivel"
     });
@@ -16795,6 +16819,7 @@ case "quem_pode_somar": {
   // OPÇÃO — PARCEIRO(A)
   // ============================================================
   if (parceiro) {
+    await upsertState(env, st.wa_id, { p2_tipo: "parceiro" });
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -16822,6 +16847,7 @@ case "quem_pode_somar": {
   // OPÇÃO — FAMILIAR
   // ============================================================
   if (familia) {
+    await upsertState(env, st.wa_id, { p2_tipo: "familiar" });
 
     // Extrai familiar específico, se o texto já veio com "minha mãe", "meu pai" etc.
     const fam =
@@ -16866,6 +16892,7 @@ case "quem_pode_somar": {
       if (fam === "mae" || fam === "pai") {
         await upsertState(env, st.wa_id, {
           familiar_tipo: fam,
+          p2_tipo: "familiar",
           p3_required: false,
           p3_done: false,
           p3_tipo: null
@@ -16883,7 +16910,7 @@ case "quem_pode_somar": {
         );
       }
 
-      await upsertState(env, st.wa_id, { familiar_tipo: fam });
+      await upsertState(env, st.wa_id, { familiar_tipo: fam, p2_tipo: "familiar" });
 
       return step(
         env,
@@ -16973,6 +17000,7 @@ case "sugerir_composicao_mista": {
   // OPÇÃO — PARCEIRO(A)
   // ============================================================
   if (parceiro) {
+    await upsertState(env, st.wa_id, { p2_tipo: "parceiro" });
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -17000,6 +17028,7 @@ case "sugerir_composicao_mista": {
   // OPÇÃO — FAMILIAR
   // ============================================================
   if (familia) {
+    await upsertState(env, st.wa_id, { p2_tipo: "familiar" });
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,

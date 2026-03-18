@@ -6065,7 +6065,7 @@ function buildDocumentDossierFromState(st) {
     ];
 
     if (["p1", "p2", "p3"].includes(p.id)) {
-      docsBase.push({ participante: p.id, tipo: "ctps_completa", obrigatorio: true });
+      docsBase.push({ participante: p.id, tipo: "ctps_completa", obrigatorio: false, bloqueante_operacional: false });
     }
 
     return docsBase;

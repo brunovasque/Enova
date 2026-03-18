@@ -8052,7 +8052,7 @@ function matchEnvioDocsClassificationToChecklist(documentClassification, partici
     const detectedParticipant = normalizeEnvioDocsDetectedParticipant(participantInference?.detected_participant);
     const participantConfidence = Number(participantInference?.participant_confidence || 0);
     const itens = Array.isArray(st?.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
-    const pendentes = itens.filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item));
+    const pendentes = itens.filter((item) => isEnvioDocsConversationalPendingItem(item));
     const coveredTypes = getEnvioDocsCoveredChecklistTypes(detectedDocType);
     const participantStrong = detectedParticipant && detectedParticipant !== "desconhecido" && participantConfidence >= 0.75;
     const participantSoft =
@@ -9231,7 +9231,7 @@ function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
 
 function resolveEnvioDocsTargetFromDocumentEngine(itens = [], checklistMatch = {}, documentClassification = {}) {
   const pendingItems = Array.isArray(itens)
-    ? itens.filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item))
+    ? itens.filter((item) => isEnvioDocsConversationalPendingItem(item))
     : [];
   const matchStatus = String(checklistMatch?.match_status || "").trim().toLowerCase();
   const detectedDocType = String(documentClassification?.detected_doc_type || "").trim().toLowerCase();

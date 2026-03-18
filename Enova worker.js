@@ -6018,12 +6018,8 @@ function dossieRendaVariavel(st, participanteId) {
 }
 
 function buildDocumentDossierFromState(st) {
-  const hasP2 = Boolean(st.financiamento_conjunto || st.somar_renda);
-  const hasP3 = Boolean(
-    st.p3_required ||
-    st.regime_trabalho_parceiro_familiar_p3 ||
-    st.renda_parceiro_familiar_p3
-  );
+  const hasP2 = hasComposicaoConfirmadaP2(st);
+  const hasP3 = hasComposicaoConfirmadaP3(st);
 
   const participantes = [
     {
@@ -6066,7 +6062,7 @@ function buildDocumentDossierFromState(st) {
       { participante: p.id, tipo: "comprovante_renda", obrigatorio: true }
     ];
 
-    if (p.id === "p1") {
+    if (["p1", "p2", "p3"].includes(p.id)) {
       docsBase.push({ participante: p.id, tipo: "ctps_completa", obrigatorio: true });
     }
 
@@ -6266,6 +6262,15 @@ function buildEnvioDocsCallToAction(participanteAtual) {
 
 const ENVIO_DOCS_ORDEM_PARTICIPANTES = Object.freeze(["p1", "p2", "p3"]);
 
+function isEnvioDocsConversationalItem(item) {
+  return String(item?.bucket || "").trim().toLowerCase() !== "recomendado";
+}
+
+function isEnvioDocsConversationalPendingItem(item) {
+  if (!isEnvioDocsConversationalItem(item)) return false;
+  return !isEnvioDocsItemReceived(item);
+}
+
 function resolveEnvioDocsCurrentParticipant(itensEnvioDocs = []) {
   const itens = Array.isArray(itensEnvioDocs) ? itensEnvioDocs : [];
   const participantesComItens = ENVIO_DOCS_ORDEM_PARTICIPANTES.filter((participante) =>
@@ -6278,8 +6283,7 @@ function resolveEnvioDocsCurrentParticipant(itensEnvioDocs = []) {
         const participante = String(item?.participante || "").trim().toLowerCase();
         return (
           ENVIO_DOCS_ORDEM_PARTICIPANTES.includes(participante) &&
-          isEnvioDocsBlockingItem(item) &&
-          !isEnvioDocsItemReceived(item)
+          isEnvioDocsConversationalPendingItem(item)
         );
       })
       .map((item) => String(item?.participante || "").trim().toLowerCase())
@@ -6581,15 +6585,28 @@ function envioDocsResumoPendencias(itens = [], options = {}) {
 }
 
 function resolveEnvioDocsNextPendingItemForClient(itens = []) {
-  const pendentes = (Array.isArray(itens) ? itens : []).filter((item) => !isEnvioDocsItemReceived(item));
+  const itensBase = Array.isArray(itens) ? itens : [];
+  const pendentes = itensBase.filter((item) => isEnvioDocsConversationalPendingItem(item));
   if (!pendentes.length) return null;
-  const pendenteBloqueante = pendentes.find((item) => isEnvioDocsBlockingItem(item));
+  const participanteAtual = resolveEnvioDocsCurrentParticipant(itensBase);
+  const pendentesParticipanteAtual = pendentes.filter(
+    (item) => String(item?.participante || "").trim().toLowerCase() === participanteAtual
+  );
+  const universoBusca = pendentesParticipanteAtual.length ? pendentesParticipanteAtual : pendentes;
+  const pendenteBloqueante = universoBusca.find((item) => isEnvioDocsBlockingItem(item));
   if (pendenteBloqueante) return pendenteBloqueante;
-  const pendenteCtps = pendentes.find((item) => {
+  const pendenteCtps = universoBusca.find((item) => {
     const tipo = String(item?.tipo || "").trim().toLowerCase();
     return CTPS_NON_BLOCKING_DOC_TYPES.has(tipo);
   });
-  return pendenteCtps || pendentes[0];
+  return pendenteCtps || universoBusca[0];
+}
+
+function isEnvioDocsConversationalFlowComplete(itens = []) {
+  const pendentesConversacionais = (Array.isArray(itens) ? itens : []).filter((item) =>
+    isEnvioDocsConversationalPendingItem(item)
+  );
+  return pendentesConversacionais.length === 0;
 }
 
 function buildEnvioDocsNextPendingPrompt(item) {
@@ -6624,7 +6641,7 @@ function buildEnvioDocsNextPendingPrompt(item) {
 }
 
 function buildEnvioDocsUploadGuidanceLines(itens = [], progress = {}) {
-  if (progress?.envio_docs_status === "completo") {
+  if (isEnvioDocsConversationalFlowComplete(itens)) {
     return ["Recebemos sua pasta. Agora ela está em análise documental."];
   }
   const proximoItem = resolveEnvioDocsNextPendingItemForClient(itens);
@@ -20675,6 +20692,9 @@ export {
   buildEnvioDocsNextPendingPrompt,
   buildEnvioDocsUploadGuidanceLines,
   generateChecklistForDocs,
+  buildDocumentDossierFromState,
+  resolveEnvioDocsCurrentParticipant,
+  isEnvioDocsConversationalFlowComplete,
   isEnvioDocsBlockingItem,
   recomputeEnvioDocsProgress,
   isCorrespondentePacoteReady

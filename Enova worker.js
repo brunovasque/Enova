@@ -7601,7 +7601,7 @@ function inferEnvioDocsSignalsFromExtractedText(text, context = {}) {
     /\b(recibo de entrega|numero do recibo|número do recibo|recibo irpf|recibo dirpf)\b/.test(combined);
 
   const hasResidenceUtilityContext =
-    /\b(conta de luz|energia eletrica|energia elétrica|equatorial|copel|cemig|enel|neoenergia|cpfl|light|edp|conta de agua|conta de água|sanepar|sabesp|iguá|igua|conta de gas|conta de gás|naturgy|comprovante de residencia|comprovante de residência|fatura|boleto|cep|logradouro|endereco|endereço|bairro|cidade|numero da instalacao|número da instalação|unidade consumidora)\b/.test(combined);
+    /\b(conta de luz|energia eletrica|energia elétrica|equatorial|copel|cemig|enel|neoenergia|cpfl|light|edp|conta de agua|conta de água|sanepar|sabesp|iguá|igua|conta de gas|conta de gás|naturgy|oi|vivo|tim|claro|conta de telefone|conta de celular|comprovante de residencia|comprovante de residência|fatura|boleto|cep|logradouro|endereco|endereço|bairro|cidade|numero da instalacao|número da instalação|unidade consumidora)\b/.test(combined);
 
   const hasBoletoResidenceContext =
     /\b(vencimento|codigo de barras|código de barras|pagavel preferencialmente|pagável preferencialmente)\b/.test(combined) &&
@@ -8402,8 +8402,8 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   const hasRgSpecificContext = /\b(rg|registro geral|secretaria de seguranca|carteira de identidade|carteira de identidade nacional|documento nacional de identificacao|cin|instituto de identificacao)\b/.test(extractedText);
   const hasCnhStrongContext = /\b(cnh|carteira nacional de habilitacao|permissao para dirigir|categoria [abcde])\b/.test(extractedText);
   const hasCnhDigitalContext = /\b(cnh digital|carteira digital de transito|documento digital de habilitacao|registro nacional de condutores habilitados|renach)\b/.test(extractedText);
-  const hasResidenciaUtilityProviderContext = /\b(copel|enel|cemig|light|cpfl|neoenergia|eletropaulo|equatorial|celesc|sanepar|sabesp|caesb)\b/.test(extractedText);
-  const hasResidenciaUtilityBillingContext = /\b(tarifa|consumo|kwh|leitura|unidade consumidora|vencimento|valor a pagar|fatura|cobranca)\b/.test(extractedText);
+  const hasResidenciaUtilityProviderContext = /\b(copel|enel|cemig|light|cpfl|neoenergia|eletropaulo|equatorial|celesc|sanepar|sabesp|caesb|oi|vivo|tim|claro)\b/.test(extractedText);
+  const hasResidenciaUtilityBillingContext = /\b(tarifa|consumo|kwh|leitura|unidade consumidora|vencimento|valor a pagar|fatura|cobranca|mensalidade|referencia|referência)\b/.test(extractedText);
   const hasResidenciaAddressContext = /\b(cep|logradouro|endereco|bairro|cidade|uf)\b/.test(extractedText);
   const hasResidenciaUtilityStrongContext =
     hasResidenciaUtilityProviderContext &&
@@ -8411,6 +8411,10 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   const hasResidenciaStrongContext =
     hasResidenciaUtilityStrongContext ||
     (hasResidenciaUtilityBillingContext && hasResidenciaAddressContext);
+  const hasExtratoBancarioStrongContext =
+    /\b(extrato bancario|agencia|conta corrente|saldo anterior|saldo atual|lancamentos)\b/.test(extractedText);
+  const hasExtratoBancarioGenericContext =
+    /\b(movimentacao|debito|credito|historico|beneficio inss|aposentadoria|previdencia social)\b/.test(extractedText);
   const hasCnhStrongHint = /\b(cnh[-\s]?e|cnh digital|carteira nacional de habilitacao|renach|carteira digital de transito)\b/.test(hintSupportText);
   const hasCtpsStrongHint = /\b(ctpsdigital|ctps digital|ctps|carteira de trabalho digital|carteira de trabalho e previdencia social|carteira de trabalho)\b/.test(hintSupportText);
   const hasCpfStrongContext = /\b(cadastro de pessoas fisicas|comprovante de situacao cadastral no cpf)\b/.test(extractedText);
@@ -8482,7 +8486,10 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
     hasBoletoWithAddressContext
   ) ? 1 : 0,
   holerite: holeriteTextScore,
-  extrato_bancario: /\b(extrato bancario|saldo anterior|agencia|conta corrente|lancamentos|movimentacao|debito|credito|historico|beneficio inss|aposentadoria|previdencia social)\b/.test(extractedText) ? 1 : (/\bextrato\b/.test(extractedText) ? 0.75 : 0),
+  extrato_bancario:
+    hasExtratoBancarioStrongContext
+      ? 1
+      : ((/\bextrato\b/.test(extractedText) && hasExtratoBancarioGenericContext) ? 0.75 : 0),
   declaracao_ir: /\b(declaracao de ajuste anual|declaracao de imposto de renda|imposto de renda da pessoa fisica|dirpf)\b/.test(extractedText) ? 1 : 0,
   recibo_ir: /\b(recibo de entrega|numero do recibo|codigo de controle|darf|documento de arrecadacao de receitas federais)\b/.test(extractedText) ? 1 : 0
 };
@@ -8537,10 +8544,24 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   }
 
   if (hasCtpsStrongContext || hasCtpsStrongHint) {
-  textScores.comprovante_residencia = 0;
-  signalScores.comprovante_residencia = 0;
-  supportScores.comprovante_residencia = 0;
-}
+    textScores.comprovante_residencia = 0;
+    signalScores.comprovante_residencia = 0;
+    supportScores.comprovante_residencia = 0;
+  }
+
+  // Blindagem conservadora: quando houver contexto residencial forte e coerente
+  // (ex.: concessionária/telecom + cobrança/endereço), extrato não deve competir forte
+  // apenas por tokens genéricos compartilhados.
+  const shouldApplyResidenciaExtratoTiebreak =
+    hasResidenciaStrongContext &&
+    !hasExtratoBancarioStrongContext &&
+    textScores.comprovante_residencia >= SCORE_MAX;
+  const MAX_EXTRATO_SCORE_UNDER_RESIDENCIA_TIEBREAK = 0.2;
+  if (shouldApplyResidenciaExtratoTiebreak) {
+    textScores.extrato_bancario = Math.min(Number(textScores.extrato_bancario || 0), MAX_EXTRATO_SCORE_UNDER_RESIDENCIA_TIEBREAK);
+    signalScores.extrato_bancario = Math.min(Number(signalScores.extrato_bancario || 0), MAX_EXTRATO_SCORE_UNDER_RESIDENCIA_TIEBREAK);
+    supportScores.extrato_bancario = Math.min(Number(supportScores.extrato_bancario || 0), MAX_EXTRATO_SCORE_UNDER_RESIDENCIA_TIEBREAK);
+  }
 
   const scoring = scoreEnvioDocsDocumentClassification({ textScores, signalScores, supportScores });
   const textStrongTypes = Object.entries(textScores).filter(([, score]) => Number(score) >= 0.95).map(([tipo]) => tipo);
@@ -8610,6 +8631,7 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
       threshold_min: 0.45,
       top_signal_score: topSignalScore,
       top_support_score: topSupportScore,
+      residencia_vs_extrato_tiebreak_applied: shouldApplyResidenciaExtratoTiebreak,
       top_coverage_matches_pending: topCoverageMatches.map((item) => ({ tipo: item?.tipo || null, participante: item?.participante || null })),
       second_coverage_matches_pending: secondCoverageMatches.map((item) => ({ tipo: item?.tipo || null, participante: item?.participante || null })),
       resolved_targeted_conflict_type_from_dossier: resolvedTargetedConflictTypeFromDossier,

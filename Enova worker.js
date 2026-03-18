@@ -8552,14 +8552,15 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
   // Blindagem conservadora: quando houver contexto residencial forte e coerente
   // (ex.: concessionária/telecom + cobrança/endereço), extrato não deve competir forte
   // apenas por tokens genéricos compartilhados.
-  const residenciaVsExtratoTieBreakApplied =
+  const shouldApplyResidenciaExtratoTiebreak =
     hasResidenciaStrongContext &&
     !hasExtratoBancarioStrongContext &&
     textScores.comprovante_residencia >= SCORE_MAX;
-  if (residenciaVsExtratoTieBreakApplied) {
-    textScores.extrato_bancario = Math.min(Number(textScores.extrato_bancario || 0), 0.2);
-    signalScores.extrato_bancario = Math.min(Number(signalScores.extrato_bancario || 0), 0.2);
-    supportScores.extrato_bancario = Math.min(Number(supportScores.extrato_bancario || 0), 0.2);
+  const MAX_EXTRATO_SCORE_UNDER_RESIDENCIA_TIEBREAK = 0.2;
+  if (shouldApplyResidenciaExtratoTiebreak) {
+    textScores.extrato_bancario = Math.min(Number(textScores.extrato_bancario || 0), MAX_EXTRATO_SCORE_UNDER_RESIDENCIA_TIEBREAK);
+    signalScores.extrato_bancario = Math.min(Number(signalScores.extrato_bancario || 0), MAX_EXTRATO_SCORE_UNDER_RESIDENCIA_TIEBREAK);
+    supportScores.extrato_bancario = Math.min(Number(supportScores.extrato_bancario || 0), MAX_EXTRATO_SCORE_UNDER_RESIDENCIA_TIEBREAK);
   }
 
   const scoring = scoreEnvioDocsDocumentClassification({ textScores, signalScores, supportScores });
@@ -8630,7 +8631,7 @@ function classifyEnvioDocsDocument(signals, st = {}, opts = {}) {
       threshold_min: 0.45,
       top_signal_score: topSignalScore,
       top_support_score: topSupportScore,
-      residencia_vs_extrato_tiebreak_applied: residenciaVsExtratoTieBreakApplied,
+      residencia_vs_extrato_tiebreak_applied: shouldApplyResidenciaExtratoTiebreak,
       top_coverage_matches_pending: topCoverageMatches.map((item) => ({ tipo: item?.tipo || null, participante: item?.participante || null })),
       second_coverage_matches_pending: secondCoverageMatches.map((item) => ({ tipo: item?.tipo || null, participante: item?.participante || null })),
       resolved_targeted_conflict_type_from_dossier: resolvedTargetedConflictTypeFromDossier,

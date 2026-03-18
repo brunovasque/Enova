@@ -69,7 +69,19 @@ jobs:
 
       - name: Deploy PROD (verbose)
         run: |
-          WRANGLER_LOG=debug wrangler deploy --config wrangler.toml --keep-vars
+          set +e
+          DEPLOY_OUTPUT="$(WRANGLER_LOG=debug wrangler deploy --config wrangler.toml --keep-vars 2>&1)"
+          DEPLOY_EXIT=$?
+          set -e
+          echo "$DEPLOY_OUTPUT"
+          if [ "$DEPLOY_EXIT" -ne 0 ]; then
+            if echo "$DEPLOY_OUTPUT" | grep -Eq "GET /accounts/.*/workers/scripts/.*/subdomain -> 503 Service Unavailable" && \
+               echo "$DEPLOY_OUTPUT" | grep -Eq "Uploaded .+ \\([0-9.]+ sec\\)"; then
+              echo "::warning::Wrangler falhou apenas na consulta final de subdomain (503), mas upload/deploy principal já concluiu. Marcando passo como sucesso."
+              exit 0
+            fi
+            exit "$DEPLOY_EXIT"
+          fi
 
   deploy-test:
     if: github.event_name == 'workflow_dispatch' && inputs.target_env == 'test'
@@ -120,7 +132,19 @@ jobs:
 
       - name: Deploy TEST (verbose)
         run: |
-          WRANGLER_LOG=debug wrangler deploy --config wrangler.toml --env test --keep-vars
+          set +e
+          DEPLOY_OUTPUT="$(WRANGLER_LOG=debug wrangler deploy --config wrangler.toml --env test --keep-vars 2>&1)"
+          DEPLOY_EXIT=$?
+          set -e
+          echo "$DEPLOY_OUTPUT"
+          if [ "$DEPLOY_EXIT" -ne 0 ]; then
+            if echo "$DEPLOY_OUTPUT" | grep -Eq "GET /accounts/.*/workers/scripts/.*/subdomain -> 503 Service Unavailable" && \
+               echo "$DEPLOY_OUTPUT" | grep -Eq "Uploaded .+ \\([0-9.]+ sec\\)"; then
+              echo "::warning::Wrangler falhou apenas na consulta final de subdomain (503), mas upload/deploy principal já concluiu. Marcando passo como sucesso."
+              exit 0
+            fi
+            exit "$DEPLOY_EXIT"
+          fi
 
   worker-preview-pr:
     name: Worker Preview (PR)
@@ -168,4 +192,16 @@ jobs:
 
       - name: Deploy Worker Preview (TEST env)
         run: |
-          WRANGLER_LOG=debug wrangler deploy --config wrangler.toml --env test --keep-vars
+          set +e
+          DEPLOY_OUTPUT="$(WRANGLER_LOG=debug wrangler deploy --config wrangler.toml --env test --keep-vars 2>&1)"
+          DEPLOY_EXIT=$?
+          set -e
+          echo "$DEPLOY_OUTPUT"
+          if [ "$DEPLOY_EXIT" -ne 0 ]; then
+            if echo "$DEPLOY_OUTPUT" | grep -Eq "GET /accounts/.*/workers/scripts/.*/subdomain -> 503 Service Unavailable" && \
+               echo "$DEPLOY_OUTPUT" | grep -Eq "Uploaded .+ \\([0-9.]+ sec\\)"; then
+              echo "::warning::Wrangler falhou apenas na consulta final de subdomain (503), mas upload/deploy principal já concluiu. Marcando passo como sucesso."
+              exit 0
+            fi
+            exit "$DEPLOY_EXIT"
+          fi

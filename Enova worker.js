@@ -10892,6 +10892,13 @@ function buildCorrespondenteEntryLink(env, token) {
   return `${base}/correspondente/entrada?t=${encodeURIComponent(safeToken)}`;
 }
 
+function buildCorrespondenteEntryLinkForCorrespondente(env, token, correspondenteWaId) {
+  const baseLink = buildCorrespondenteEntryLink(env, token);
+  const safeWa = normalizeCorrespondenteWaIdInput(correspondenteWaId);
+  if (!baseLink || !safeWa) return baseLink;
+  return `${baseLink}&cw=${encodeURIComponent(safeWa)}`;
+}
+
 function buildCorrespondenteGroupAlert(st, token, env) {
   const caseRef = String(st?.wa_id || "").slice(-4).padStart(4, "0");
   const entryLink = buildCorrespondenteEntryLink(env, token);
@@ -10929,6 +10936,86 @@ function buildCorrespondenteCaseRef(caso) {
   return `C${suffix}`;
 }
 
+function buildCorrespondenteDossierPayloadFromState(st, options = {}) {
+  const canonical = buildCorrespondentePrivateDossierFromState(st || {});
+  const tecnico = canonical?.payload_tecnico_correspondente_json && typeof canonical.payload_tecnico_correspondente_json === "object"
+    ? canonical.payload_tecnico_correspondente_json
+    : {};
+  const identificacao = tecnico.identificacao && typeof tecnico.identificacao === "object" ? tecnico.identificacao : {};
+  const composicao = tecnico.composicao && typeof tecnico.composicao === "object" ? tecnico.composicao : {};
+  const renda = tecnico.renda && typeof tecnico.renda === "object" ? tecnico.renda : {};
+  const documental = tecnico.documental && typeof tecnico.documental === "object" ? tecnico.documental : {};
+  const conclusao = tecnico.conclusao_operacional && typeof tecnico.conclusao_operacional === "object" ? tecnico.conclusao_operacional : {};
+  const documentos = tecnico.documentos && typeof tecnico.documentos === "object" ? tecnico.documentos : {};
+
+  const token = normalizeAssumirToken(options?.token || st?.corr_assumir_token || "");
+  const documentosPorParticipante = {};
+  const asArray = (value) => Array.isArray(value) ? value : [];
+  const mergeDoc = (item, origem) => {
+    const participante = String(item?.participante || "desconhecido").trim().toLowerCase();
+    if (!documentosPorParticipante[participante]) {
+      documentosPorParticipante[participante] = {
+        participante,
+        recebidos: [],
+        pendentes: []
+      };
+    }
+    const target = origem === "recebidos"
+      ? documentosPorParticipante[participante].recebidos
+      : documentosPorParticipante[participante].pendentes;
+    target.push({
+      tipo: item?.tipo || "documento",
+      status: item?.status || item?.observacao_analise || (origem === "recebidos" ? "recebido" : "pendente")
+    });
+  };
+  for (const doc of asArray(documentos.recebidos)) mergeDoc(doc, "recebidos");
+  for (const doc of asArray(documentos.pendentes)) mergeDoc(doc, "pendentes");
+
+  return {
+    meta: {
+      wa_id: identificacao.wa_id || st?.wa_id || null,
+      id_pre_cadastro: identificacao.id_pre_cadastro || st?.pre_cadastro_numero || null,
+      case_ref: buildCorrespondenteCaseRef({
+        wa_id: identificacao.wa_id || st?.wa_id,
+        pre_cadastro_numero: identificacao.id_pre_cadastro || st?.pre_cadastro_numero
+      }),
+      token_assumir: token || null,
+      corr_publicacao_status: st?.corr_publicacao_status || null,
+      generated_at: new Date().toISOString()
+    },
+    resumo_executivo: {
+      pronto_para_pre_analise: conclusao.pronto_para_pre_analise === true,
+      envio_docs_status: documental.envio_docs_status || null,
+      pendencias_total: Number(documental.pendencias_total) || 0,
+      renda_total: Number(renda.total) || 0,
+      participantes_total: Number(identificacao.composicao_qtd) || 0
+    },
+    perfil: {
+      nome: identificacao.nome || st?.nome || null,
+      estado_civil: identificacao.estado_civil || st?.estado_civil || null,
+      tipo_processo: composicao.tipo_processo || null,
+      participantes: asArray(composicao.participantes).map((p) => ({
+        id: p?.id || null,
+        papel: p?.papel || null,
+        regime_trabalho: p?.regime_trabalho || null,
+        renda: Number(p?.renda) || 0,
+        tem_restricao: p?.tem_restricao === true
+      }))
+    },
+    documentos_por_participante: Object.values(documentosPorParticipante),
+    pendencias: {
+      bloqueantes: Number(documental.pendencias_bloqueantes) || 0,
+      nao_bloqueantes: Number(documental.pendencias_nao_bloqueantes) || 0,
+      remanescentes: Number(conclusao.pendencias_remanescentes) || 0,
+      itens: asArray(documentos.pendentes).map((item) => ({
+        tipo: item?.tipo || "documento",
+        participante: item?.participante || null,
+        status: item?.status || "pendente"
+      }))
+    }
+  };
+}
+
 function isCorrespondenteEntryAllowed(caso) {
   const status = String(caso?.corr_publicacao_status || "").trim().toLowerCase();
   if (!status) return true;
@@ -10949,16 +11036,23 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   const clienteNome = String(caso?.nome || "não informado").trim() || "não informado";
   const lockAtual = String(caso?.corr_lock_correspondente_wa_id || "").trim();
   const processoEnviado = caso?.processo_enviado_correspondente === true;
-  const flashType = options?.flashType === "error" ? "error" : options?.flashType === "success" ? "success" : "info";
-  const flashText = String(options?.flashText || "").trim();
+  const dossierPayload = options?.dossierPayload && typeof options.dossierPayload === "object"
+    ? options.dossierPayload
+    : null;
+  const resumo = dossierPayload?.resumo_executivo && typeof dossierPayload.resumo_executivo === "object"
+    ? dossierPayload.resumo_executivo
+    : null;
+  const perfil = dossierPayload?.perfil && typeof dossierPayload.perfil === "object"
+    ? dossierPayload.perfil
+    : null;
+  const docsParticipante = Array.isArray(dossierPayload?.documentos_por_participante)
+    ? dossierPayload.documentos_por_participante
+    : [];
+  const pendencias = dossierPayload?.pendencias && typeof dossierPayload.pendencias === "object"
+    ? dossierPayload.pendencias
+    : null;
 
-  const statusText = processoEnviado
-    ? "Este caso já foi assumido e está em andamento no privado."
-    : lockAtual
-      ? "Este caso já foi assumido por um correspondente."
-      : "Novo pré-cadastro disponível para assunção.";
-
-  const showAssumeForm = !processoEnviado && !lockAtual;
+  const statusText = "Caso assumido. Dossiê liberado para o correspondente responsável.";
 
   return `<!doctype html>
 <html lang="pt-BR">
@@ -10973,13 +11067,10 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     .row{margin:8px 0}
     .label{font-weight:700}
     .status{margin-top:14px;padding:10px 12px;border-radius:8px;background:#edf3ff;border:1px solid #d2e1ff}
-    .flash{margin-top:14px;padding:10px 12px;border-radius:8px}
-    .flash.info{background:#edf3ff;border:1px solid #d2e1ff}
-    .flash.success{background:#eaf9ef;border:1px solid #ccefd8}
-    .flash.error{background:#fff1f1;border:1px solid #ffd1d1}
-    form{margin-top:16px;display:flex;flex-direction:column;gap:8px}
-    input{padding:10px;border:1px solid #c9d4e2;border-radius:8px}
-    button{padding:10px 14px;border:0;border-radius:8px;background:#0e4dd8;color:#fff;font-weight:700;cursor:pointer}
+    .dossie{margin-top:16px;padding-top:12px;border-top:1px solid #e2e8f3}
+    .dossie h2{font-size:16px;margin:12px 0 6px}
+    .dossie ul{margin:6px 0 0 18px;padding:0}
+    .dossie li{margin:4px 0}
   </style>
 </head>
 <body>
@@ -10988,27 +11079,36 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     <div class="row"><span class="label">Referência:</span> ${escapeHtml(ref)}</div>
     <div class="row"><span class="label">Cliente:</span> ${escapeHtml(clienteNome)}</div>
     <div class="status">${escapeHtml(statusText)}</div>
-    ${flashText ? `<div class="flash ${flashType}">${escapeHtml(flashText)}</div>` : ""}
-    ${showAssumeForm ? `<form method="POST" action="/correspondente/entrada">
-      <input type="hidden" name="token" value="${escapeHtml(caso?.corr_assumir_token || "")}" />
-      <label for="correspondente_wa_id">Seu WhatsApp (somente números):</label>
-      <input id="correspondente_wa_id" name="correspondente_wa_id" inputmode="numeric" autocomplete="tel" placeholder="5511999999999" required />
-      <button type="submit">Assumir caso</button>
-    </form>` : ""}
+    ${dossierPayload ? `<section class="dossie">
+      <h2>Resumo executivo</h2>
+      <div class="row"><span class="label">Pronto para pré-análise:</span> ${escapeHtml(resumo?.pronto_para_pre_analise === true ? "sim" : "não")}</div>
+      <div class="row"><span class="label">Status documental:</span> ${escapeHtml(resumo?.envio_docs_status || "não informado")}</div>
+      <div class="row"><span class="label">Pendências totais:</span> ${escapeHtml(String(resumo?.pendencias_total ?? 0))}</div>
+      <h2>Perfil</h2>
+      <div class="row"><span class="label">Nome:</span> ${escapeHtml(perfil?.nome || clienteNome)}</div>
+      <div class="row"><span class="label">Estado civil:</span> ${escapeHtml(perfil?.estado_civil || "não informado")}</div>
+      <div class="row"><span class="label">Participantes:</span> ${escapeHtml(String(Array.isArray(perfil?.participantes) ? perfil.participantes.length : 0))}</div>
+      <h2>Documentos por participante</h2>
+      ${docsParticipante.length
+        ? `<ul>${docsParticipante.map((item) => `<li>${escapeHtml(String(item?.participante || "desconhecido").toUpperCase())}: recebidos ${escapeHtml(String(Array.isArray(item?.recebidos) ? item.recebidos.length : 0))}, pendentes ${escapeHtml(String(Array.isArray(item?.pendentes) ? item.pendentes.length : 0))}</li>`).join("")}</ul>`
+        : "<div class=\"row\">Sem documentos mapeados.</div>"
+      }
+      <h2>Pendências</h2>
+      <div class="row"><span class="label">Bloqueantes:</span> ${escapeHtml(String(pendencias?.bloqueantes ?? 0))}</div>
+      <div class="row"><span class="label">Não bloqueantes:</span> ${escapeHtml(String(pendencias?.nao_bloqueantes ?? 0))}</div>
+    </section>` : ""}
   </main>
 </body>
 </html>`;
 }
 
 async function handleCorrespondenteEntryPage(request, env) {
-  const requestUrl = new URL(request.url);
-  const formData = request.method === "POST" ? await request.formData() : null;
-  if (request.method === "POST" && !formData) {
-    return new Response("Payload inválido.", { status: 400 });
+  if (request.method !== "GET") {
+    return new Response("Método não permitido nesta página. A assunção ocorre no fluxo externo antes da abertura do link.", { status: 403 });
   }
-  const tokenInput = request.method === "POST"
-    ? formData?.get("token")
-    : requestUrl.searchParams.get("t") || requestUrl.searchParams.get("token");
+
+  const requestUrl = new URL(request.url);
+  const tokenInput = requestUrl.searchParams.get("t") || requestUrl.searchParams.get("token");
   const token = normalizeAssumirToken(tokenInput);
   if (!token) {
     return new Response("Token inválido.", { status: 400 });
@@ -11023,41 +11123,27 @@ async function handleCorrespondenteEntryPage(request, env) {
     return new Response("Link de entrada indisponível para o estado atual do caso.", { status: 403 });
   }
 
-  if (request.method === "GET") {
-    const status = String(requestUrl.searchParams.get("status") || "").trim().toLowerCase();
-    const flashText = status === "assumido"
-      ? "Assunção registrada com sucesso."
-      : status === "erro_assumir"
-        ? "Não foi possível concluir a assunção. Tente novamente."
-        : "";
-    const flashType = status === "assumido" ? "success" : status === "erro_assumir" ? "error" : "info";
-    return new Response(buildCorrespondenteEntryCoverHtml(caso, { flashText, flashType }), {
-      status: 200,
-      headers: { "content-type": "text/html; charset=utf-8" }
-    });
+  const lockAtual = String(caso?.corr_lock_correspondente_wa_id || "").trim();
+  if (!lockAtual) {
+    return new Response("Caso ainda não assumido. Faça a assunção no fluxo externo antes de abrir o link.", { status: 403 });
   }
 
-  const correspondenteWaId = normalizeCorrespondenteWaIdInput(formData.get("correspondente_wa_id"));
-  if (!correspondenteWaId || correspondenteWaId.length < MIN_CORRESPONDENTE_WA_ID_LENGTH) {
-    return new Response(buildCorrespondenteEntryCoverHtml(caso, {
-      flashType: "error",
-      flashText: "Informe um WhatsApp válido para registrar a assunção."
-    }), {
-      status: 400,
-      headers: { "content-type": "text/html; charset=utf-8" }
-    });
-  }
-
-  const assumir = await handleCorrespondenteAssumirCommand(
-    env,
-    { from: correspondenteWaId, author: correspondenteWaId },
-    `ASSUMIR ${token}`
+  const requesterWaId = normalizeCorrespondenteWaIdInput(
+    requestUrl.searchParams.get("cw") || requestUrl.searchParams.get("correspondente_wa_id")
   );
+  if (!requesterWaId) {
+    return new Response("Acesso bloqueado: informe o correspondente no link para abrir o dossiê assumido.", { status: 403 });
+  }
+  if (requesterWaId !== lockAtual) {
+    return new Response("Acesso bloqueado: este caso já está travado para outro correspondente.", { status: 403 });
+  }
 
-  const redirect = new URL(request.url);
-  redirect.searchParams.set("t", token);
-  redirect.searchParams.set("status", assumir?.reason === "assumir_token_success" ? "assumido" : "erro_assumir");
-  return Response.redirect(redirect.toString(), 303);
+  const stCompleto = await getState(env, caso.wa_id);
+  const dossierPayload = buildCorrespondenteDossierPayloadFromState(stCompleto || caso, { token });
+  return new Response(buildCorrespondenteEntryCoverHtml(caso, { dossierPayload }), {
+    status: 200,
+    headers: { "content-type": "text/html; charset=utf-8" }
+  });
 }
 
 function buildCorrespondentePrivateDocsLinksText(docs = []) {
@@ -11308,7 +11394,14 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
     ], "aguardando_retorno_correspondente");
   }
 
-  await sendMessage(env, correspondenteWaId, `Assunção confirmada. Caso ${token} entregue no seu privado.`);
+  const entryLink = buildCorrespondenteEntryLinkForCorrespondente(env, token, correspondenteWaId);
+  await sendMessage(
+    env,
+    correspondenteWaId,
+    entryLink
+      ? `Assunção confirmada. Reabertura do dossiê: ${entryLink}`
+      : `Assunção confirmada. Caso ${token} entregue no seu privado.`
+  );
   return { handled: true, reason: "assumir_token_success" };
 }
 
@@ -21133,6 +21226,7 @@ export {
   reconcileEnvioDocsItensWithSavedDossier,
   buildDocumentDossierFromState,
   buildCorrespondenteGroupAlert,
+  buildCorrespondenteCaseRef,
   buildCorrespondenteEntryLink,
   handleCorrespondenteEntryPage,
   resolveEnvioDocsCurrentParticipant,

@@ -67,28 +67,38 @@ function buildEnvWithState() {
   const env = buildEnvWithState();
   const req = new Request(`https://worker.local/correspondente/entrada?t=${token}`, { method: "GET" });
   const res = await worker.fetch(req, env, {});
-  const html = await res.text();
-  assert.equal(res.status, 200);
-  assert.equal(html.includes("Capa do caso"), true);
-  assert.equal(html.includes("Novo pré-cadastro disponível para assunção"), true);
-  assert.equal(html.includes("SEGREDO DOSSIE"), false);
-  assert.equal(html.includes("Renda Titular"), false);
-  assert.equal(html.includes("Restrição"), false);
+  const body = await res.text();
+  assert.equal(res.status, 403);
+  assert.equal(body.includes("Caso ainda não assumido"), true);
 }
 
-// 3) POST de assunção via link registra lock e mantém fluxo atual íntegro.
+// 3) Assunção no fluxo externo libera link apenas para o correspondente correto.
 {
   const env = buildEnvWithState();
-  const postReq = new Request("https://worker.local/correspondente/entrada", {
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
     method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      token,
-      correspondente_wa_id: correspondenteWa
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.link.smoke",
+              timestamp: "1773183900",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
     })
   });
-  const postRes = await worker.fetch(postReq, env, {});
-  assert.equal(postRes.status, 303);
+  const assumirRes = await worker.fetch(assumirReq, env, {});
+  assert.equal(assumirRes.status, 200);
 
   const atualizado = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(atualizado.corr_lock_correspondente_wa_id, correspondenteWa);
@@ -96,11 +106,45 @@ function buildEnvWithState() {
   assert.equal(atualizado.aguardando_retorno_correspondente, true);
   assert.equal(atualizado.processo_enviado_correspondente, true);
 
-  const reopenReq = new Request(`https://worker.local/correspondente/entrada?t=${token}`, { method: "GET" });
+  const reopenReq = new Request(`https://worker.local/correspondente/entrada?t=${token}&cw=${correspondenteWa}`, { method: "GET" });
   const reopenRes = await worker.fetch(reopenReq, env, {});
   const reopenHtml = await reopenRes.text();
   assert.equal(reopenRes.status, 200);
-  assert.equal(reopenHtml.includes("já foi assumido"), true);
+  assert.equal(reopenHtml.includes("Resumo executivo"), true);
+  assert.equal(reopenHtml.includes("Assumir caso"), false);
+
+  const wrongWaReq = new Request(`https://worker.local/correspondente/entrada?t=${token}&cw=5511888888888`, { method: "GET" });
+  const wrongWaRes = await worker.fetch(wrongWaReq, env, {});
+  const wrongWaBody = await wrongWaRes.text();
+  assert.equal(wrongWaRes.status, 403);
+  assert.equal(wrongWaBody.includes("travado para outro correspondente"), true);
+
+  const secondAssumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: "5511888888888",
+              id: "wamid.assumir.link.smoke.second",
+              timestamp: "1773183901",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: "5511888888888" }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  const secondAssumirRes = await worker.fetch(secondAssumirReq, env, {});
+  assert.equal(secondAssumirRes.status, 200);
+  const afterSecond = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(afterSecond.corr_lock_correspondente_wa_id, correspondenteWa);
 }
 
 // 4) Ponte aprovado -> agendamento_visita não pode regredir.

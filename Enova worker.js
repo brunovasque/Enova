@@ -10892,6 +10892,13 @@ function buildCorrespondenteEntryLink(env, token) {
   return `${base}/correspondente/entrada?t=${encodeURIComponent(safeToken)}`;
 }
 
+function buildCorrespondenteEntryLinkForCorrespondente(env, token, correspondenteWaId) {
+  const baseLink = buildCorrespondenteEntryLink(env, token);
+  const safeWa = normalizeCorrespondenteWaIdInput(correspondenteWaId);
+  if (!baseLink || !safeWa) return baseLink;
+  return `${baseLink}&cw=${encodeURIComponent(safeWa)}`;
+}
+
 function buildCorrespondenteGroupAlert(st, token, env) {
   const caseRef = String(st?.wa_id || "").slice(-4).padStart(4, "0");
   const entryLink = buildCorrespondenteEntryLink(env, token);
@@ -11029,8 +11036,6 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   const clienteNome = String(caso?.nome || "não informado").trim() || "não informado";
   const lockAtual = String(caso?.corr_lock_correspondente_wa_id || "").trim();
   const processoEnviado = caso?.processo_enviado_correspondente === true;
-  const flashType = options?.flashType === "error" ? "error" : options?.flashType === "success" ? "success" : "info";
-  const flashText = String(options?.flashText || "").trim();
   const dossierPayload = options?.dossierPayload && typeof options.dossierPayload === "object"
     ? options.dossierPayload
     : null;
@@ -11047,13 +11052,7 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     ? dossierPayload.pendencias
     : null;
 
-  const statusText = processoEnviado
-    ? "Este caso já foi assumido e está em andamento no privado."
-    : lockAtual
-      ? "Este caso já foi assumido por um correspondente."
-      : "Novo pré-cadastro disponível para assunção.";
-
-  const showAssumeForm = !processoEnviado && !lockAtual;
+  const statusText = "Caso assumido. Dossiê liberado para o correspondente responsável.";
 
   return `<!doctype html>
 <html lang="pt-BR">
@@ -11068,13 +11067,6 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     .row{margin:8px 0}
     .label{font-weight:700}
     .status{margin-top:14px;padding:10px 12px;border-radius:8px;background:#edf3ff;border:1px solid #d2e1ff}
-    .flash{margin-top:14px;padding:10px 12px;border-radius:8px}
-    .flash.info{background:#edf3ff;border:1px solid #d2e1ff}
-    .flash.success{background:#eaf9ef;border:1px solid #ccefd8}
-    .flash.error{background:#fff1f1;border:1px solid #ffd1d1}
-    form{margin-top:16px;display:flex;flex-direction:column;gap:8px}
-    input{padding:10px;border:1px solid #c9d4e2;border-radius:8px}
-    button{padding:10px 14px;border:0;border-radius:8px;background:#0e4dd8;color:#fff;font-weight:700;cursor:pointer}
     .dossie{margin-top:16px;padding-top:12px;border-top:1px solid #e2e8f3}
     .dossie h2{font-size:16px;margin:12px 0 6px}
     .dossie ul{margin:6px 0 0 18px;padding:0}
@@ -11087,13 +11079,6 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     <div class="row"><span class="label">Referência:</span> ${escapeHtml(ref)}</div>
     <div class="row"><span class="label">Cliente:</span> ${escapeHtml(clienteNome)}</div>
     <div class="status">${escapeHtml(statusText)}</div>
-    ${flashText ? `<div class="flash ${flashType}">${escapeHtml(flashText)}</div>` : ""}
-    ${showAssumeForm ? `<form method="POST" action="/correspondente/entrada">
-      <input type="hidden" name="token" value="${escapeHtml(caso?.corr_assumir_token || "")}" />
-      <label for="correspondente_wa_id">Seu WhatsApp (somente números):</label>
-      <input id="correspondente_wa_id" name="correspondente_wa_id" inputmode="numeric" autocomplete="tel" placeholder="5511999999999" required />
-      <button type="submit">Assumir caso</button>
-    </form>` : ""}
     ${dossierPayload ? `<section class="dossie">
       <h2>Resumo executivo</h2>
       <div class="row"><span class="label">Pronto para pré-análise:</span> ${escapeHtml(resumo?.pronto_para_pre_analise === true ? "sim" : "não")}</div>
@@ -11118,14 +11103,12 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
 }
 
 async function handleCorrespondenteEntryPage(request, env) {
-  const requestUrl = new URL(request.url);
-  const formData = request.method === "POST" ? await request.formData() : null;
-  if (request.method === "POST" && !formData) {
-    return new Response("Payload inválido.", { status: 400 });
+  if (request.method !== "GET") {
+    return new Response("Método não permitido nesta página. A assunção ocorre no fluxo externo antes da abertura do link.", { status: 403 });
   }
-  const tokenInput = request.method === "POST"
-    ? formData?.get("token")
-    : requestUrl.searchParams.get("t") || requestUrl.searchParams.get("token");
+
+  const requestUrl = new URL(request.url);
+  const tokenInput = requestUrl.searchParams.get("t") || requestUrl.searchParams.get("token");
   const token = normalizeAssumirToken(tokenInput);
   if (!token) {
     return new Response("Token inválido.", { status: 400 });
@@ -11140,43 +11123,27 @@ async function handleCorrespondenteEntryPage(request, env) {
     return new Response("Link de entrada indisponível para o estado atual do caso.", { status: 403 });
   }
 
-  if (request.method === "GET") {
-    const stCompleto = await getState(env, caso.wa_id);
-    const dossierPayload = buildCorrespondenteDossierPayloadFromState(stCompleto || caso, { token });
-    const status = String(requestUrl.searchParams.get("status") || "").trim().toLowerCase();
-    const flashText = status === "assumido"
-      ? "Assunção registrada com sucesso."
-      : status === "erro_assumir"
-        ? "Não foi possível concluir a assunção. Tente novamente."
-        : "";
-    const flashType = status === "assumido" ? "success" : status === "erro_assumir" ? "error" : "info";
-    return new Response(buildCorrespondenteEntryCoverHtml(caso, { flashText, flashType, dossierPayload }), {
-      status: 200,
-      headers: { "content-type": "text/html; charset=utf-8" }
-    });
+  const lockAtual = String(caso?.corr_lock_correspondente_wa_id || "").trim();
+  if (!lockAtual) {
+    return new Response("Caso ainda não assumido. Faça a assunção no fluxo externo antes de abrir o link.", { status: 403 });
   }
 
-  const correspondenteWaId = normalizeCorrespondenteWaIdInput(formData.get("correspondente_wa_id"));
-  if (!correspondenteWaId || correspondenteWaId.length < MIN_CORRESPONDENTE_WA_ID_LENGTH) {
-    return new Response(buildCorrespondenteEntryCoverHtml(caso, {
-      flashType: "error",
-      flashText: "Informe um WhatsApp válido para registrar a assunção."
-    }), {
-      status: 400,
-      headers: { "content-type": "text/html; charset=utf-8" }
-    });
-  }
-
-  const assumir = await handleCorrespondenteAssumirCommand(
-    env,
-    { from: correspondenteWaId, author: correspondenteWaId },
-    `ASSUMIR ${token}`
+  const requesterWaId = normalizeCorrespondenteWaIdInput(
+    requestUrl.searchParams.get("cw") || requestUrl.searchParams.get("correspondente_wa_id")
   );
+  if (!requesterWaId) {
+    return new Response("Acesso bloqueado: informe o correspondente no link para abrir o dossiê assumido.", { status: 403 });
+  }
+  if (requesterWaId !== lockAtual) {
+    return new Response("Acesso bloqueado: este caso já está travado para outro correspondente.", { status: 403 });
+  }
 
-  const redirect = new URL(request.url);
-  redirect.searchParams.set("t", token);
-  redirect.searchParams.set("status", assumir?.reason === "assumir_token_success" ? "assumido" : "erro_assumir");
-  return Response.redirect(redirect.toString(), 303);
+  const stCompleto = await getState(env, caso.wa_id);
+  const dossierPayload = buildCorrespondenteDossierPayloadFromState(stCompleto || caso, { token });
+  return new Response(buildCorrespondenteEntryCoverHtml(caso, { dossierPayload }), {
+    status: 200,
+    headers: { "content-type": "text/html; charset=utf-8" }
+  });
 }
 
 function buildCorrespondentePrivateDocsLinksText(docs = []) {
@@ -11427,7 +11394,14 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
     ], "aguardando_retorno_correspondente");
   }
 
-  await sendMessage(env, correspondenteWaId, `Assunção confirmada. Caso ${token} entregue no seu privado.`);
+  const entryLink = buildCorrespondenteEntryLinkForCorrespondente(env, token, correspondenteWaId);
+  await sendMessage(
+    env,
+    correspondenteWaId,
+    entryLink
+      ? `Assunção confirmada. Reabertura do dossiê: ${entryLink}`
+      : `Assunção confirmada. Caso ${token} entregue no seu privado.`
+  );
   return { handled: true, reason: "assumir_token_success" };
 }
 

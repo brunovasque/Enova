@@ -19661,13 +19661,18 @@ case "envio_docs": {
 
       const itensAtualizados = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
       linhas.push(...buildEnvioDocsUploadGuidanceLines(itensAtualizados, progress));
+      const nextStageAfterUpload = isCorrespondentePacoteReady(st) ? "finalizacao_processo" : "envio_docs";
 
-      return step(env, st, linhas, "envio_docs");
+      return step(env, st, linhas, nextStageAfterUpload);
     }
 
     // resposta positiva mas sem avanço
     if (!resposta.nextStage) {
-      return step(env, st, resposta.message, resposta.keepStage || "envio_docs");
+      const keepStage = resposta.keepStage || "envio_docs";
+      const nextStageAfterUpload = keepStage === "envio_docs" && isCorrespondentePacoteReady(st)
+        ? "finalizacao_processo"
+        : keepStage;
+      return step(env, st, resposta.message, nextStageAfterUpload);
     }
 
     // resposta positiva com avanço
@@ -19817,7 +19822,11 @@ case "envio_docs": {
       text_signal: true,
       caption: t
     });
-    return step(env, st, resposta.message, resposta.keepStage || "envio_docs");
+    const keepStage = resposta.keepStage || "envio_docs";
+    const nextStageAfterUpload = keepStage === "envio_docs" && isCorrespondentePacoteReady(st)
+      ? "finalizacao_processo"
+      : keepStage;
+    return step(env, st, resposta.message, nextStageAfterUpload);
   }
 
   // =====================================================

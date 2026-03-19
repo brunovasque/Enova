@@ -5,6 +5,7 @@ const CTPS_TARGET_RUNTIME_GUARD_VERSION = "ctps-target-guard-v1";
 const CTPS_RESOLUTION_PATH_GUARD = "handleDocumentUpload:post_match_target_resolution";
 const CTPS_NON_BLOCKING_DOC_TYPES = new Set(["ctps_completa", "ctps"]);
 const RESET_REPLY_SUMMARY_MAX_LEN = 140;
+const MIN_CORRESPONDENTE_WA_ID_LENGTH = 10;
 
 function getSimulationContext(env) {
   return env && env.__enovaSimulationCtx ? env.__enovaSimulationCtx : null;
@@ -3913,6 +3914,16 @@ if (isAdminProdPath) {
         build: ENOVA_BUILD,
         ts: new Date().toISOString()
       });
+    }
+
+    // ---------------------------------------------
+    // 🌐 Entrada pública correspondente (capa + assunção)
+    // ---------------------------------------------
+    if (
+      (request.method === "GET" || request.method === "POST") &&
+      pathname === "/correspondente/entrada"
+    ) {
+      return handleCorrespondenteEntryPage(request, env);
     }
 
     // ---------------------------------------------
@@ -10429,7 +10440,7 @@ function normalizeAssumirToken(token) {
   return String(token || "")
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "")
-    .slice(0, 8);
+    .slice(0, 24);
 }
 
 function buildCorrespondentePrivateDossierFromState(st) {
@@ -10790,32 +10801,214 @@ function buildCorrespondentePrivateDossierFromState(st) {
 function gerarAssumirToken() {
   // Sem I/O/0/1 para reduzir erro humano na digitação do token.
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  const bytes = new Uint8Array(6);
-  crypto.getRandomValues(bytes);
+  const targetLen = 24;
+  const bytes = new Uint8Array(64);
+  const maxMultiple = Math.floor(256 / alphabet.length) * alphabet.length;
   let raw = "";
-  for (const b of bytes) raw += alphabet[b % alphabet.length];
+  while (raw.length < targetLen) {
+    crypto.getRandomValues(bytes);
+    for (const b of bytes) {
+      if (b >= maxMultiple) continue;
+      raw += alphabet[b % alphabet.length];
+      if (raw.length >= targetLen) break;
+    }
+  }
   return normalizeAssumirToken(raw);
 }
 
 function parseAssumirTokenFromText(userText) {
   const txt = String(userText || "").trim();
-  const m = txt.match(/^assumir[\s:;#-]*([a-z0-9-]{6,12})\b/i);
+  const m = txt.match(/^assumir[\s:;#-]*([a-z0-9-]{6,32})\b/i);
   if (!m) return null;
   return normalizeAssumirToken(m[1]);
 }
 
-function buildCorrespondenteGroupAlert(st, token) {
+function resolveCorrespondenteEntryBaseUrl(env) {
+  const raw = String(
+    env?.CORRESPONDENTE_ENTRY_BASE_URL ||
+    env?.PUBLIC_BASE_URL ||
+    env?.CF_PAGES_URL ||
+    env?.VERCEL_URL ||
+    ""
+  ).trim();
+  if (!raw) return null;
+  if (/^https?:\/\//i.test(raw)) return raw.replace(/\/+$/, "");
+  return `https://${raw}`.replace(/\/+$/, "");
+}
+
+function buildCorrespondenteEntryLink(env, token) {
+  const safeToken = normalizeAssumirToken(token);
+  const base = resolveCorrespondenteEntryBaseUrl(env);
+  if (!safeToken || !base) return null;
+  return `${base}/correspondente/entrada?t=${encodeURIComponent(safeToken)}`;
+}
+
+function buildCorrespondenteGroupAlert(st, token, env) {
   const caseRef = String(st?.wa_id || "").slice(-4).padStart(4, "0");
+  const entryLink = buildCorrespondenteEntryLink(env, token);
   return [
     "🚨 *Novo caso para correspondente*",
     `Ref: C${caseRef}`,
-    `Token: ${token}`,
+    `Token de entrada: ${token}`,
     "",
-    "Para assumir com exclusividade, responda no privado:",
+    entryLink
+      ? "Link permanente de entrada/assunção:"
+      : "Para assumir com exclusividade, responda no privado:",
+    entryLink || `ASSUMIR ${token}`,
+    "",
+    "Se necessário, fallback no privado:",
     `ASSUMIR ${token}`,
     "",
     "⚠️ Este grupo é apenas distribuição (sem dados sensíveis)."
   ].join("\n");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function buildCorrespondenteCaseRef(caso) {
+  const preCadastro = String(caso?.pre_cadastro_numero || "").trim();
+  if (preCadastro) return preCadastro;
+  const wa = String(caso?.wa_id || "").replace(/\D/g, "");
+  const suffix = wa.slice(-4).padStart(4, "0");
+  return `C${suffix}`;
+}
+
+function isCorrespondenteEntryAllowed(caso) {
+  const status = String(caso?.corr_publicacao_status || "").trim().toLowerCase();
+  if (!status) return true;
+  return [
+    "publicado_grupo_pendente_assumir",
+    "lock_adquirido_tentando_entrega",
+    "assumido_falha_entrega_privada",
+    "entregue_privado_aguardando_retorno"
+  ].includes(status);
+}
+
+function normalizeCorrespondenteWaIdInput(value) {
+  return String(value || "").replace(/\D/g, "").trim();
+}
+
+function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
+  const ref = buildCorrespondenteCaseRef(caso);
+  const clienteNome = String(caso?.nome || "não informado").trim() || "não informado";
+  const lockAtual = String(caso?.corr_lock_correspondente_wa_id || "").trim();
+  const processoEnviado = caso?.processo_enviado_correspondente === true;
+  const flashType = options?.flashType === "error" ? "error" : options?.flashType === "success" ? "success" : "info";
+  const flashText = String(options?.flashText || "").trim();
+
+  const statusText = processoEnviado
+    ? "Este caso já foi assumido e está em andamento no privado."
+    : lockAtual
+      ? "Este caso já foi assumido por um correspondente."
+      : "Novo pré-cadastro disponível para assunção.";
+
+  const showAssumeForm = !processoEnviado && !lockAtual;
+
+  return `<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Entrada do caso ${escapeHtml(ref)}</title>
+  <style>
+    body{font-family:Arial,sans-serif;background:#f5f7fb;color:#18202a;margin:0;padding:24px}
+    .card{max-width:560px;margin:0 auto;background:#fff;border:1px solid #dfe6f0;border-radius:12px;padding:20px}
+    h1{font-size:20px;margin:0 0 12px}
+    .row{margin:8px 0}
+    .label{font-weight:700}
+    .status{margin-top:14px;padding:10px 12px;border-radius:8px;background:#edf3ff;border:1px solid #d2e1ff}
+    .flash{margin-top:14px;padding:10px 12px;border-radius:8px}
+    .flash.info{background:#edf3ff;border:1px solid #d2e1ff}
+    .flash.success{background:#eaf9ef;border:1px solid #ccefd8}
+    .flash.error{background:#fff1f1;border:1px solid #ffd1d1}
+    form{margin-top:16px;display:flex;flex-direction:column;gap:8px}
+    input{padding:10px;border:1px solid #c9d4e2;border-radius:8px}
+    button{padding:10px 14px;border:0;border-radius:8px;background:#0e4dd8;color:#fff;font-weight:700;cursor:pointer}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Capa do caso</h1>
+    <div class="row"><span class="label">Referência:</span> ${escapeHtml(ref)}</div>
+    <div class="row"><span class="label">Cliente:</span> ${escapeHtml(clienteNome)}</div>
+    <div class="status">${escapeHtml(statusText)}</div>
+    ${flashText ? `<div class="flash ${flashType}">${escapeHtml(flashText)}</div>` : ""}
+    ${showAssumeForm ? `<form method="POST" action="/correspondente/entrada">
+      <input type="hidden" name="token" value="${escapeHtml(caso?.corr_assumir_token || "")}" />
+      <label for="correspondente_wa_id">Seu WhatsApp (somente números):</label>
+      <input id="correspondente_wa_id" name="correspondente_wa_id" inputmode="numeric" autocomplete="tel" placeholder="5511999999999" required />
+      <button type="submit">Assumir caso</button>
+    </form>` : ""}
+  </main>
+</body>
+</html>`;
+}
+
+async function handleCorrespondenteEntryPage(request, env) {
+  const requestUrl = new URL(request.url);
+  const formData = request.method === "POST" ? await request.formData() : null;
+  if (request.method === "POST" && !formData) {
+    return new Response("Payload inválido.", { status: 400 });
+  }
+  const tokenInput = request.method === "POST"
+    ? formData?.get("token")
+    : requestUrl.searchParams.get("t") || requestUrl.searchParams.get("token");
+  const token = normalizeAssumirToken(tokenInput);
+  if (!token) {
+    return new Response("Token inválido.", { status: 400 });
+  }
+
+  const caso = await getCorrespondenteCaseByToken(env, token);
+  if (!caso?.wa_id) {
+    return new Response("Link de entrada inválido.", { status: 404 });
+  }
+
+  if (!isCorrespondenteEntryAllowed(caso)) {
+    return new Response("Link de entrada indisponível para o estado atual do caso.", { status: 403 });
+  }
+
+  if (request.method === "GET") {
+    const status = String(requestUrl.searchParams.get("status") || "").trim().toLowerCase();
+    const flashText = status === "assumido"
+      ? "Assunção registrada com sucesso."
+      : status === "erro_assumir"
+        ? "Não foi possível concluir a assunção. Tente novamente."
+        : "";
+    const flashType = status === "assumido" ? "success" : status === "erro_assumir" ? "error" : "info";
+    return new Response(buildCorrespondenteEntryCoverHtml(caso, { flashText, flashType }), {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" }
+    });
+  }
+
+  const correspondenteWaId = normalizeCorrespondenteWaIdInput(formData.get("correspondente_wa_id"));
+  if (!correspondenteWaId || correspondenteWaId.length < MIN_CORRESPONDENTE_WA_ID_LENGTH) {
+    return new Response(buildCorrespondenteEntryCoverHtml(caso, {
+      flashType: "error",
+      flashText: "Informe um WhatsApp válido para registrar a assunção."
+    }), {
+      status: 400,
+      headers: { "content-type": "text/html; charset=utf-8" }
+    });
+  }
+
+  const assumir = await handleCorrespondenteAssumirCommand(
+    env,
+    { from: correspondenteWaId, author: correspondenteWaId },
+    `ASSUMIR ${token}`
+  );
+
+  const redirect = new URL(request.url);
+  redirect.searchParams.set("t", token);
+  redirect.searchParams.set("status", assumir?.reason === "assumir_token_success" ? "assumido" : "erro_assumir");
+  return Response.redirect(redirect.toString(), 303);
 }
 
 function buildCorrespondentePrivateDocsLinksText(docs = []) {
@@ -10993,7 +11186,7 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
 
   const caso = await getCorrespondenteCaseByToken(env, token);
   if (!caso || !caso.wa_id) {
-    await sendMessage(env, correspondenteWaId, `Token ${token} não encontrado ou já expirado.`);
+    await sendMessage(env, correspondenteWaId, `Token ${token} não encontrado ou inválido.`);
     return { handled: true, reason: "assumir_token_not_found" };
   }
 
@@ -11109,7 +11302,7 @@ async function enviarParaCorrespondente(env, st, dossie) {
   }
 
   const tokenAssumir = normalizeAssumirToken(st?.corr_assumir_token) || gerarAssumirToken();
-  const mensagemGrupo = buildCorrespondenteGroupAlert(st, tokenAssumir);
+  const mensagemGrupo = buildCorrespondenteGroupAlert(st, tokenAssumir, env);
 
   // 3 — Publica alerta mínimo no grupo (distribuição sem dados sensíveis)
   const to = env.CORRESPONDENTE_TO;
@@ -20805,6 +20998,9 @@ export {
   generateChecklistForDocs,
   reconcileEnvioDocsItensWithSavedDossier,
   buildDocumentDossierFromState,
+  buildCorrespondenteGroupAlert,
+  buildCorrespondenteEntryLink,
+  handleCorrespondenteEntryPage,
   resolveEnvioDocsCurrentParticipant,
   isEnvioDocsConversationalFlowComplete,
   isEnvioDocsBlockingItem,

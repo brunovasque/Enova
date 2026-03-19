@@ -10943,8 +10943,9 @@ function buildCorrespondenteDossierPayloadFromState(st, options = {}) {
 
   const token = normalizeAssumirToken(options?.token || st?.corr_assumir_token || "");
   const documentosPorParticipante = {};
+  const asArray = (value) => Array.isArray(value) ? value : [];
   const mergeDoc = (item, origem) => {
-    const participante = String(item?.participante || "desconhecido").trim().toLowerCase() || "desconhecido";
+    const participante = String(item?.participante || "desconhecido").trim().toLowerCase();
     if (!documentosPorParticipante[participante]) {
       documentosPorParticipante[participante] = {
         participante,
@@ -10960,14 +10961,17 @@ function buildCorrespondenteDossierPayloadFromState(st, options = {}) {
       status: item?.status || item?.observacao_analise || (origem === "recebidos" ? "recebido" : "pendente")
     });
   };
-  for (const doc of Array.isArray(documentos.recebidos) ? documentos.recebidos : []) mergeDoc(doc, "recebidos");
-  for (const doc of Array.isArray(documentos.pendentes) ? documentos.pendentes : []) mergeDoc(doc, "pendentes");
+  for (const doc of asArray(documentos.recebidos)) mergeDoc(doc, "recebidos");
+  for (const doc of asArray(documentos.pendentes)) mergeDoc(doc, "pendentes");
 
   return {
     meta: {
       wa_id: identificacao.wa_id || st?.wa_id || null,
       id_pre_cadastro: identificacao.id_pre_cadastro || st?.pre_cadastro_numero || null,
-      case_ref: buildCorrespondenteCaseRef({ wa_id: st?.wa_id, pre_cadastro_numero: identificacao.id_pre_cadastro || st?.pre_cadastro_numero }),
+      case_ref: buildCorrespondenteCaseRef({
+        wa_id: identificacao.wa_id || st?.wa_id,
+        pre_cadastro_numero: identificacao.id_pre_cadastro || st?.pre_cadastro_numero
+      }),
       token_assumir: token || null,
       corr_publicacao_status: st?.corr_publicacao_status || null,
       generated_at: new Date().toISOString()
@@ -10975,22 +10979,32 @@ function buildCorrespondenteDossierPayloadFromState(st, options = {}) {
     resumo_executivo: {
       pronto_para_pre_analise: conclusao.pronto_para_pre_analise === true,
       envio_docs_status: documental.envio_docs_status || null,
-      pendencias_total: Number(documental.pendencias_total || 0) || 0,
-      renda_total: Number(renda.total || 0) || 0,
-      participantes_total: Number(identificacao.composicao_qtd || 0) || 0
+      pendencias_total: Number(documental.pendencias_total) || 0,
+      renda_total: Number(renda.total) || 0,
+      participantes_total: Number(identificacao.composicao_qtd) || 0
     },
     perfil: {
       nome: identificacao.nome || st?.nome || null,
       estado_civil: identificacao.estado_civil || st?.estado_civil || null,
       tipo_processo: composicao.tipo_processo || null,
-      participantes: Array.isArray(composicao.participantes) ? composicao.participantes : []
+      participantes: asArray(composicao.participantes).map((p) => ({
+        id: p?.id || null,
+        papel: p?.papel || null,
+        regime_trabalho: p?.regime_trabalho || null,
+        renda: Number(p?.renda) || 0,
+        tem_restricao: p?.tem_restricao === true
+      }))
     },
     documentos_por_participante: Object.values(documentosPorParticipante),
     pendencias: {
-      bloqueantes: Number(documental.pendencias_bloqueantes || 0) || 0,
-      nao_bloqueantes: Number(documental.pendencias_nao_bloqueantes || 0) || 0,
-      remanescentes: Number(conclusao.pendencias_remanescentes || 0) || 0,
-      itens: Array.isArray(documentos.pendentes) ? documentos.pendentes : []
+      bloqueantes: Number(documental.pendencias_bloqueantes) || 0,
+      nao_bloqueantes: Number(documental.pendencias_nao_bloqueantes) || 0,
+      remanescentes: Number(conclusao.pendencias_remanescentes) || 0,
+      itens: asArray(documentos.pendentes).map((item) => ({
+        tipo: item?.tipo || "documento",
+        participante: item?.participante || null,
+        status: item?.status || "pendente"
+      }))
     }
   };
 }
@@ -21238,6 +21252,7 @@ export {
   reconcileEnvioDocsItensWithSavedDossier,
   buildDocumentDossierFromState,
   buildCorrespondenteGroupAlert,
+  buildCorrespondenteCaseRef,
   buildCorrespondenteEntryLink,
   handleCorrespondenteEntryPage,
   resolveEnvioDocsCurrentParticipant,

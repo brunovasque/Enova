@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 const workerModule = await import(new URL("../Enova worker.js", import.meta.url).href);
 const worker = workerModule.default;
+const { buildCorrespondenteCaseRef } = workerModule;
 
 const waId = "5541991112222";
 
@@ -127,9 +128,25 @@ function buildTextWebhook(from, text, msgId) {
   assert.equal(st.processo_enviado_correspondente, false);
   const tokenPublicado = st.corr_assumir_token;
   const payloadGrupo = env.__enovaSimulationCtx.sendPreview;
+  const expectedLink = `https://entrada.enova.local/correspondente/entrada?t=${tokenPublicado}`;
+  const expectedFallback = `ASSUMIR ${tokenPublicado}`;
   assert.equal(typeof payloadGrupo?.text?.body, "string");
-  assert.equal(payloadGrupo.text.body.includes(`/correspondente/entrada?t=${tokenPublicado}`), true);
-  assert.equal(payloadGrupo.text.body.includes(`ASSUMIR ${tokenPublicado}`), true);
+  assert.equal(
+    payloadGrupo.text.body,
+    [
+      "🚨 *Novo caso para correspondente*",
+      `Ref: ${buildCorrespondenteCaseRef({ wa_id: waId })}`,
+      `Token de entrada: ${tokenPublicado}`,
+      "",
+      "Link permanente de entrada/assunção:",
+      expectedLink,
+      "",
+      "Se necessário, fallback no privado:",
+      expectedFallback,
+      "",
+      "⚠️ Este grupo é apenas distribuição (sem dados sensíveis)."
+    ].join("\n")
+  );
 
   env.__enovaSimulationCtx.sendPreview = null;
   const reqReprocess = new Request("https://worker.local/webhook/meta", {

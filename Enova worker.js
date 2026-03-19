@@ -3396,6 +3396,55 @@ if (isAdminProdPath) {
       });
     }
 
+    if (request.method === "GET" && pathname === "/__admin__/correspondente-token") {
+      if (!isAdminAuthorized()) {
+        return adminJson(401, {
+          ok: false,
+          error: "unauthorized",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const wa_id = String(url.searchParams.get("wa_id") || "").trim();
+      if (!wa_id) {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_payload",
+          details: "wa_id é obrigatório",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const simCtx = getSimulationContext(env);
+      const stToken = simCtx?.active
+        ? (simCtx.stateByWaId?.[wa_id] || null)
+        : await getState(env, wa_id);
+      if (!stToken?.wa_id) {
+        return adminJson(404, {
+          ok: false,
+          error: "case_not_found",
+          wa_id,
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      return adminJson(200, {
+        ok: true,
+        wa_id: stToken.wa_id,
+        fase_conversa: stToken.fase_conversa || null,
+        corr_publicacao_status: stToken.corr_publicacao_status || null,
+        corr_assumir_token: stToken.corr_assumir_token || null,
+        processo_enviado_correspondente: stToken.processo_enviado_correspondente ?? null,
+        corr_lock_correspondente_wa_id: stToken.corr_lock_correspondente_wa_id || null,
+        corr_lock_assumido_em: stToken.corr_lock_assumido_em || null,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
+
     if (request.method === "POST" && pathname === "/__admin__/run-canonical-suite-v1") {
       if (!isAdminAuthorized()) {
         return adminJson(401, {

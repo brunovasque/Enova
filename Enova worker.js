@@ -19466,6 +19466,8 @@ case "envio_docs": {
       (/\b(site|portal|plataforma|link)\b/.test(t) && /\b(enviar|envio|mandar|subir|anexar|prefiro)\b/.test(t));
     const pediuResumoPendencias =
       /\b(o que falta|quais docs faltam|quais documentos faltam|falta algo|falta[m]? documento[s]?|lista de pendenc|resumo de pendenc|pendencias?)\b/.test(t);
+    const pediuAcompanhamentoStatus =
+      /\b(como ficou|ja teve resposta|já teve resposta|foi aprovado|ainda esta em analise|ainda está em análise|ainda esta em analise documental|ainda está em análise documental|ja foi enviado|já foi enviado|o correspondente respondeu|correspondente respondeu|demora muito|preciso mandar mais alguma coisa|status|andamento|em analise|em análise)\b/.test(t);
 
     return {
       pediuVisita,
@@ -19473,7 +19475,8 @@ case "envio_docs": {
       recusaWhatsapp,
       recusaSite,
       pediuSite,
-      pediuResumoPendencias
+      pediuResumoPendencias,
+      pediuAcompanhamentoStatus
     };
   }
 
@@ -19934,6 +19937,79 @@ const patchCanal = {
   };
   await upsertState(env, st.wa_id, lembretePatch);
   Object.assign(st, lembretePatch);
+
+  if (canal.pediuAcompanhamentoStatus) {
+    const itensAtualizados = reconcileEnvioDocsItensWithSavedDossier(
+      st,
+      Array.isArray(st.envio_docs_itens_json) && st.envio_docs_itens_json.length
+        ? st.envio_docs_itens_json
+        : generateChecklistForDocs(st)
+    );
+    const pendenciasResumo = envioDocsResumoPendencias(itensAtualizados, { includeNonBlocking: true, limit: 0 });
+    if (pendenciasResumo.length) {
+      return step(env, st, [
+        "No momento ainda faltam estes documentos para avançar:",
+        ...pendenciasResumo
+      ], "envio_docs");
+    }
+
+    const corrStatus = String(st.corr_publicacao_status || "").trim().toLowerCase();
+    const faseAtualStatus = String(st.fase_conversa || "").trim().toLowerCase();
+    const retornoStatus = String(st.retorno_correspondente_status || "").trim().toLowerCase();
+    const retornoMotivo = String(st.retorno_correspondente_motivo || "").trim();
+    const docsCompletosSemanticamente = isEnvioDocsConversationalFlowComplete(itensAtualizados);
+    const encaminhadoOuAguardandoCorrespondente =
+      st.processo_enviado_correspondente === true ||
+      st.aguardando_retorno_correspondente === true ||
+      faseAtualStatus === "aguardando_retorno_correspondente" ||
+      corrStatus.includes("aguardando_retorno") ||
+      corrStatus.includes("publicado");
+
+    if (docsCompletosSemanticamente && !encaminhadoOuAguardandoCorrespondente && !retornoStatus) {
+      return step(env, st, [
+        "Sua documentação está em análise documental no momento.",
+        "Assim que houver avanço, eu te aviso por aqui."
+      ], "envio_docs");
+    }
+
+    if (encaminhadoOuAguardandoCorrespondente && !retornoStatus) {
+      return step(env, st, [
+        "Seu processo já foi encaminhado ao correspondente.",
+        "Agora estamos aguardando o retorno da análise e eu te aviso por aqui."
+      ], "envio_docs");
+    }
+
+    if (retornoStatus) {
+      if (retornoStatus === "aprovado" || retornoStatus === "aprovado_condicionado") {
+        return step(env, st, [
+          "Já temos retorno salvo com pré-aprovação do financiamento.",
+          "Nos próximos passos, seguimos para o agendamento da visita."
+        ], "envio_docs");
+      }
+      if (retornoStatus === "reprovado") {
+        return step(env, st, [
+          "Já temos retorno salvo informando que a análise não foi aprovada.",
+          retornoMotivo ? `Motivo registrado: ${retornoMotivo}.` : "Se quiser, eu te explico os próximos passos para tentar novamente."
+        ], "envio_docs");
+      }
+      if (retornoStatus === "pendencia_documental") {
+        return step(env, st, [
+          "Já temos retorno salvo com pendência documental.",
+          retornoMotivo ? `Complemento solicitado: ${retornoMotivo}.` : "Quando você me enviar esse complemento, eu sigo com o processo."
+        ], "envio_docs");
+      }
+      if (retornoStatus === "pendencia_risco") {
+        return step(env, st, [
+          "Já temos retorno salvo com pendência de risco/restrição.",
+          retornoMotivo ? `Detalhe registrado: ${retornoMotivo}.` : "Posso te orientar nos próximos passos para regularização."
+        ], "envio_docs");
+      }
+      return step(env, st, [
+        "Já temos retorno salvo da análise do correspondente.",
+        "Se você quiser, te explico em detalhes o status registrado."
+      ], "envio_docs");
+    }
+  }
 
   return step(env, st, [
     "Pode me enviar os documentos por aqui mesmo para seguir online 😊",

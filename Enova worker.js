@@ -10929,6 +10929,72 @@ function buildCorrespondenteCaseRef(caso) {
   return `C${suffix}`;
 }
 
+function buildCorrespondenteDossierPayloadFromState(st, options = {}) {
+  const canonical = buildCorrespondentePrivateDossierFromState(st || {});
+  const tecnico = canonical?.payload_tecnico_correspondente_json && typeof canonical.payload_tecnico_correspondente_json === "object"
+    ? canonical.payload_tecnico_correspondente_json
+    : {};
+  const identificacao = tecnico.identificacao && typeof tecnico.identificacao === "object" ? tecnico.identificacao : {};
+  const composicao = tecnico.composicao && typeof tecnico.composicao === "object" ? tecnico.composicao : {};
+  const renda = tecnico.renda && typeof tecnico.renda === "object" ? tecnico.renda : {};
+  const documental = tecnico.documental && typeof tecnico.documental === "object" ? tecnico.documental : {};
+  const conclusao = tecnico.conclusao_operacional && typeof tecnico.conclusao_operacional === "object" ? tecnico.conclusao_operacional : {};
+  const documentos = tecnico.documentos && typeof tecnico.documentos === "object" ? tecnico.documentos : {};
+
+  const token = normalizeAssumirToken(options?.token || st?.corr_assumir_token || "");
+  const documentosPorParticipante = {};
+  const mergeDoc = (item, origem) => {
+    const participante = String(item?.participante || "desconhecido").trim().toLowerCase() || "desconhecido";
+    if (!documentosPorParticipante[participante]) {
+      documentosPorParticipante[participante] = {
+        participante,
+        recebidos: [],
+        pendentes: []
+      };
+    }
+    const target = origem === "recebidos"
+      ? documentosPorParticipante[participante].recebidos
+      : documentosPorParticipante[participante].pendentes;
+    target.push({
+      tipo: item?.tipo || "documento",
+      status: item?.status || item?.observacao_analise || (origem === "recebidos" ? "recebido" : "pendente")
+    });
+  };
+  for (const doc of Array.isArray(documentos.recebidos) ? documentos.recebidos : []) mergeDoc(doc, "recebidos");
+  for (const doc of Array.isArray(documentos.pendentes) ? documentos.pendentes : []) mergeDoc(doc, "pendentes");
+
+  return {
+    meta: {
+      wa_id: identificacao.wa_id || st?.wa_id || null,
+      id_pre_cadastro: identificacao.id_pre_cadastro || st?.pre_cadastro_numero || null,
+      case_ref: buildCorrespondenteCaseRef({ wa_id: st?.wa_id, pre_cadastro_numero: identificacao.id_pre_cadastro || st?.pre_cadastro_numero }),
+      token_assumir: token || null,
+      corr_publicacao_status: st?.corr_publicacao_status || null,
+      generated_at: new Date().toISOString()
+    },
+    resumo_executivo: {
+      pronto_para_pre_analise: conclusao.pronto_para_pre_analise === true,
+      envio_docs_status: documental.envio_docs_status || null,
+      pendencias_total: Number(documental.pendencias_total || 0) || 0,
+      renda_total: Number(renda.total || 0) || 0,
+      participantes_total: Number(identificacao.composicao_qtd || 0) || 0
+    },
+    perfil: {
+      nome: identificacao.nome || st?.nome || null,
+      estado_civil: identificacao.estado_civil || st?.estado_civil || null,
+      tipo_processo: composicao.tipo_processo || null,
+      participantes: Array.isArray(composicao.participantes) ? composicao.participantes : []
+    },
+    documentos_por_participante: Object.values(documentosPorParticipante),
+    pendencias: {
+      bloqueantes: Number(documental.pendencias_bloqueantes || 0) || 0,
+      nao_bloqueantes: Number(documental.pendencias_nao_bloqueantes || 0) || 0,
+      remanescentes: Number(conclusao.pendencias_remanescentes || 0) || 0,
+      itens: Array.isArray(documentos.pendentes) ? documentos.pendentes : []
+    }
+  };
+}
+
 function isCorrespondenteEntryAllowed(caso) {
   const status = String(caso?.corr_publicacao_status || "").trim().toLowerCase();
   if (!status) return true;
@@ -10951,6 +11017,21 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   const processoEnviado = caso?.processo_enviado_correspondente === true;
   const flashType = options?.flashType === "error" ? "error" : options?.flashType === "success" ? "success" : "info";
   const flashText = String(options?.flashText || "").trim();
+  const dossierPayload = options?.dossierPayload && typeof options.dossierPayload === "object"
+    ? options.dossierPayload
+    : null;
+  const resumo = dossierPayload?.resumo_executivo && typeof dossierPayload.resumo_executivo === "object"
+    ? dossierPayload.resumo_executivo
+    : null;
+  const perfil = dossierPayload?.perfil && typeof dossierPayload.perfil === "object"
+    ? dossierPayload.perfil
+    : null;
+  const docsParticipante = Array.isArray(dossierPayload?.documentos_por_participante)
+    ? dossierPayload.documentos_por_participante
+    : [];
+  const pendencias = dossierPayload?.pendencias && typeof dossierPayload.pendencias === "object"
+    ? dossierPayload.pendencias
+    : null;
 
   const statusText = processoEnviado
     ? "Este caso já foi assumido e está em andamento no privado."
@@ -10980,6 +11061,10 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     form{margin-top:16px;display:flex;flex-direction:column;gap:8px}
     input{padding:10px;border:1px solid #c9d4e2;border-radius:8px}
     button{padding:10px 14px;border:0;border-radius:8px;background:#0e4dd8;color:#fff;font-weight:700;cursor:pointer}
+    .dossie{margin-top:16px;padding-top:12px;border-top:1px solid #e2e8f3}
+    .dossie h2{font-size:16px;margin:12px 0 6px}
+    .dossie ul{margin:6px 0 0 18px;padding:0}
+    .dossie li{margin:4px 0}
   </style>
 </head>
 <body>
@@ -10995,6 +11080,24 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
       <input id="correspondente_wa_id" name="correspondente_wa_id" inputmode="numeric" autocomplete="tel" placeholder="5511999999999" required />
       <button type="submit">Assumir caso</button>
     </form>` : ""}
+    ${dossierPayload ? `<section class="dossie">
+      <h2>Resumo executivo</h2>
+      <div class="row"><span class="label">Pronto para pré-análise:</span> ${escapeHtml(resumo?.pronto_para_pre_analise === true ? "sim" : "não")}</div>
+      <div class="row"><span class="label">Status documental:</span> ${escapeHtml(resumo?.envio_docs_status || "não informado")}</div>
+      <div class="row"><span class="label">Pendências totais:</span> ${escapeHtml(String(resumo?.pendencias_total ?? 0))}</div>
+      <h2>Perfil</h2>
+      <div class="row"><span class="label">Nome:</span> ${escapeHtml(perfil?.nome || clienteNome)}</div>
+      <div class="row"><span class="label">Estado civil:</span> ${escapeHtml(perfil?.estado_civil || "não informado")}</div>
+      <div class="row"><span class="label">Participantes:</span> ${escapeHtml(String(Array.isArray(perfil?.participantes) ? perfil.participantes.length : 0))}</div>
+      <h2>Documentos por participante</h2>
+      ${docsParticipante.length
+        ? `<ul>${docsParticipante.map((item) => `<li>${escapeHtml(String(item?.participante || "desconhecido").toUpperCase())}: recebidos ${escapeHtml(String(Array.isArray(item?.recebidos) ? item.recebidos.length : 0))}, pendentes ${escapeHtml(String(Array.isArray(item?.pendentes) ? item.pendentes.length : 0))}</li>`).join("")}</ul>`
+        : "<div class=\"row\">Sem documentos mapeados.</div>"
+      }
+      <h2>Pendências</h2>
+      <div class="row"><span class="label">Bloqueantes:</span> ${escapeHtml(String(pendencias?.bloqueantes ?? 0))}</div>
+      <div class="row"><span class="label">Não bloqueantes:</span> ${escapeHtml(String(pendencias?.nao_bloqueantes ?? 0))}</div>
+    </section>` : ""}
   </main>
 </body>
 </html>`;
@@ -11024,6 +11127,8 @@ async function handleCorrespondenteEntryPage(request, env) {
   }
 
   if (request.method === "GET") {
+    const stCompleto = await getState(env, caso.wa_id);
+    const dossierPayload = buildCorrespondenteDossierPayloadFromState(stCompleto || caso, { token });
     const status = String(requestUrl.searchParams.get("status") || "").trim().toLowerCase();
     const flashText = status === "assumido"
       ? "Assunção registrada com sucesso."
@@ -11031,7 +11136,7 @@ async function handleCorrespondenteEntryPage(request, env) {
         ? "Não foi possível concluir a assunção. Tente novamente."
         : "";
     const flashType = status === "assumido" ? "success" : status === "erro_assumir" ? "error" : "info";
-    return new Response(buildCorrespondenteEntryCoverHtml(caso, { flashText, flashType }), {
+    return new Response(buildCorrespondenteEntryCoverHtml(caso, { flashText, flashType, dossierPayload }), {
       status: 200,
       headers: { "content-type": "text/html; charset=utf-8" }
     });

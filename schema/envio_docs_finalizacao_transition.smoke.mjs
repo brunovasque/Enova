@@ -125,6 +125,24 @@ function buildTextWebhook(from, text, msgId) {
   assert.equal(st.corr_assumir_token.length > 0, true);
   assert.equal(st.corr_publicacao_status, "publicado_grupo_pendente_assumir");
   assert.equal(st.processo_enviado_correspondente, false);
+  const tokenPublicado = st.corr_assumir_token;
+  const payloadGrupo = env.__enovaSimulationCtx.sendPreview;
+  assert.equal(typeof payloadGrupo?.text?.body, "string");
+  assert.equal(payloadGrupo.text.body.includes(`/correspondente/entrada?t=${tokenPublicado}`), true);
+  assert.equal(payloadGrupo.text.body.includes(`ASSUMIR ${tokenPublicado}`), true);
+
+  env.__enovaSimulationCtx.sendPreview = null;
+  const reqReprocess = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(buildTextWebhook(waId, "ok", "wamid.docs.complete.4"))
+  });
+  const resReprocess = await worker.fetch(reqReprocess, env, {});
+  assert.equal(resReprocess.status, 200);
+  const stReprocess = env.__enovaSimulationCtx.stateByWaId[waId];
+  assert.equal(stReprocess.corr_assumir_token, tokenPublicado);
+  assert.equal(stReprocess.corr_publicacao_status, "publicado_grupo_pendente_assumir");
+  assert.equal(env.__enovaSimulationCtx.sendPreview, null);
 }
 
 // 3) Não-regressão: sem pacote pronto permanece em envio_docs.

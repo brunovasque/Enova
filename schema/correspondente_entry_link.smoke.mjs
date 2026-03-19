@@ -74,6 +74,10 @@ function buildEnvWithState() {
   assert.equal(html.includes("SEGREDO DOSSIE"), false);
   assert.equal(html.includes("Renda Titular"), false);
   assert.equal(html.includes("Restrição"), false);
+  assert.equal(html.includes("Resumo executivo"), true);
+  assert.equal(html.includes("Perfil"), true);
+  assert.equal(html.includes("Documentos por participante"), true);
+  assert.equal(html.includes("Pendências"), true);
 }
 
 // 3) POST de assunção via link registra lock e mantém fluxo atual íntegro.

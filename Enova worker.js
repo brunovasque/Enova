@@ -11031,11 +11031,24 @@ function normalizeCorrespondenteWaIdInput(value) {
   return String(value || "").replace(/\D/g, "").trim();
 }
 
+function isCorrespondenteEntryAdminOverride(request, env, requestUrl) {
+  const envKey = String(env?.ENOVA_ADMIN_KEY || "").trim();
+  if (!envKey) return false;
+  const headerKey = String(request?.headers?.get("x-enova-admin-key") || "").trim();
+  return Boolean(headerKey && headerKey === envKey);
+}
+
 function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   const ref = buildCorrespondenteCaseRef(caso);
   const clienteNome = String(caso?.nome || "não informado").trim() || "não informado";
-  const lockAtual = String(caso?.corr_lock_correspondente_wa_id || "").trim();
-  const processoEnviado = caso?.processo_enviado_correspondente === true;
+  const tokenAssumir = normalizeAssumirToken(options?.token || caso?.corr_assumir_token || "");
+  const requesterWaId = normalizeCorrespondenteWaIdInput(options?.requesterWaId || "");
+  const lockAtual = String(options?.lockWaId || caso?.corr_lock_correspondente_wa_id || "").trim();
+  const isAdminOverride = options?.isAdminOverride === true;
+  const showAssumeForm = options?.showAssumeForm === true;
+  const showBlocked = options?.showBlocked === true;
+  const blockedMessage = String(options?.blockedMessage || "").trim();
+  const assumeSuccess = options?.assumeSuccess === true;
   const dossierPayload = options?.dossierPayload && typeof options.dossierPayload === "object"
     ? options.dossierPayload
     : null;
@@ -11052,7 +11065,13 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     ? dossierPayload.pendencias
     : null;
 
-  const statusText = "Caso assumido. Dossiê liberado para o correspondente responsável.";
+  const statusText = showBlocked
+    ? blockedMessage || "Este caso já foi assumido por outro correspondente."
+    : showAssumeForm
+      ? "Caso disponível para assunção."
+      : isAdminOverride
+        ? "Acesso liberado com privilégio administrativo (master/admin)."
+        : "Caso assumido. Dossiê liberado para o correspondente responsável.";
 
   return `<!doctype html>
 <html lang="pt-BR">
@@ -11071,6 +11090,13 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     .dossie h2{font-size:16px;margin:12px 0 6px}
     .dossie ul{margin:6px 0 0 18px;padding:0}
     .dossie li{margin:4px 0}
+    .ok{margin-top:14px;padding:10px 12px;border-radius:8px;background:#eafaf0;border:1px solid #bde7ce}
+    .warn{margin-top:14px;padding:10px 12px;border-radius:8px;background:#fff6ec;border:1px solid #ffd9b3}
+    .err{margin-top:14px;padding:10px 12px;border-radius:8px;background:#fff0f0;border:1px solid #ffc9c9}
+    form{margin-top:16px;display:flex;gap:8px;flex-wrap:wrap}
+    button{background:#1e62ff;color:#fff;border:none;border-radius:8px;padding:10px 14px;font-weight:700;cursor:pointer}
+    button.secondary{background:#23408e}
+    .help{margin-top:8px;color:#4d5a6b;font-size:13px}
   </style>
 </head>
 <body>
@@ -11078,7 +11104,28 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     <h1>Capa do caso</h1>
     <div class="row"><span class="label">Referência:</span> ${escapeHtml(ref)}</div>
     <div class="row"><span class="label">Cliente:</span> ${escapeHtml(clienteNome)}</div>
+    <div class="row"><span class="label">Token/identificador de entrada:</span> ${escapeHtml(tokenAssumir || "não informado")}</div>
     <div class="status">${escapeHtml(statusText)}</div>
+    ${assumeSuccess ? `<div class="ok">
+      <strong>Caso assumido com sucesso.</strong><br />
+      Token/identificador de entrada: <strong>${escapeHtml(tokenAssumir || "não informado")}</strong><br />
+      Este link agora está vinculado ao seu acesso (${escapeHtml(requesterWaId || lockAtual || "não informado")}).<br />
+      Guarde esta referência para suporte, se necessário.
+    </div>` : ""}
+    ${isAdminOverride ? `<div class="warn">
+      Você está visualizando este caso com bypass administrativo (master/admin).<br />
+      O lock atual do caso permanece em: <strong>${escapeHtml(lockAtual || "sem correspondente definido")}</strong>.
+    </div>` : ""}
+    ${showBlocked ? `<div class="err">
+      <strong>${escapeHtml(blockedMessage || "Este caso já foi assumido por outro correspondente.")}</strong><br />
+      Se você acredita que isso é um erro, fale com o administrador.
+    </div>` : ""}
+    ${showAssumeForm ? `<form method="POST">
+      <input type="hidden" name="action" value="assumir" />
+      <button type="submit">ASSUMIR</button>
+      <button type="submit" name="action" value="assumir_pre_cadastro" class="secondary">ASSUMIR PRÉ-CADASTRO</button>
+    </form>
+    <div class="help">Ao assumir, este link ficará vinculado ao seu acesso (${escapeHtml(requesterWaId || "correspondente não informado")}).</div>` : ""}
     ${dossierPayload ? `<section class="dossie">
       <h2>Resumo executivo</h2>
       <div class="row"><span class="label">Pronto para pré-análise:</span> ${escapeHtml(resumo?.pronto_para_pre_analise === true ? "sim" : "não")}</div>
@@ -11103,8 +11150,8 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
 }
 
 async function handleCorrespondenteEntryPage(request, env) {
-  if (request.method !== "GET") {
-    return new Response("Método não permitido nesta página. A assunção ocorre no fluxo externo antes da abertura do link.", { status: 403 });
+  if (request.method !== "GET" && request.method !== "POST") {
+    return new Response("Método não permitido nesta página.", { status: 403 });
   }
 
   const requestUrl = new URL(request.url);
@@ -11123,24 +11170,92 @@ async function handleCorrespondenteEntryPage(request, env) {
     return new Response("Link de entrada indisponível para o estado atual do caso.", { status: 403 });
   }
 
+  const adminOverride = isCorrespondenteEntryAdminOverride(request, env, requestUrl);
   const lockAtual = String(caso?.corr_lock_correspondente_wa_id || "").trim();
-  if (!lockAtual) {
-    return new Response("Caso ainda não assumido. Faça a assunção no fluxo externo antes de abrir o link.", { status: 403 });
-  }
-
   const requesterWaId = normalizeCorrespondenteWaIdInput(
     requestUrl.searchParams.get("cw") || requestUrl.searchParams.get("correspondente_wa_id")
   );
-  if (!requesterWaId) {
-    return new Response("Acesso bloqueado: informe o correspondente no link para abrir o dossiê assumido.", { status: 403 });
-  }
-  if (requesterWaId !== lockAtual) {
-    return new Response("Acesso bloqueado: este caso já está travado para outro correspondente.", { status: 403 });
+
+  if (request.method === "POST") {
+    const contentType = String(request.headers.get("content-type") || "").toLowerCase();
+    if (!contentType.includes("application/x-www-form-urlencoded") && !contentType.includes("multipart/form-data")) {
+      return new Response("Assunção inválida.", { status: 400 });
+    }
+    const formData = await request.formData();
+    const action = String(formData.get("action") || "").trim().toLowerCase();
+    const isAssumeAction = action === "assumir" || action === "assumir_pre_cadastro";
+    if (!isAssumeAction) {
+      return new Response("Ação de assunção inválida.", { status: 400 });
+    }
+    if (!requesterWaId) {
+      return new Response("Acesso bloqueado: informe o correspondente no link para assumir este caso.", { status: 403 });
+    }
+    if (!lockAtual) {
+      const acquired = await tryAcquireCorrespondenteLock(env, caso.wa_id, requesterWaId);
+      if (!acquired && !adminOverride) {
+        return new Response(
+          buildCorrespondenteEntryCoverHtml(caso, {
+            token,
+            requesterWaId,
+            showBlocked: true,
+            blockedMessage: "Este caso já foi assumido por outro correspondente."
+          }),
+          { status: 403, headers: { "content-type": "text/html; charset=utf-8" } }
+        );
+      }
+    } else if (!adminOverride && lockAtual !== requesterWaId) {
+      return new Response(
+        buildCorrespondenteEntryCoverHtml(caso, {
+          token,
+          requesterWaId,
+          lockWaId: lockAtual,
+          showBlocked: true,
+          blockedMessage: "Este caso já foi assumido por outro correspondente."
+        }),
+        { status: 403, headers: { "content-type": "text/html; charset=utf-8" } }
+      );
+    }
   }
 
-  const stCompleto = await getState(env, caso.wa_id);
+  const casoAtual = await getState(env, caso.wa_id) || caso;
+  const lockFinal = String(casoAtual?.corr_lock_correspondente_wa_id || "").trim();
+  if (!lockFinal && !adminOverride) {
+    return new Response(
+      buildCorrespondenteEntryCoverHtml(casoAtual, {
+        token,
+        requesterWaId,
+        showAssumeForm: true
+      }),
+      { status: 200, headers: { "content-type": "text/html; charset=utf-8" } }
+    );
+  }
+  if (!adminOverride && !requesterWaId) {
+    return new Response("Acesso bloqueado: informe o correspondente no link para abrir o dossiê assumido.", { status: 403 });
+  }
+  if (!adminOverride && requesterWaId !== lockFinal) {
+    return new Response(
+      buildCorrespondenteEntryCoverHtml(casoAtual, {
+        token,
+        requesterWaId,
+        lockWaId: lockFinal,
+        showBlocked: true,
+        blockedMessage: "Este caso já foi assumido por outro correspondente."
+      }),
+      { status: 403, headers: { "content-type": "text/html; charset=utf-8" } }
+    );
+  }
+
+  const stCompleto = casoAtual?.wa_id ? (await getState(env, casoAtual.wa_id)) || casoAtual : casoAtual;
   const dossierPayload = buildCorrespondenteDossierPayloadFromState(stCompleto || caso, { token });
-  return new Response(buildCorrespondenteEntryCoverHtml(caso, { dossierPayload }), {
+  const assumeSuccess = request.method === "POST";
+  return new Response(buildCorrespondenteEntryCoverHtml(casoAtual, {
+    token,
+    requesterWaId,
+    lockWaId: lockFinal,
+    isAdminOverride: adminOverride,
+    dossierPayload,
+    assumeSuccess
+  }), {
     status: 200,
     headers: { "content-type": "text/html; charset=utf-8" }
   });

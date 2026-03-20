@@ -68,8 +68,27 @@ function buildEnvWithState() {
   const req = new Request(`https://worker.local/correspondente/entrada?t=${token}`, { method: "GET" });
   const res = await worker.fetch(req, env, {});
   const body = await res.text();
-  assert.equal(res.status, 403);
-  assert.equal(body.includes("Caso ainda não assumido"), true);
+  assert.equal(res.status, 200);
+  assert.equal(body.includes("ASSUMIR"), true);
+  assert.equal(body.includes("Token/identificador de entrada"), true);
+  assert.equal(body.includes("Resumo executivo"), false);
+}
+
+// 2.1) POST de assunção web deve confirmar token e vínculo explícitos.
+{
+  const env = buildEnvWithState();
+  const req = new Request(`https://worker.local/correspondente/entrada?t=${token}&cw=${correspondenteWa}`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: "action=assumir"
+  });
+  const res = await worker.fetch(req, env, {});
+  const body = await res.text();
+  assert.equal(res.status, 200);
+  assert.equal(body.includes("Caso assumido com sucesso"), true);
+  assert.equal(body.includes(`Token/identificador de entrada: <strong>${token}</strong>`), true);
+  assert.equal(body.includes("Este link agora está vinculado ao seu acesso"), true);
+  assert.equal(env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id, correspondenteWa);
 }
 
 // 3) Assunção no fluxo externo libera link apenas para o correspondente correto.
@@ -117,7 +136,8 @@ function buildEnvWithState() {
   const wrongWaRes = await worker.fetch(wrongWaReq, env, {});
   const wrongWaBody = await wrongWaRes.text();
   assert.equal(wrongWaRes.status, 403);
-  assert.equal(wrongWaBody.includes("travado para outro correspondente"), true);
+  assert.equal(wrongWaBody.includes("Este caso já foi assumido por outro correspondente."), true);
+  assert.equal(wrongWaBody.includes("Resumo executivo"), false);
 
   const secondAssumirReq = new Request("https://worker.local/webhook/meta", {
     method: "POST",
@@ -145,6 +165,23 @@ function buildEnvWithState() {
   assert.equal(secondAssumirRes.status, 200);
   const afterSecond = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(afterSecond.corr_lock_correspondente_wa_id, correspondenteWa);
+}
+
+// 3.1) Admin/master deve abrir caso assumido por outro correspondente.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = "5511777777777";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  const req = new Request(`https://worker.local/correspondente/entrada?t=${token}&cw=${correspondenteWa}`, {
+    method: "GET",
+    headers: { "x-enova-admin-key": "adm-key" }
+  });
+  const res = await worker.fetch(req, env, {});
+  const body = await res.text();
+  assert.equal(res.status, 200);
+  assert.equal(body.includes("bypass administrativo"), true);
+  assert.equal(body.includes("Resumo executivo"), true);
 }
 
 // 4) Ponte aprovado -> agendamento_visita não pode regredir.

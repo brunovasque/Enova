@@ -160,7 +160,8 @@ function buildTextWebhook(from, text, msgId) {
     const tokenPublicado = st.corr_assumir_token;
     const payloadGrupo = env.__enovaSimulationCtx.sendPreview;
     const expectedCaseRef = buildCorrespondenteCaseRef({ wa_id: waId });
-    const expectedAssumirHint = `ASSUMIR ${expectedCaseRef} ou ASSUMIR PRÉ-CADASTRO ${expectedCaseRef}`;
+    const expectedEntryLink = `https://entrada.enova.local/correspondente/entrada?t=${tokenPublicado}`;
+    const expectedAssumirHint = `Use o botão/link desta mensagem para assumir. Fallback: ASSUMIR ${expectedCaseRef} Reabertura após assunção: ${expectedEntryLink}`;
     assert.equal(payloadGrupo?.to, env.CORRESPONDENTE_TO);
     assert.notEqual(payloadGrupo?.to, waId);
     assert.equal(payloadGrupo?.type, "template");
@@ -175,6 +176,12 @@ function buildTextWebhook(from, text, msgId) {
       params.map((item) => item?.text),
       [expectedCaseRef, clienteNome, expectedAssumirHint]
     );
+    const buttonComponent = payloadGrupo?.template?.components?.find((item) => item?.type === "button");
+    assert.equal(Boolean(buttonComponent), true);
+    assert.equal(buttonComponent?.sub_type, "quick_reply");
+    assert.equal(buttonComponent?.index, "0");
+    assert.equal(buttonComponent?.parameters?.[0]?.type, "payload");
+    assert.equal(buttonComponent?.parameters?.[0]?.payload, `corr_assumir:${tokenPublicado}`);
 
     const lastMsg = getLastMessageForWa(env, waId);
     const joinedLastMsg = (lastMsg?.messages || []).join("\n");
@@ -309,7 +316,13 @@ function buildTextWebhook(from, text, msgId) {
 
   assert.equal(graphCalls >= 2, true);
   assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_dispatch_try_template\"")), true);
-  assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_dispatch_try_text\"")), true);
+  assert.equal(
+    capture.logs.some((line) =>
+      line.includes("\"event\":\"corr_dispatch_try_text\"") ||
+      line.includes("template utility legado")
+    ),
+    true
+  );
   assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_dispatch_result\"") && line.includes("Envio ao correspondente confirmado")), true);
 }
 

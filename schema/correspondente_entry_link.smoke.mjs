@@ -55,7 +55,8 @@ function buildEnvWithState() {
 {
   const env = buildEnvWithState();
   const mensagem = buildCorrespondenteGroupAlert(env.__enovaSimulationCtx.stateByWaId[waCaso], token, env);
-  assert.equal(mensagem.includes("Assuma na própria mensagem do grupo"), true);
+  assert.equal(mensagem.includes("use o botão/link oficial"), true);
+  assert.equal(mensagem.includes("Fallback (compatibilidade): *ASSUMIR C1234* ou *ASSUMIR TOKEN*."), true);
   assert.equal(mensagem.includes("Token de entrada"), false);
   assert.equal(
     mensagem.includes(`https://entrada.enova.local/correspondente/entrada?t=${token}`),
@@ -212,6 +213,44 @@ function buildEnvWithState() {
               timestamp: "1773183903",
               type: "text",
               text: { body: "ASSUMIR" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  const assumirRes = await worker.fetch(assumirReq, env, {});
+  assert.equal(assumirRes.status, 200);
+  const atualizado = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(atualizado.corr_lock_correspondente_wa_id, correspondenteWa);
+  assert.equal(atualizado.processo_enviado_correspondente, true);
+}
+
+// 3.3) CTA visual (quick reply) deve assumir via payload controlado pela Enova.
+{
+  const env = buildEnvWithState();
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.quick.reply.smoke",
+              timestamp: "1773183904",
+              type: "interactive",
+              interactive: {
+                type: "button",
+                button_reply: {
+                  id: `corr_assumir:${token}`,
+                  title: "Assumir caso"
+                }
+              }
             }],
             contacts: [{ wa_id: correspondenteWa }],
             metadata: { phone_number_id: "test" }

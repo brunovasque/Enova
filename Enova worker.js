@@ -10868,6 +10868,7 @@ function gerarAssumirToken() {
 function parseAssumirTokenFromText(userText) {
   const txt = String(userText || "").trim();
   const patterns = [
+    /^corr_assumir[:#-]*([a-z0-9-]{6,32})\b/i,
     /^assumir(?:\s+pr[eé][-\s]?cadastro)?[\s:;#-]*([a-z0-9-]{6,32})\b/i,
     /^corr_(?:assumir|assumir_pre_cadastro)[:#-]*([a-z0-9-]{6,32})$/i,
     /\btoken[:=#-]*([a-z0-9-]{6,32})\b/i
@@ -10906,6 +10907,12 @@ function buildCorrespondenteEntryLinkForCorrespondente(env, token, correspondent
   return `${baseLink}&cw=${encodeURIComponent(safeWa)}`;
 }
 
+function buildCorrespondenteAssumirButtonPayload(token) {
+  const safeToken = normalizeAssumirToken(token);
+  if (!safeToken) return "";
+  return `corr_assumir:${safeToken}`;
+}
+
 function buildCorrespondenteGroupAlert(st, token, env) {
   const caseRef = String(st?.wa_id || "").slice(-4).padStart(4, "0");
   const entryLink = buildCorrespondenteEntryLink(env, token);
@@ -10913,10 +10920,11 @@ function buildCorrespondenteGroupAlert(st, token, env) {
     "🚨 *Novo caso para correspondente*",
     `Ref: C${caseRef}`,
     "",
-    "Assuma na própria mensagem do grupo: *ASSUMIR* ou *ASSUMIR PRÉ-CADASTRO*.",
+    "✅ Para assumir, use o botão/link oficial desta publicação.",
+    "Fallback (compatibilidade): *ASSUMIR C1234* ou *ASSUMIR TOKEN*.",
     "",
     entryLink
-      ? "Link permanente do caso (acesso após assunção):"
+      ? "Link de reabertura (liberado após assunção válida):"
       : "Após assumir, reabra o link permanente enviado no retorno privado.",
     entryLink || "Link permanente indisponível no momento.",
     "",
@@ -11619,7 +11627,13 @@ async function enviarParaCorrespondente(env, st, dossie) {
     const templateLang = String(env.CORR_TEMPLATE_LANG || "pt_BR").trim() || "pt_BR";
     const caseRef = buildCorrespondenteCaseRef(st);
     const clienteNome = String(st?.nome || "Cliente").trim() || "Cliente";
-    const templateAssumirHint = `ASSUMIR ${caseRef} ou ASSUMIR PRÉ-CADASTRO ${caseRef}`;
+    const entryLink = buildCorrespondenteEntryLink(env, tokenAssumir);
+    const templateAssumirHint = [
+      "Use o botão/link desta mensagem para assumir.",
+      `Fallback: ASSUMIR ${caseRef}`,
+      entryLink ? `Reabertura após assunção: ${entryLink}` : null
+    ].filter(Boolean).join(" ");
+    const assumirButtonPayload = buildCorrespondenteAssumirButtonPayload(tokenAssumir);
     const attemptedModes = [];
 
     if (!templateName) {
@@ -11648,7 +11662,8 @@ async function enviarParaCorrespondente(env, st, dossie) {
         to,
         templateName,
         templateLang,
-        [caseRef, clienteNome, templateAssumirHint]
+        [caseRef, clienteNome, templateAssumirHint],
+        { quickReplyPayload: assumirButtonPayload }
       );
       if (templateResult?.ok === true) {
         await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente confirmado", {
@@ -11659,11 +11674,33 @@ async function enviarParaCorrespondente(env, st, dossie) {
         return { ok: true, token: tokenAssumir, mode: "template" };
       }
 
+      await logCorrDispatch("corr_dispatch_try_template", "Tentativa de envio template utility legado (sem CTA dinâmico)", {
+        mode: "template_legacy",
+        correspondente_to_resolved: to,
+        template_name: templateName,
+        template_lang: templateLang
+      });
+      const templateLegacyResult = await sendCorrespondenteTemplate(
+        env,
+        to,
+        templateName,
+        templateLang,
+        [caseRef, clienteNome, templateAssumirHint]
+      );
+      if (templateLegacyResult?.ok === true) {
+        await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente confirmado", {
+          mode: "template_legacy",
+          result: "ok",
+          correspondente_to_resolved: to
+        });
+        return { ok: true, token: tokenAssumir, mode: "template_legacy" };
+      }
+
       await logCorrDispatch("corr_dispatch_error_code", "Código de erro no envio ao correspondente", {
-        error_code: templateResult?.errorCode || "template_send_failed"
+        error_code: templateLegacyResult?.errorCode || templateResult?.errorCode || "template_send_failed"
       }, "warning");
       await logCorrDispatch("corr_dispatch_error_message", "Mensagem de erro no envio ao correspondente", {
-        error_message: templateResult?.errorMessage || "Falha no envio template ao correspondente"
+        error_message: templateLegacyResult?.errorMessage || templateResult?.errorMessage || "Falha no envio template ao correspondente"
       }, "warning");
     }
 
@@ -11724,7 +11761,7 @@ async function enviarParaCorrespondente(env, st, dossie) {
   }
 }
 
-async function sendCorrespondenteTemplate(env, to, templateName, templateLang, templateParams = []) {
+async function sendCorrespondenteTemplate(env, to, templateName, templateLang, templateParams = [], options = {}) {
   const components = [];
   const normalizedParams = Array.isArray(templateParams) ? templateParams : [];
   if (normalizedParams.length) {
@@ -11734,6 +11771,20 @@ async function sendCorrespondenteTemplate(env, to, templateName, templateLang, t
         type: "text",
         text: String(value ?? "")
       }))
+    });
+  }
+  const quickReplyPayload = String(options?.quickReplyPayload || "").trim();
+  if (quickReplyPayload) {
+    components.push({
+      type: "button",
+      sub_type: "quick_reply",
+      index: "0",
+      parameters: [
+        {
+          type: "payload",
+          payload: quickReplyPayload
+        }
+      ]
     });
   }
   const payload = {

@@ -11509,6 +11509,10 @@ async function sendWhatsToCorrespondente(env, to, body) {
   return sendWhatsPayloadToCorrespondente(env, payload);
 }
 
+function resolveCorrespondentePhoneNumberId(env) {
+  return String(env?.PHONE_NUMBER_ID || env?.WHATSAPP_PHONE_NUMBER_ID || "").trim();
+}
+
 async function sendWhatsPayloadToCorrespondente(env, payload) {
   const simCtx = getSimulationContext(env);
   if (simCtx?.suppressExternalSend) {
@@ -11517,7 +11521,8 @@ async function sendWhatsPayloadToCorrespondente(env, payload) {
     return true;
   }
 
-  const url = `https://graph.facebook.com/v20.0/${env.WHATSAPP_PHONE_NUMBER_ID}/messages`;
+  const phoneNumberId = resolveCorrespondentePhoneNumberId(env);
+  const url = `https://graph.facebook.com/v20.0/${phoneNumberId}/messages`;
 
   const res = await fetch(url, {
     method: "POST",
@@ -21226,6 +21231,7 @@ export {
   reconcileEnvioDocsItensWithSavedDossier,
   buildDocumentDossierFromState,
   buildCorrespondenteGroupAlert,
+  resolveCorrespondentePhoneNumberId,
   buildCorrespondenteCaseRef,
   buildCorrespondenteEntryLink,
   handleCorrespondenteEntryPage,

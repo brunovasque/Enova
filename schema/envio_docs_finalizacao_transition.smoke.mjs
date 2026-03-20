@@ -159,7 +159,8 @@ function buildTextWebhook(from, text, msgId) {
     assert.equal(st.processo_enviado_correspondente, false);
     const tokenPublicado = st.corr_assumir_token;
     const payloadGrupo = env.__enovaSimulationCtx.sendPreview;
-    const expectedLink = `https://entrada.enova.local/correspondente/entrada?t=${tokenPublicado}`;
+    const expectedCaseRef = buildCorrespondenteCaseRef({ wa_id: waId });
+    const expectedAssumirHint = `ASSUMIR ${expectedCaseRef} ou ASSUMIR PRÉ-CADASTRO ${expectedCaseRef}`;
     assert.equal(payloadGrupo?.to, env.CORRESPONDENTE_TO);
     assert.notEqual(payloadGrupo?.to, waId);
     assert.equal(payloadGrupo?.type, "template");
@@ -172,7 +173,7 @@ function buildTextWebhook(from, text, msgId) {
     assert.equal(params.length, 3);
     assert.deepEqual(
       params.map((item) => item?.text),
-      [buildCorrespondenteCaseRef({ wa_id: waId }), clienteNome, expectedLink]
+      [expectedCaseRef, clienteNome, expectedAssumirHint]
     );
 
     const lastMsg = getLastMessageForWa(env, waId);

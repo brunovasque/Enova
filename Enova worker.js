@@ -10867,9 +10867,16 @@ function gerarAssumirToken() {
 
 function parseAssumirTokenFromText(userText) {
   const txt = String(userText || "").trim();
-  const m = txt.match(/^assumir[\s:;#-]*([a-z0-9-]{6,32})\b/i);
-  if (!m) return null;
-  return normalizeAssumirToken(m[1]);
+  const patterns = [
+    /^assumir(?:\s+pr[eé][-\s]?cadastro)?[\s:;#-]*([a-z0-9-]{6,32})\b/i,
+    /^corr_(?:assumir|assumir_pre_cadastro)[:#-]*([a-z0-9-]{6,32})$/i,
+    /\btoken[:=#-]*([a-z0-9-]{6,32})\b/i
+  ];
+  for (const pattern of patterns) {
+    const m = txt.match(pattern);
+    if (m?.[1]) return normalizeAssumirToken(m[1]);
+  }
+  return null;
 }
 
 function resolveCorrespondenteEntryBaseUrl(env) {
@@ -10905,15 +10912,13 @@ function buildCorrespondenteGroupAlert(st, token, env) {
   return [
     "🚨 *Novo caso para correspondente*",
     `Ref: C${caseRef}`,
-    `Token de entrada: ${token}`,
+    "",
+    "Assuma na própria mensagem do grupo: *ASSUMIR* ou *ASSUMIR PRÉ-CADASTRO*.",
     "",
     entryLink
-      ? "Link permanente de entrada/assunção:"
-      : "Para assumir com exclusividade, responda no privado:",
-    entryLink || `ASSUMIR ${token}`,
-    "",
-    "Se necessário, fallback no privado:",
-    `ASSUMIR ${token}`,
+      ? "Link permanente do caso (acesso após assunção):"
+      : "Após assumir, reabra o link permanente enviado no retorno privado.",
+    entryLink || "Link permanente indisponível no momento.",
     "",
     "⚠️ Este grupo é apenas distribuição (sem dados sensíveis)."
   ].join("\n");
@@ -11031,11 +11036,20 @@ function normalizeCorrespondenteWaIdInput(value) {
   return String(value || "").replace(/\D/g, "").trim();
 }
 
+function isCorrespondenteEntryAdminOverride(request, env) {
+  const envKey = String(env?.ENOVA_ADMIN_KEY || "").trim();
+  if (!envKey) return false;
+  const headerKey = String(request?.headers?.get("x-enova-admin-key") || "").trim();
+  return Boolean(headerKey && headerKey === envKey);
+}
+
 function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   const ref = buildCorrespondenteCaseRef(caso);
   const clienteNome = String(caso?.nome || "não informado").trim() || "não informado";
-  const lockAtual = String(caso?.corr_lock_correspondente_wa_id || "").trim();
-  const processoEnviado = caso?.processo_enviado_correspondente === true;
+  const lockAtual = String(options?.lockWaId || caso?.corr_lock_correspondente_wa_id || "").trim();
+  const isAdminOverride = options?.isAdminOverride === true;
+  const showBlocked = options?.showBlocked === true;
+  const blockedMessage = String(options?.blockedMessage || "").trim();
   const dossierPayload = options?.dossierPayload && typeof options.dossierPayload === "object"
     ? options.dossierPayload
     : null;
@@ -11052,7 +11066,11 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     ? dossierPayload.pendencias
     : null;
 
-  const statusText = "Caso assumido. Dossiê liberado para o correspondente responsável.";
+  const statusText = showBlocked
+    ? blockedMessage || "Este caso já foi assumido por outro correspondente."
+    : isAdminOverride
+      ? "Acesso liberado com privilégio administrativo (master/admin)."
+      : "Caso assumido. Dossiê liberado para o correspondente responsável.";
 
   return `<!doctype html>
 <html lang="pt-BR">
@@ -11071,6 +11089,8 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     .dossie h2{font-size:16px;margin:12px 0 6px}
     .dossie ul{margin:6px 0 0 18px;padding:0}
     .dossie li{margin:4px 0}
+    .warn{margin-top:14px;padding:10px 12px;border-radius:8px;background:#fff6ec;border:1px solid #ffd9b3}
+    .err{margin-top:14px;padding:10px 12px;border-radius:8px;background:#fff0f0;border:1px solid #ffc9c9}
   </style>
 </head>
 <body>
@@ -11079,6 +11099,14 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     <div class="row"><span class="label">Referência:</span> ${escapeHtml(ref)}</div>
     <div class="row"><span class="label">Cliente:</span> ${escapeHtml(clienteNome)}</div>
     <div class="status">${escapeHtml(statusText)}</div>
+    ${isAdminOverride ? `<div class="warn">
+      Você está visualizando este caso com bypass administrativo (master/admin).<br />
+      O lock atual do caso permanece em: <strong>${escapeHtml(lockAtual || "sem correspondente definido")}</strong>.
+    </div>` : ""}
+    ${showBlocked ? `<div class="err">
+      <strong>${escapeHtml(blockedMessage || "Este caso já foi assumido por outro correspondente.")}</strong><br />
+      Se você acredita que isso é um erro, fale com o administrador.
+    </div>` : ""}
     ${dossierPayload ? `<section class="dossie">
       <h2>Resumo executivo</h2>
       <div class="row"><span class="label">Pronto para pré-análise:</span> ${escapeHtml(resumo?.pronto_para_pre_analise === true ? "sim" : "não")}</div>
@@ -11104,7 +11132,7 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
 
 async function handleCorrespondenteEntryPage(request, env) {
   if (request.method !== "GET") {
-    return new Response("Método não permitido nesta página. A assunção ocorre no fluxo externo antes da abertura do link.", { status: 403 });
+    return new Response("Método não permitido nesta página.", { status: 403 });
   }
 
   const requestUrl = new URL(request.url);
@@ -11123,24 +11151,40 @@ async function handleCorrespondenteEntryPage(request, env) {
     return new Response("Link de entrada indisponível para o estado atual do caso.", { status: 403 });
   }
 
+  const adminOverride = isCorrespondenteEntryAdminOverride(request, env);
   const lockAtual = String(caso?.corr_lock_correspondente_wa_id || "").trim();
-  if (!lockAtual) {
-    return new Response("Caso ainda não assumido. Faça a assunção no fluxo externo antes de abrir o link.", { status: 403 });
-  }
-
   const requesterWaId = normalizeCorrespondenteWaIdInput(
     requestUrl.searchParams.get("cw") || requestUrl.searchParams.get("correspondente_wa_id")
   );
-  if (!requesterWaId) {
+
+  const casoAtual = await getState(env, caso.wa_id) || caso;
+  const lockFinal = String(casoAtual?.corr_lock_correspondente_wa_id || "").trim();
+  if (!lockFinal && !adminOverride) {
+    return new Response("Caso ainda não assumido. A assunção ocorre na mensagem de distribuição do grupo.", { status: 403 });
+  }
+  if (!adminOverride && !requesterWaId) {
     return new Response("Acesso bloqueado: informe o correspondente no link para abrir o dossiê assumido.", { status: 403 });
   }
-  if (requesterWaId !== lockAtual) {
-    return new Response("Acesso bloqueado: este caso já está travado para outro correspondente.", { status: 403 });
+  if (!adminOverride && requesterWaId !== lockFinal) {
+    return new Response(
+      buildCorrespondenteEntryCoverHtml(casoAtual, {
+        token,
+        requesterWaId,
+        lockWaId: lockFinal,
+        showBlocked: true,
+        blockedMessage: "Este caso já foi assumido por outro correspondente."
+      }),
+      { status: 403, headers: { "content-type": "text/html; charset=utf-8" } }
+    );
   }
 
-  const stCompleto = await getState(env, caso.wa_id);
+  const stCompleto = casoAtual?.wa_id ? (await getState(env, casoAtual.wa_id)) || casoAtual : casoAtual;
   const dossierPayload = buildCorrespondenteDossierPayloadFromState(stCompleto || caso, { token });
-  return new Response(buildCorrespondenteEntryCoverHtml(caso, { dossierPayload }), {
+  return new Response(buildCorrespondenteEntryCoverHtml(casoAtual, {
+    lockWaId: lockFinal,
+    isAdminOverride: adminOverride,
+    dossierPayload
+  }), {
     status: 200,
     headers: { "content-type": "text/html; charset=utf-8" }
   });
@@ -11258,6 +11302,41 @@ async function getCorrespondenteCaseByToken(env, token) {
   return data[0];
 }
 
+async function listCorrespondenteAssumirCandidates(env) {
+  const allowedStatuses = new Set([
+    "publicado_grupo_pendente_assumir",
+    "lock_adquirido_tentando_entrega",
+    "assumido_falha_entrega_privada"
+  ]);
+
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active && simCtx.stateByWaId) {
+    return Object.values(simCtx.stateByWaId)
+      .filter((row) => allowedStatuses.has(String(row?.corr_publicacao_status || "").trim().toLowerCase()))
+      .filter((row) => row?.processo_enviado_correspondente !== true)
+      .sort((a, b) => {
+        const aTs = Date.parse(String(a?.corr_publicado_grupo_em || a?.updated_at || "")) || 0;
+        const bTs = Date.parse(String(b?.corr_publicado_grupo_em || b?.updated_at || "")) || 0;
+        return bTs - aTs;
+      });
+  }
+
+  const { data } = await sbFetch(env, "/rest/v1/enova_state", {
+    method: "GET",
+    query: {
+      select: "wa_id,nome,fase_conversa,corr_assumir_token,corr_publicacao_status,corr_publicado_grupo_em,corr_lock_correspondente_wa_id,corr_lock_assumido_em,corr_entrega_privada_status,processo_enviado_correspondente,dossie_resumo,pre_cadastro_numero,updated_at",
+      order: "updated_at.desc",
+      limit: 50
+    }
+  });
+
+  return Array.isArray(data)
+    ? data
+      .filter((row) => allowedStatuses.has(String(row?.corr_publicacao_status || "").trim().toLowerCase()))
+      .filter((row) => row?.processo_enviado_correspondente !== true)
+    : [];
+}
+
 async function getCaseDocumentLinks(env, wa_id) {
   if (!wa_id) return [];
   const simCtx = getSimulationContext(env);
@@ -11314,14 +11393,46 @@ async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
 
 async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   const token = parseAssumirTokenFromText(userText);
-  if (!token) return { handled: false };
-
   const correspondenteWaId = extractCorrespondenteWaId(msg, env);
   if (!correspondenteWaId) return { handled: false };
+  const normalizedText = String(userText || "").trim();
+  const commandOnlyMatch = normalizedText.match(/^assumir(?:\s+pr[eé][-\s]?cadastro)?(?:\s+c?(\d{4,}))?\s*$/i);
+  const isCommandWithoutToken = !token && Boolean(commandOnlyMatch);
+  if (!token && !isCommandWithoutToken) return { handled: false };
 
-  const caso = await getCorrespondenteCaseByToken(env, token);
+  let caso = null;
+  if (token) {
+    caso = await getCorrespondenteCaseByToken(env, token);
+  } else {
+    const candidatos = (await listCorrespondenteAssumirCandidates(env))
+      .filter((row) => {
+        const lockAtualCandidato = String(row?.corr_lock_correspondente_wa_id || "").trim();
+        return !lockAtualCandidato || lockAtualCandidato === correspondenteWaId;
+      });
+    const refSuffix = String(commandOnlyMatch?.[1] || "").trim();
+    const candidatosFiltrados = refSuffix
+      ? candidatos.filter((row) => {
+        const caseRef = buildCorrespondenteCaseRef(row).toUpperCase();
+        return caseRef === `C${refSuffix}` || caseRef === refSuffix;
+      })
+      : candidatos;
+
+    if (!candidatosFiltrados.length) {
+      await sendMessage(env, correspondenteWaId, "Não encontrei caso pendente para assunção no momento.");
+      return { handled: true, reason: "assumir_sem_token_not_found" };
+    }
+    if (candidatosFiltrados.length > 1) {
+      await sendMessage(
+        env,
+        correspondenteWaId,
+        "Há mais de um caso pendente. Responda ao alerta correto com: ASSUMIR C1234 (usando a referência do grupo)."
+      );
+      return { handled: true, reason: "assumir_sem_token_ambiguous" };
+    }
+    caso = candidatosFiltrados[0];
+  }
   if (!caso || !caso.wa_id) {
-    await sendMessage(env, correspondenteWaId, `Token ${token} não encontrado ou inválido.`);
+    await sendMessage(env, correspondenteWaId, token ? "Identificador de assunção não encontrado ou inválido." : "Não encontrei caso válido para assunção.");
     return { handled: true, reason: "assumir_token_not_found" };
   }
 
@@ -11371,7 +11482,7 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
       corr_entrega_privada_em: new Date().toISOString(),
       corr_publicacao_status: "assumido_falha_entrega_privada"
     });
-    await sendMessage(env, correspondenteWaId, "Consegui registrar a assunção, mas falhou a entrega privada do dossiê. Tente novamente com o mesmo token.");
+    await sendMessage(env, correspondenteWaId, "Consegui registrar a assunção, mas falhou a entrega privada do dossiê. Tente novamente com o mesmo comando.");
     return { handled: true, reason: "assumir_token_private_delivery_failed" };
   }
 

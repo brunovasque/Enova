@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 const workerModule = await import(new URL("../Enova worker.js", import.meta.url).href);
 const worker = workerModule.default;
+const { resolveCorrespondentePhoneNumberId } = workerModule;
 
 const waCaso = "5541999998888";
 
@@ -81,6 +82,22 @@ function buildEnvWithState() {
   assert.equal(res.status, 404);
   assert.equal(data?.ok, false);
   assert.equal(data?.error, "case_not_found");
+}
+
+// 3) Resolver phone number id canônico para envio ao correspondente.
+{
+  assert.equal(
+    resolveCorrespondentePhoneNumberId({ PHONE_NUMBER_ID: "123456", WHATSAPP_PHONE_NUMBER_ID: "999999" }),
+    "123456"
+  );
+  assert.equal(
+    resolveCorrespondentePhoneNumberId({ WHATSAPP_PHONE_NUMBER_ID: "999999" }),
+    "999999"
+  );
+  assert.equal(
+    resolveCorrespondentePhoneNumberId({}),
+    ""
+  );
 }
 
 console.log("correspondente_token_lookup.smoke: ok");

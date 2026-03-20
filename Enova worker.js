@@ -11431,26 +11431,47 @@ function isCorrespondentePacoteReady(st) {
 // 🧱 FUNÇÃO — ENVIAR PROCESSO AO CORRESPONDENTE (D3)
 // =========================================================
 async function enviarParaCorrespondente(env, st, dossie) {
+  const to = String(env.CORRESPONDENTE_TO || "").trim();
+  const logCorrDispatch = async (event, message, details = {}, severity = "info") => {
+    await funnelTelemetry(env, {
+      wa_id: st?.wa_id || null,
+      event,
+      stage: "finalizacao_processo",
+      severity,
+      message,
+      details,
+      force: true
+    });
+  };
+
   // 1 — Log de rastreabilidade (fica salvo no enova_log)
   try {
     await logger(env, {
       wa_id: st.wa_id,
       tipo: "envio_correspondente",
       dossie,
-      msg: "Processo enviado ao correspondente (D3)"
+      msg: "Tentativa de envio ao correspondente iniciada (D3)"
     });
   } catch (e) {
     console.error("Erro ao logar envio ao correspondente:", e);
   }
 
+  await logCorrDispatch("corr_dispatch_enter", "Entrada em enviarParaCorrespondente", {
+    correspondente_to_resolved: to || null
+  });
+
   const tokenAssumir = normalizeAssumirToken(st?.corr_assumir_token) || gerarAssumirToken();
   const mensagemGrupo = buildCorrespondenteGroupAlert(st, tokenAssumir, env);
 
   // 3 — Publica alerta mínimo no grupo (distribuição sem dados sensíveis)
-  const to = String(env.CORRESPONDENTE_TO || "").trim();
   // CORRESPONDENTE_TO = grupo de correspondentes (distribuição)
 
   if (!to) {
+    await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente falhou (destino ausente)", {
+      mode: "none",
+      result: "fail",
+      error: "CORRESPONDENTE_TO ausente"
+    }, "warning");
     console.warn("CORRESPONDENTE_TO não configurado no ambiente. Não foi possível enviar ao correspondente.");
     return { ok: false, token: tokenAssumir, mode: "none" };
   }
@@ -11458,12 +11479,22 @@ async function enviarParaCorrespondente(env, st, dossie) {
   try {
     const destinatarioDistribuicao = String(env.CORRESPONDENTE_TO || "").trim();
     if (!destinatarioDistribuicao || to !== destinatarioDistribuicao || to === String(st?.wa_id || "").trim()) {
+      await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente abortado por destino inválido", {
+        mode: "none",
+        result: "fail",
+        error: "destino_invalido",
+        correspondente_to_resolved: to || null
+      }, "warning");
       console.warn("Destino inválido para distribuição ao correspondente. Envio abortado.");
       return { ok: false, token: tokenAssumir, mode: "none" };
     }
 
     const allowInteractive = String(env.CORRESPONDENTE_GROUP_INTERACTIVE || "").toLowerCase() === "true";
     if (allowInteractive) {
+      await logCorrDispatch("corr_dispatch_attempt", "Tentativa de envio principal ao correspondente", {
+        mode: "principal_interactive",
+        correspondente_to_resolved: to
+      });
       const payloadInteractive = {
         messaging_product: "whatsapp",
         to,
@@ -11485,17 +11516,52 @@ async function enviarParaCorrespondente(env, st, dossie) {
         }
       };
       await sendWhatsPayloadToCorrespondente(env, payloadInteractive);
+      await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente confirmado", {
+        mode: "interactive",
+        result: "ok",
+        correspondente_to_resolved: to
+      });
       return { ok: true, token: tokenAssumir, mode: "interactive" };
     }
 
+    await logCorrDispatch("corr_dispatch_attempt", "Tentativa de envio principal ao correspondente", {
+      mode: "principal_text",
+      correspondente_to_resolved: to
+    });
     await sendWhatsToCorrespondente(env, to, mensagemGrupo);
+    await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente confirmado", {
+      mode: "text",
+      result: "ok",
+      correspondente_to_resolved: to
+    });
     return { ok: true, token: tokenAssumir, mode: "text" };
   } catch (err) {
+    await logCorrDispatch("corr_dispatch_fallback", "Falha no envio principal; fallback acionado", {
+      mode: "fallback_text",
+      result: "retry",
+      error: String(err?.message || err),
+      correspondente_to_resolved: to
+    }, "warning");
     console.warn("Falha no envio interativo; fallback para texto ASSUMIR <TOKEN>.", err?.message || err);
     try {
+      await logCorrDispatch("corr_dispatch_attempt", "Tentativa de envio fallback ao correspondente", {
+        mode: "fallback_text",
+        correspondente_to_resolved: to
+      });
       await sendWhatsToCorrespondente(env, to, mensagemGrupo);
+      await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente confirmado via fallback", {
+        mode: "fallback_text",
+        result: "ok",
+        correspondente_to_resolved: to
+      });
       return { ok: true, token: tokenAssumir, mode: "fallback_text" };
     } catch (err2) {
+      await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente falhou após fallback", {
+        mode: "fallback_text",
+        result: "fail",
+        error: String(err2?.message || err2),
+        correspondente_to_resolved: to
+      }, "error");
       console.error("Erro ao publicar alerta no grupo de correspondentes:", err2);
       return { ok: false, token: tokenAssumir, mode: "none" };
     }
@@ -20805,13 +20871,26 @@ Restrição: ${st.restricao || "não informado"}
       severity: "warning",
       message: "Falha no envio ao correspondente; mantendo finalizacao_processo para retry controlado"
     });
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "corr_client_notice",
+      stage,
+      next_stage: "finalizacao_processo",
+      severity: "warning",
+      message: "Cliente notificado sem confirmação de encaminhamento ao correspondente",
+      details: {
+        notice_type: "tentativa_falha",
+        envio_mode: envio?.mode || "none"
+      },
+      force: true
+    });
 
     return step(
       env,
       st,
       [
-        "Estou finalizando a publicação do seu caso para distribuição ao correspondente e já sigo por aqui.",
-        "Se houver qualquer indisponibilidade momentânea, continuo o processamento sem você precisar repetir informações."
+        "Estou concluindo a etapa interna do seu processo e sigo por aqui.",
+        "Assim que o encaminhamento ao correspondente for confirmado, eu te aviso por aqui."
       ],
       "finalizacao_processo"
     );
@@ -20830,6 +20909,19 @@ Restrição: ${st.restricao || "não informado"}
       token_assumir: envio?.token || null,
       modo_publicacao: envio?.mode || null
     }
+  });
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "corr_client_notice",
+    stage,
+    next_stage: "finalizacao_processo",
+    severity: "info",
+    message: "Cliente notificado com publicação confirmada ao correspondente",
+    details: {
+      notice_type: "publicacao_confirmada",
+      envio_mode: envio?.mode || null
+    },
+    force: true
   });
 
   // resposta para o cliente

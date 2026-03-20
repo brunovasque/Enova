@@ -11463,13 +11463,14 @@ async function findCorrespondenteCaseByCaseRef(env, caseRef) {
     return exactRows[0];
   }
 
-  const refAsNumber = String(Number.parseInt(normalizedRef, 10));
-  if (refAsNumber && refAsNumber !== "NaN" && refAsNumber !== normalizedRef) {
+  const parsedRefNumber = Number.parseInt(normalizedRef, 10);
+  const numericRefString = Number.isNaN(parsedRefNumber) ? "" : String(parsedRefNumber);
+  if (numericRefString && numericRefString !== normalizedRef) {
     const { data: legacyNumericRows } = await sbFetch(env, "/rest/v1/enova_state", {
       method: "GET",
       query: {
         select: projection,
-        pre_cadastro_numero: `eq.${encodeURIComponent(refAsNumber)}`,
+        pre_cadastro_numero: `eq.${encodeURIComponent(numericRefString)}`,
         order: "updated_at.desc",
         limit: 1
       }

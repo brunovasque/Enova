@@ -130,6 +130,8 @@ function buildTextWebhook(from, text, msgId) {
   const payloadGrupo = env.__enovaSimulationCtx.sendPreview;
   const expectedLink = `https://entrada.enova.local/correspondente/entrada?t=${tokenPublicado}`;
   const expectedFallback = `ASSUMIR ${tokenPublicado}`;
+  assert.equal(payloadGrupo?.to, env.CORRESPONDENTE_TO);
+  assert.notEqual(payloadGrupo?.to, waId);
   assert.equal(typeof payloadGrupo?.text?.body, "string");
   assert.equal(
     payloadGrupo.text.body,

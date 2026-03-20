@@ -195,6 +195,38 @@ function buildEnvWithState() {
   assert.equal(body.includes("Token/identificador de entrada"), false);
 }
 
+// 3.2) Assunção canônica no grupo sem token explícito deve funcionar quando há único caso pendente.
+{
+  const env = buildEnvWithState();
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.sem.token.smoke",
+              timestamp: "1773183903",
+              type: "text",
+              text: { body: "ASSUMIR" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  const assumirRes = await worker.fetch(assumirReq, env, {});
+  assert.equal(assumirRes.status, 200);
+  const atualizado = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(atualizado.corr_lock_correspondente_wa_id, correspondenteWa);
+  assert.equal(atualizado.processo_enviado_correspondente, true);
+}
+
 // 4) Ponte aprovado -> agendamento_visita não pode regredir.
 {
   const env = buildEnvWithState();

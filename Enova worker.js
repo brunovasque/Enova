@@ -11302,6 +11302,41 @@ async function getCorrespondenteCaseByToken(env, token) {
   return data[0];
 }
 
+async function listCorrespondenteAssumirCandidates(env) {
+  const allowedStatuses = new Set([
+    "publicado_grupo_pendente_assumir",
+    "lock_adquirido_tentando_entrega",
+    "assumido_falha_entrega_privada"
+  ]);
+
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active && simCtx.stateByWaId) {
+    return Object.values(simCtx.stateByWaId)
+      .filter((row) => allowedStatuses.has(String(row?.corr_publicacao_status || "").trim().toLowerCase()))
+      .filter((row) => row?.processo_enviado_correspondente !== true)
+      .sort((a, b) => {
+        const aTs = Date.parse(String(a?.corr_publicado_grupo_em || a?.updated_at || "")) || 0;
+        const bTs = Date.parse(String(b?.corr_publicado_grupo_em || b?.updated_at || "")) || 0;
+        return bTs - aTs;
+      });
+  }
+
+  const { data } = await sbFetch(env, "/rest/v1/enova_state", {
+    method: "GET",
+    query: {
+      select: "wa_id,nome,fase_conversa,corr_assumir_token,corr_publicacao_status,corr_publicado_grupo_em,corr_lock_correspondente_wa_id,corr_lock_assumido_em,corr_entrega_privada_status,processo_enviado_correspondente,dossie_resumo,pre_cadastro_numero,updated_at",
+      order: "updated_at.desc",
+      limit: 50
+    }
+  });
+
+  return Array.isArray(data)
+    ? data
+      .filter((row) => allowedStatuses.has(String(row?.corr_publicacao_status || "").trim().toLowerCase()))
+      .filter((row) => row?.processo_enviado_correspondente !== true)
+    : [];
+}
+
 async function getCaseDocumentLinks(env, wa_id) {
   if (!wa_id) return [];
   const simCtx = getSimulationContext(env);
@@ -11358,14 +11393,46 @@ async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
 
 async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   const token = parseAssumirTokenFromText(userText);
-  if (!token) return { handled: false };
-
   const correspondenteWaId = extractCorrespondenteWaId(msg, env);
   if (!correspondenteWaId) return { handled: false };
+  const normalizedText = String(userText || "").trim();
+  const commandOnlyMatch = normalizedText.match(/^assumir(?:\s+pr[eé][-\s]?cadastro)?(?:\s+c?(\d{4,}))?\s*$/i);
+  const isCommandWithoutToken = !token && Boolean(commandOnlyMatch);
+  if (!token && !isCommandWithoutToken) return { handled: false };
 
-  const caso = await getCorrespondenteCaseByToken(env, token);
+  let caso = null;
+  if (token) {
+    caso = await getCorrespondenteCaseByToken(env, token);
+  } else {
+    const candidatos = (await listCorrespondenteAssumirCandidates(env))
+      .filter((row) => {
+        const lockAtualCandidato = String(row?.corr_lock_correspondente_wa_id || "").trim();
+        return !lockAtualCandidato || lockAtualCandidato === correspondenteWaId;
+      });
+    const refSuffix = String(commandOnlyMatch?.[1] || "").trim();
+    const candidatosFiltrados = refSuffix
+      ? candidatos.filter((row) => {
+        const caseRef = buildCorrespondenteCaseRef(row).toUpperCase();
+        return caseRef === `C${refSuffix}` || caseRef === refSuffix;
+      })
+      : candidatos;
+
+    if (!candidatosFiltrados.length) {
+      await sendMessage(env, correspondenteWaId, "Não encontrei caso pendente para assunção no momento.");
+      return { handled: true, reason: "assumir_sem_token_not_found" };
+    }
+    if (candidatosFiltrados.length > 1) {
+      await sendMessage(
+        env,
+        correspondenteWaId,
+        "Há mais de um caso pendente. Responda ao alerta correto com: ASSUMIR C1234 (usando a referência do grupo)."
+      );
+      return { handled: true, reason: "assumir_sem_token_ambiguous" };
+    }
+    caso = candidatosFiltrados[0];
+  }
   if (!caso || !caso.wa_id) {
-    await sendMessage(env, correspondenteWaId, `Token ${token} não encontrado ou inválido.`);
+    await sendMessage(env, correspondenteWaId, token ? "Identificador de assunção não encontrado ou inválido." : "Não encontrei caso válido para assunção.");
     return { handled: true, reason: "assumir_token_not_found" };
   }
 
@@ -11415,7 +11482,7 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
       corr_entrega_privada_em: new Date().toISOString(),
       corr_publicacao_status: "assumido_falha_entrega_privada"
     });
-    await sendMessage(env, correspondenteWaId, "Consegui registrar a assunção, mas falhou a entrega privada do dossiê. Tente novamente com o mesmo token.");
+    await sendMessage(env, correspondenteWaId, "Consegui registrar a assunção, mas falhou a entrega privada do dossiê. Tente novamente com o mesmo comando.");
     return { handled: true, reason: "assumir_token_private_delivery_failed" };
   }
 

@@ -11031,7 +11031,7 @@ function normalizeCorrespondenteWaIdInput(value) {
   return String(value || "").replace(/\D/g, "").trim();
 }
 
-function isCorrespondenteEntryAdminOverride(request, env, requestUrl) {
+function isCorrespondenteEntryAdminOverride(request, env) {
   const envKey = String(env?.ENOVA_ADMIN_KEY || "").trim();
   if (!envKey) return false;
   const headerKey = String(request?.headers?.get("x-enova-admin-key") || "").trim();
@@ -11122,8 +11122,8 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     </div>` : ""}
     ${showAssumeForm ? `<form method="POST">
       <input type="hidden" name="action" value="assumir" />
-      <button type="submit">ASSUMIR</button>
-      <button type="submit" name="action" value="assumir_pre_cadastro" class="secondary">ASSUMIR PRÉ-CADASTRO</button>
+      <button type="submit" title="Assumir este caso usando o token de entrada atual" aria-label="Assumir caso pelo token de entrada atual">ASSUMIR</button>
+      <button type="submit" name="action" value="assumir_pre_cadastro" class="secondary" title="Assumir este pré-cadastro com vinculação ao seu acesso atual" aria-label="Assumir pré-cadastro com vinculação ao seu acesso atual">ASSUMIR PRÉ-CADASTRO</button>
     </form>
     <div class="help">Ao assumir, este link ficará vinculado ao seu acesso (${escapeHtml(requesterWaId || "correspondente não informado")}).</div>` : ""}
     ${dossierPayload ? `<section class="dossie">
@@ -11170,7 +11170,7 @@ async function handleCorrespondenteEntryPage(request, env) {
     return new Response("Link de entrada indisponível para o estado atual do caso.", { status: 403 });
   }
 
-  const adminOverride = isCorrespondenteEntryAdminOverride(request, env, requestUrl);
+  const adminOverride = isCorrespondenteEntryAdminOverride(request, env);
   const lockAtual = String(caso?.corr_lock_correspondente_wa_id || "").trim();
   const requesterWaId = normalizeCorrespondenteWaIdInput(
     requestUrl.searchParams.get("cw") || requestUrl.searchParams.get("correspondente_wa_id")

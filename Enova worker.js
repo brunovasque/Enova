@@ -11459,6 +11459,9 @@ async function enviarParaCorrespondente(env, st, dossie) {
   await logCorrDispatch("corr_dispatch_enter", "Entrada em enviarParaCorrespondente", {
     correspondente_to_resolved: to || null
   });
+  await logCorrDispatch("corr_dispatch_to_resolved", "Destino do correspondente resolvido", {
+    correspondente_to_resolved: to || null
+  });
 
   const tokenAssumir = normalizeAssumirToken(st?.corr_assumir_token) || gerarAssumirToken();
   const mensagemGrupo = buildCorrespondenteGroupAlert(st, tokenAssumir, env);
@@ -11467,6 +11470,12 @@ async function enviarParaCorrespondente(env, st, dossie) {
   // CORRESPONDENTE_TO = grupo de correspondentes (distribuição)
 
   if (!to) {
+    await logCorrDispatch("corr_dispatch_error_code", "Código de erro no envio ao correspondente", {
+      error_code: "missing_correspondente_to"
+    }, "warning");
+    await logCorrDispatch("corr_dispatch_error_message", "Mensagem de erro no envio ao correspondente", {
+      error_message: "CORRESPONDENTE_TO ausente"
+    }, "warning");
     await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente falhou (destino ausente)", {
       mode: "none",
       result: "fail",
@@ -11479,6 +11488,12 @@ async function enviarParaCorrespondente(env, st, dossie) {
   try {
     const destinatarioDistribuicao = String(env.CORRESPONDENTE_TO || "").trim();
     if (!destinatarioDistribuicao || to !== destinatarioDistribuicao || to === String(st?.wa_id || "").trim()) {
+      await logCorrDispatch("corr_dispatch_error_code", "Código de erro no envio ao correspondente", {
+        error_code: "invalid_destination"
+      }, "warning");
+      await logCorrDispatch("corr_dispatch_error_message", "Mensagem de erro no envio ao correspondente", {
+        error_message: "destino_invalido"
+      }, "warning");
       await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente abortado por destino inválido", {
         mode: "none",
         result: "fail",
@@ -11489,82 +11504,161 @@ async function enviarParaCorrespondente(env, st, dossie) {
       return { ok: false, token: tokenAssumir, mode: "none" };
     }
 
-    const allowInteractive = String(env.CORRESPONDENTE_GROUP_INTERACTIVE || "").toLowerCase() === "true";
-    if (allowInteractive) {
-      await logCorrDispatch("corr_dispatch_attempt", "Tentativa de envio principal ao correspondente", {
-        mode: "principal_interactive",
+    const templateName = String(env.CORR_TEMPLATE_NAME || "").trim();
+    const templateLang = String(env.CORR_TEMPLATE_LANG || "pt_BR").trim() || "pt_BR";
+    const caseRef = buildCorrespondenteCaseRef(st);
+    const clienteNome = String(st?.nome || "Cliente").trim() || "Cliente";
+    const entryLink = buildCorrespondenteEntryLink(env, tokenAssumir) || `ASSUMIR ${tokenAssumir}`;
+    const attemptedModes = [];
+
+    if (!templateName) {
+      await logCorrDispatch("corr_dispatch_error_code", "Código de erro no envio ao correspondente", {
+        error_code: "template_not_configured"
+      }, "warning");
+      await logCorrDispatch("corr_dispatch_error_message", "Mensagem de erro no envio ao correspondente", {
+        error_message: "Template utility não configurado (CORR_TEMPLATE_NAME)"
+      }, "warning");
+      await logCorrDispatch("corr_dispatch_result", "Template utility não configurado para correspondente", {
+        mode: "template",
+        result: "fail",
         correspondente_to_resolved: to
+      }, "warning");
+      console.warn("Template utility do correspondente não configurado (CORR_TEMPLATE_NAME).");
+    } else {
+      attemptedModes.push("template");
+      await logCorrDispatch("corr_dispatch_try_template", "Tentativa de envio template utility ao correspondente", {
+        mode: "template",
+        correspondente_to_resolved: to,
+        template_name: templateName,
+        template_lang: templateLang
       });
-      const payloadInteractive = {
-        messaging_product: "whatsapp",
+      const templateResult = await sendCorrespondenteTemplate(
+        env,
         to,
-        type: "interactive",
-        interactive: {
-          type: "button",
-          body: { text: mensagemGrupo },
-          action: {
-            buttons: [
-              {
-                type: "reply",
-                reply: {
-                  id: `ASSUMIR ${tokenAssumir}`,
-                  title: "Assumir"
-                }
-              }
-            ]
-          }
-        }
-      };
-      await sendWhatsPayloadToCorrespondente(env, payloadInteractive);
-      await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente confirmado", {
-        mode: "interactive",
-        result: "ok",
-        correspondente_to_resolved: to
-      });
-      return { ok: true, token: tokenAssumir, mode: "interactive" };
+        templateName,
+        templateLang,
+        [caseRef, clienteNome, entryLink]
+      );
+      if (templateResult?.ok === true) {
+        await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente confirmado", {
+          mode: "template",
+          result: "ok",
+          correspondente_to_resolved: to
+        });
+        return { ok: true, token: tokenAssumir, mode: "template" };
+      }
+
+      await logCorrDispatch("corr_dispatch_error_code", "Código de erro no envio ao correspondente", {
+        error_code: templateResult?.errorCode || "template_send_failed"
+      }, "warning");
+      await logCorrDispatch("corr_dispatch_error_message", "Mensagem de erro no envio ao correspondente", {
+        error_message: templateResult?.errorMessage || "Falha no envio template ao correspondente"
+      }, "warning");
     }
 
-    await logCorrDispatch("corr_dispatch_attempt", "Tentativa de envio principal ao correspondente", {
-      mode: "principal_text",
+    const allowTextFallback =
+      String(env.CORRESPONDENTE_TEXT_FALLBACK_WINDOW_OPEN || "").toLowerCase() === "true";
+    if (allowTextFallback) {
+      attemptedModes.push("text");
+      await logCorrDispatch("corr_dispatch_try_text", "Tentativa de envio texto livre ao correspondente", {
+        mode: "text",
+        correspondente_to_resolved: to
+      });
+      const textResult = await trySendWhatsTextToCorrespondente(env, to, mensagemGrupo);
+      if (textResult?.ok === true) {
+        await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente confirmado", {
+          mode: "text",
+          result: "ok",
+          correspondente_to_resolved: to
+        });
+        return { ok: true, token: tokenAssumir, mode: "text" };
+      }
+
+      await logCorrDispatch("corr_dispatch_error_code", "Código de erro no envio ao correspondente", {
+        error_code: textResult?.errorCode || "text_send_failed"
+      }, "warning");
+      await logCorrDispatch("corr_dispatch_error_message", "Mensagem de erro no envio ao correspondente", {
+        error_message: textResult?.errorMessage || "Falha no envio de texto ao correspondente"
+      }, "warning");
+    } else {
+      await logCorrDispatch("corr_dispatch_result", "Fallback de texto desabilitado (janela não segura)", {
+        mode: "text",
+        result: "skipped",
+        correspondente_to_resolved: to
+      }, "info");
+    }
+
+    await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente falhou após tentativas", {
+      mode: "fallback",
+      result: "fail",
+      attempted_modes: attemptedModes,
       correspondente_to_resolved: to
-    });
-    await sendWhatsToCorrespondente(env, to, mensagemGrupo);
-    await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente confirmado", {
-      mode: "text",
-      result: "ok",
-      correspondente_to_resolved: to
-    });
-    return { ok: true, token: tokenAssumir, mode: "text" };
+    }, "error");
+    return { ok: false, token: tokenAssumir, mode: "fallback" };
   } catch (err) {
-    await logCorrDispatch("corr_dispatch_fallback", "Falha no envio principal; fallback acionado", {
-      mode: "fallback_text",
-      result: "retry",
+    await logCorrDispatch("corr_dispatch_error_code", "Código de erro no envio ao correspondente", {
+      error_code: err?.meta_error_code || err?.code || "dispatch_exception"
+    }, "error");
+    await logCorrDispatch("corr_dispatch_error_message", "Mensagem de erro no envio ao correspondente", {
+      error_message: String(err?.meta_error_message || err?.message || err)
+    }, "error");
+    await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente falhou por exceção", {
+      mode: "fallback",
+      result: "fail",
       error: String(err?.message || err),
       correspondente_to_resolved: to
-    }, "warning");
-    console.warn("Falha no envio interativo; fallback para texto ASSUMIR <TOKEN>.", err?.message || err);
-    try {
-      await logCorrDispatch("corr_dispatch_attempt", "Tentativa de envio fallback ao correspondente", {
-        mode: "fallback_text",
-        correspondente_to_resolved: to
-      });
-      await sendWhatsToCorrespondente(env, to, mensagemGrupo);
-      await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente confirmado via fallback", {
-        mode: "fallback_text",
-        result: "ok",
-        correspondente_to_resolved: to
-      });
-      return { ok: true, token: tokenAssumir, mode: "fallback_text" };
-    } catch (err2) {
-      await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente falhou após fallback", {
-        mode: "fallback_text",
-        result: "fail",
-        error: String(err2?.message || err2),
-        correspondente_to_resolved: to
-      }, "error");
-      console.error("Erro ao publicar alerta no grupo de correspondentes:", err2);
-      return { ok: false, token: tokenAssumir, mode: "none" };
+    }, "error");
+    console.error("Erro ao publicar alerta no grupo de correspondentes:", err);
+    return { ok: false, token: tokenAssumir, mode: "fallback" };
+  }
+}
+
+async function sendCorrespondenteTemplate(env, to, templateName, templateLang, templateParams = []) {
+  const components = [];
+  const normalizedParams = Array.isArray(templateParams) ? templateParams : [];
+  if (normalizedParams.length) {
+    components.push({
+      type: "body",
+      parameters: normalizedParams.map((value) => ({
+        type: "text",
+        text: String(value ?? "")
+      }))
+    });
+  }
+  const payload = {
+    messaging_product: "whatsapp",
+    to,
+    type: "template",
+    template: {
+      name: String(templateName || "").trim(),
+      language: { code: String(templateLang || "pt_BR").trim() || "pt_BR" },
+      ...(components.length ? { components } : {})
     }
+  };
+
+  return trySendWhatsPayloadToCorrespondente(env, payload);
+}
+
+async function trySendWhatsTextToCorrespondente(env, to, body) {
+  return trySendWhatsPayloadToCorrespondente(env, {
+    messaging_product: "whatsapp",
+    to,
+    type: "text",
+    text: { body }
+  });
+}
+
+async function trySendWhatsPayloadToCorrespondente(env, payload) {
+  try {
+    await sendWhatsPayloadToCorrespondente(env, payload);
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      meta_status: err?.meta_status ?? null,
+      errorCode: err?.meta_error_code || err?.code || "send_failed",
+      errorMessage: err?.meta_error_message || err?.message || String(err)
+    };
   }
 }
 
@@ -11608,8 +11702,21 @@ async function sendWhatsPayloadToCorrespondente(env, payload) {
   if (!res.ok) {
     const errText = await res.text();
     console.error("Erro WhatsApp correspondente:", errText);
-    throw new Error("WhatsApp correspondente fail");
+    let providerErrorCode = null;
+    let providerErrorMessage = null;
+    try {
+      const parsed = JSON.parse(errText);
+      const providerError = parsed?.error && typeof parsed.error === "object" ? parsed.error : null;
+      providerErrorCode = providerError?.code ?? null;
+      providerErrorMessage = providerError?.message ?? null;
+    } catch {}
+    const err = new Error(providerErrorMessage || errText || "WhatsApp correspondente fail");
+    err.meta_status = res.status;
+    err.meta_error_code = providerErrorCode || `meta_http_${res.status}`;
+    err.meta_error_message = providerErrorMessage || errText || "WhatsApp correspondente fail";
+    throw err;
   }
+  return true;
 }
 
 // ======================================================================

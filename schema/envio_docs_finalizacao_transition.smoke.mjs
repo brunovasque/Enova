@@ -5,6 +5,7 @@ const worker = workerModule.default;
 const { buildCorrespondenteCaseRef } = workerModule;
 
 const waId = "5541991112222";
+const clienteNome = "Cliente Teste";
 
 function buildEnv() {
   return {
@@ -19,6 +20,8 @@ function buildEnv() {
     META_VERIFY_TOKEN: "verify",
     CORRESPONDENTE_TO: "5511000000000",
     CORRESPONDENTE_ENTRY_BASE_URL: "https://entrada.enova.local",
+    CORR_TEMPLATE_NAME: "enova_novo_caso_correspondente",
+    CORR_TEMPLATE_LANG: "pt_BR",
     __enovaSimulationCtx: {
       active: true,
       dryRun: true,
@@ -31,7 +34,7 @@ function buildEnv() {
       stateByWaId: {
         [waId]: {
           wa_id: waId,
-          nome: "Cliente Teste",
+          nome: clienteNome,
           fase_conversa: "envio_docs",
           envio_docs_lista_enviada: true,
           docs_lista_enviada: true,
@@ -157,32 +160,26 @@ function buildTextWebhook(from, text, msgId) {
     const tokenPublicado = st.corr_assumir_token;
     const payloadGrupo = env.__enovaSimulationCtx.sendPreview;
     const expectedLink = `https://entrada.enova.local/correspondente/entrada?t=${tokenPublicado}`;
-    const expectedFallback = `ASSUMIR ${tokenPublicado}`;
     assert.equal(payloadGrupo?.to, env.CORRESPONDENTE_TO);
     assert.notEqual(payloadGrupo?.to, waId);
-    assert.equal(typeof payloadGrupo?.text?.body, "string");
-    assert.equal(
-      payloadGrupo.text.body,
-      [
-        "🚨 *Novo caso para correspondente*",
-        `Ref: ${buildCorrespondenteCaseRef({ wa_id: waId })}`,
-        `Token de entrada: ${tokenPublicado}`,
-        "",
-        "Link permanente de entrada/assunção:",
-        expectedLink,
-        "",
-        "Se necessário, fallback no privado:",
-        expectedFallback,
-        "",
-        "⚠️ Este grupo é apenas distribuição (sem dados sensíveis)."
-      ].join("\n")
+    assert.equal(payloadGrupo?.type, "template");
+    assert.equal(payloadGrupo?.template?.name, env.CORR_TEMPLATE_NAME);
+    assert.equal(payloadGrupo?.template?.language?.code, env.CORR_TEMPLATE_LANG);
+    assert.equal(Array.isArray(payloadGrupo?.template?.components), true);
+    assert.equal((payloadGrupo?.template?.components?.length || 0) > 0, true);
+    const params = payloadGrupo?.template?.components?.[0]?.parameters || [];
+    assert.equal(Array.isArray(params), true);
+    assert.equal(params.length, 3);
+    assert.deepEqual(
+      params.map((item) => item?.text),
+      [buildCorrespondenteCaseRef({ wa_id: waId }), clienteNome, expectedLink]
     );
 
     const lastMsg = getLastMessageForWa(env, waId);
     const joinedLastMsg = (lastMsg?.messages || []).join("\n");
     assert.equal(joinedLastMsg.includes("Publiquei seu caso no canal oficial de distribuição dos correspondentes."), true);
     assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_dispatch_enter\"")), true);
-    assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_dispatch_attempt\"")), true);
+    assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_dispatch_try_template\"")), true);
     assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_dispatch_result\"") && line.includes("Envio ao correspondente confirmado")), true);
     assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_client_notice\"") && line.includes("publicacao_confirmada")), true);
 
@@ -265,11 +262,12 @@ function buildTextWebhook(from, text, msgId) {
   assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_client_notice\"") && line.includes("tentativa_falha")), true);
 }
 
-// 5) Falha no principal com fallback bem-sucedido registra principal/fallback/resultado.
+// 5) Falha no template com fallback em texto (janela aberta) registra template/texto/resultado.
 {
   const env = buildEnv();
+  // Env vars chegam como string; habilita fallback textual apenas quando explicitamente "true".
+  env.CORRESPONDENTE_TEXT_FALLBACK_WINDOW_OPEN = "true";
   env.__enovaSimulationCtx.suppressExternalSend = false;
-  env.CORRESPONDENTE_GROUP_INTERACTIVE = "true";
   const reqAdvance = new Request("https://worker.local/webhook/meta", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -309,10 +307,9 @@ function buildTextWebhook(from, text, msgId) {
   }
 
   assert.equal(graphCalls >= 2, true);
-  assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_dispatch_attempt\"") && line.includes("principal_interactive")), true);
-  assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_dispatch_fallback\"") && line.includes("fallback acionado")), true);
-  assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_dispatch_attempt\"") && line.includes("fallback_text")), true);
-  assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_dispatch_result\"") && line.includes("confirmado via fallback")), true);
+  assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_dispatch_try_template\"")), true);
+  assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_dispatch_try_text\"")), true);
+  assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_dispatch_result\"") && line.includes("Envio ao correspondente confirmado")), true);
 }
 
 console.log("envio_docs_finalizacao_transition.smoke: ok");

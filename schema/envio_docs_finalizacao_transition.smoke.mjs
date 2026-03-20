@@ -179,6 +179,7 @@ function buildTextWebhook(from, text, msgId) {
     const buttonComponent = payloadGrupo?.template?.components?.find((item) => item?.type === "button");
     assert.equal(Boolean(buttonComponent), true);
     assert.equal(buttonComponent?.sub_type, "quick_reply");
+    // Meta template API usa index de button como string ("0", "1"...).
     assert.equal(buttonComponent?.index, "0");
     assert.equal(buttonComponent?.parameters?.[0]?.type, "payload");
     assert.equal(buttonComponent?.parameters?.[0]?.payload, `corr_assumir:${tokenPublicado}`);
@@ -324,6 +325,31 @@ function buildTextWebhook(from, text, msgId) {
     true
   );
   assert.equal(capture.logs.some((line) => line.includes("\"event\":\"corr_dispatch_result\"") && line.includes("Envio ao correspondente confirmado")), true);
+}
+
+// 6) Hint do template não deve quebrar quando link de entrada estiver indisponível.
+{
+  const env = buildEnv();
+  env.CORRESPONDENTE_ENTRY_BASE_URL = "";
+  const reqAdvance = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(buildTextWebhook(waId, "enviei documento", "wamid.docs.noentry.advance"))
+  });
+  await worker.fetch(reqAdvance, env, {});
+
+  const reqPublish = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(buildTextWebhook(waId, "ok", "wamid.docs.noentry.publish"))
+  });
+  const resPublish = await worker.fetch(reqPublish, env, {});
+  assert.equal(resPublish.status, 200);
+  const payloadGrupo = env.__enovaSimulationCtx.sendPreview;
+  const params = payloadGrupo?.template?.components?.[0]?.parameters || [];
+  const hint = String(params?.[2]?.text || "");
+  assert.equal(hint.includes("Use o botão/link desta mensagem para assumir."), true);
+  assert.equal(hint.includes("Reabertura após assunção:"), false);
 }
 
 console.log("envio_docs_finalizacao_transition.smoke: ok");

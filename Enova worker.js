@@ -10868,6 +10868,7 @@ function gerarAssumirToken() {
 function parseAssumirTokenFromText(userText) {
   const txt = String(userText || "").trim();
   const patterns = [
+    // Prioriza payload do CTA visual (quick reply) antes do comando textual legado.
     /^corr_assumir[:#-]*([a-z0-9-]{6,32})\b/i,
     /^assumir(?:\s+pr[eé][-\s]?cadastro)?[\s:;#-]*([a-z0-9-]{6,32})\b/i,
     /^corr_(?:assumir|assumir_pre_cadastro)[:#-]*([a-z0-9-]{6,32})$/i,
@@ -11627,7 +11628,17 @@ async function enviarParaCorrespondente(env, st, dossie) {
     const templateLang = String(env.CORR_TEMPLATE_LANG || "pt_BR").trim() || "pt_BR";
     const caseRef = buildCorrespondenteCaseRef(st);
     const clienteNome = String(st?.nome || "Cliente").trim() || "Cliente";
-    const entryLink = buildCorrespondenteEntryLink(env, tokenAssumir);
+    const entryLinkRaw = buildCorrespondenteEntryLink(env, tokenAssumir);
+    const entryLink = (() => {
+      const raw = String(entryLinkRaw || "").trim();
+      if (!raw) return "";
+      try {
+        const parsed = new URL(raw);
+        return /^https?:$/i.test(parsed.protocol) ? raw : "";
+      } catch {
+        return "";
+      }
+    })();
     const templateAssumirHint = [
       "Use o botão/link desta mensagem para assumir.",
       `Fallback: ASSUMIR ${caseRef}`,
@@ -11674,6 +11685,8 @@ async function enviarParaCorrespondente(env, st, dossie) {
         return { ok: true, token: tokenAssumir, mode: "template" };
       }
 
+      // Compatibilidade de rollout: se o template com botão falhar (ex.: versão sem botão no Meta),
+      // tenta o mesmo template no formato legado sem CTA dinâmico.
       await logCorrDispatch("corr_dispatch_try_template", "Tentativa de envio template utility legado (sem CTA dinâmico)", {
         mode: "template_legacy",
         correspondente_to_resolved: to,
@@ -11697,10 +11710,10 @@ async function enviarParaCorrespondente(env, st, dossie) {
       }
 
       await logCorrDispatch("corr_dispatch_error_code", "Código de erro no envio ao correspondente", {
-        error_code: templateLegacyResult?.errorCode || templateResult?.errorCode || "template_send_failed"
+        error_code: templateResult?.errorCode || templateLegacyResult?.errorCode || "template_send_failed"
       }, "warning");
       await logCorrDispatch("corr_dispatch_error_message", "Mensagem de erro no envio ao correspondente", {
-        error_message: templateLegacyResult?.errorMessage || templateResult?.errorMessage || "Falha no envio template ao correspondente"
+        error_message: templateResult?.errorMessage || templateLegacyResult?.errorMessage || "Falha no envio template ao correspondente"
       }, "warning");
     }
 

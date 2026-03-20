@@ -11447,7 +11447,7 @@ async function enviarParaCorrespondente(env, st, dossie) {
   const mensagemGrupo = buildCorrespondenteGroupAlert(st, tokenAssumir, env);
 
   // 3 — Publica alerta mínimo no grupo (distribuição sem dados sensíveis)
-  const to = env.CORRESPONDENTE_TO;
+  const to = String(env.CORRESPONDENTE_TO || "").trim();
   // CORRESPONDENTE_TO = grupo de correspondentes (distribuição)
 
   if (!to) {
@@ -11456,6 +11456,12 @@ async function enviarParaCorrespondente(env, st, dossie) {
   }
 
   try {
+    const destinatarioDistribuicao = String(env.CORRESPONDENTE_TO || "").trim();
+    if (!destinatarioDistribuicao || to !== destinatarioDistribuicao || to === String(st?.wa_id || "").trim()) {
+      console.warn("Destino inválido para distribuição ao correspondente. Envio abortado.");
+      return { ok: false, token: tokenAssumir, mode: "none" };
+    }
+
     const allowInteractive = String(env.CORRESPONDENTE_GROUP_INTERACTIVE || "").toLowerCase() === "true";
     if (allowInteractive) {
       const payloadInteractive = {

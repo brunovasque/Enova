@@ -11436,6 +11436,7 @@ async function getCorrespondenteCaseByToken(env, token) {
 async function findCorrespondenteCaseByCaseRef(env, caseRef) {
   const normalizedRef = normalizeCorrespondenteCaseRefInput(caseRef);
   if (!normalizedRef) return null;
+  const projection = "wa_id,nome,fase_conversa,pre_cadastro_numero,corr_publicacao_status,corr_lock_correspondente_wa_id,processo_enviado_correspondente,retorno_correspondente_status,updated_at";
   const simCtx = getSimulationContext(env);
   if (simCtx?.active && simCtx.stateByWaId) {
     const candidates = Object.values(simCtx.stateByWaId)
@@ -11452,7 +11453,7 @@ async function findCorrespondenteCaseByCaseRef(env, caseRef) {
   const { data: exactRows } = await sbFetch(env, "/rest/v1/enova_state", {
     method: "GET",
     query: {
-      select: "wa_id,nome,fase_conversa,pre_cadastro_numero,corr_publicacao_status,corr_lock_correspondente_wa_id,processo_enviado_correspondente,retorno_correspondente_status,updated_at",
+      select: projection,
       pre_cadastro_numero: `eq.${encodeURIComponent(normalizedRef)}`,
       order: "updated_at.desc",
       limit: 1
@@ -11462,22 +11463,44 @@ async function findCorrespondenteCaseByCaseRef(env, caseRef) {
     return exactRows[0];
   }
 
-  const { data } = await sbFetch(env, "/rest/v1/enova_state", {
-    method: "GET",
-    query: {
-      select: "wa_id,nome,fase_conversa,pre_cadastro_numero,corr_publicacao_status,corr_lock_correspondente_wa_id,processo_enviado_correspondente,retorno_correspondente_status,updated_at",
-      order: "updated_at.desc",
-      limit: 1000
+  const parsedRefNumber = Number.parseInt(normalizedRef, 10);
+  const numericRefString = Number.isNaN(parsedRefNumber) ? "" : String(parsedRefNumber);
+  if (numericRefString && numericRefString !== normalizedRef) {
+    const { data: legacyNumericRows } = await sbFetch(env, "/rest/v1/enova_state", {
+      method: "GET",
+      query: {
+        select: projection,
+        pre_cadastro_numero: `eq.${encodeURIComponent(numericRefString)}`,
+        order: "updated_at.desc",
+        limit: 1
+      }
+    });
+    if (Array.isArray(legacyNumericRows) && legacyNumericRows.length) {
+      return legacyNumericRows[0];
     }
-  });
-  const rows = Array.isArray(data) ? data : [];
-  const candidates = rows
-    .map((row) => ({
-      row,
-      ref: normalizeCorrespondenteCaseRefInput(buildCorrespondenteCaseRef(row))
-    }))
-    .filter((item) => item.ref === normalizedRef);
-  return candidates[0]?.row || null;
+  }
+
+  const pageSize = 1000;
+  const maxRowsToScan = 5000;
+  for (let offset = 0; offset < maxRowsToScan; offset += pageSize) {
+    const { data } = await sbFetch(env, "/rest/v1/enova_state", {
+      method: "GET",
+      query: {
+        select: projection,
+        order: "updated_at.desc",
+        limit: pageSize,
+        offset
+      }
+    });
+    const rows = Array.isArray(data) ? data : [];
+    if (!rows.length) break;
+    const candidate = rows.find((row) => (
+      normalizeCorrespondenteCaseRefInput(buildCorrespondenteCaseRef(row)) === normalizedRef
+    ));
+    if (candidate) return candidate;
+    if (rows.length < pageSize) break;
+  }
+  return null;
 }
 
 function classifyCorrespondenteReturnFromText(rawText) {

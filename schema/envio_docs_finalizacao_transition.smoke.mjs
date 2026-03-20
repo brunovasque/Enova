@@ -161,7 +161,7 @@ function buildTextWebhook(from, text, msgId) {
     const tokenPublicado = st.corr_assumir_token;
     const payloadGrupo = env.__enovaSimulationCtx.sendPreview;
     const expectedCaseRef = "000001";
-    const expectedEntryLink = `https://entrada.enova.local/correspondente/entrada?t=${tokenPublicado}`;
+    const expectedEntryLink = `https://entrada.enova.local/correspondente/entrada?pre=${expectedCaseRef}`;
     const expectedAssumirHint = `CTA principal: abra o link oficial de entrada da Enova para assumir. Link oficial de assunção: ${expectedEntryLink} Fallback compatível: ASSUMIR ${expectedCaseRef}`;
     assert.equal(payloadGrupo?.to, env.CORRESPONDENTE_TO);
     assert.notEqual(payloadGrupo?.to, waId);

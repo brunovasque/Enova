@@ -63,7 +63,7 @@ function buildEnvWithState() {
   assert.equal(mensagem.includes("Fallback de compatibilidade: *ASSUMIR 000001* ou *ASSUMIR TOKEN*."), true);
   assert.equal(mensagem.includes("Token de entrada"), false);
   assert.equal(
-    mensagem.includes(`https://entrada.enova.local/correspondente/entrada?t=${token}`),
+    mensagem.includes("https://entrada.enova.local/correspondente/entrada?pre=000001"),
     true
   );
 }
@@ -71,7 +71,7 @@ function buildEnvWithState() {
 // 2) GET antes da assunção: bloqueia acesso e orienta assunção no grupo.
 {
   const env = buildEnvWithState();
-  const req = new Request(`https://worker.local/correspondente/entrada?t=${token}`, { method: "GET" });
+  const req = new Request("https://worker.local/correspondente/entrada?pre=000001", { method: "GET" });
   const res = await worker.fetch(req, env, {});
   const body = await res.text();
   assert.equal(res.status, 403);
@@ -112,7 +112,7 @@ function buildEnvWithState() {
   assert.equal(atualizado.aguardando_retorno_correspondente, true);
   assert.equal(atualizado.processo_enviado_correspondente, true);
 
-  const reopenReq = new Request(`https://worker.local/correspondente/entrada?t=${token}&cw=${correspondenteWa}`, { method: "GET" });
+  const reopenReq = new Request(`https://worker.local/correspondente/entrada?pre=000001&cw=${correspondenteWa}`, { method: "GET" });
   const reopenRes = await worker.fetch(reopenReq, env, {});
   const reopenHtml = await reopenRes.text();
   assert.equal(reopenRes.status, 200);
@@ -120,7 +120,7 @@ function buildEnvWithState() {
   assert.equal(reopenHtml.includes("Token/identificador de entrada"), false);
   assert.equal(reopenHtml.includes("Guarde esta referência"), false);
 
-  const wrongWaReq = new Request(`https://worker.local/correspondente/entrada?t=${token}&cw=5511888888888`, { method: "GET" });
+  const wrongWaReq = new Request("https://worker.local/correspondente/entrada?pre=000001&cw=5511888888888", { method: "GET" });
   const wrongWaRes = await worker.fetch(wrongWaReq, env, {});
   const wrongWaBody = await wrongWaRes.text();
   assert.equal(wrongWaRes.status, 403);
@@ -188,7 +188,7 @@ function buildEnvWithState() {
   env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = "5511777777777";
   env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
   env.__enovaSimulationCtx.stateByWaId[waCaso].corr_publicacao_status = "entregue_privado_aguardando_retorno";
-  const req = new Request(`https://worker.local/correspondente/entrada?t=${token}&cw=${correspondenteWa}`, {
+  const req = new Request(`https://worker.local/correspondente/entrada?pre=000001&cw=${correspondenteWa}`, {
     method: "GET",
     headers: { "x-enova-admin-key": "adm-key" }
   });
@@ -198,6 +198,20 @@ function buildEnvWithState() {
   assert.equal(body.includes("bypass administrativo"), true);
   assert.equal(body.includes("Resumo executivo"), true);
   assert.equal(body.includes("Token/identificador de entrada"), false);
+}
+
+// 3.1b) Compatibilidade: link legado com token continua funcionando.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = correspondenteWa;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  const req = new Request(`https://worker.local/correspondente/entrada?t=${token}&cw=${correspondenteWa}`, { method: "GET" });
+  const res = await worker.fetch(req, env, {});
+  const body = await res.text();
+  assert.equal(res.status, 200);
+  assert.equal(body.includes("Resumo executivo"), true);
+  assert.equal(body.includes("Referência:</span> 000001"), true);
 }
 
 // 3.2) Assunção canônica no grupo sem token explícito deve funcionar quando há único caso pendente.

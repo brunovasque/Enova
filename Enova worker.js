@@ -10901,15 +10901,20 @@ function resolveCorrespondenteEntryBaseUrl(env) {
   return `https://${raw}`.replace(/\/+$/, "");
 }
 
-function buildCorrespondenteEntryLink(env, token) {
+function buildCorrespondenteEntryLink(env, token, caseRefInput) {
   const safeToken = normalizeAssumirToken(token);
+  const safeCaseRef = normalizeCorrespondenteCaseRefInput(caseRefInput);
   const base = resolveCorrespondenteEntryBaseUrl(env);
-  if (!safeToken || !base) return null;
+  if (!base) return null;
+  if (safeCaseRef) {
+    return `${base}/correspondente/entrada?pre=${encodeURIComponent(safeCaseRef)}`;
+  }
+  if (!safeToken) return null;
   return `${base}/correspondente/entrada?t=${encodeURIComponent(safeToken)}`;
 }
 
-function buildCorrespondenteEntryLinkForCorrespondente(env, token, correspondenteWaId) {
-  const baseLink = buildCorrespondenteEntryLink(env, token);
+function buildCorrespondenteEntryLinkForCorrespondente(env, token, correspondenteWaId, caseRefInput) {
+  const baseLink = buildCorrespondenteEntryLink(env, token, caseRefInput);
   const safeWa = normalizeCorrespondenteWaIdInput(correspondenteWaId);
   if (!baseLink || !safeWa) return baseLink;
   return `${baseLink}&cw=${encodeURIComponent(safeWa)}`;
@@ -10924,7 +10929,7 @@ function buildCorrespondenteAssumirButtonPayload(token) {
 function buildCorrespondenteGroupAlert(st, token, env) {
   const caseRef = String(buildCorrespondenteCaseRef(st) || "C0000").trim();
   const clienteNome = String(st?.nome || "Cliente").trim() || "Cliente";
-  const entryLink = buildCorrespondenteEntryLink(env, token);
+  const entryLink = buildCorrespondenteEntryLink(env, token, caseRef);
   return [
     "🚨 *Novo caso para correspondente*",
     `Pré-cadastro: ${caseRef}`,
@@ -11245,13 +11250,23 @@ async function handleCorrespondenteEntryPage(request, env) {
   }
 
   const requestUrl = new URL(request.url);
+  const caseRefInput = requestUrl.searchParams.get("pre")
+    || requestUrl.searchParams.get("caseRef")
+    || requestUrl.searchParams.get("case_ref");
+  const caseRef = normalizeCorrespondenteCaseRefInput(caseRefInput);
   const tokenInput = requestUrl.searchParams.get("t") || requestUrl.searchParams.get("token");
   const token = normalizeAssumirToken(tokenInput);
-  if (!token) {
-    return new Response("Token inválido.", { status: 400 });
+  if (!caseRef && !token) {
+    return new Response("Identificador de entrada inválido.", { status: 400 });
   }
 
-  const caso = await getCorrespondenteCaseByToken(env, token);
+  let caso = null;
+  if (caseRef) {
+    caso = await findCorrespondenteCaseByCaseRef(env, caseRef);
+  }
+  if (!caso?.wa_id && token) {
+    caso = await getCorrespondenteCaseByToken(env, token);
+  }
   if (!caso?.wa_id) {
     return new Response("Link de entrada inválido.", { status: 404 });
   }
@@ -11801,7 +11816,8 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
     ], "aguardando_retorno_correspondente");
   }
 
-  const entryLink = buildCorrespondenteEntryLinkForCorrespondente(env, token, correspondenteWaId);
+  const caseRef = buildCorrespondenteCaseRef(caso);
+  const entryLink = buildCorrespondenteEntryLinkForCorrespondente(env, token, correspondenteWaId, caseRef);
   await sendMessage(
     env,
     correspondenteWaId,
@@ -11917,7 +11933,7 @@ async function enviarParaCorrespondente(env, st, dossie) {
     const templateLang = String(env.CORR_TEMPLATE_LANG || "pt_BR").trim() || "pt_BR";
     const caseRef = buildCorrespondenteCaseRef(stComCaseRef);
     const clienteNome = String(st?.nome || "Cliente").trim() || "Cliente";
-    const entryLinkRaw = buildCorrespondenteEntryLink(env, tokenAssumir);
+    const entryLinkRaw = buildCorrespondenteEntryLink(env, tokenAssumir, caseRef);
     const entryLink = (() => {
       const raw = String(entryLinkRaw || "").trim();
       if (!raw) return "";

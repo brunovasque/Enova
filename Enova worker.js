@@ -4592,6 +4592,13 @@ let userText = null;
       type
     });
   }
+  const retornoByCaseRef = await handleCorrespondenteReturnByCaseRef(env, msg, userText);
+  if (retornoByCaseRef?.handled) {
+    return metaWebhookResponse(200, {
+      reason: retornoByCaseRef.reason || "corr_return_case_ref_handled",
+      type
+    });
+  }
 
   const normalizedUserText = normalizeText(userText || "");
   const isResetCmd = type === "text" && normalizedUserText === "reset";
@@ -10868,7 +10875,7 @@ function gerarAssumirToken() {
 function parseAssumirTokenFromText(userText) {
   const txt = String(userText || "").trim();
   const patterns = [
-    // Prioriza payload do CTA visual (quick reply) antes do comando textual legado.
+    // Priorize payload do CTA visual (quick reply) antes do comando textual legado.
     /^corr_assumir[:#-]*([a-z0-9-]{6,32})\b/i,
     /^assumir(?:\s+pr[eé][-\s]?cadastro)?[\s:;#-]*([a-z0-9-]{6,32})\b/i,
     /^corr_(?:assumir|assumir_pre_cadastro)[:#-]*([a-z0-9-]{6,32})$/i,
@@ -10915,14 +10922,16 @@ function buildCorrespondenteAssumirButtonPayload(token) {
 }
 
 function buildCorrespondenteGroupAlert(st, token, env) {
-  const caseRef = String(st?.wa_id || "").slice(-4).padStart(4, "0");
+  const caseRef = String(buildCorrespondenteCaseRef(st) || "C0000").trim();
+  const clienteNome = String(st?.nome || "Cliente").trim() || "Cliente";
   const entryLink = buildCorrespondenteEntryLink(env, token);
   return [
     "🚨 *Novo caso para correspondente*",
-    `Ref: C${caseRef}`,
+    `Pré-cadastro: ${caseRef}`,
+    `Cliente: ${clienteNome}`,
     "",
     "✅ Para assumir, use o botão/link oficial desta publicação.",
-    "Fallback (compatibilidade): *ASSUMIR C1234* ou *ASSUMIR TOKEN*.",
+    `Fallback (compatibilidade): *ASSUMIR ${caseRef}* ou *ASSUMIR TOKEN*.`,
     "",
     entryLink
       ? "Link de reabertura (liberado após assunção válida):"
@@ -10948,6 +10957,29 @@ function buildCorrespondenteCaseRef(caso) {
   const wa = String(caso?.wa_id || "").replace(/\D/g, "");
   const suffix = wa.slice(-4).padStart(4, "0");
   return `C${suffix}`;
+}
+
+function normalizeCorrespondenteCaseRefInput(value) {
+  const raw = String(value || "").toUpperCase().trim();
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return null;
+  return `C${digits.slice(-4).padStart(4, "0")}`;
+}
+
+function extractCorrespondenteCaseRefFromText(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  const normalized = raw.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const patterns = [
+    /\b(?:pre\s*cadastro|cadastro|case\s*ref|ref)\s*[:#-]?\s*C?\s*(\d{1,8})\b/i,
+    /\bC\s*0*(\d{3,8})\b/i
+  ];
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (match?.[1]) return normalizeCorrespondenteCaseRefInput(match[1]);
+  }
+  return null;
 }
 
 function buildCorrespondenteDossierPayloadFromState(st, options = {}) {
@@ -11309,6 +11341,193 @@ async function getCorrespondenteCaseByToken(env, token) {
 
   if (!Array.isArray(data) || !data.length) return null;
   return data[0];
+}
+
+async function findCorrespondenteCaseByCaseRef(env, caseRef) {
+  const normalizedRef = normalizeCorrespondenteCaseRefInput(caseRef);
+  if (!normalizedRef) return null;
+  const allowedStatuses = new Set([
+    "publicado_grupo_pendente_assumir",
+    "lock_adquirido_tentando_entrega",
+    "assumido_falha_entrega_privada",
+    "entregue_privado_aguardando_retorno"
+  ]);
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active && simCtx.stateByWaId) {
+    const candidates = Object.values(simCtx.stateByWaId)
+      .filter((row) => allowedStatuses.has(String(row?.corr_publicacao_status || "").trim().toLowerCase()))
+      .map((row) => ({
+        row,
+        ref: normalizeCorrespondenteCaseRefInput(buildCorrespondenteCaseRef(row)),
+        ts: Date.parse(String(row?.updated_at || "")) || 0
+      }))
+      .filter((item) => item.ref === normalizedRef)
+      .sort((a, b) => b.ts - a.ts);
+    return candidates[0]?.row || null;
+  }
+
+  const { data } = await sbFetch(env, "/rest/v1/enova_state", {
+    method: "GET",
+    query: {
+      select: "wa_id,nome,fase_conversa,pre_cadastro_numero,corr_publicacao_status,corr_lock_correspondente_wa_id,processo_enviado_correspondente,retorno_correspondente_status,updated_at",
+      order: "updated_at.desc",
+      limit: 200
+    }
+  });
+  const rows = Array.isArray(data) ? data : [];
+  const candidates = rows
+    .filter((row) => allowedStatuses.has(String(row?.corr_publicacao_status || "").trim().toLowerCase()))
+    .map((row) => ({
+      row,
+      ref: normalizeCorrespondenteCaseRefInput(buildCorrespondenteCaseRef(row))
+    }))
+    .filter((item) => item.ref === normalizedRef);
+  return candidates[0]?.row || null;
+}
+
+function classifyCorrespondenteReturnFromText(rawText) {
+  const ntMsg = normalizeText(rawText || "");
+  const hasAny = (terms) => terms.some((term) => ntMsg.includes(term));
+  const reprovado = /\b(reprovado|credito reprovado|negado|nao aprovado)\b/.test(ntMsg);
+  const pendenciaRisco = hasAny([
+    "conres", "sinad", "scr", "registrato", "registrado", "bacen", "serasa", "spc", "protesto",
+    "restricao", "restricoes", "divida", "dividas", "impedimento", "margem financeira comprometida"
+  ]);
+  const pendenciaDocumental = hasAny([
+    "pendencia documental", "complemento documental", "documento adicional",
+    "complementacao documental", "pendencia de documento", "falta de documento",
+    "documentacao pendente", "faltando", "comprovante"
+  ]);
+  const aprovadoCondicionado = hasAny([
+    "aprovado condicionado", "aprovacao condicionada", "credito aprovado condicionado",
+    "pre aprovacao condicionada", "aprovado com ressalvas", "aprovado com condicoes"
+  ]);
+  const aprovado = /\b(aprovado|aprovada|credito aprovado|liberado|liberada)\b/.test(ntMsg);
+  if (reprovado) return "reprovado";
+  if (pendenciaRisco) return "pendencia_risco";
+  if (pendenciaDocumental) return "pendencia_documental";
+  if (aprovadoCondicionado) return "aprovado_condicionado";
+  if (aprovado) return "aprovado";
+  if (/\b(analise|analisando|em analise|em andamento|aguardando)\b/.test(ntMsg)) return "em_analise";
+  return "nao_identificado";
+}
+
+function extractCorrespondentePendenciasFromText(rawText) {
+  const text = String(rawText || "").trim();
+  if (!text) return [];
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines
+    .filter((line) => /penden|falt|motivo|detalhe|restricao|imped/i.test(normalizeText(line)))
+    .slice(0, 8)
+    .map((line) => ({ descricao: line }));
+}
+
+async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
+  const correspondenteWaId = extractCorrespondenteWaId(msg, env);
+  if (!correspondenteWaId) return { handled: false };
+  const from = String(msg?.from || "").trim();
+  const isCorrespondenteChannel = Boolean(String(msg?.author || "").trim()) || (from === String(env.CORRESPONDENTE_TO || "").trim());
+  const caseRef = extractCorrespondenteCaseRefFromText(userText);
+  if (!caseRef) {
+    const maybeRetorno = /pré[- ]?cadastro|pre[- ]?cadastro|aprovad|reprovad|pend[eê]n|analise|imped/i.test(String(userText || ""));
+    if (!maybeRetorno || !isCorrespondenteChannel) return { handled: false };
+    await logger(env, {
+      tipo: "retorno_correspondente_case_ref_nao_identificado",
+      wa_id: correspondenteWaId,
+      texto: String(userText || "")
+    });
+    await funnelTelemetry(env, {
+      wa_id: correspondenteWaId,
+      event: "corr_return_case_ref_not_identified",
+      stage: "aguardando_retorno_correspondente",
+      severity: "warning",
+      message: "Retorno do correspondente recebido sem caseRef identificável",
+      details: { text_preview: String(userText || "").slice(0, 300) },
+      force: true
+    });
+    return { handled: true, reason: "corr_return_case_ref_not_identified" };
+  }
+
+  const caso = await findCorrespondenteCaseByCaseRef(env, caseRef);
+  if (!caso?.wa_id) {
+    await logger(env, {
+      tipo: "retorno_correspondente_case_ref_sem_match",
+      wa_id: correspondenteWaId,
+      case_ref: caseRef,
+      texto: String(userText || "")
+    });
+    return { handled: true, reason: "corr_return_case_ref_not_found" };
+  }
+  const waCliente = String(caso.wa_id || "").trim();
+  if (!waCliente || waCliente === correspondenteWaId) return { handled: false };
+
+  const stCaso = await getState(env, waCliente);
+  if (!stCaso) return { handled: true, reason: "corr_return_case_ref_state_not_found" };
+  const lockAtual = String(stCaso?.corr_lock_correspondente_wa_id || "").trim();
+  if (!lockAtual) {
+    return { handled: true, reason: "corr_return_case_ref_without_lock" };
+  }
+  if (lockAtual && lockAtual !== correspondenteWaId) {
+    await sendMessage(env, correspondenteWaId, "Este caso já está vinculado a outro correspondente. Retorno não registrado.");
+    return { handled: true, reason: "corr_return_case_ref_locked_other" };
+  }
+
+  const statusCanonico = classifyCorrespondenteReturnFromText(userText);
+  const pendencias = extractCorrespondentePendenciasFromText(userText);
+  const motivo =
+    pendencias[0]?.descricao ||
+    (statusCanonico === "reprovado" ? "Reprovado pelo correspondente." : null);
+
+  await upsertState(env, waCliente, {
+    retorno_correspondente_bruto: String(userText || "").trim(),
+    retorno_correspondente_status: statusCanonico,
+    retorno_correspondente_motivo: motivo
+  });
+  await logger(env, {
+    tipo: "retorno_correspondente_case_ref_processado",
+    wa_id: waCliente,
+    correspondente_wa_id: correspondenteWaId,
+    case_ref: caseRef,
+    status: statusCanonico,
+    pendencias
+  });
+
+  const stAtualizado = await getState(env, waCliente) || stCaso;
+  if (statusCanonico === "aprovado" || statusCanonico === "aprovado_condicionado") {
+    await step(env, stAtualizado, [
+      "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.",
+      "Agora o próximo passo é **agendar sua visita no plantão** com opções oficiais de data e horário."
+    ], "agendamento_visita");
+    return { handled: true, reason: "corr_return_case_ref_aprovado" };
+  }
+  if (statusCanonico === "reprovado") {
+    await step(env, stAtualizado, [
+      "Recebi o retorno do correspondente… 😕",
+      "Infelizmente **a análise não foi aprovada**.",
+      motivo ? `Motivo informado: *${String(motivo).replace(/[*_`~]/g, "").trim()}*.` : "",
+      "Se quiser, posso te orientar os próximos passos para nova tentativa."
+    ], "aguardando_retorno_correspondente");
+    return { handled: true, reason: "corr_return_case_ref_reprovado" };
+  }
+  if (statusCanonico === "pendencia_risco" || statusCanonico === "pendencia_documental" || statusCanonico === "em_analise") {
+    const detalhe = motivo ? `Detalhe informado: *${String(motivo).replace(/[*_`~]/g, "").trim()}*.` : "Assim que houver definição final, te aviso por aqui.";
+    await step(env, stAtualizado, [
+      "Recebi retorno do correspondente sobre o seu processo.",
+      detalhe,
+      "Por enquanto vou manter seu acompanhamento aqui até a definição final."
+    ], "aguardando_retorno_correspondente");
+    return { handled: true, reason: "corr_return_case_ref_pendencia" };
+  }
+  await funnelTelemetry(env, {
+    wa_id: waCliente,
+    event: "corr_return_case_ref_unclassified",
+    stage: "aguardando_retorno_correspondente",
+    severity: "warning",
+    message: "Retorno por caseRef recebido sem classificação conclusiva",
+    details: { case_ref: caseRef, correspondente_wa_id: correspondenteWaId },
+    force: true
+  });
+  return { handled: true, reason: "corr_return_case_ref_unclassified" };
 }
 
 async function listCorrespondenteAssumirCandidates(env) {

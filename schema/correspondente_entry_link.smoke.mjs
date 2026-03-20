@@ -55,8 +55,10 @@ function buildEnvWithState() {
 {
   const env = buildEnvWithState();
   const mensagem = buildCorrespondenteGroupAlert(env.__enovaSimulationCtx.stateByWaId[waCaso], token, env);
+  assert.equal(mensagem.includes("Pré-cadastro: C8888"), true);
+  assert.equal(mensagem.includes("Cliente: JOAO TESTE"), true);
   assert.equal(mensagem.includes("use o botão/link oficial"), true);
-  assert.equal(mensagem.includes("Fallback (compatibilidade): *ASSUMIR C1234* ou *ASSUMIR TOKEN*."), true);
+  assert.equal(mensagem.includes("Fallback (compatibilidade): *ASSUMIR C8888* ou *ASSUMIR TOKEN*."), true);
   assert.equal(mensagem.includes("Token de entrada"), false);
   assert.equal(
     mensagem.includes(`https://entrada.enova.local/correspondente/entrada?t=${token}`),
@@ -284,6 +286,217 @@ function buildEnvWithState() {
   assert.equal(res.status, 200);
   assert.equal(data?.ok, true);
   assert.equal(Number(data?.summary?.failed || 0), 0);
+}
+
+// 5) Retorno por caseRef "pré-cadastro C0518 aprovado" deve localizar wa_id correto e avançar para visita.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "C0518";
+  env.__enovaSimulationCtx.stateByWaId["5541999990000"] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    wa_id: "5541999990000",
+    nome: "MARIA TESTE",
+    pre_cadastro_numero: "C0001",
+    corr_assumir_token: "ZX12ZX12",
+    corr_lock_correspondente_wa_id: "5511777777777",
+    processo_enviado_correspondente: true
+  };
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.case.ref.aprovado",
+              timestamp: "1773183905",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(assumirReq, env, {});
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.aprovado",
+              timestamp: "1773183906",
+              type: "text",
+              text: { body: "pré-cadastro C0518 aprovado" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  const retornoRes = await worker.fetch(retornoReq, env, {});
+  assert.equal(retornoRes.status, 200);
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aprovado");
+  assert.equal(alvo.fase_conversa, "agendamento_visita");
+  const outro = env.__enovaSimulationCtx.stateByWaId["5541999990000"];
+  assert.equal(outro.retorno_correspondente_status || null, null);
+}
+
+// 6) Retorno por caseRef reprovado deve persistir status e não avançar para visita.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "C0518";
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.case.ref.reprovado",
+              timestamp: "1773183907",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(assumirReq, env, {});
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.reprovado",
+              timestamp: "1773183908",
+              type: "text",
+              text: { body: "pré-cadastro C0518 reprovado por score" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "reprovado");
+  assert.equal(alvo.fase_conversa, "aguardando_retorno_correspondente");
+}
+
+// 7) Retorno por caseRef com pendência documental deve persistir e não avançar.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "C0518";
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.case.ref.pendencia",
+              timestamp: "1773183909",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(assumirReq, env, {});
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.pendencia",
+              timestamp: "1773183910",
+              type: "text",
+              text: { body: "C0518 com pendência documental: faltando comprovante de residência" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "pendencia_documental");
+  assert.equal(alvo.fase_conversa, "aguardando_retorno_correspondente");
+}
+
+// 8) Retorno sem caseRef identificável não avança no escuro.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "C0518";
+  const before = { ...env.__enovaSimulationCtx.stateByWaId[waCaso] };
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: env.CORRESPONDENTE_TO,
+              author: correspondenteWa,
+              id: "wamid.retorno.sem.case.ref",
+              timestamp: "1773183911",
+              type: "text",
+              text: { body: "pré-cadastro aprovado" }
+            }],
+            contacts: [{ wa_id: env.CORRESPONDENTE_TO }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const after = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(after.fase_conversa, before.fase_conversa);
+  assert.equal(after.retorno_correspondente_status || null, before.retorno_correspondente_status || null);
 }
 
 console.log("correspondente_entry_link.smoke: ok");

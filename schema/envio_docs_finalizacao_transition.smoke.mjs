@@ -176,6 +176,9 @@ function buildTextWebhook(from, text, msgId) {
       params.map((item) => item?.text),
       [expectedCaseRef, clienteNome, expectedAssumirHint]
     );
+    const previewText = ((payloadGrupo?.template?.components?.[0]?.parameters || []).map((p) => p?.text).join(" "));
+    assert.equal(previewText.includes(expectedCaseRef), true);
+    assert.equal(previewText.includes(clienteNome), true);
     const buttonComponent = payloadGrupo?.template?.components?.find((item) => item?.type === "button");
     assert.equal(Boolean(buttonComponent), true);
     assert.equal(buttonComponent?.sub_type, "quick_reply");

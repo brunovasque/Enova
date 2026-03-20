@@ -11619,7 +11619,7 @@ async function enviarParaCorrespondente(env, st, dossie) {
     const templateLang = String(env.CORR_TEMPLATE_LANG || "pt_BR").trim() || "pt_BR";
     const caseRef = buildCorrespondenteCaseRef(st);
     const clienteNome = String(st?.nome || "Cliente").trim() || "Cliente";
-    const entryLink = buildCorrespondenteEntryLink(env, tokenAssumir) || `ASSUMIR ${tokenAssumir}`;
+    const templateAssumirHint = `ASSUMIR ${caseRef} ou ASSUMIR PRÉ-CADASTRO ${caseRef}`;
     const attemptedModes = [];
 
     if (!templateName) {
@@ -11648,7 +11648,7 @@ async function enviarParaCorrespondente(env, st, dossie) {
         to,
         templateName,
         templateLang,
-        [caseRef, clienteNome, entryLink]
+        [caseRef, clienteNome, templateAssumirHint]
       );
       if (templateResult?.ok === true) {
         await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente confirmado", {

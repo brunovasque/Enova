@@ -55,40 +55,22 @@ function buildEnvWithState() {
 {
   const env = buildEnvWithState();
   const mensagem = buildCorrespondenteGroupAlert(env.__enovaSimulationCtx.stateByWaId[waCaso], token, env);
-  assert.equal(mensagem.includes("Link permanente de entrada/assunção"), true);
+  assert.equal(mensagem.includes("Assuma na própria mensagem do grupo"), true);
+  assert.equal(mensagem.includes("Token de entrada"), false);
   assert.equal(
     mensagem.includes(`https://entrada.enova.local/correspondente/entrada?t=${token}`),
     true
   );
 }
 
-// 2) GET antes da assunção: exibe apenas capa (sem dossiê sensível).
+// 2) GET antes da assunção: bloqueia acesso e orienta assunção no grupo.
 {
   const env = buildEnvWithState();
   const req = new Request(`https://worker.local/correspondente/entrada?t=${token}`, { method: "GET" });
   const res = await worker.fetch(req, env, {});
   const body = await res.text();
-  assert.equal(res.status, 200);
-  assert.equal(body.includes("ASSUMIR"), true);
-  assert.equal(body.includes("Token/identificador de entrada"), true);
-  assert.equal(body.includes("Resumo executivo"), false);
-}
-
-// 2.1) POST de assunção web deve confirmar token e vínculo explícitos.
-{
-  const env = buildEnvWithState();
-  const req = new Request(`https://worker.local/correspondente/entrada?t=${token}&cw=${correspondenteWa}`, {
-    method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded" },
-    body: "action=assumir"
-  });
-  const res = await worker.fetch(req, env, {});
-  const body = await res.text();
-  assert.equal(res.status, 200);
-  assert.equal(body.includes("Caso assumido com sucesso"), true);
-  assert.equal(body.includes(`Token/identificador de entrada: <strong>${token}</strong>`), true);
-  assert.equal(body.includes("Este link agora está vinculado ao seu acesso"), true);
-  assert.equal(env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id, correspondenteWa);
+  assert.equal(res.status, 403);
+  assert.equal(body.includes("A assunção ocorre na mensagem de distribuição do grupo"), true);
 }
 
 // 3) Assunção no fluxo externo libera link apenas para o correspondente correto.
@@ -130,7 +112,8 @@ function buildEnvWithState() {
   const reopenHtml = await reopenRes.text();
   assert.equal(reopenRes.status, 200);
   assert.equal(reopenHtml.includes("Resumo executivo"), true);
-  assert.equal(reopenHtml.includes("Assumir caso"), false);
+  assert.equal(reopenHtml.includes("Token/identificador de entrada"), false);
+  assert.equal(reopenHtml.includes("Guarde esta referência"), false);
 
   const wrongWaReq = new Request(`https://worker.local/correspondente/entrada?t=${token}&cw=5511888888888`, { method: "GET" });
   const wrongWaRes = await worker.fetch(wrongWaReq, env, {});
@@ -138,6 +121,33 @@ function buildEnvWithState() {
   assert.equal(wrongWaRes.status, 403);
   assert.equal(wrongWaBody.includes("Este caso já foi assumido por outro correspondente."), true);
   assert.equal(wrongWaBody.includes("Resumo executivo"), false);
+
+  const sameOwnerPreCadastroReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.pre.cadastro.same.owner",
+              timestamp: "1773183902",
+              type: "text",
+              text: { body: `ASSUMIR PRÉ-CADASTRO ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  const sameOwnerPreCadastroRes = await worker.fetch(sameOwnerPreCadastroReq, env, {});
+  assert.equal(sameOwnerPreCadastroRes.status, 200);
+  const afterSameOwnerPreCadastro = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(afterSameOwnerPreCadastro.corr_lock_correspondente_wa_id, correspondenteWa);
 
   const secondAssumirReq = new Request("https://worker.local/webhook/meta", {
     method: "POST",
@@ -182,6 +192,7 @@ function buildEnvWithState() {
   assert.equal(res.status, 200);
   assert.equal(body.includes("bypass administrativo"), true);
   assert.equal(body.includes("Resumo executivo"), true);
+  assert.equal(body.includes("Token/identificador de entrada"), false);
 }
 
 // 4) Ponte aprovado -> agendamento_visita não pode regredir.

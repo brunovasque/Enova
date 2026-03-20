@@ -4592,6 +4592,13 @@ let userText = null;
       type
     });
   }
+  const retornoByCaseRef = await handleCorrespondenteReturnByCaseRef(env, msg, userText);
+  if (retornoByCaseRef?.handled) {
+    return metaWebhookResponse(200, {
+      reason: retornoByCaseRef.reason || "corr_return_case_ref_handled",
+      type
+    });
+  }
 
   const normalizedUserText = normalizeText(userText || "");
   const isResetCmd = type === "text" && normalizedUserText === "reset";
@@ -10868,6 +10875,8 @@ function gerarAssumirToken() {
 function parseAssumirTokenFromText(userText) {
   const txt = String(userText || "").trim();
   const patterns = [
+    // Priorize payload do CTA visual (quick reply) antes do comando textual legado.
+    /^corr_assumir[:#-]*([a-z0-9-]{6,32})\b/i,
     /^assumir(?:\s+pr[eé][-\s]?cadastro)?[\s:;#-]*([a-z0-9-]{6,32})\b/i,
     /^corr_(?:assumir|assumir_pre_cadastro)[:#-]*([a-z0-9-]{6,32})$/i,
     /\btoken[:=#-]*([a-z0-9-]{6,32})\b/i
@@ -10906,18 +10915,28 @@ function buildCorrespondenteEntryLinkForCorrespondente(env, token, correspondent
   return `${baseLink}&cw=${encodeURIComponent(safeWa)}`;
 }
 
+function buildCorrespondenteAssumirButtonPayload(token) {
+  const safeToken = normalizeAssumirToken(token);
+  if (!safeToken) return "";
+  return `corr_assumir:${safeToken}`;
+}
+
 function buildCorrespondenteGroupAlert(st, token, env) {
-  const caseRef = String(st?.wa_id || "").slice(-4).padStart(4, "0");
+  const caseRef = String(buildCorrespondenteCaseRef(st) || "C0000").trim();
+  const clienteNome = String(st?.nome || "Cliente").trim() || "Cliente";
   const entryLink = buildCorrespondenteEntryLink(env, token);
   return [
     "🚨 *Novo caso para correspondente*",
-    `Ref: C${caseRef}`,
+    `Pré-cadastro: ${caseRef}`,
+    `Cliente: ${clienteNome}`,
     "",
-    "Assuma na própria mensagem do grupo: *ASSUMIR* ou *ASSUMIR PRÉ-CADASTRO*.",
+    "✅ CTA principal: abra o *link de entrada da Enova* para assumir este caso.",
+    "⚠️ O dossiê completo só é liberado no privado após assunção válida.",
+    `Fallback de compatibilidade: *ASSUMIR ${caseRef}* ou *ASSUMIR TOKEN*.`,
     "",
     entryLink
-      ? "Link permanente do caso (acesso após assunção):"
-      : "Após assumir, reabra o link permanente enviado no retorno privado.",
+      ? "Link oficial de entrada/assunção:"
+      : "Link oficial de entrada indisponível no momento.",
     entryLink || "Link permanente indisponível no momento.",
     "",
     "⚠️ Este grupo é apenas distribuição (sem dados sensíveis)."
@@ -10935,10 +10954,100 @@ function escapeHtml(value) {
 
 function buildCorrespondenteCaseRef(caso) {
   const preCadastro = String(caso?.pre_cadastro_numero || "").trim();
-  if (preCadastro) return preCadastro;
-  const wa = String(caso?.wa_id || "").replace(/\D/g, "");
-  const suffix = wa.slice(-4).padStart(4, "0");
-  return `C${suffix}`;
+  const normalized = normalizeCorrespondenteCaseRefInput(preCadastro);
+  if (normalized) return normalized;
+  return "000000";
+}
+
+function normalizeCorrespondenteCaseRefInput(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return null;
+  return digits.slice(-6).padStart(6, "0");
+}
+
+function extractCorrespondenteCaseRefFromText(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return null;
+  const normalized = raw.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const patterns = [
+    /\b(?:pre\s*cadastro|cadastro|case\s*ref|ref)\s*[:#-]?\s*C?\s*(\d{1,8})\b/i,
+    /\bC\s*0*(\d{1,8})\b/i
+  ];
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (match?.[1]) return normalizeCorrespondenteCaseRefInput(match[1]);
+  }
+  if (/\b(aprov|reprov|pend|analis|imped)\w*\b/i.test(normalized)) {
+    const simple = normalized.match(/(?:^|\D)(\d{6})(?:\D|$)/);
+    if (simple?.[1]) return normalizeCorrespondenteCaseRefInput(simple[1]);
+  }
+  return null;
+}
+
+const CORRESPONDENTE_CASE_COUNTER_WA_ID = "__corr_case_ref_counter__";
+const INITIAL_CASE_REF_VALUE = "000000";
+const MAX_CASE_REF_ALLOCATION_ATTEMPTS = 10;
+const MAX_EXTRACTED_PENDENCIAS = 8;
+
+async function allocateCorrespondenteCaseRefSequential(env) {
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) {
+    const current = normalizeCorrespondenteCaseRefInput(simCtx.correspondenteCaseCounter || "000000") || "000000";
+    const nextNumeric = Number.parseInt(current, 10) + 1;
+    const nextValue = String(Math.max(1, nextNumeric)).padStart(6, "0");
+    simCtx.correspondenteCaseCounter = nextValue;
+    return nextValue;
+  }
+
+  const initialValue = INITIAL_CASE_REF_VALUE;
+  try {
+    await supabaseInsert(env, "enova_state", {
+      wa_id: CORRESPONDENTE_CASE_COUNTER_WA_ID,
+      pre_cadastro_numero: initialValue,
+      fase_conversa: "system_counter",
+      funil_status: "system_counter"
+    });
+  } catch {
+    // Registro pode já existir (idempotência/corrida de inicialização). Seguimos com leitura+CAS.
+  }
+
+  let lastObserved = initialValue;
+  for (let attempt = 0; attempt < MAX_CASE_REF_ALLOCATION_ATTEMPTS; attempt++) {
+    const current = await getState(env, CORRESPONDENTE_CASE_COUNTER_WA_ID);
+    const currentValue = normalizeCorrespondenteCaseRefInput(current?.pre_cadastro_numero || initialValue) || initialValue;
+    lastObserved = currentValue;
+    const nextNumeric = Number.parseInt(currentValue, 10) + 1;
+    const nextValue = String(Math.max(1, nextNumeric)).padStart(6, "0");
+
+    await sbFetch(env, "/rest/v1/enova_state", {
+      method: "PATCH",
+      query: {
+        wa_id: `eq.${encodeURIComponent(CORRESPONDENTE_CASE_COUNTER_WA_ID)}`,
+        pre_cadastro_numero: `eq.${encodeURIComponent(currentValue)}`
+      },
+      body: JSON.stringify({
+        pre_cadastro_numero: nextValue,
+        updated_at: new Date().toISOString()
+      })
+    });
+
+    const after = await getState(env, CORRESPONDENTE_CASE_COUNTER_WA_ID);
+    if (normalizeCorrespondenteCaseRefInput(after?.pre_cadastro_numero || "") === nextValue) {
+      return nextValue;
+    }
+  }
+
+  throw new Error(`Falha ao alocar pre_cadastro_numero sequencial após ${MAX_CASE_REF_ALLOCATION_ATTEMPTS} tentativas (last=${lastObserved})`);
+}
+
+async function ensureCorrespondenteCaseRef(env, st) {
+  const existing = normalizeCorrespondenteCaseRefInput(st?.pre_cadastro_numero);
+  if (existing) return existing;
+  const allocated = await allocateCorrespondenteCaseRefSequential(env);
+  await upsertState(env, st.wa_id, { pre_cadastro_numero: allocated });
+  return allocated;
 }
 
 function buildCorrespondenteDossierPayloadFromState(st, options = {}) {
@@ -11302,6 +11411,193 @@ async function getCorrespondenteCaseByToken(env, token) {
   return data[0];
 }
 
+async function findCorrespondenteCaseByCaseRef(env, caseRef) {
+  const normalizedRef = normalizeCorrespondenteCaseRefInput(caseRef);
+  if (!normalizedRef) return null;
+  const allowedStatuses = new Set([
+    "publicado_grupo_pendente_assumir",
+    "lock_adquirido_tentando_entrega",
+    "assumido_falha_entrega_privada",
+    "entregue_privado_aguardando_retorno"
+  ]);
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active && simCtx.stateByWaId) {
+    const candidates = Object.values(simCtx.stateByWaId)
+      .filter((row) => allowedStatuses.has(String(row?.corr_publicacao_status || "").trim().toLowerCase()))
+      .map((row) => ({
+        row,
+        ref: normalizeCorrespondenteCaseRefInput(buildCorrespondenteCaseRef(row)),
+        ts: Date.parse(String(row?.updated_at || "")) || 0
+      }))
+      .filter((item) => item.ref === normalizedRef)
+      .sort((a, b) => b.ts - a.ts);
+    return candidates[0]?.row || null;
+  }
+
+  const { data } = await sbFetch(env, "/rest/v1/enova_state", {
+    method: "GET",
+    query: {
+      select: "wa_id,nome,fase_conversa,pre_cadastro_numero,corr_publicacao_status,corr_lock_correspondente_wa_id,processo_enviado_correspondente,retorno_correspondente_status,updated_at",
+      order: "updated_at.desc",
+      limit: 200
+    }
+  });
+  const rows = Array.isArray(data) ? data : [];
+  const candidates = rows
+    .filter((row) => allowedStatuses.has(String(row?.corr_publicacao_status || "").trim().toLowerCase()))
+    .map((row) => ({
+      row,
+      ref: normalizeCorrespondenteCaseRefInput(buildCorrespondenteCaseRef(row))
+    }))
+    .filter((item) => item.ref === normalizedRef);
+  return candidates[0]?.row || null;
+}
+
+function classifyCorrespondenteReturnFromText(rawText) {
+  const ntMsg = normalizeText(rawText || "");
+  const hasAny = (terms) => terms.some((term) => ntMsg.includes(term));
+  const reprovado = /\b(reprovado|credito reprovado|negado|nao aprovado)\b/.test(ntMsg);
+  const pendenciaRisco = hasAny([
+    "conres", "sinad", "scr", "registrato", "registrado", "bacen", "serasa", "spc", "protesto",
+    "restricao", "restricoes", "divida", "dividas", "impedimento", "margem financeira comprometida"
+  ]);
+  const pendenciaDocumental = hasAny([
+    "pendencia documental", "complemento documental", "documento adicional",
+    "complementacao documental", "pendencia de documento", "falta de documento",
+    "documentacao pendente", "faltando", "comprovante"
+  ]);
+  const aprovadoCondicionado = hasAny([
+    "aprovado condicionado", "aprovacao condicionada", "credito aprovado condicionado",
+    "pre aprovacao condicionada", "aprovado com ressalvas", "aprovado com condicoes"
+  ]);
+  const aprovado = /\b(aprovado|aprovada|credito aprovado|liberado|liberada)\b/.test(ntMsg);
+  if (reprovado) return "reprovado";
+  if (pendenciaRisco) return "pendencia_risco";
+  if (pendenciaDocumental) return "pendencia_documental";
+  if (aprovadoCondicionado) return "aprovado_condicionado";
+  if (aprovado) return "aprovado";
+  if (/\b(analise|analisando|em analise|em andamento|aguardando)\b/.test(ntMsg)) return "em_analise";
+  return "nao_identificado";
+}
+
+function extractCorrespondentePendenciasFromText(rawText) {
+  const text = String(rawText || "").trim();
+  if (!text) return [];
+  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  return lines
+    .filter((line) => /penden|falt|motivo|detalhe|restricao|imped/i.test(normalizeText(line)))
+    .slice(0, MAX_EXTRACTED_PENDENCIAS)
+    .map((line) => ({ descricao: line }));
+}
+
+async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
+  const correspondenteWaId = extractCorrespondenteWaId(msg, env);
+  if (!correspondenteWaId) return { handled: false };
+  const from = String(msg?.from || "").trim();
+  const isCorrespondenteChannel = Boolean(String(msg?.author || "").trim()) || (from === String(env.CORRESPONDENTE_TO || "").trim());
+  const caseRef = extractCorrespondenteCaseRefFromText(userText);
+  if (!caseRef) {
+    const maybeRetorno = /pré[- ]?cadastro|pre[- ]?cadastro|aprovad|reprovad|pend[eê]n|analise|imped/i.test(String(userText || ""));
+    if (!maybeRetorno || !isCorrespondenteChannel) return { handled: false };
+    await logger(env, {
+      tipo: "retorno_correspondente_case_ref_nao_identificado",
+      wa_id: correspondenteWaId,
+      texto: String(userText || "")
+    });
+    await funnelTelemetry(env, {
+      wa_id: correspondenteWaId,
+      event: "corr_return_case_ref_not_identified",
+      stage: "aguardando_retorno_correspondente",
+      severity: "warning",
+      message: "Retorno do correspondente recebido sem caseRef identificável",
+      details: { text_preview: String(userText || "").slice(0, 300) },
+      force: true
+    });
+    return { handled: true, reason: "corr_return_case_ref_not_identified" };
+  }
+
+  const caso = await findCorrespondenteCaseByCaseRef(env, caseRef);
+  if (!caso?.wa_id) {
+    await logger(env, {
+      tipo: "retorno_correspondente_case_ref_sem_match",
+      wa_id: correspondenteWaId,
+      case_ref: caseRef,
+      texto: String(userText || "")
+    });
+    return { handled: true, reason: "corr_return_case_ref_not_found" };
+  }
+  const waCliente = String(caso.wa_id || "").trim();
+  if (!waCliente || waCliente === correspondenteWaId) return { handled: false };
+
+  const stCaso = await getState(env, waCliente);
+  if (!stCaso) return { handled: true, reason: "corr_return_case_ref_state_not_found" };
+  const lockAtual = String(stCaso?.corr_lock_correspondente_wa_id || "").trim();
+  if (!lockAtual) {
+    return { handled: true, reason: "corr_return_case_ref_without_lock" };
+  }
+  if (lockAtual && lockAtual !== correspondenteWaId) {
+    await sendMessage(env, correspondenteWaId, "Este caso já está vinculado a outro correspondente. Retorno não registrado.");
+    return { handled: true, reason: "corr_return_case_ref_locked_other" };
+  }
+
+  const statusCanonico = classifyCorrespondenteReturnFromText(userText);
+  const pendencias = extractCorrespondentePendenciasFromText(userText);
+  const motivo =
+    pendencias[0]?.descricao ||
+    (statusCanonico === "reprovado" ? "Reprovado pelo correspondente." : null);
+
+  await upsertState(env, waCliente, {
+    retorno_correspondente_bruto: String(userText || "").trim(),
+    retorno_correspondente_status: statusCanonico,
+    retorno_correspondente_motivo: motivo
+  });
+  await logger(env, {
+    tipo: "retorno_correspondente_case_ref_processado",
+    wa_id: waCliente,
+    correspondente_wa_id: correspondenteWaId,
+    case_ref: caseRef,
+    status: statusCanonico,
+    pendencias
+  });
+
+  const stAtualizado = await getState(env, waCliente) || stCaso;
+  if (statusCanonico === "aprovado" || statusCanonico === "aprovado_condicionado") {
+    await step(env, stAtualizado, [
+      "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.",
+      "Agora o próximo passo é **agendar sua visita no plantão** com opções oficiais de data e horário."
+    ], "agendamento_visita");
+    return { handled: true, reason: "corr_return_case_ref_aprovado" };
+  }
+  if (statusCanonico === "reprovado") {
+    await step(env, stAtualizado, [
+      "Recebi o retorno do correspondente… 😕",
+      "Infelizmente **a análise não foi aprovada**.",
+      motivo ? `Motivo informado: *${String(motivo).replace(/[*_`~]/g, "").trim()}*.` : "",
+      "Se quiser, posso te orientar os próximos passos para nova tentativa."
+    ], "aguardando_retorno_correspondente");
+    return { handled: true, reason: "corr_return_case_ref_reprovado" };
+  }
+  if (statusCanonico === "pendencia_risco" || statusCanonico === "pendencia_documental" || statusCanonico === "em_analise") {
+    const detalhe = motivo ? `Detalhe informado: *${String(motivo).replace(/[*_`~]/g, "").trim()}*.` : "Assim que houver definição final, te aviso por aqui.";
+    await step(env, stAtualizado, [
+      "Recebi retorno do correspondente sobre o seu processo.",
+      detalhe,
+      "Por enquanto vou manter seu acompanhamento aqui até a definição final."
+    ], "aguardando_retorno_correspondente");
+    return { handled: true, reason: "corr_return_case_ref_pendencia" };
+  }
+  await funnelTelemetry(env, {
+    wa_id: waCliente,
+    event: "corr_return_case_ref_unclassified",
+    stage: "aguardando_retorno_correspondente",
+    severity: "warning",
+    message: "Retorno por caseRef recebido sem classificação conclusiva",
+    details: { case_ref: caseRef, correspondente_wa_id: correspondenteWaId },
+    force: true
+  });
+  return { handled: true, reason: "corr_return_case_ref_unclassified" };
+}
+
 async function listCorrespondenteAssumirCandidates(env) {
   const allowedStatuses = new Set([
     "publicado_grupo_pendente_assumir",
@@ -11574,8 +11870,10 @@ async function enviarParaCorrespondente(env, st, dossie) {
     correspondente_to_resolved: to || null
   });
 
-  const tokenAssumir = normalizeAssumirToken(st?.corr_assumir_token) || gerarAssumirToken();
-  const mensagemGrupo = buildCorrespondenteGroupAlert(st, tokenAssumir, env);
+  const caseRefPersistido = await ensureCorrespondenteCaseRef(env, st);
+  const stComCaseRef = { ...st, pre_cadastro_numero: caseRefPersistido };
+  const tokenAssumir = normalizeAssumirToken(stComCaseRef?.corr_assumir_token) || gerarAssumirToken();
+  const mensagemGrupo = buildCorrespondenteGroupAlert(stComCaseRef, tokenAssumir, env);
 
   // 3 — Publica alerta mínimo no grupo (distribuição sem dados sensíveis)
   // CORRESPONDENTE_TO = grupo de correspondentes (distribuição)
@@ -11592,8 +11890,8 @@ async function enviarParaCorrespondente(env, st, dossie) {
       result: "fail",
       error: "CORRESPONDENTE_TO ausente"
     }, "warning");
-    console.warn("CORRESPONDENTE_TO não configurado no ambiente. Não foi possível enviar ao correspondente.");
-    return { ok: false, token: tokenAssumir, mode: "none" };
+      console.warn("CORRESPONDENTE_TO não configurado no ambiente. Não foi possível enviar ao correspondente.");
+      return { ok: false, token: tokenAssumir, mode: "none", caseRef: caseRefPersistido };
   }
 
   try {
@@ -11612,14 +11910,30 @@ async function enviarParaCorrespondente(env, st, dossie) {
         correspondente_to_resolved: to || null
       }, "warning");
       console.warn("Destino inválido para distribuição ao correspondente. Envio abortado.");
-      return { ok: false, token: tokenAssumir, mode: "none" };
+      return { ok: false, token: tokenAssumir, mode: "none", caseRef: caseRefPersistido };
     }
 
     const templateName = String(env.CORR_TEMPLATE_NAME || "").trim();
     const templateLang = String(env.CORR_TEMPLATE_LANG || "pt_BR").trim() || "pt_BR";
-    const caseRef = buildCorrespondenteCaseRef(st);
+    const caseRef = buildCorrespondenteCaseRef(stComCaseRef);
     const clienteNome = String(st?.nome || "Cliente").trim() || "Cliente";
-    const templateAssumirHint = `ASSUMIR ${caseRef} ou ASSUMIR PRÉ-CADASTRO ${caseRef}`;
+    const entryLinkRaw = buildCorrespondenteEntryLink(env, tokenAssumir);
+    const entryLink = (() => {
+      const raw = String(entryLinkRaw || "").trim();
+      if (!raw) return "";
+      try {
+        const parsed = new URL(raw);
+        return /^https?:$/i.test(parsed.protocol) ? raw : "";
+      } catch {
+        return "";
+      }
+    })();
+    const templateAssumirHint = [
+      "CTA principal: abra o link oficial de entrada da Enova para assumir.",
+      entryLink ? `Link oficial de assunção: ${entryLink}` : null,
+      `Fallback compatível: ASSUMIR ${caseRef}`
+    ].filter(Boolean).join(" ");
+    const assumirButtonPayload = buildCorrespondenteAssumirButtonPayload(tokenAssumir);
     const attemptedModes = [];
 
     if (!templateName) {
@@ -11648,7 +11962,8 @@ async function enviarParaCorrespondente(env, st, dossie) {
         to,
         templateName,
         templateLang,
-        [caseRef, clienteNome, templateAssumirHint]
+        [caseRef, clienteNome, templateAssumirHint],
+        { quickReplyPayload: assumirButtonPayload }
       );
       if (templateResult?.ok === true) {
         await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente confirmado", {
@@ -11656,14 +11971,38 @@ async function enviarParaCorrespondente(env, st, dossie) {
           result: "ok",
           correspondente_to_resolved: to
         });
-        return { ok: true, token: tokenAssumir, mode: "template" };
+         return { ok: true, token: tokenAssumir, mode: "template", caseRef: caseRefPersistido };
+      }
+
+      // Compatibilidade de rollout: se o template com botão falhar (ex.: versão sem botão no Meta),
+      // tenta o mesmo template no formato legado sem CTA dinâmico.
+      await logCorrDispatch("corr_dispatch_try_template", "Tentativa de envio template utility legado (sem CTA dinâmico)", {
+        mode: "template_legacy",
+        correspondente_to_resolved: to,
+        template_name: templateName,
+        template_lang: templateLang
+      });
+      const templateLegacyResult = await sendCorrespondenteTemplate(
+        env,
+        to,
+        templateName,
+        templateLang,
+        [caseRef, clienteNome, templateAssumirHint]
+      );
+      if (templateLegacyResult?.ok === true) {
+        await logCorrDispatch("corr_dispatch_result", "Envio ao correspondente confirmado", {
+          mode: "template_legacy",
+          result: "ok",
+          correspondente_to_resolved: to
+        });
+         return { ok: true, token: tokenAssumir, mode: "template_legacy", caseRef: caseRefPersistido };
       }
 
       await logCorrDispatch("corr_dispatch_error_code", "Código de erro no envio ao correspondente", {
-        error_code: templateResult?.errorCode || "template_send_failed"
+        error_code: templateResult?.errorCode || templateLegacyResult?.errorCode || "template_send_failed"
       }, "warning");
       await logCorrDispatch("corr_dispatch_error_message", "Mensagem de erro no envio ao correspondente", {
-        error_message: templateResult?.errorMessage || "Falha no envio template ao correspondente"
+        error_message: templateResult?.errorMessage || templateLegacyResult?.errorMessage || "Falha no envio template ao correspondente"
       }, "warning");
     }
 
@@ -11682,7 +12021,7 @@ async function enviarParaCorrespondente(env, st, dossie) {
           result: "ok",
           correspondente_to_resolved: to
         });
-        return { ok: true, token: tokenAssumir, mode: "text" };
+        return { ok: true, token: tokenAssumir, mode: "text", caseRef: caseRefPersistido };
       }
 
       await logCorrDispatch("corr_dispatch_error_code", "Código de erro no envio ao correspondente", {
@@ -11705,7 +12044,7 @@ async function enviarParaCorrespondente(env, st, dossie) {
       attempted_modes: attemptedModes,
       correspondente_to_resolved: to
     }, "error");
-    return { ok: false, token: tokenAssumir, mode: "fallback" };
+    return { ok: false, token: tokenAssumir, mode: "fallback", caseRef: caseRefPersistido };
   } catch (err) {
     await logCorrDispatch("corr_dispatch_error_code", "Código de erro no envio ao correspondente", {
       error_code: err?.meta_error_code || err?.code || "dispatch_exception"
@@ -11720,11 +12059,11 @@ async function enviarParaCorrespondente(env, st, dossie) {
       correspondente_to_resolved: to
     }, "error");
     console.error("Erro ao publicar alerta no grupo de correspondentes:", err);
-    return { ok: false, token: tokenAssumir, mode: "fallback" };
+    return { ok: false, token: tokenAssumir, mode: "fallback", caseRef: caseRefPersistido };
   }
 }
 
-async function sendCorrespondenteTemplate(env, to, templateName, templateLang, templateParams = []) {
+async function sendCorrespondenteTemplate(env, to, templateName, templateLang, templateParams = [], options = {}) {
   const components = [];
   const normalizedParams = Array.isArray(templateParams) ? templateParams : [];
   if (normalizedParams.length) {
@@ -11734,6 +12073,20 @@ async function sendCorrespondenteTemplate(env, to, templateName, templateLang, t
         type: "text",
         text: String(value ?? "")
       }))
+    });
+  }
+  const quickReplyPayload = String(options?.quickReplyPayload || "").trim();
+  if (quickReplyPayload) {
+    components.push({
+      type: "button",
+      sub_type: "quick_reply",
+      index: "0",
+      parameters: [
+        {
+          type: "payload",
+          payload: quickReplyPayload
+        }
+      ]
     });
   }
   const payload = {
@@ -21073,6 +21426,7 @@ Restrição: ${st.restricao || "não informado"}
   const envio = await enviarParaCorrespondente(env, st, dossie);
   await upsertState(env, st.wa_id, {
     dossie_resumo: dossie,
+    pre_cadastro_numero: envio?.caseRef || st.pre_cadastro_numero || null,
     corr_assumir_token: envio?.token || st.corr_assumir_token || null,
     corr_publicacao_status: envio?.ok ? "publicado_grupo_pendente_assumir" : "falha_publicacao_grupo",
     corr_publicado_grupo_em: envio?.ok ? new Date().toISOString() : st.corr_publicado_grupo_em || null,

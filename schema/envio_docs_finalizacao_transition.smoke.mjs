@@ -157,11 +157,12 @@ function buildTextWebhook(from, text, msgId) {
     assert.equal(st.corr_assumir_token.length > 0, true);
     assert.equal(st.corr_publicacao_status, "publicado_grupo_pendente_assumir");
     assert.equal(st.processo_enviado_correspondente, false);
+    assert.equal(st.pre_cadastro_numero, "000001");
     const tokenPublicado = st.corr_assumir_token;
     const payloadGrupo = env.__enovaSimulationCtx.sendPreview;
-    const expectedCaseRef = buildCorrespondenteCaseRef({ wa_id: waId });
+    const expectedCaseRef = "000001";
     const expectedEntryLink = `https://entrada.enova.local/correspondente/entrada?t=${tokenPublicado}`;
-    const expectedAssumirHint = `Use o botão/link desta mensagem para assumir. Fallback: ASSUMIR ${expectedCaseRef} Reabertura após assunção: ${expectedEntryLink}`;
+    const expectedAssumirHint = `CTA principal: abra o link oficial de entrada da Enova para assumir. Link oficial de assunção: ${expectedEntryLink} Fallback compatível: ASSUMIR ${expectedCaseRef}`;
     assert.equal(payloadGrupo?.to, env.CORRESPONDENTE_TO);
     assert.notEqual(payloadGrupo?.to, waId);
     assert.equal(payloadGrupo?.type, "template");
@@ -205,6 +206,7 @@ function buildTextWebhook(from, text, msgId) {
     assert.equal(resReprocess.status, 200);
     const stReprocess = env.__enovaSimulationCtx.stateByWaId[waId];
     assert.equal(stReprocess.corr_assumir_token, tokenPublicado);
+    assert.equal(stReprocess.pre_cadastro_numero, "000001");
     assert.equal(stReprocess.corr_publicacao_status, "publicado_grupo_pendente_assumir");
     assert.equal(env.__enovaSimulationCtx.sendPreview, null);
   } finally {
@@ -351,8 +353,46 @@ function buildTextWebhook(from, text, msgId) {
   const payloadGrupo = env.__enovaSimulationCtx.sendPreview;
   const params = payloadGrupo?.template?.components?.[0]?.parameters || [];
   const hint = String(params?.[2]?.text || "");
-  assert.equal(hint.includes("Use o botão/link desta mensagem para assumir."), true);
-  assert.equal(hint.includes("Reabertura após assunção:"), false);
+  assert.equal(hint.includes("CTA principal: abra o link oficial de entrada da Enova para assumir."), true);
+  assert.equal(hint.includes("Link oficial de assunção:"), false);
+}
+
+// 7) Pré-cadastro sequencial deve avançar por caso e não colidir.
+{
+  const env = buildEnv();
+  const waA = waId;
+  const waB = "5541991113333";
+  env.__enovaSimulationCtx.stateByWaId[waB] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waA],
+    wa_id: waB,
+    nome: "Cliente Seguinte",
+    corr_assumir_token: null,
+    corr_publicacao_status: null,
+    pre_cadastro_numero: null,
+    fase_conversa: "finalizacao_processo"
+  };
+
+  const reqA = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(buildTextWebhook(waA, "enviei documento", "wamid.docs.seq.a.1"))
+  });
+  await worker.fetch(reqA, env, {});
+  const reqAPublish = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(buildTextWebhook(waA, "ok", "wamid.docs.seq.a.2"))
+  });
+  await worker.fetch(reqAPublish, env, {});
+  assert.equal(env.__enovaSimulationCtx.stateByWaId[waA].pre_cadastro_numero, "000001");
+
+  const reqB = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(buildTextWebhook(waB, "ok", "wamid.docs.seq.b.1"))
+  });
+  await worker.fetch(reqB, env, {});
+  assert.equal(env.__enovaSimulationCtx.stateByWaId[waB].pre_cadastro_numero, "000002");
 }
 
 console.log("envio_docs_finalizacao_transition.smoke: ok");

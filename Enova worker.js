@@ -10930,12 +10930,13 @@ function buildCorrespondenteGroupAlert(st, token, env) {
     `Pré-cadastro: ${caseRef}`,
     `Cliente: ${clienteNome}`,
     "",
-    "✅ Para assumir, use o botão/link oficial desta publicação.",
-    `Fallback (compatibilidade): *ASSUMIR ${caseRef}* ou *ASSUMIR TOKEN*.`,
+    "✅ CTA principal: abra o *link de entrada da Enova* para assumir este caso.",
+    "⚠️ O dossiê completo só é liberado no privado após assunção válida.",
+    `Fallback de compatibilidade: *ASSUMIR ${caseRef}* ou *ASSUMIR TOKEN*.`,
     "",
     entryLink
-      ? "Link de reabertura (liberado após assunção válida):"
-      : "Após assumir, reabra o link permanente enviado no retorno privado.",
+      ? "Link oficial de entrada/assunção:"
+      : "Link oficial de entrada indisponível no momento.",
     entryLink || "Link permanente indisponível no momento.",
     "",
     "⚠️ Este grupo é apenas distribuição (sem dados sensíveis)."
@@ -10953,18 +10954,17 @@ function escapeHtml(value) {
 
 function buildCorrespondenteCaseRef(caso) {
   const preCadastro = String(caso?.pre_cadastro_numero || "").trim();
-  if (preCadastro) return preCadastro;
-  const wa = String(caso?.wa_id || "").replace(/\D/g, "");
-  const suffix = wa.slice(-4).padStart(4, "0");
-  return `C${suffix}`;
+  const normalized = normalizeCorrespondenteCaseRefInput(preCadastro);
+  if (normalized) return normalized;
+  return "000000";
 }
 
 function normalizeCorrespondenteCaseRefInput(value) {
-  const raw = String(value || "").toUpperCase().trim();
+  const raw = String(value || "").trim();
   if (!raw) return null;
   const digits = raw.replace(/\D/g, "");
   if (!digits) return null;
-  return `C${digits.slice(-4).padStart(4, "0")}`;
+  return digits.slice(-6).padStart(6, "0");
 }
 
 function extractCorrespondenteCaseRefFromText(text) {
@@ -10973,13 +10973,81 @@ function extractCorrespondenteCaseRefFromText(text) {
   const normalized = raw.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   const patterns = [
     /\b(?:pre\s*cadastro|cadastro|case\s*ref|ref)\s*[:#-]?\s*C?\s*(\d{1,8})\b/i,
-    /\bC\s*0*(\d{3,8})\b/i
+    /\bC\s*0*(\d{1,8})\b/i
   ];
   for (const pattern of patterns) {
     const match = normalized.match(pattern);
     if (match?.[1]) return normalizeCorrespondenteCaseRefInput(match[1]);
   }
+  if (/\b(aprov|reprov|pend|analis|imped)\w*\b/i.test(normalized)) {
+    const simple = normalized.match(/(?:^|\D)(\d{6})(?:\D|$)/);
+    if (simple?.[1]) return normalizeCorrespondenteCaseRefInput(simple[1]);
+  }
   return null;
+}
+
+const CORRESPONDENTE_CASE_COUNTER_WA_ID = "__corr_case_ref_counter__";
+const INITIAL_CASE_REF_VALUE = "000000";
+const MAX_CASE_REF_ALLOCATION_ATTEMPTS = 10;
+const MAX_EXTRACTED_PENDENCIAS = 8;
+
+async function allocateCorrespondenteCaseRefSequential(env) {
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) {
+    const current = normalizeCorrespondenteCaseRefInput(simCtx.correspondenteCaseCounter || "000000") || "000000";
+    const nextNumeric = Number.parseInt(current, 10) + 1;
+    const nextValue = String(Math.max(1, nextNumeric)).padStart(6, "0");
+    simCtx.correspondenteCaseCounter = nextValue;
+    return nextValue;
+  }
+
+  const initialValue = INITIAL_CASE_REF_VALUE;
+  try {
+    await supabaseInsert(env, "enova_state", {
+      wa_id: CORRESPONDENTE_CASE_COUNTER_WA_ID,
+      pre_cadastro_numero: initialValue,
+      fase_conversa: "system_counter",
+      funil_status: "system_counter"
+    });
+  } catch {
+    // Registro pode já existir (idempotência/corrida de inicialização). Seguimos com leitura+CAS.
+  }
+
+  let lastObserved = initialValue;
+  for (let attempt = 0; attempt < MAX_CASE_REF_ALLOCATION_ATTEMPTS; attempt++) {
+    const current = await getState(env, CORRESPONDENTE_CASE_COUNTER_WA_ID);
+    const currentValue = normalizeCorrespondenteCaseRefInput(current?.pre_cadastro_numero || initialValue) || initialValue;
+    lastObserved = currentValue;
+    const nextNumeric = Number.parseInt(currentValue, 10) + 1;
+    const nextValue = String(Math.max(1, nextNumeric)).padStart(6, "0");
+
+    await sbFetch(env, "/rest/v1/enova_state", {
+      method: "PATCH",
+      query: {
+        wa_id: `eq.${encodeURIComponent(CORRESPONDENTE_CASE_COUNTER_WA_ID)}`,
+        pre_cadastro_numero: `eq.${encodeURIComponent(currentValue)}`
+      },
+      body: JSON.stringify({
+        pre_cadastro_numero: nextValue,
+        updated_at: new Date().toISOString()
+      })
+    });
+
+    const after = await getState(env, CORRESPONDENTE_CASE_COUNTER_WA_ID);
+    if (normalizeCorrespondenteCaseRefInput(after?.pre_cadastro_numero || "") === nextValue) {
+      return nextValue;
+    }
+  }
+
+  throw new Error(`Falha ao alocar pre_cadastro_numero sequencial após ${MAX_CASE_REF_ALLOCATION_ATTEMPTS} tentativas (last=${lastObserved})`);
+}
+
+async function ensureCorrespondenteCaseRef(env, st) {
+  const existing = normalizeCorrespondenteCaseRefInput(st?.pre_cadastro_numero);
+  if (existing) return existing;
+  const allocated = await allocateCorrespondenteCaseRefSequential(env);
+  await upsertState(env, st.wa_id, { pre_cadastro_numero: allocated });
+  return allocated;
 }
 
 function buildCorrespondenteDossierPayloadFromState(st, options = {}) {
@@ -11418,7 +11486,7 @@ function extractCorrespondentePendenciasFromText(rawText) {
   const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
   return lines
     .filter((line) => /penden|falt|motivo|detalhe|restricao|imped/i.test(normalizeText(line)))
-    .slice(0, 8)
+    .slice(0, MAX_EXTRACTED_PENDENCIAS)
     .map((line) => ({ descricao: line }));
 }
 
@@ -11802,8 +11870,10 @@ async function enviarParaCorrespondente(env, st, dossie) {
     correspondente_to_resolved: to || null
   });
 
-  const tokenAssumir = normalizeAssumirToken(st?.corr_assumir_token) || gerarAssumirToken();
-  const mensagemGrupo = buildCorrespondenteGroupAlert(st, tokenAssumir, env);
+  const caseRefPersistido = await ensureCorrespondenteCaseRef(env, st);
+  const stComCaseRef = { ...st, pre_cadastro_numero: caseRefPersistido };
+  const tokenAssumir = normalizeAssumirToken(stComCaseRef?.corr_assumir_token) || gerarAssumirToken();
+  const mensagemGrupo = buildCorrespondenteGroupAlert(stComCaseRef, tokenAssumir, env);
 
   // 3 — Publica alerta mínimo no grupo (distribuição sem dados sensíveis)
   // CORRESPONDENTE_TO = grupo de correspondentes (distribuição)
@@ -11820,8 +11890,8 @@ async function enviarParaCorrespondente(env, st, dossie) {
       result: "fail",
       error: "CORRESPONDENTE_TO ausente"
     }, "warning");
-    console.warn("CORRESPONDENTE_TO não configurado no ambiente. Não foi possível enviar ao correspondente.");
-    return { ok: false, token: tokenAssumir, mode: "none" };
+      console.warn("CORRESPONDENTE_TO não configurado no ambiente. Não foi possível enviar ao correspondente.");
+      return { ok: false, token: tokenAssumir, mode: "none", caseRef: caseRefPersistido };
   }
 
   try {
@@ -11840,12 +11910,12 @@ async function enviarParaCorrespondente(env, st, dossie) {
         correspondente_to_resolved: to || null
       }, "warning");
       console.warn("Destino inválido para distribuição ao correspondente. Envio abortado.");
-      return { ok: false, token: tokenAssumir, mode: "none" };
+      return { ok: false, token: tokenAssumir, mode: "none", caseRef: caseRefPersistido };
     }
 
     const templateName = String(env.CORR_TEMPLATE_NAME || "").trim();
     const templateLang = String(env.CORR_TEMPLATE_LANG || "pt_BR").trim() || "pt_BR";
-    const caseRef = buildCorrespondenteCaseRef(st);
+    const caseRef = buildCorrespondenteCaseRef(stComCaseRef);
     const clienteNome = String(st?.nome || "Cliente").trim() || "Cliente";
     const entryLinkRaw = buildCorrespondenteEntryLink(env, tokenAssumir);
     const entryLink = (() => {
@@ -11859,9 +11929,9 @@ async function enviarParaCorrespondente(env, st, dossie) {
       }
     })();
     const templateAssumirHint = [
-      "Use o botão/link desta mensagem para assumir.",
-      `Fallback: ASSUMIR ${caseRef}`,
-      entryLink ? `Reabertura após assunção: ${entryLink}` : null
+      "CTA principal: abra o link oficial de entrada da Enova para assumir.",
+      entryLink ? `Link oficial de assunção: ${entryLink}` : null,
+      `Fallback compatível: ASSUMIR ${caseRef}`
     ].filter(Boolean).join(" ");
     const assumirButtonPayload = buildCorrespondenteAssumirButtonPayload(tokenAssumir);
     const attemptedModes = [];
@@ -11901,7 +11971,7 @@ async function enviarParaCorrespondente(env, st, dossie) {
           result: "ok",
           correspondente_to_resolved: to
         });
-        return { ok: true, token: tokenAssumir, mode: "template" };
+         return { ok: true, token: tokenAssumir, mode: "template", caseRef: caseRefPersistido };
       }
 
       // Compatibilidade de rollout: se o template com botão falhar (ex.: versão sem botão no Meta),
@@ -11925,7 +11995,7 @@ async function enviarParaCorrespondente(env, st, dossie) {
           result: "ok",
           correspondente_to_resolved: to
         });
-        return { ok: true, token: tokenAssumir, mode: "template_legacy" };
+         return { ok: true, token: tokenAssumir, mode: "template_legacy", caseRef: caseRefPersistido };
       }
 
       await logCorrDispatch("corr_dispatch_error_code", "Código de erro no envio ao correspondente", {
@@ -11951,7 +12021,7 @@ async function enviarParaCorrespondente(env, st, dossie) {
           result: "ok",
           correspondente_to_resolved: to
         });
-        return { ok: true, token: tokenAssumir, mode: "text" };
+        return { ok: true, token: tokenAssumir, mode: "text", caseRef: caseRefPersistido };
       }
 
       await logCorrDispatch("corr_dispatch_error_code", "Código de erro no envio ao correspondente", {
@@ -11974,7 +12044,7 @@ async function enviarParaCorrespondente(env, st, dossie) {
       attempted_modes: attemptedModes,
       correspondente_to_resolved: to
     }, "error");
-    return { ok: false, token: tokenAssumir, mode: "fallback" };
+    return { ok: false, token: tokenAssumir, mode: "fallback", caseRef: caseRefPersistido };
   } catch (err) {
     await logCorrDispatch("corr_dispatch_error_code", "Código de erro no envio ao correspondente", {
       error_code: err?.meta_error_code || err?.code || "dispatch_exception"
@@ -11989,7 +12059,7 @@ async function enviarParaCorrespondente(env, st, dossie) {
       correspondente_to_resolved: to
     }, "error");
     console.error("Erro ao publicar alerta no grupo de correspondentes:", err);
-    return { ok: false, token: tokenAssumir, mode: "fallback" };
+    return { ok: false, token: tokenAssumir, mode: "fallback", caseRef: caseRefPersistido };
   }
 }
 
@@ -21356,6 +21426,7 @@ Restrição: ${st.restricao || "não informado"}
   const envio = await enviarParaCorrespondente(env, st, dossie);
   await upsertState(env, st.wa_id, {
     dossie_resumo: dossie,
+    pre_cadastro_numero: envio?.caseRef || st.pre_cadastro_numero || null,
     corr_assumir_token: envio?.token || st.corr_assumir_token || null,
     corr_publicacao_status: envio?.ok ? "publicado_grupo_pendente_assumir" : "falha_publicacao_grupo",
     corr_publicado_grupo_em: envio?.ok ? new Date().toISOString() : st.corr_publicado_grupo_em || null,

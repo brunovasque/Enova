@@ -11245,8 +11245,15 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
 }
 
 async function handleCorrespondenteEntryPage(request, env) {
+  const buildHeaderValue = String(typeof ENOVA_BUILD === "string" ? ENOVA_BUILD : "").trim() || "unknown";
+  const respondEntry = (body, status, contentType) => {
+    const headers = { "X-Enova-Build": buildHeaderValue };
+    if (contentType) headers["content-type"] = contentType;
+    return new Response(body, { status, headers });
+  };
+
   if (request.method !== "GET") {
-    return new Response("Método não permitido nesta página.", { status: 403 });
+    return respondEntry("Método não permitido nesta página.", 403);
   }
 
   const requestUrl = new URL(request.url);
@@ -11257,7 +11264,7 @@ async function handleCorrespondenteEntryPage(request, env) {
   const tokenInput = requestUrl.searchParams.get("t") || requestUrl.searchParams.get("token");
   const token = normalizeAssumirToken(tokenInput);
   if (!caseRef && !token) {
-    return new Response("Identificador de entrada inválido.", { status: 400 });
+    return respondEntry("Identificador de entrada inválido.", 400);
   }
 
   let caso = null;
@@ -11268,11 +11275,11 @@ async function handleCorrespondenteEntryPage(request, env) {
     caso = await getCorrespondenteCaseByToken(env, token);
   }
   if (!caso?.wa_id) {
-    return new Response("Link de entrada inválido.", { status: 404 });
+    return respondEntry("Link de entrada inválido.", 404);
   }
 
   if (!isCorrespondenteEntryAllowed(caso)) {
-    return new Response("Link de entrada indisponível para o estado atual do caso.", { status: 403 });
+    return respondEntry("Link de entrada indisponível para o estado atual do caso.", 403);
   }
 
   const adminOverride = isCorrespondenteEntryAdminOverride(request, env);
@@ -11284,10 +11291,10 @@ async function handleCorrespondenteEntryPage(request, env) {
   const casoAtual = await getState(env, caso.wa_id) || caso;
   const lockFinal = String(casoAtual?.corr_lock_correspondente_wa_id || "").trim();
   if (!lockFinal && !adminOverride) {
-    return new Response("Caso ainda não assumido. A assunção ocorre na mensagem de distribuição do grupo.", { status: 403 });
+    return respondEntry("Caso ainda não assumido. A assunção ocorre na mensagem de distribuição do grupo.", 403);
   }
   if (!adminOverride && !requesterWaId) {
-    return new Response("Acesso bloqueado: informe o correspondente no link para abrir o dossiê assumido.", { status: 403 });
+    return respondEntry("Acesso bloqueado: informe o correspondente no link para abrir o dossiê assumido.", 403);
   }
   if (!adminOverride && requesterWaId !== lockFinal) {
     return new Response(
@@ -11298,7 +11305,7 @@ async function handleCorrespondenteEntryPage(request, env) {
         showBlocked: true,
         blockedMessage: "Este caso já foi assumido por outro correspondente."
       }),
-      { status: 403, headers: { "content-type": "text/html; charset=utf-8" } }
+      { status: 403, headers: { "content-type": "text/html; charset=utf-8", "X-Enova-Build": buildHeaderValue } }
     );
   }
 
@@ -11310,7 +11317,7 @@ async function handleCorrespondenteEntryPage(request, env) {
     dossierPayload
   }), {
     status: 200,
-    headers: { "content-type": "text/html; charset=utf-8" }
+    headers: { "content-type": "text/html; charset=utf-8", "X-Enova-Build": buildHeaderValue }
   });
 }
 
@@ -11429,16 +11436,9 @@ async function getCorrespondenteCaseByToken(env, token) {
 async function findCorrespondenteCaseByCaseRef(env, caseRef) {
   const normalizedRef = normalizeCorrespondenteCaseRefInput(caseRef);
   if (!normalizedRef) return null;
-  const allowedStatuses = new Set([
-    "publicado_grupo_pendente_assumir",
-    "lock_adquirido_tentando_entrega",
-    "assumido_falha_entrega_privada",
-    "entregue_privado_aguardando_retorno"
-  ]);
   const simCtx = getSimulationContext(env);
   if (simCtx?.active && simCtx.stateByWaId) {
     const candidates = Object.values(simCtx.stateByWaId)
-      .filter((row) => allowedStatuses.has(String(row?.corr_publicacao_status || "").trim().toLowerCase()))
       .map((row) => ({
         row,
         ref: normalizeCorrespondenteCaseRefInput(buildCorrespondenteCaseRef(row)),
@@ -11449,17 +11449,29 @@ async function findCorrespondenteCaseByCaseRef(env, caseRef) {
     return candidates[0]?.row || null;
   }
 
+  const { data: exactRows } = await sbFetch(env, "/rest/v1/enova_state", {
+    method: "GET",
+    query: {
+      select: "wa_id,nome,fase_conversa,pre_cadastro_numero,corr_publicacao_status,corr_lock_correspondente_wa_id,processo_enviado_correspondente,retorno_correspondente_status,updated_at",
+      pre_cadastro_numero: `eq.${encodeURIComponent(normalizedRef)}`,
+      order: "updated_at.desc",
+      limit: 1
+    }
+  });
+  if (Array.isArray(exactRows) && exactRows.length) {
+    return exactRows[0];
+  }
+
   const { data } = await sbFetch(env, "/rest/v1/enova_state", {
     method: "GET",
     query: {
       select: "wa_id,nome,fase_conversa,pre_cadastro_numero,corr_publicacao_status,corr_lock_correspondente_wa_id,processo_enviado_correspondente,retorno_correspondente_status,updated_at",
       order: "updated_at.desc",
-      limit: 200
+      limit: 1000
     }
   });
   const rows = Array.isArray(data) ? data : [];
   const candidates = rows
-    .filter((row) => allowedStatuses.has(String(row?.corr_publicacao_status || "").trim().toLowerCase()))
     .map((row) => ({
       row,
       ref: normalizeCorrespondenteCaseRefInput(buildCorrespondenteCaseRef(row))

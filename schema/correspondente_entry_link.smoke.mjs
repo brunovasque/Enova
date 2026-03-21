@@ -78,6 +78,16 @@ function buildEnvWithState() {
   assert.equal(body.includes("A assunção ocorre na mensagem de distribuição do grupo"), true);
 }
 
+// 2.1) pre inexistente continua inválido.
+{
+  const env = buildEnvWithState();
+  const req = new Request("https://worker.local/correspondente/entrada?pre=999999", { method: "GET" });
+  const res = await worker.fetch(req, env, {});
+  const body = await res.text();
+  assert.equal(res.status, 404);
+  assert.equal(body.includes("Link de entrada inválido."), true);
+}
+
 // 3) Assunção no fluxo externo libera link apenas para o correspondente correto.
 {
   const env = buildEnvWithState();
@@ -577,6 +587,62 @@ function buildEnvWithState() {
   const after = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(after.fase_conversa, before.fase_conversa);
   assert.equal(after.retorno_correspondente_status || null, before.retorno_correspondente_status || null);
+}
+
+// 9) Lookup por ?pre deve funcionar também quando o proxy retorna envelope { data: [...] }.
+{
+  const originalFetch = globalThis.fetch;
+  const waId = "5541991111222";
+  const correspondenteLock = "5511999999999";
+  const caseRef = "000004";
+  const stateRow = {
+    wa_id: waId,
+    nome: "CASO PROXY DATA",
+    fase_conversa: "aguardando_retorno_correspondente",
+    pre_cadastro_numero: caseRef,
+    corr_publicacao_status: "entregue_privado_aguardando_retorno",
+    corr_lock_correspondente_wa_id: correspondenteLock,
+    processo_enviado_correspondente: true,
+    updated_at: "2026-03-20T10:00:00.000Z"
+  };
+  globalThis.fetch = async (input, init) => {
+    const rawUrl = typeof input === "string" ? input : input.url;
+    const parsed = new URL(rawUrl);
+    if (parsed.pathname !== "/api/supabase-proxy") {
+      return originalFetch(input, init);
+    }
+    const waFilter = parsed.searchParams.get("wa_id") || "";
+    const preFilter = parsed.searchParams.get("pre_cadastro_numero") || "";
+    const rows = [];
+    if (waFilter === `eq.${waId}` || preFilter === `eq.${caseRef}`) {
+      rows.push({ ...stateRow });
+    }
+    return new Response(JSON.stringify({ data: rows }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const env = {
+      ENV_MODE: "test",
+      ENOVA_ADMIN_KEY: "adm-key",
+      VERCEL_PROXY_URL: "https://proxy.example.com",
+      SUPABASE_SERVICE_ROLE: "service-role",
+      META_API_VERSION: "v20.0",
+      PHONE_NUMBER_ID: "123456",
+      WHATS_TOKEN: "token",
+      META_VERIFY_TOKEN: "verify"
+    };
+    const req = new Request(`https://worker.local/correspondente/entrada?pre=${caseRef}&cw=${correspondenteLock}`, { method: "GET" });
+    const res = await worker.fetch(req, env, {});
+    const body = await res.text();
+    assert.equal(res.status, 200);
+    assert.equal(body.includes("Referência:</span> 000004"), true);
+    assert.equal(body.includes("Resumo executivo"), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 }
 
 console.log("correspondente_entry_link.smoke: ok");

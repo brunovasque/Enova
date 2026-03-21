@@ -11362,7 +11362,7 @@ async function handleCorrespondenteEntryPage(request, env) {
       });
     }
     if (requesterWaId === String(casoAtual?.wa_id || "").trim()) {
-      return respondEntry("Esse link é para correspondente. O número informado é do cliente.", 403);
+      return respondEntry("O número informado pertence ao cliente. Por favor, informe o WhatsApp do correspondente.", 403);
     }
     const tokenFromCase = normalizeAssumirToken(casoAtual?.corr_assumir_token || "");
     const assumirToken = token || tokenFromCase;

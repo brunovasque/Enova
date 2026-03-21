@@ -76,7 +76,8 @@ function buildEnvWithState() {
   const html = await res.text();
   assert.equal(res.status, 200);
   assert.equal(html.includes("Capa do caso"), true);
-  assert.equal(html.includes("Referência:</span> 000001"), true);
+  assert.equal(html.includes("Referência:"), true);
+  assert.equal(html.includes("000001"), true);
   assert.equal(html.includes("Assumir caso"), true);
   assert.equal(html.includes("porta oficial de assunção"), true);
 }

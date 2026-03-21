@@ -7,7 +7,7 @@ const { buildCorrespondenteGroupAlert } = workerModule;
 const token = "AB12CD34EF56GH78JK90LM12";
 const waCaso = "5541999998888";
 const correspondenteWa = "5511999999999";
-const CORRESPONDENTE_CASE_CONFIRMATION_PROMPT = "Me confirme o pré-cadastro deste retorno, por favor.";
+const CORRESPONDENTE_CASE_CONFIRMATION_PROMPT = "Me confirme no formato:";
 
 function buildEnvWithState() {
   return {
@@ -864,6 +864,76 @@ function buildEnvWithState() {
   const rawPayload = JSON.parse(String(after.retorno_correspondente_bruto || "{}"));
   assert.equal(rawPayload.manual_review_required, true);
   assert.equal(rawPayload.case_ref, "000518");
+  const correspondenteConfirmation = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(Boolean(correspondenteConfirmation), true);
+  assert.equal(correspondenteConfirmation?.to, correspondenteWa);
+  const body = String(correspondenteConfirmation?.text?.body || "");
+  assert.equal(body.includes("Me confirme no formato:"), true);
+  assert.equal(body.includes("STATUS: APROVADO, REPROVADO ou PENDÊNCIA"), true);
+}
+
+// 8.4b) Texto com caseRef sem STATUS claro deve pedir confirmação objetiva ao correspondente.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.case.ref.ambiguous.000006",
+              timestamp: "1773183919",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(assumirReq, env, {});
+  const faseAntes = env.__enovaSimulationCtx.stateByWaId[waCaso].fase_conversa;
+
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.ambiguous.000006",
+              timestamp: "1773183920",
+              type: "text",
+              text: { body: "Pré-cadastro #000006 recebido, aguardando confirmação interna." }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const after = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(after.fase_conversa, faseAntes);
+  assert.equal(after.retorno_correspondente_status, "nao_identificado");
+  const correspondenteConfirmation = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(Boolean(correspondenteConfirmation), true);
+  assert.equal(correspondenteConfirmation?.to, correspondenteWa);
+  const body = String(correspondenteConfirmation?.text?.body || "");
+  assert.equal(body.includes("Me confirme no formato:"), true);
+  assert.equal(body.includes("Pré-cadastro #000006"), true);
+  assert.equal(body.includes("STATUS: APROVADO, REPROVADO ou PENDÊNCIA"), true);
 }
 
 // 8.5) Logger de retorno por caseRef não pode enviar case_ref como coluna top-level em enova_log.

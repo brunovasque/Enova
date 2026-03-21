@@ -7,6 +7,7 @@ const { buildCorrespondenteGroupAlert } = workerModule;
 const token = "AB12CD34EF56GH78JK90LM12";
 const waCaso = "5541999998888";
 const correspondenteWa = "5511999999999";
+const CORRESPONDENTE_CASE_CONFIRMATION_PROMPT = "Me confirme o pré-cadastro deste retorno, por favor.";
 
 function buildEnvWithState() {
   return {
@@ -620,6 +621,13 @@ function buildEnvWithState() {
   const after = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(after.fase_conversa, before.fase_conversa);
   assert.equal(after.retorno_correspondente_status || null, before.retorno_correspondente_status || null);
+  const correspondenteConfirmation = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(Boolean(correspondenteConfirmation), true);
+  assert.equal(correspondenteConfirmation?.to, correspondenteWa);
+  assert.equal(
+    String(correspondenteConfirmation?.text?.body || "").includes(CORRESPONDENTE_CASE_CONFIRMATION_PROMPT),
+    true
+  );
 }
 
 // 8.1) Retorno textual semi-estruturado deve classificar aprovado.
@@ -1382,6 +1390,81 @@ function buildEnvWithState() {
   await worker.fetch(retornoReq, env, {});
   const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(alvo.retorno_correspondente_status, "aprovado_condicionado");
+}
+
+// 15) Probe temporária: retorno real deve evidenciar handler case_ref com handled=true e sem fallback comum.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  const capturedProbe = [];
+  const originalConsoleLog = console.log;
+  console.log = (...args) => {
+    const line = args.map((x) => String(x)).join(" ");
+    if (line.includes("corr_route_probe_")) capturedProbe.push(line);
+    originalConsoleLog(...args);
+  };
+  try {
+    const assumirReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: correspondenteWa,
+                id: "wamid.assumir.case.ref.probe.000006",
+                timestamp: "1773183935",
+                type: "text",
+                text: { body: `ASSUMIR ${token}` }
+              }],
+              contacts: [{ wa_id: correspondenteWa }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(assumirReq, env, {});
+    const retornoReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: correspondenteWa,
+                id: "wamid.retorno.case.ref.probe.000006",
+                timestamp: "1773183936",
+                type: "text",
+                text: { body: "Pré-cadastro # 000006 / STATUS: CRÉDITO APROVADO" }
+              }],
+              contacts: [{ wa_id: correspondenteWa }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(retornoReq, env, {});
+  } finally {
+    console.log = originalConsoleLog;
+  }
+
+  const attemptLine = capturedProbe.find((line) => line.includes("corr_route_probe_case_ref_attempt"));
+  assert.equal(Boolean(attemptLine), true);
+  const telemetryPrefix = "TELEMETRIA-SAFE: ";
+  const payloadStr = attemptLine.includes(telemetryPrefix)
+    ? attemptLine.slice(attemptLine.indexOf(telemetryPrefix) + telemetryPrefix.length)
+    : "";
+  const payload = payloadStr ? JSON.parse(payloadStr) : null;
+  const details = payload?.details ? JSON.parse(payload.details) : null;
+  assert.equal(Boolean(details), true);
+  assert.equal(details.handled, true);
+  assert.equal(details.fallback_common_flow, "nao");
 }
 
 console.log("correspondente_entry_link.smoke: ok");

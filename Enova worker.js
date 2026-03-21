@@ -4551,6 +4551,17 @@ let userText = null;
         "";
     }
   } else if (isSupportedMediaType) {
+    const possibleCorrespondenteReturn = await handleCorrespondenteReturnByCaseRef(
+      env,
+      msg,
+      String(msg?.caption || msg?.[type]?.caption || "")
+    );
+    if (possibleCorrespondenteReturn?.handled) {
+      return metaWebhookResponse(200, {
+        reason: possibleCorrespondenteReturn.reason || "corr_return_case_ref_media_handled",
+        type
+      });
+    }
     // TELEMETRIA COMPLETA DE MÍDIA
     await funnelTelemetry(env, {
       wa_id: waId,
@@ -11622,6 +11633,263 @@ function classifyCorrespondenteReturnFromText(rawText) {
   return "nao_identificado";
 }
 
+const CORRESPONDENTE_RETURN_STATUS_CANONICAL = new Set([
+  "aprovado",
+  "aprovado_condicionado",
+  "reprovado",
+  "pendencia_documental",
+  "pendencia_risco",
+  "em_analise",
+  "nao_identificado"
+]);
+const CORRESPONDENTE_RETURN_MIN_CONFIDENCE_AUTO = 0.75;
+
+function normalizeCorrespondenteReturnStatus(value) {
+  const normalized = normalizeText(value || "");
+  if (!normalized) return "nao_identificado";
+  const map = {
+    aprovado: "aprovado",
+    aprovado_condicionado: "aprovado_condicionado",
+    aprovado_com_condicao: "aprovado_condicionado",
+    aprovado_com_condicoes: "aprovado_condicionado",
+    aprovado_com_ressalva: "aprovado_condicionado",
+    reprovado: "reprovado",
+    negado: "reprovado",
+    pendencia_documental: "pendencia_documental",
+    pendencia_documento: "pendencia_documental",
+    pendencia_risco: "pendencia_risco",
+    em_analise: "em_analise",
+    em_analise_documental: "em_analise",
+    nao_identificado: "nao_identificado",
+    nao_identificada: "nao_identificado"
+  };
+  const direct = map[normalized];
+  if (direct && CORRESPONDENTE_RETURN_STATUS_CANONICAL.has(direct)) return direct;
+  if (normalized.includes("aprovado condicion")) return "aprovado_condicionado";
+  if (normalized.includes("reprovad") || normalized.includes("negad")) return "reprovado";
+  if (normalized.includes("pendencia documental") || normalized.includes("pendencia document")) return "pendencia_documental";
+  if (normalized.includes("pendencia risco") || normalized.includes("restricao") || normalized.includes("score")) return "pendencia_risco";
+  if (normalized.includes("aprovad") || normalized.includes("liberad")) return "aprovado";
+  if (normalized.includes("analise")) return "em_analise";
+  return "nao_identificado";
+}
+
+function extractCorrespondenteReturnSignals(msg, userText) {
+  const messageText = String(userText || "").trim();
+  const caption =
+    String(msg?.caption || msg?.document?.caption || msg?.image?.caption || "").trim();
+  const mediaNode = msg?.document || msg?.image || null;
+  const fileName = String(mediaNode?.filename || mediaNode?.file_name || "").trim() || null;
+  const mimeType = String(mediaNode?.mime_type || mediaNode?.mimetype || "").toLowerCase().trim() || null;
+  const sourceType = msg?.document
+    ? "pdf"
+    : msg?.image
+      ? "image"
+      : null;
+  const hasRelevantAttachment =
+    Boolean(mediaNode) &&
+    (
+      sourceType === "image" ||
+      mimeType === "application/pdf" ||
+      /\.pdf$/i.test(String(fileName || ""))
+    );
+
+  return {
+    messageText,
+    caption,
+    fileName,
+    mimeType,
+    sourceType,
+    mediaNode,
+    hasRelevantAttachment
+  };
+}
+
+function tryFastRuleBasedClassification({ consolidatedText, caseRef }) {
+  const text = String(consolidatedText || "");
+  const caseDigits = String(caseRef || "").replace(/\D/g, "");
+  if (!caseDigits) return null;
+  const normalized = normalizeText(text);
+  if (!normalized) return null;
+  const caseNum = Number.parseInt(caseDigits, 10);
+  const caseVariants = [caseDigits];
+  if (Number.isFinite(caseNum)) caseVariants.push(String(caseNum));
+  const hasCaseRef = caseVariants.some((v) => new RegExp(`(?:^|\\D)${v}(?:\\D|$)`).test(normalized));
+  if (!hasCaseRef) return null;
+
+  const pick = (status, confidence, evidence) => ({
+    case_ref: caseDigits,
+    status,
+    motivo: evidence,
+    pendencias: [],
+    confidence,
+    manual_review_required: false,
+    extracted_evidence: [evidence],
+    source: "text",
+    classifier: "fast_path"
+  });
+
+  if (/(?:^|\b)\d{4,8}\b[^\n\r]{0,40}\b(aprovado|aprovada|liberado|liberada)\b/.test(normalized)) {
+    return pick("aprovado", 0.99, "Formato simples case_ref + aprovado");
+  }
+  if (/(?:^|\b)\d{4,8}\b[^\n\r]{0,40}\b(reprovado|negado|nao aprovado)\b/.test(normalized)) {
+    return pick("reprovado", 0.99, "Formato simples case_ref + reprovado");
+  }
+  if (/(?:^|\b)\d{4,8}\b[^\n\r]{0,40}\b(pendencia|pendencia documental|faltando documento)\b/.test(normalized)) {
+    return pick("pendencia_documental", 0.96, "Formato simples case_ref + pendencia");
+  }
+  return null;
+}
+
+async function extractDocumentTextIfNeeded(env, signals, options = {}) {
+  if (!signals?.hasRelevantAttachment || !signals?.mediaNode) {
+    return { extracted_text: "", source: "text", ocr_used: false, ocr_ok: false };
+  }
+
+  const textualContext = [signals.messageText, signals.caption, signals.fileName].filter(Boolean).join("\n");
+  const textAlreadyEnough =
+    normalizeText(textualContext).length >= 32 &&
+    classifyCorrespondenteReturnFromText(textualContext) !== "nao_identificado";
+  if (textAlreadyEnough) {
+    return { extracted_text: "", source: "text", ocr_used: false, ocr_ok: false };
+  }
+
+  const sourceType = signals.sourceType === "image" ? "image" : "pdf";
+  const mediaObject = {
+    ...signals.mediaNode,
+    mime_type: signals.mimeType || signals.mediaNode?.mime_type || null,
+    filename: signals.fileName || signals.mediaNode?.filename || null
+  };
+
+  const mediaPayload = await downloadEnvioDocsMediaAsBase64(env, mediaObject, options);
+  if (!mediaPayload?.ok || !mediaPayload?.base64) {
+    return {
+      extracted_text: "",
+      source: sourceType,
+      ocr_used: true,
+      ocr_ok: false,
+      error_code: mediaPayload?.error_code || "media_payload_unavailable"
+    };
+  }
+
+  const ocr = await runMistralOCR(env, {
+    sourceType,
+    base64: mediaPayload.base64,
+    mime_type: mediaPayload.mime_type || signals.mimeType || null,
+    file_name: mediaPayload.file_name || signals.fileName || null
+  }, options);
+
+  if (!ocr?.ok) {
+    return {
+      extracted_text: "",
+      source: sourceType,
+      ocr_used: true,
+      ocr_ok: false,
+      error_code: ocr?.error_code || "ocr_failed"
+    };
+  }
+
+  return {
+    extracted_text: String(ocr?.text || "").trim(),
+    source: sourceType,
+    ocr_used: true,
+    ocr_ok: true
+  };
+}
+
+function sanitizeCorrespondentePendencias(input) {
+  if (!Array.isArray(input)) return [];
+  return input
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .slice(0, MAX_EXTRACTED_PENDENCIAS);
+}
+
+async function classifyCorrespondenteReturnWithAI(env, input = {}) {
+  const consolidatedText = String(input?.consolidated_text || "").trim();
+  const fallbackStatus = classifyCorrespondenteReturnFromText(consolidatedText);
+  const fallbackPendencias = extractCorrespondentePendenciasFromText(consolidatedText).map((p) => String(p?.descricao || "").trim()).filter(Boolean);
+  const fallbackMotivo = fallbackPendencias[0] || (fallbackStatus === "reprovado" ? "Reprovado pelo correspondente." : "");
+  const fallbackCaseRef = normalizeCorrespondenteCaseRefInput(input?.case_ref_hint || extractCorrespondenteCaseRefFromText(consolidatedText));
+  const fallbackConfidence = fallbackStatus === "nao_identificado" ? 0.35 : 0.9;
+
+  const system = [
+    "Você classifica retornos de correspondente bancário e responde APENAS JSON válido.",
+    "Status permitido: aprovado, aprovado_condicionado, reprovado, pendencia_documental, pendencia_risco, em_analise, nao_identificado.",
+    "Regra: baixa confiança, ambiguidade ou case_ref incerto => manual_review_required=true.",
+    "Não invente dados; use evidências textuais curtas."
+  ].join(" ");
+  const user = JSON.stringify({
+    task: "classificar_retorno_correspondente",
+    schema: {
+      case_ref: "string|null",
+      status: "aprovado|aprovado_condicionado|reprovado|pendencia_documental|pendencia_risco|em_analise|nao_identificado",
+      motivo: "string",
+      pendencias: "string[]",
+      confidence: "number(0..1)",
+      manual_review_required: "boolean",
+      extracted_evidence: "string[]"
+    },
+    hints: {
+      case_ref_hint: input?.case_ref_hint || null,
+      expected_case_ref: input?.expected_case_ref || null
+    },
+    rules: [
+      "crédito aprovado/aprovado/liberado => aprovado",
+      "aprovado com condição/ressalva => aprovado_condicionado",
+      "reprovado/negado/sem aprovação => reprovado",
+      "faltando documento/pendência documental/enviar X => pendencia_documental",
+      "restrição/score/impeditivo/regularizar => pendencia_risco",
+      "sem conclusão => em_analise ou nao_identificado"
+    ],
+    content: {
+      message_text: input?.message_text || "",
+      caption: input?.caption || "",
+      file_name: input?.file_name || "",
+      document_text: input?.document_text || "",
+      consolidated_text: consolidatedText
+    }
+  });
+
+  const parsed = await callOpenAIJson(env, { system, user, temperature: 0 });
+  if (!parsed || typeof parsed !== "object") {
+    return {
+      case_ref: fallbackCaseRef,
+      status: fallbackStatus,
+      motivo: fallbackMotivo,
+      pendencias: fallbackPendencias,
+      confidence: fallbackConfidence,
+      manual_review_required: fallbackConfidence < CORRESPONDENTE_RETURN_MIN_CONFIDENCE_AUTO || !fallbackCaseRef,
+      extracted_evidence: fallbackPendencias.slice(0, 2),
+      classifier: "heuristic_fallback"
+    };
+  }
+
+  const aiCaseRef = normalizeCorrespondenteCaseRefInput(parsed.case_ref || input?.case_ref_hint);
+  const status = normalizeCorrespondenteReturnStatus(parsed.status);
+  const pendencias = sanitizeCorrespondentePendencias(parsed.pendencias);
+  const evidence = sanitizeCorrespondentePendencias(parsed.extracted_evidence).slice(0, 4);
+  const confidenceRaw = Number(parsed.confidence);
+  const confidence = Number.isFinite(confidenceRaw) ? Math.max(0, Math.min(1, confidenceRaw)) : fallbackConfidence;
+  const motivo = String(parsed.motivo || pendencias[0] || fallbackMotivo || "").trim();
+  const manualReviewRequired =
+    parsed.manual_review_required === true ||
+    !aiCaseRef ||
+    status === "nao_identificado" ||
+    confidence < CORRESPONDENTE_RETURN_MIN_CONFIDENCE_AUTO;
+
+  return {
+    case_ref: aiCaseRef,
+    status,
+    motivo,
+    pendencias,
+    confidence,
+    manual_review_required: manualReviewRequired,
+    extracted_evidence: evidence,
+    classifier: "ai_nlu"
+  };
+}
+
 function extractCorrespondentePendenciasFromText(rawText) {
   const text = String(rawText || "").trim();
   if (!text) return [];
@@ -11637,14 +11905,34 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   if (!correspondenteWaId) return { handled: false };
   const from = String(msg?.from || "").trim();
   const isCorrespondenteChannel = Boolean(String(msg?.author || "").trim()) || (from === String(env.CORRESPONDENTE_TO || "").trim());
-  const caseRef = extractCorrespondenteCaseRefFromText(userText);
+  const signals = extractCorrespondenteReturnSignals(msg, userText);
+  const docExtraction = await extractDocumentTextIfNeeded(env, signals, { wa_id: correspondenteWaId });
+  const consolidatedText = [
+    signals.messageText,
+    signals.caption,
+    signals.fileName,
+    docExtraction?.extracted_text || ""
+  ].filter(Boolean).join("\n");
+  const caseRef = extractCorrespondenteCaseRefFromText(consolidatedText);
   if (!caseRef) {
-    const maybeRetorno = /pré[- ]?cadastro|pre[- ]?cadastro|aprovad|reprovad|pend[eê]n|analise|imped/i.test(String(userText || ""));
+    const maybeRetorno = /pré[- ]?cadastro|pre[- ]?cadastro|aprovad|reprovad|pend[eê]n|analise|imped/i.test(String(consolidatedText || ""));
     if (!maybeRetorno || !isCorrespondenteChannel) return { handled: false };
+    const manualPayload = {
+      raw_text: String(signals.messageText || "").trim(),
+      caption: signals.caption || null,
+      file_name: signals.fileName || null,
+      document_text_preview: String(docExtraction?.extracted_text || "").slice(0, 500),
+      source: docExtraction?.ocr_used
+        ? (signals.sourceType === "image" ? "image" : "pdf")
+        : "text",
+      confidence: 0,
+      manual_review_required: true
+    };
     await logger(env, {
       tipo: "retorno_correspondente_case_ref_nao_identificado",
       wa_id: correspondenteWaId,
-      texto: String(userText || "")
+      texto: String(consolidatedText || ""),
+      payload: manualPayload
     });
     await funnelTelemetry(env, {
       wa_id: correspondenteWaId,
@@ -11652,7 +11940,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       stage: "aguardando_retorno_correspondente",
       severity: "warning",
       message: "Retorno do correspondente recebido sem caseRef identificável",
-      details: { text_preview: String(userText || "").slice(0, 300) },
+      details: { text_preview: String(consolidatedText || "").slice(0, 300), manual_review_required: true },
       force: true
     });
     return { handled: true, reason: "corr_return_case_ref_not_identified" };
@@ -11682,14 +11970,55 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     return { handled: true, reason: "corr_return_case_ref_locked_other" };
   }
 
-  const statusCanonico = classifyCorrespondenteReturnFromText(userText);
-  const pendencias = extractCorrespondentePendenciasFromText(userText);
+  const fastPath = tryFastRuleBasedClassification({
+    consolidatedText,
+    caseRef
+  });
+  const aiClassification = fastPath || await classifyCorrespondenteReturnWithAI(env, {
+    case_ref_hint: caseRef,
+    expected_case_ref: buildCorrespondenteCaseRef(caso),
+    message_text: signals.messageText,
+    caption: signals.caption,
+    file_name: signals.fileName,
+    document_text: docExtraction?.extracted_text || "",
+    consolidated_text: consolidatedText
+  });
+  const statusCanonico = normalizeCorrespondenteReturnStatus(aiClassification?.status);
+  const pendencias = sanitizeCorrespondentePendencias(aiClassification?.pendencias)
+    .map((descricao) => ({ descricao }));
+  const confidence = Number(aiClassification?.confidence || 0);
+  const manualReviewRequired =
+    aiClassification?.manual_review_required === true ||
+    !aiClassification?.case_ref ||
+    statusCanonico === "nao_identificado" ||
+    confidence < CORRESPONDENTE_RETURN_MIN_CONFIDENCE_AUTO;
+  const sourceDetected = docExtraction?.ocr_used
+    ? (signals.sourceType === "image" ? "image" : "pdf")
+    : (signals.hasRelevantAttachment ? "hybrid" : "text");
   const motivo =
+    String(aiClassification?.motivo || "").trim() ||
     pendencias[0]?.descricao ||
     (statusCanonico === "reprovado" ? "Reprovado pelo correspondente." : null);
+  const rawPayload = {
+    raw_text: String(signals.messageText || "").trim(),
+    caption: signals.caption || null,
+    file_name: signals.fileName || null,
+    document_text_preview: String(docExtraction?.extracted_text || "").slice(0, 1200),
+    case_ref: aiClassification?.case_ref || caseRef,
+    status: statusCanonico,
+    motivo: motivo || "",
+    pendencias: pendencias.map((p) => p.descricao),
+    confidence,
+    source: sourceDetected,
+    manual_review_required: manualReviewRequired,
+    extracted_evidence: sanitizeCorrespondentePendencias(aiClassification?.extracted_evidence),
+    classifier: aiClassification?.classifier || null
+  };
 
   await upsertState(env, waCliente, {
-    retorno_correspondente_bruto: String(userText || "").trim(),
+    retorno_correspondente_bruto: manualReviewRequired
+      ? JSON.stringify(rawPayload)
+      : String(signals.messageText || userText || "").trim(),
     retorno_correspondente_status: statusCanonico,
     retorno_correspondente_motivo: motivo
   });
@@ -11699,8 +12028,29 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     correspondente_wa_id: correspondenteWaId,
     case_ref: caseRef,
     status: statusCanonico,
-    pendencias
+    pendencias,
+    confidence,
+    source: sourceDetected,
+    manual_review_required: manualReviewRequired
   });
+
+  if (manualReviewRequired) {
+    await funnelTelemetry(env, {
+      wa_id: waCliente,
+      event: "corr_return_case_ref_manual_review_required",
+      stage: "aguardando_retorno_correspondente",
+      severity: "warning",
+      message: "Retorno por caseRef classificado com baixa confiança; revisão manual requerida",
+      details: {
+        case_ref: caseRef,
+        status: statusCanonico,
+        confidence,
+        source: sourceDetected
+      },
+      force: true
+    });
+    return { handled: true, reason: "corr_return_case_ref_manual_review_required" };
+  }
 
   const stAtualizado = await getState(env, waCliente) || stCaso;
   if (statusCanonico === "aprovado" || statusCanonico === "aprovado_condicionado") {

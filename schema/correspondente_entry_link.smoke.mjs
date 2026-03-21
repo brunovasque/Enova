@@ -1392,4 +1392,79 @@ function buildEnvWithState() {
   assert.equal(alvo.retorno_correspondente_status, "aprovado_condicionado");
 }
 
+// 15) Probe temporária: retorno real deve evidenciar handler case_ref com handled=true e sem fallback comum.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  const capturedProbe = [];
+  const originalConsoleLog = console.log;
+  console.log = (...args) => {
+    const line = args.map((x) => String(x)).join(" ");
+    if (line.includes("corr_route_probe_")) capturedProbe.push(line);
+    originalConsoleLog(...args);
+  };
+  try {
+    const assumirReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: correspondenteWa,
+                id: "wamid.assumir.case.ref.probe.000006",
+                timestamp: "1773183935",
+                type: "text",
+                text: { body: `ASSUMIR ${token}` }
+              }],
+              contacts: [{ wa_id: correspondenteWa }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(assumirReq, env, {});
+    const retornoReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: correspondenteWa,
+                id: "wamid.retorno.case.ref.probe.000006",
+                timestamp: "1773183936",
+                type: "text",
+                text: { body: "Pré-cadastro # 000006 / STATUS: CRÉDITO APROVADO" }
+              }],
+              contacts: [{ wa_id: correspondenteWa }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(retornoReq, env, {});
+  } finally {
+    console.log = originalConsoleLog;
+  }
+
+  const attemptLine = capturedProbe.find((line) => line.includes("corr_route_probe_case_ref_attempt"));
+  assert.equal(Boolean(attemptLine), true);
+  const telemetryPrefix = "TELEMETRIA-SAFE: ";
+  const payloadStr = attemptLine.includes(telemetryPrefix)
+    ? attemptLine.slice(attemptLine.indexOf(telemetryPrefix) + telemetryPrefix.length)
+    : "";
+  const payload = payloadStr ? JSON.parse(payloadStr) : null;
+  const details = payload?.details ? JSON.parse(payload.details) : null;
+  assert.equal(Boolean(details), true);
+  assert.equal(details.handled, true);
+  assert.equal(details.fallback_common_flow, "nao");
+}
+
 console.log("correspondente_entry_link.smoke: ok");

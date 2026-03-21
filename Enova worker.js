@@ -4355,6 +4355,18 @@ const waId =
   msg.from ||
   (contacts[0] && (contacts[0].wa_id || contacts[0].waId)) ||
   null;
+  await telemetry(env, {
+    wa_id: waId,
+    event: "corr_route_probe_enter",
+    stage: "meta_message",
+    severity: "info",
+    force: true,
+    message: "Probe temporária: webhook de entrada recebeu mensagem",
+    details: {
+      from_wa_id: waId || null,
+      message_type: type || null
+    }
+  });
 
 // =============================================================
 // 📝 Log mínimo da Meta (PRODUÇÃO) — seguro e leve
@@ -4551,11 +4563,30 @@ let userText = null;
         "";
     }
   } else if (isSupportedMediaType) {
+    const mediaCaseRefProbe = extractCorrespondenteCaseRefFromText(
+      String(msg?.caption || msg?.[type]?.caption || "")
+    );
     const possibleCorrespondenteReturn = await handleCorrespondenteReturnByCaseRef(
       env,
       msg,
       String(msg?.caption || msg?.[type]?.caption || "")
     );
+    await telemetry(env, {
+      wa_id: waId,
+      event: "corr_route_probe_case_ref_attempt",
+      stage: "meta_message",
+      severity: "info",
+      force: true,
+      message: "Probe temporária: tentativa de handleCorrespondenteReturnByCaseRef (mídia)",
+      details: {
+        attempted_case_ref_handler: "sim",
+        handled: possibleCorrespondenteReturn?.handled === true,
+        case_ref_extracted: possibleCorrespondenteReturn?.case_ref || mediaCaseRefProbe || null,
+        status_classificado: possibleCorrespondenteReturn?.status || null,
+        attempted_legacy_handler: "nao",
+        fallback_common_flow: possibleCorrespondenteReturn?.handled === true ? "nao" : "sim"
+      }
+    });
     if (possibleCorrespondenteReturn?.handled) {
       return metaWebhookResponse(200, {
         reason: possibleCorrespondenteReturn.reason || "corr_return_case_ref_media_handled",
@@ -4604,12 +4635,45 @@ let userText = null;
 
   const assumirCmd = await handleCorrespondenteAssumirCommand(env, msg, userText);
   if (assumirCmd?.handled) {
+    await telemetry(env, {
+      wa_id: waId,
+      event: "corr_route_probe_assumir_handled",
+      stage: "meta_message",
+      severity: "info",
+      force: true,
+      message: "Probe temporária: fluxo tratado por ASSUMIR antes do retorno do correspondente",
+      details: {
+        attempted_case_ref_handler: "nao",
+        handled: true,
+        case_ref_extracted: null,
+        status_classificado: null,
+        attempted_legacy_handler: "nao",
+        fallback_common_flow: "nao"
+      }
+    });
     return metaWebhookResponse(200, {
       reason: assumirCmd.reason || "assumir_token_handled",
       type
     });
   }
+  const caseRefProbe = extractCorrespondenteCaseRefFromText(String(userText || ""));
   const retornoByCaseRef = await handleCorrespondenteReturnByCaseRef(env, msg, userText);
+  await telemetry(env, {
+    wa_id: waId,
+    event: "corr_route_probe_case_ref_attempt",
+    stage: "meta_message",
+    severity: "info",
+    force: true,
+    message: "Probe temporária: tentativa de handleCorrespondenteReturnByCaseRef (texto/interativo)",
+    details: {
+      attempted_case_ref_handler: "sim",
+      handled: retornoByCaseRef?.handled === true,
+      case_ref_extracted: retornoByCaseRef?.case_ref || caseRefProbe || null,
+      status_classificado: retornoByCaseRef?.status || null,
+      attempted_legacy_handler: "nao",
+      fallback_common_flow: retornoByCaseRef?.handled === true ? "nao" : "sim"
+    }
+  });
   if (retornoByCaseRef?.handled) {
     return metaWebhookResponse(200, {
       reason: retornoByCaseRef.reason || "corr_return_case_ref_handled",
@@ -4619,6 +4683,19 @@ let userText = null;
 
   const normalizedUserText = normalizeText(userText || "");
   const isResetCmd = type === "text" && normalizedUserText === "reset";
+  await telemetry(env, {
+    wa_id: waId,
+    event: "corr_route_probe_common_fallback",
+    stage: "meta_message",
+    severity: "info",
+    force: true,
+    message: "Probe temporária: fallback para roteador cognitivo comum",
+    details: {
+      attempted_case_ref_handler: "sim",
+      attempted_legacy_handler: "nao",
+      fallback_common_flow: "sim"
+    }
+  });
 
   // 10) Entrada no funil (já com telemetria da A3/A6)
   try {
@@ -11962,7 +12039,7 @@ function extractCorrespondentePendenciasFromText(rawText) {
 
 async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   const correspondenteWaId = extractCorrespondenteWaId(msg, env);
-  if (!correspondenteWaId) return { handled: false };
+  if (!correspondenteWaId) return { handled: false, case_ref: null, status: null };
   const confirmationPrompt = "Me confirme o pré-cadastro deste retorno, por favor.";
   const from = String(msg?.from || "").trim();
   const isCorrespondenteChannel = Boolean(String(msg?.author || "").trim()) || (from === String(env.CORRESPONDENTE_TO || "").trim());
@@ -11993,10 +12070,10 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
 
   if (!caseRef) {
     const maybeRetorno = /pré[- ]?cadastro|pre[- ]?cadastro|aprovad|reprovad|pend[eê]n|analise|imped/i.test(String(consolidatedText || ""));
-    if (!maybeRetorno) return { handled: false };
+    if (!maybeRetorno) return { handled: false, case_ref: caseRef || null, status: null };
     const senderLockedCases = await getSenderLockedCases();
     const senderSeemsCorrespondente = isCorrespondenteChannel || senderLockedCases.length > 0;
-    if (!senderSeemsCorrespondente) return { handled: false };
+    if (!senderSeemsCorrespondente) return { handled: false, case_ref: caseRef || null, status: null };
     if (senderLockedCases.length === 1) {
       caseRef = buildCorrespondenteCaseRef(senderLockedCases[0]);
       trustedReturnChannel = true;
@@ -12035,7 +12112,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   const caso = await findCorrespondenteCaseByCaseRef(env, caseRef);
   if (!trustedReturnChannel) {
     const waClienteCandidate = String(caso?.wa_id || "").trim();
-    if (!waClienteCandidate || waClienteCandidate === correspondenteWaId) return { handled: false };
+    if (!waClienteCandidate || waClienteCandidate === correspondenteWaId) return { handled: false, case_ref: caseRef || null, status: null };
     const stCasoCandidate = await getState(env, waClienteCandidate);
     const lockCandidate = String(stCasoCandidate?.corr_lock_correspondente_wa_id || "").trim();
     if (lockCandidate && lockCandidate === correspondenteWaId) {
@@ -12044,7 +12121,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       if (await shouldAskCaseConfirmation()) {
         return await askCaseConfirmation("corr_return_case_ref_low_confidence_sender_or_case");
       }
-      return { handled: false };
+      return { handled: false, case_ref: caseRef || null, status: null };
     }
   }
   if (!caso?.wa_id) {
@@ -12059,17 +12136,17 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     return await askCaseConfirmation("corr_return_case_ref_not_found");
   }
   const waCliente = String(caso.wa_id || "").trim();
-  if (!waCliente || waCliente === correspondenteWaId) return { handled: false };
+  if (!waCliente || waCliente === correspondenteWaId) return { handled: false, case_ref: caseRef || null, status: null };
 
   const stCaso = await getState(env, waCliente);
-  if (!stCaso) return { handled: true, reason: "corr_return_case_ref_state_not_found" };
+  if (!stCaso) return { handled: true, reason: "corr_return_case_ref_state_not_found", case_ref: caseRef || null, status: null };
   const lockAtual = String(stCaso?.corr_lock_correspondente_wa_id || "").trim();
   if (!lockAtual) {
-    return { handled: true, reason: "corr_return_case_ref_without_lock" };
+    return { handled: true, reason: "corr_return_case_ref_without_lock", case_ref: caseRef || null, status: null };
   }
   if (lockAtual && lockAtual !== correspondenteWaId) {
     await sendMessage(env, correspondenteWaId, "Este caso já está vinculado a outro correspondente. Retorno não registrado.");
-    return { handled: true, reason: "corr_return_case_ref_locked_other" };
+    return { handled: true, reason: "corr_return_case_ref_locked_other", case_ref: caseRef || null, status: null };
   }
 
   const fastPath = tryFastRuleBasedClassification({
@@ -12153,7 +12230,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       },
       force: true
     });
-    return { handled: true, reason: "corr_return_case_ref_manual_review_required" };
+    return { handled: true, reason: "corr_return_case_ref_manual_review_required", case_ref: caseRef || null, status: statusCanonico };
   }
 
   const stAtualizado = await getState(env, waCliente) || stCaso;
@@ -12162,7 +12239,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.",
       "Agora o próximo passo é **agendar sua visita no plantão** com opções oficiais de data e horário."
     ], "agendamento_visita");
-    return { handled: true, reason: "corr_return_case_ref_aprovado" };
+    return { handled: true, reason: "corr_return_case_ref_aprovado", case_ref: caseRef || null, status: statusCanonico };
   }
   if (statusCanonico === "aprovado_condicionado") {
     const detalhe = motivo ? `Condição informada: *${String(motivo).replace(/[*_`~]/g, "").trim()}*.` : "Há condicionantes a observar no atendimento.";
@@ -12172,7 +12249,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       detalhe,
       "Agora o próximo passo é **agendar sua visita no plantão** com opções oficiais de data e horário."
     ], "agendamento_visita");
-    return { handled: true, reason: "corr_return_case_ref_aprovado_condicionado" };
+    return { handled: true, reason: "corr_return_case_ref_aprovado_condicionado", case_ref: caseRef || null, status: statusCanonico };
   }
   if (statusCanonico === "reprovado") {
     await step(env, stAtualizado, [
@@ -12181,7 +12258,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       motivo ? `Motivo informado: *${String(motivo).replace(/[*_`~]/g, "").trim()}*.` : "",
       "Se quiser, posso te orientar os próximos passos para nova tentativa."
     ], "aguardando_retorno_correspondente");
-    return { handled: true, reason: "corr_return_case_ref_reprovado" };
+    return { handled: true, reason: "corr_return_case_ref_reprovado", case_ref: caseRef || null, status: statusCanonico };
   }
   if (statusCanonico === "pendencia_risco" || statusCanonico === "pendencia_documental" || statusCanonico === "em_analise") {
     const detalhe = motivo ? `Detalhe informado: *${String(motivo).replace(/[*_`~]/g, "").trim()}*.` : "Assim que houver definição final, te aviso por aqui.";
@@ -12190,7 +12267,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       detalhe,
       "Por enquanto vou manter seu acompanhamento aqui até a definição final."
     ], "aguardando_retorno_correspondente");
-    return { handled: true, reason: "corr_return_case_ref_pendencia" };
+    return { handled: true, reason: "corr_return_case_ref_pendencia", case_ref: caseRef || null, status: statusCanonico };
   }
   await funnelTelemetry(env, {
     wa_id: waCliente,
@@ -12201,7 +12278,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     details: { case_ref: caseRef, correspondente_wa_id: correspondenteWaId },
     force: true
   });
-  return { handled: true, reason: "corr_return_case_ref_unclassified" };
+  return { handled: true, reason: "corr_return_case_ref_unclassified", case_ref: caseRef || null, status: statusCanonico };
 }
 
 async function listCorrespondenteAssumirCandidates(env) {

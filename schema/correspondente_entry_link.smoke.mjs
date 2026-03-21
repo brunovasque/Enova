@@ -7,7 +7,7 @@ const { buildCorrespondenteGroupAlert } = workerModule;
 const token = "AB12CD34EF56GH78JK90LM12";
 const waCaso = "5541999998888";
 const correspondenteWa = "5511999999999";
-const CORRESPONDENTE_CASE_CONFIRMATION_PROMPT = "Me confirme no formato:";
+const CORRESPONDENTE_CASE_CONFIRMATION_PROMPT_PREFIX = "Me confirme no formato:";
 
 function buildEnvWithState() {
   return {
@@ -625,7 +625,7 @@ function buildEnvWithState() {
   assert.equal(Boolean(correspondenteConfirmation), true);
   assert.equal(correspondenteConfirmation?.to, correspondenteWa);
   assert.equal(
-    String(correspondenteConfirmation?.text?.body || "").includes(CORRESPONDENTE_CASE_CONFIRMATION_PROMPT),
+    String(correspondenteConfirmation?.text?.body || "").includes(CORRESPONDENTE_CASE_CONFIRMATION_PROMPT_PREFIX),
     true
   );
 }
@@ -1535,6 +1535,227 @@ function buildEnvWithState() {
   assert.equal(Boolean(details), true);
   assert.equal(details.handled, true);
   assert.equal(details.fallback_common_flow, "nao");
+}
+
+// 16) Requisitos operacionais: imagem com caption em formato STATUS deve classificar e levar para visita.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.case.ref.req.image.aprovado",
+              timestamp: "1773183937",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(assumirReq, env, {});
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.req.image.aprovado",
+              timestamp: "1773183938",
+              type: "image",
+              caption: "Pré-cadastro #000006\nSTATUS: CRÉDITO APROVADO",
+              image: { id: "mid.image.req.aprovado", mime_type: "image/jpeg" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aprovado");
+  assert.equal(alvo.fase_conversa, "agendamento_visita");
+}
+
+// 17) Requisitos operacionais: texto reprovado + motivo não vai para visita.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.case.ref.req.reprovado",
+              timestamp: "1773183939",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(assumirReq, env, {});
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.req.reprovado",
+              timestamp: "1773183940",
+              type: "text",
+              text: { body: "Pré-cadastro #000006\nSTATUS: REPROVADO\nMOTIVO: restrição externa" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "reprovado");
+  assert.equal(alvo.fase_conversa, "aguardando_retorno_correspondente");
+}
+
+// 18) Requisitos operacionais: texto pendência + motivo documental não vai para visita.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.case.ref.req.pendencia",
+              timestamp: "1773183941",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(assumirReq, env, {});
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.req.pendencia",
+              timestamp: "1773183942",
+              type: "text",
+              text: { body: "Pré-cadastro #000006\nSTATUS: PENDÊNCIA\nMOTIVO: comprovante de renda" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "pendencia_documental");
+  assert.equal(alvo.fase_conversa, "aguardando_retorno_correspondente");
+}
+
+// 19) Requisitos operacionais: aprovado_condicionado deve seguir para visita.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.case.ref.req.aprovado.condicionado",
+              timestamp: "1773183943",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(assumirReq, env, {});
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.req.aprovado.condicionado",
+              timestamp: "1773183944",
+              type: "text",
+              text: { body: "Pré-cadastro #000006\nSTATUS: APROVADO 30%\nMOTIVO: aprovado com pendências" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aprovado_condicionado");
+  assert.equal(alvo.fase_conversa, "agendamento_visita");
 }
 
 console.log("correspondente_entry_link.smoke: ok");

@@ -11904,18 +11904,21 @@ function tryStructuredStatusClassification({ consolidatedText, caseRef }) {
   let status = normalizeCorrespondenteReturnStatus(statusRaw);
   const riskMatches = /\b(cadin|restricao|restricoes|comprometimento de renda|serasa|spc|score)\b/.test(normalizedText);
   const documentalMatches = /\b(comprovante|holerite|ctps|irpf|documento|documental|estado civil|faltando)\b/.test(normalizedText);
+  const hasApprovedWithPercentual = /\b(aprovado|aprovada|credito aprovado)\b[^\n\r]{0,24}\b\d{1,2}\s*%/.test(normalizedText);
+  const hasApprovedWithPendencies = /\b(aprovado|aprovada|credito aprovado)\b[^\n\r]{0,60}\b(pendencia|pendencias|condic|ressalva)\b/.test(normalizedText);
+  const hasExplicitReprovado = /\b(reprovado|credito reprovado|negado|nao aprovado)\b/.test(normalizeText(statusRaw));
   if (status === "aprovado") {
-    if (/\b(aprovado|aprovada|credito aprovado)\b[^\n\r]{0,24}\b\d{1,2}\s*%/.test(normalizedText) || /\b(aprovado|aprovada|credito aprovado)\b[^\n\r]{0,60}\b(pendencia|pendencias|condic|ressalva)\b/.test(normalizedText)) {
+    if (hasApprovedWithPercentual || hasApprovedWithPendencies) {
       status = "aprovado_condicionado";
     }
     if (documentalMatches) status = "aprovado_condicionado";
   }
-  if (riskMatches && status !== "reprovado") status = "pendencia_risco";
   if (status === "nao_identificado") return null;
   if (status === "pendencia_documental" || status === "pendencia_risco" || status === "em_analise") {
     if (riskMatches) status = "pendencia_risco";
     if (status !== "pendencia_risco" && documentalMatches) status = "pendencia_documental";
   }
+  if (riskMatches && !hasExplicitReprovado && status !== "reprovado") status = "pendencia_risco";
   const motivoLine = lines.find((line) => /^\s*motivo\s*[:\-]/i.test(line));
   const motivo = motivoLine
     ? String(motivoLine).replace(/^\s*motivo\s*[:\-]\s*/i, "").trim()

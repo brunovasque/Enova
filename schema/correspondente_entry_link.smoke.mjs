@@ -621,11 +621,11 @@ function buildEnvWithState() {
   const after = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(after.fase_conversa, before.fase_conversa);
   assert.equal(after.retorno_correspondente_status || null, before.retorno_correspondente_status || null);
-  const correspondentConfirmation = env.__enovaSimulationCtx.sendPreview || null;
-  assert.equal(Boolean(correspondentConfirmation), true);
-  assert.equal(correspondentConfirmation?.to, correspondenteWa);
+  const correspondenteConfirmation = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(Boolean(correspondenteConfirmation), true);
+  assert.equal(correspondenteConfirmation?.to, correspondenteWa);
   assert.equal(
-    String(correspondentConfirmation?.text?.body || "").includes(CORRESPONDENTE_CASE_CONFIRMATION_PROMPT),
+    String(correspondenteConfirmation?.text?.body || "").includes(CORRESPONDENTE_CASE_CONFIRMATION_PROMPT),
     true
   );
 }
@@ -1193,7 +1193,7 @@ function buildEnvWithState() {
   await worker.fetch(retornoReq, env, {});
   const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(alvo.retorno_correspondente_status, "aprovado_condicionado");
-  assert.equal(alvo.fase_conversa, "aguardando_retorno_correspondente");
+  assert.equal(alvo.fase_conversa, "agendamento_visita");
 }
 
 // 12) "CREDITO REPROVADO" + "restrição externa" deve classificar reprovado.

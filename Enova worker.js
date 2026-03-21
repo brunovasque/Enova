@@ -12165,13 +12165,13 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     return { handled: true, reason: "corr_return_case_ref_aprovado" };
   }
   if (statusCanonico === "aprovado_condicionado") {
-    const detalhe = motivo ? `Condição informada: *${String(motivo).replace(/[*_`~]/g, "").trim()}*.` : "Há condicionantes a regularizar antes da visita.";
+    const detalhe = motivo ? `Condição informada: *${String(motivo).replace(/[*_`~]/g, "").trim()}*.` : "Há condicionantes a observar no atendimento.";
     await step(env, stAtualizado, [
-      "Recebi retorno do correspondente sobre o seu processo.",
+      "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.",
       "Seu crédito está **aprovado com condicionantes**.",
       detalhe,
-      "Assim que as pendências forem resolvidas, sigo com o agendamento da visita."
-    ], "aguardando_retorno_correspondente");
+      "Agora o próximo passo é **agendar sua visita no plantão** com opções oficiais de data e horário."
+    ], "agendamento_visita");
     return { handled: true, reason: "corr_return_case_ref_aprovado_condicionado" };
   }
   if (statusCanonico === "reprovado") {

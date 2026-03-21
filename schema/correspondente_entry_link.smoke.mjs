@@ -7,6 +7,7 @@ const { buildCorrespondenteGroupAlert } = workerModule;
 const token = "AB12CD34EF56GH78JK90LM12";
 const waCaso = "5541999998888";
 const correspondenteWa = "5511999999999";
+const CORRESPONDENTE_CASE_CONFIRMATION_PROMPT = "Me confirme o pré-cadastro deste retorno, por favor.";
 
 function buildEnvWithState() {
   return {
@@ -620,6 +621,13 @@ function buildEnvWithState() {
   const after = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(after.fase_conversa, before.fase_conversa);
   assert.equal(after.retorno_correspondente_status || null, before.retorno_correspondente_status || null);
+  const correspondentConfirmation = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(Boolean(correspondentConfirmation), true);
+  assert.equal(correspondentConfirmation?.to, correspondenteWa);
+  assert.equal(
+    String(correspondentConfirmation?.text?.body || "").includes(CORRESPONDENTE_CASE_CONFIRMATION_PROMPT),
+    true
+  );
 }
 
 // 8.1) Retorno textual semi-estruturado deve classificar aprovado.
@@ -1185,7 +1193,7 @@ function buildEnvWithState() {
   await worker.fetch(retornoReq, env, {});
   const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(alvo.retorno_correspondente_status, "aprovado_condicionado");
-  assert.equal(alvo.fase_conversa, "agendamento_visita");
+  assert.equal(alvo.fase_conversa, "aguardando_retorno_correspondente");
 }
 
 // 12) "CREDITO REPROVADO" + "restrição externa" deve classificar reprovado.

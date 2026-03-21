@@ -11608,6 +11608,43 @@ async function findCorrespondenteCaseByCaseRef(env, caseRef) {
   return null;
 }
 
+function isCorrespondenteOperationalCase(row) {
+  if (!row || typeof row !== "object") return false;
+  const fase = String(row?.fase_conversa || "").trim().toLowerCase();
+  const status = String(row?.corr_publicacao_status || "").trim().toLowerCase();
+  return (
+    row?.processo_enviado_correspondente === true ||
+    row?.aguardando_retorno_correspondente === true ||
+    fase === "aguardando_retorno_correspondente" ||
+    status === "entregue_privado_aguardando_retorno" ||
+    status === "assumido_falha_entrega_privada"
+  );
+}
+
+async function listOperationalCasesLockedByCorrespondente(env, correspondenteWaId, limit = 5) {
+  const lockWaId = String(correspondenteWaId || "").trim();
+  if (!lockWaId) return [];
+  const projection = "wa_id,nome,fase_conversa,pre_cadastro_numero,corr_publicacao_status,corr_lock_correspondente_wa_id,processo_enviado_correspondente,aguardando_retorno_correspondente,updated_at";
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active && simCtx.stateByWaId) {
+    return Object.values(simCtx.stateByWaId)
+      .filter((row) => String(row?.corr_lock_correspondente_wa_id || "").trim() === lockWaId)
+      .filter((row) => isCorrespondenteOperationalCase(row))
+      .sort((a, b) => (Date.parse(String(b?.updated_at || "")) || 0) - (Date.parse(String(a?.updated_at || "")) || 0))
+      .slice(0, Math.max(1, Number(limit) || 5));
+  }
+  const rows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_state", {
+    method: "GET",
+    query: {
+      select: projection,
+      corr_lock_correspondente_wa_id: `eq.${encodeURIComponent(lockWaId)}`,
+      order: "updated_at.desc",
+      limit: Math.max(1, Number(limit) || 5)
+    }
+  }));
+  return rows.filter((row) => isCorrespondenteOperationalCase(row));
+}
+
 function classifyCorrespondenteReturnFromText(rawText) {
   const ntMsg = normalizeText(rawText || "");
   const hasAny = (terms) => terms.some((term) => ntMsg.includes(term));
@@ -11926,6 +11963,7 @@ function extractCorrespondentePendenciasFromText(rawText) {
 async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   const correspondenteWaId = extractCorrespondenteWaId(msg, env);
   if (!correspondenteWaId) return { handled: false };
+  const confirmationPrompt = "Me confirme o pré-cadastro deste retorno, por favor.";
   const from = String(msg?.from || "").trim();
   const isCorrespondenteChannel = Boolean(String(msg?.author || "").trim()) || (from === String(env.CORRESPONDENTE_TO || "").trim());
   const signals = extractCorrespondenteReturnSignals(msg, userText);
@@ -11936,11 +11974,35 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     signals.fileName,
     docExtraction?.extracted_text || ""
   ].filter(Boolean).join("\n");
-  const caseRef = extractCorrespondenteCaseRefFromText(consolidatedText);
+  let caseRef = extractCorrespondenteCaseRefFromText(consolidatedText);
   let trustedReturnChannel = isCorrespondenteChannel;
+  let senderLockedCasesCache = null;
+  const getSenderLockedCases = async () => {
+    if (senderLockedCasesCache) return senderLockedCasesCache;
+    senderLockedCasesCache = await listOperationalCasesLockedByCorrespondente(env, correspondenteWaId, 6);
+    return senderLockedCasesCache;
+  };
+  const shouldAskCaseConfirmation = async () => {
+    const senderLockedCases = await getSenderLockedCases();
+    return isCorrespondenteChannel || senderLockedCases.length > 0;
+  };
+  const askCaseConfirmation = async (reason) => {
+    await sendMessage(env, correspondenteWaId, confirmationPrompt);
+    return { handled: true, reason };
+  };
+
   if (!caseRef) {
     const maybeRetorno = /pré[- ]?cadastro|pre[- ]?cadastro|aprovad|reprovad|pend[eê]n|analise|imped/i.test(String(consolidatedText || ""));
-    if (!maybeRetorno || !isCorrespondenteChannel) return { handled: false };
+    if (!maybeRetorno) return { handled: false };
+    const senderLockedCases = await getSenderLockedCases();
+    const senderSeemsCorrespondente = isCorrespondenteChannel || senderLockedCases.length > 0;
+    if (!senderSeemsCorrespondente) return { handled: false };
+    if (senderLockedCases.length === 1) {
+      caseRef = buildCorrespondenteCaseRef(senderLockedCases[0]);
+      trustedReturnChannel = true;
+    }
+  }
+  if (!caseRef) {
     const manualPayload = {
       raw_text: String(signals.messageText || "").trim(),
       caption: signals.caption || null,
@@ -11967,7 +12029,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       details: { text_preview: String(consolidatedText || "").slice(0, 300), manual_review_required: true },
       force: true
     });
-    return { handled: true, reason: "corr_return_case_ref_not_identified" };
+    return await askCaseConfirmation("corr_return_case_ref_not_identified");
   }
 
   const caso = await findCorrespondenteCaseByCaseRef(env, caseRef);
@@ -11979,6 +12041,9 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     if (lockCandidate && lockCandidate === correspondenteWaId) {
       trustedReturnChannel = true;
     } else {
+      if (await shouldAskCaseConfirmation()) {
+        return await askCaseConfirmation("corr_return_case_ref_low_confidence_sender_or_case");
+      }
       return { handled: false };
     }
   }
@@ -11991,7 +12056,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
         case_ref: caseRef
       }
     });
-    return { handled: true, reason: "corr_return_case_ref_not_found" };
+    return await askCaseConfirmation("corr_return_case_ref_not_found");
   }
   const waCliente = String(caso.wa_id || "").trim();
   if (!waCliente || waCliente === correspondenteWaId) return { handled: false };
@@ -12092,12 +12157,22 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   }
 
   const stAtualizado = await getState(env, waCliente) || stCaso;
-  if (statusCanonico === "aprovado" || statusCanonico === "aprovado_condicionado") {
+  if (statusCanonico === "aprovado") {
     await step(env, stAtualizado, [
       "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.",
       "Agora o próximo passo é **agendar sua visita no plantão** com opções oficiais de data e horário."
     ], "agendamento_visita");
     return { handled: true, reason: "corr_return_case_ref_aprovado" };
+  }
+  if (statusCanonico === "aprovado_condicionado") {
+    const detalhe = motivo ? `Condição informada: *${String(motivo).replace(/[*_`~]/g, "").trim()}*.` : "Há condicionantes a regularizar antes da visita.";
+    await step(env, stAtualizado, [
+      "Recebi retorno do correspondente sobre o seu processo.",
+      "Seu crédito está **aprovado com condicionantes**.",
+      detalhe,
+      "Assim que as pendências forem resolvidas, sigo com o agendamento da visita."
+    ], "aguardando_retorno_correspondente");
+    return { handled: true, reason: "corr_return_case_ref_aprovado_condicionado" };
   }
   if (statusCanonico === "reprovado") {
     await step(env, stAtualizado, [

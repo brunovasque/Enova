@@ -465,6 +465,12 @@ async function sbFetch(env, path, options = {}, context = {}) {
   });
 }
 
+function normalizeSupabaseRows(result) {
+  if (Array.isArray(result)) return result;
+  if (result && Array.isArray(result.data)) return result.data;
+  return [];
+}
+
 // =============================================================
 // Lê o estado do funil (GET correto via Proxy V2)
 // =============================================================
@@ -11419,7 +11425,7 @@ async function getCorrespondenteCaseByToken(env, token) {
     return entries[0].row;
   }
 
-  const { data } = await sbFetch(env, "/rest/v1/enova_state", {
+  const rows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_state", {
     method: "GET",
     query: {
       corr_assumir_token: `eq.${encodeURIComponent(safeToken)}`,
@@ -11427,10 +11433,10 @@ async function getCorrespondenteCaseByToken(env, token) {
       order: "updated_at.desc",
       limit: 1
     }
-  });
+  }));
 
-  if (!Array.isArray(data) || !data.length) return null;
-  return data[0];
+  if (!rows.length) return null;
+  return rows[0];
 }
 
 async function findCorrespondenteCaseByCaseRef(env, caseRef) {
@@ -11450,7 +11456,7 @@ async function findCorrespondenteCaseByCaseRef(env, caseRef) {
     return candidates[0]?.row || null;
   }
 
-  const { data: exactRows } = await sbFetch(env, "/rest/v1/enova_state", {
+  const exactRows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_state", {
     method: "GET",
     query: {
       select: projection,
@@ -11458,15 +11464,15 @@ async function findCorrespondenteCaseByCaseRef(env, caseRef) {
       order: "updated_at.desc",
       limit: 1
     }
-  });
-  if (Array.isArray(exactRows) && exactRows.length) {
+  }));
+  if (exactRows.length) {
     return exactRows[0];
   }
 
   const parsedRefNumber = Number.parseInt(normalizedRef, 10);
   const numericRefString = Number.isNaN(parsedRefNumber) ? "" : String(parsedRefNumber);
   if (numericRefString && numericRefString !== normalizedRef) {
-    const { data: legacyNumericRows } = await sbFetch(env, "/rest/v1/enova_state", {
+    const legacyNumericRows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_state", {
       method: "GET",
       query: {
         select: projection,
@@ -11474,8 +11480,8 @@ async function findCorrespondenteCaseByCaseRef(env, caseRef) {
         order: "updated_at.desc",
         limit: 1
       }
-    });
-    if (Array.isArray(legacyNumericRows) && legacyNumericRows.length) {
+    }));
+    if (legacyNumericRows.length) {
       return legacyNumericRows[0];
     }
   }
@@ -11483,7 +11489,7 @@ async function findCorrespondenteCaseByCaseRef(env, caseRef) {
   const pageSize = 1000;
   const maxRowsToScan = 5000;
   for (let offset = 0; offset < maxRowsToScan; offset += pageSize) {
-    const { data } = await sbFetch(env, "/rest/v1/enova_state", {
+    const rows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_state", {
       method: "GET",
       query: {
         select: projection,
@@ -11491,8 +11497,7 @@ async function findCorrespondenteCaseByCaseRef(env, caseRef) {
         limit: pageSize,
         offset
       }
-    });
-    const rows = Array.isArray(data) ? data : [];
+    }));
     if (!rows.length) break;
     const candidate = rows.find((row) => (
       normalizeCorrespondenteCaseRefInput(buildCorrespondenteCaseRef(row)) === normalizedRef
@@ -11667,20 +11672,18 @@ async function listCorrespondenteAssumirCandidates(env) {
       });
   }
 
-  const { data } = await sbFetch(env, "/rest/v1/enova_state", {
+  const rows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_state", {
     method: "GET",
     query: {
       select: "wa_id,nome,fase_conversa,corr_assumir_token,corr_publicacao_status,corr_publicado_grupo_em,corr_lock_correspondente_wa_id,corr_lock_assumido_em,corr_entrega_privada_status,processo_enviado_correspondente,dossie_resumo,pre_cadastro_numero,updated_at",
       order: "updated_at.desc",
       limit: 50
     }
-  });
+  }));
 
-  return Array.isArray(data)
-    ? data
-      .filter((row) => allowedStatuses.has(String(row?.corr_publicacao_status || "").trim().toLowerCase()))
-      .filter((row) => row?.processo_enviado_correspondente !== true)
-    : [];
+  return rows
+    .filter((row) => allowedStatuses.has(String(row?.corr_publicacao_status || "").trim().toLowerCase()))
+    .filter((row) => row?.processo_enviado_correspondente !== true);
 }
 
 async function getCaseDocumentLinks(env, wa_id) {
@@ -11688,7 +11691,7 @@ async function getCaseDocumentLinks(env, wa_id) {
   const simCtx = getSimulationContext(env);
   // Em simulação canônica, não consultamos storage externo de documentos.
   if (simCtx?.active) return [];
-  const { data } = await sbFetch(env, "/rest/v1/enova_docs", {
+  const rows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_docs", {
     method: "GET",
     query: {
       wa_id: `eq.${encodeURIComponent(wa_id)}`,
@@ -11696,8 +11699,8 @@ async function getCaseDocumentLinks(env, wa_id) {
       order: "created_at.asc",
       limit: 50
     }
-  });
-  return Array.isArray(data) ? data : [];
+  }));
+  return rows;
 }
 
 async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {

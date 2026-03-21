@@ -11914,6 +11914,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     docExtraction?.extracted_text || ""
   ].filter(Boolean).join("\n");
   const caseRef = extractCorrespondenteCaseRefFromText(consolidatedText);
+  let trustedReturnChannel = isCorrespondenteChannel;
   if (!caseRef) {
     const maybeRetorno = /pré[- ]?cadastro|pre[- ]?cadastro|aprovad|reprovad|pend[eê]n|analise|imped/i.test(String(consolidatedText || ""));
     if (!maybeRetorno || !isCorrespondenteChannel) return { handled: false };
@@ -11947,12 +11948,25 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   }
 
   const caso = await findCorrespondenteCaseByCaseRef(env, caseRef);
+  if (!trustedReturnChannel) {
+    const waClienteCandidate = String(caso?.wa_id || "").trim();
+    if (!waClienteCandidate || waClienteCandidate === correspondenteWaId) return { handled: false };
+    const stCasoCandidate = await getState(env, waClienteCandidate);
+    const lockCandidate = String(stCasoCandidate?.corr_lock_correspondente_wa_id || "").trim();
+    if (lockCandidate && lockCandidate === correspondenteWaId) {
+      trustedReturnChannel = true;
+    } else {
+      return { handled: false };
+    }
+  }
   if (!caso?.wa_id) {
     await logger(env, {
       tipo: "retorno_correspondente_case_ref_sem_match",
       wa_id: correspondenteWaId,
-      case_ref: caseRef,
-      texto: String(userText || "")
+      texto: String(userText || ""),
+      details: {
+        case_ref: caseRef
+      }
     });
     return { handled: true, reason: "corr_return_case_ref_not_found" };
   }
@@ -12026,12 +12040,14 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     tipo: "retorno_correspondente_case_ref_processado",
     wa_id: waCliente,
     correspondente_wa_id: correspondenteWaId,
-    case_ref: caseRef,
     status: statusCanonico,
     pendencias,
     confidence,
     source: sourceDetected,
-    manual_review_required: manualReviewRequired
+    manual_review_required: manualReviewRequired,
+    details: {
+      case_ref: caseRef
+    }
   });
 
   if (manualReviewRequired) {

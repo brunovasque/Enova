@@ -858,6 +858,170 @@ function buildEnvWithState() {
   assert.equal(rawPayload.case_ref, "000518");
 }
 
+// 8.5) Logger de retorno por caseRef não pode enviar case_ref como coluna top-level em enova_log.
+{
+  const originalFetch = globalThis.fetch;
+  const capturedLogBodies = [];
+  globalThis.fetch = async (input, init = {}) => {
+    const rawUrl = typeof input === "string" ? input : input.url;
+    const parsed = new URL(rawUrl);
+    if (parsed.pathname === "/api/supabase-proxy") {
+      const path = parsed.searchParams.get("path") || "";
+      if (path === "/rest/v1/enova_log" && init?.body) {
+        try {
+          capturedLogBodies.push(JSON.parse(String(init.body)));
+        } catch {
+          // ignora payload não JSON para este smoke
+        }
+      }
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    return originalFetch(input, init);
+  };
+
+  try {
+    const env = buildEnvWithState();
+    env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000518";
+    const assumirReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: correspondenteWa,
+                id: "wamid.assumir.case.ref.log.shape",
+                timestamp: "1773183920",
+                type: "text",
+                text: { body: `ASSUMIR ${token}` }
+              }],
+              contacts: [{ wa_id: correspondenteWa }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(assumirReq, env, {});
+
+    const retornoReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: correspondenteWa,
+                id: "wamid.retorno.case.ref.log.shape",
+                timestamp: "1773183921",
+                type: "text",
+                text: { body: "pré-cadastro 000518 aprovado" }
+              }],
+              contacts: [{ wa_id: correspondenteWa }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(retornoReq, env, {});
+
+    const processedLog = capturedLogBodies.find((item) => item?.tipo === "retorno_correspondente_case_ref_processado");
+    assert.equal(Boolean(processedLog), true);
+    assert.equal(Object.prototype.hasOwnProperty.call(processedLog, "case_ref"), false);
+    assert.equal(processedLog?.details?.case_ref, "000518");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+// 8.6) Mídia/PDF de envio_docs fora do canal do correspondente não pode ser sequestrada pelo retorno por caseRef.
+{
+  const env = buildEnvWithState();
+  const waEnvioDocs = "5541992222333";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000518";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = correspondenteWa;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].fase_conversa = "aguardando_retorno_correspondente";
+  env.__enovaSimulationCtx.stateByWaId[waEnvioDocs] = {
+    wa_id: waEnvioDocs,
+    nome: "CLIENTE ENVIO DOCS",
+    fase_conversa: "envio_docs",
+    funil_status: "envio_docs",
+    envio_docs_status: "pendente",
+    checklist_documental: [],
+    updated_at: "2026-03-18T00:00:00.000Z"
+  };
+
+  const pdfReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: waEnvioDocs,
+              id: "wamid.envio.docs.pdf.case.ref",
+              timestamp: "1773183922",
+              type: "document",
+              caption: "pré-cadastro 000518 aprovado + holerite",
+              document: {
+                id: "mid.envio.docs.pdf",
+                filename: "holerite.pdf",
+                mime_type: "application/pdf"
+              }
+            }],
+            contacts: [{ wa_id: waEnvioDocs }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(pdfReq, env, {});
+
+  const imageReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: waEnvioDocs,
+              id: "wamid.envio.docs.image.case.ref",
+              timestamp: "1773183923",
+              type: "image",
+              caption: "C000518 holerite",
+              image: {
+                id: "mid.envio.docs.image",
+                mime_type: "image/jpeg"
+              }
+            }],
+            contacts: [{ wa_id: waEnvioDocs }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(imageReq, env, {});
+
+  const stEnvioDocs = env.__enovaSimulationCtx.stateByWaId[waEnvioDocs];
+  assert.equal(stEnvioDocs?.fase_conversa, "envio_docs");
+  assert.equal(env.__enovaSimulationCtx.stateByWaId[waCaso].retorno_correspondente_status || null, null);
+}
+
 // 9) Lookup por ?pre deve funcionar também quando o proxy retorna envelope { data: [...] }.
 {
   const originalFetch = globalThis.fetch;

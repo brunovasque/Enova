@@ -11535,6 +11535,16 @@ function buildCorrespondentePrivateDeliveryMessage(dossiePrivado, docsText) {
   return ["✅ Caso assumido com exclusividade.", "", dossiePrivado, "", docsText].join("\n");
 }
 
+function buildCorrespondenteReturnFormatGuidance(caseRefInput) {
+  const ref = normalizeCorrespondenteCaseRefInput(caseRefInput) || "000000";
+  return [
+    "Para me devolver o resultado, responda neste formato:",
+    `Pré-cadastro #${ref}`,
+    "STATUS: APROVADO, REPROVADO ou PENDÊNCIA",
+    "MOTIVO: opcional"
+  ].join("\n");
+}
+
 // Divide texto em blocos para reduzir risco de falha por limite de tamanho de mensagem.
 function splitMessageForWhatsapp(text, maxChars = 3500) {
   const raw = String(text || "").trim();
@@ -11570,10 +11580,12 @@ function splitMessageForWhatsapp(text, maxChars = 3500) {
 }
 
 // Entrega privada em múltiplas mensagens mantendo o contrato da fase oficial.
-async function sendCorrespondentePrivateDelivery(env, correspondenteWaId, dossiePrivado, docsText) {
+async function sendCorrespondentePrivateDelivery(env, correspondenteWaId, dossiePrivado, docsText, caseRefInput) {
   const dossieParts = splitMessageForWhatsapp(["✅ Caso assumido com exclusividade.", "", dossiePrivado].join("\n"));
   const docsParts = splitMessageForWhatsapp(docsText);
-  const payloads = [...dossieParts, ...docsParts];
+  const guidanceText = buildCorrespondenteReturnFormatGuidance(caseRefInput);
+  const guidanceParts = splitMessageForWhatsapp(guidanceText);
+  const payloads = [...dossieParts, ...docsParts, ...guidanceParts];
   for (const body of payloads) {
     await sendWhatsToCorrespondente(env, correspondenteWaId, body);
   }
@@ -11878,6 +11890,52 @@ function tryFastRuleBasedClassification({ consolidatedText, caseRef }) {
   return null;
 }
 
+function tryStructuredStatusClassification({ consolidatedText, caseRef }) {
+  const text = String(consolidatedText || "");
+  const caseDigits = String(caseRef || "").replace(/\D/g, "");
+  if (!caseDigits || !text.trim()) return null;
+  const lines = text.split(/\r?\n/).map((line) => String(line || "").trim()).filter(Boolean);
+  if (!lines.length) return null;
+  const statusLine = lines.find((line) => /^\s*status\s*[:\-]/i.test(line));
+  if (!statusLine) return null;
+  const statusRaw = String(statusLine).replace(/^\s*status\s*[:\-]\s*/i, "").trim();
+  if (!statusRaw) return null;
+  const normalizedText = normalizeText(text);
+  let status = normalizeCorrespondenteReturnStatus(statusRaw);
+  const riskMatches = /\b(cadin|restricao|restricoes|comprometimento de renda|serasa|spc|score)\b/.test(normalizedText);
+  const documentalMatches = /\b(comprovante|holerite|ctps|irpf|documento|documental|estado civil|faltando)\b/.test(normalizedText);
+  const hasApprovedWithPercentual = /\b(aprovado|aprovada|credito aprovado)\b[^\n\r]{0,24}\b\d{1,2}\s*%/.test(normalizedText);
+  const hasApprovedWithPendencies = /\b(aprovado|aprovada|credito aprovado)\b[^\n\r]{0,60}\b(pendencia|pendencias|condic|ressalva)\b/.test(normalizedText);
+  const hasExplicitReprovado = /\b(reprovado|credito reprovado|negado|nao aprovado)\b/.test(normalizeText(statusRaw));
+  if (status === "aprovado") {
+    if (hasApprovedWithPercentual || hasApprovedWithPendencies) {
+      status = "aprovado_condicionado";
+    }
+    if (documentalMatches) status = "aprovado_condicionado";
+  }
+  if (status === "nao_identificado") return null;
+  if (status === "pendencia_documental" || status === "pendencia_risco" || status === "em_analise") {
+    if (riskMatches) status = "pendencia_risco";
+    if (status !== "pendencia_risco" && documentalMatches) status = "pendencia_documental";
+  }
+  if (riskMatches && !hasExplicitReprovado && status !== "reprovado") status = "pendencia_risco";
+  const motivoLine = lines.find((line) => /^\s*motivo\s*[:\-]/i.test(line));
+  const motivo = motivoLine
+    ? String(motivoLine).replace(/^\s*motivo\s*[:\-]\s*/i, "").trim()
+    : "";
+  return {
+    case_ref: caseDigits,
+    status,
+    motivo,
+    pendencias: motivo ? [motivo] : [],
+    confidence: 0.99,
+    manual_review_required: false,
+    extracted_evidence: ["Formato estruturado Pré-cadastro + STATUS/MOTIVO"],
+    source: "text",
+    classifier: "structured_status"
+  };
+}
+
 async function extractDocumentTextIfNeeded(env, signals, options = {}) {
   if (!signals?.hasRelevantAttachment || !signals?.mediaNode) {
     return { extracted_text: "", source: "text", ocr_used: false, ocr_ok: false };
@@ -12040,7 +12098,6 @@ function extractCorrespondentePendenciasFromText(rawText) {
 async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   const correspondenteWaId = extractCorrespondenteWaId(msg, env);
   if (!correspondenteWaId) return { handled: false, case_ref: null, status: null };
-  const confirmationPrompt = "Me confirme o pré-cadastro deste retorno, por favor.";
   const from = String(msg?.from || "").trim();
   const isCorrespondenteChannel = Boolean(String(msg?.author || "").trim()) || (from === String(env.CORRESPONDENTE_TO || "").trim());
   const signals = extractCorrespondenteReturnSignals(msg, userText);
@@ -12064,6 +12121,12 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     return isCorrespondenteChannel || senderLockedCases.length > 0;
   };
   const askCaseConfirmation = async (reason) => {
+    const confirmationPrompt = [
+      "Me confirme no formato:",
+      `Pré-cadastro #${caseRef || "000000"}`,
+      "STATUS: APROVADO, REPROVADO ou PENDÊNCIA",
+      "MOTIVO: opcional"
+    ].join("\n");
     await sendMessage(env, correspondenteWaId, confirmationPrompt);
     return { handled: true, reason };
   };
@@ -12149,11 +12212,15 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     return { handled: true, reason: "corr_return_case_ref_locked_other", case_ref: caseRef || null, status: null };
   }
 
+  const structuredPath = tryStructuredStatusClassification({
+    consolidatedText,
+    caseRef
+  });
   const fastPath = tryFastRuleBasedClassification({
     consolidatedText,
     caseRef
   });
-  const aiClassification = fastPath || await classifyCorrespondenteReturnWithAI(env, {
+  const aiClassification = structuredPath || fastPath || await classifyCorrespondenteReturnWithAI(env, {
     case_ref_hint: caseRef,
     expected_case_ref: buildCorrespondenteCaseRef(caso),
     message_text: signals.messageText,
@@ -12162,7 +12229,11 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     document_text: docExtraction?.extracted_text || "",
     consolidated_text: consolidatedText
   });
-  const statusCanonico = normalizeCorrespondenteReturnStatus(aiClassification?.status);
+  const hasExplicitStatusField = /^\s*status\s*[:\-]/im.test(String(consolidatedText || ""));
+  let statusCanonico = normalizeCorrespondenteReturnStatus(aiClassification?.status);
+  if (!hasExplicitStatusField && !structuredPath && !fastPath && (statusCanonico === "em_analise" || statusCanonico === "nao_identificado")) {
+    statusCanonico = "nao_identificado";
+  }
   const pendencias = sanitizeCorrespondentePendencias(aiClassification?.pendencias)
     .map((descricao) => ({ descricao }));
   const confidence = Number(aiClassification?.confidence || 0);
@@ -12170,6 +12241,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     aiClassification?.manual_review_required === true ||
     !aiClassification?.case_ref ||
     statusCanonico === "nao_identificado" ||
+    (!hasExplicitStatusField && !structuredPath && !fastPath) ||
     confidence < CORRESPONDENTE_RETURN_MIN_CONFIDENCE_AUTO;
   const sourceDetected = docExtraction?.ocr_used
     ? (signals.sourceType === "image" ? "image" : "pdf")
@@ -12216,6 +12288,13 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   });
 
   if (manualReviewRequired) {
+    await sendMessage(env, correspondenteWaId, [
+      "Retorno recebido com baixa confiança.",
+      "Me confirme no formato:",
+      `Pré-cadastro #${caseRef || "000000"}`,
+      "STATUS: APROVADO, REPROVADO ou PENDÊNCIA",
+      "MOTIVO: opcional"
+    ].join("\n"));
     await funnelTelemetry(env, {
       wa_id: waCliente,
       event: "corr_return_case_ref_manual_review_required",
@@ -12450,9 +12529,10 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
     gerarDossieCompleto(stCaso);
   const docs = await getCaseDocumentLinks(env, caso.wa_id);
   const docsText = buildCorrespondentePrivateDocsLinksText(docs);
+  const caseRef = buildCorrespondenteCaseRef(caso);
 
   try {
-    await sendCorrespondentePrivateDelivery(env, correspondenteWaId, dossiePrivado, docsText);
+    await sendCorrespondentePrivateDelivery(env, correspondenteWaId, dossiePrivado, docsText, caseRef);
   } catch (err) {
     await upsertState(env, caso.wa_id, {
       corr_entrega_privada_status: "falha_entrega_privada",
@@ -12482,14 +12562,14 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
     ], "aguardando_retorno_correspondente");
   }
 
-  const caseRef = buildCorrespondenteCaseRef(caso);
   const entryLink = buildCorrespondenteEntryLinkForCorrespondente(env, token, correspondenteWaId, caseRef);
+  const reminder = `Lembrete de retorno:\n${buildCorrespondenteReturnFormatGuidance(caseRef)}`;
   await sendMessage(
     env,
     correspondenteWaId,
     entryLink
-      ? `Assunção confirmada. Reabertura do dossiê: ${entryLink}`
-      : `Assunção confirmada. Caso ${token} entregue no seu privado.`
+      ? `Assunção confirmada. Reabertura do dossiê: ${entryLink}\n\n${reminder}`
+      : `Assunção confirmada. Caso ${token} entregue no seu privado.\n\n${reminder}`
   );
   return { handled: true, reason: "assumir_token_success" };
 }

@@ -68,14 +68,18 @@ function buildEnvWithState() {
   );
 }
 
-// 2) GET antes da assunção: bloqueia acesso e orienta assunção no grupo.
+// 2) GET antes da assunção: entrada oficial exibe capa + ação de assumir.
 {
   const env = buildEnvWithState();
   const req = new Request("https://worker.local/correspondente/entrada?pre=000001", { method: "GET" });
   const res = await worker.fetch(req, env, {});
-  const body = await res.text();
-  assert.equal(res.status, 403);
-  assert.equal(body.includes("A assunção ocorre na mensagem de distribuição do grupo"), true);
+  const html = await res.text();
+  assert.equal(res.status, 200);
+  assert.equal(html.includes("Capa do caso"), true);
+  assert.equal(html.includes("Referência:"), true);
+  assert.equal(html.includes("000001"), true);
+  assert.equal(html.includes("Assumir caso"), true);
+  assert.equal(html.includes("porta oficial de assunção"), true);
 }
 
 // 2.1) pre inexistente continua inválido.
@@ -86,6 +90,35 @@ function buildEnvWithState() {
   const body = await res.text();
   assert.equal(res.status, 404);
   assert.equal(body.includes("Link de entrada inválido."), true);
+}
+
+// 2.2) POST na entrada oficial assume caso, persiste lock e libera dossiê para o dono.
+{
+  const env = buildEnvWithState();
+  const assumirReq = new Request("https://worker.local/correspondente/entrada?pre=000001", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      pre: "000001",
+      cw: correspondenteWa
+    })
+  });
+  const assumirRes = await worker.fetch(assumirReq, env, {});
+  const assumirHtml = await assumirRes.text();
+  assert.equal(assumirRes.status, 200);
+  assert.equal(assumirHtml.includes("Resumo executivo"), true);
+
+  const atualizado = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(atualizado.corr_lock_correspondente_wa_id, correspondenteWa);
+  assert.equal(typeof atualizado.corr_lock_assumido_em, "string");
+  assert.equal(atualizado.aguardando_retorno_correspondente, true);
+  assert.equal(atualizado.processo_enviado_correspondente, true);
+
+  const wrongWaReq = new Request("https://worker.local/correspondente/entrada?pre=000001&cw=5511888888888", { method: "GET" });
+  const wrongWaRes = await worker.fetch(wrongWaReq, env, {});
+  const wrongWaBody = await wrongWaRes.text();
+  assert.equal(wrongWaRes.status, 403);
+  assert.equal(wrongWaBody.includes("Este caso já foi assumido por outro correspondente."), true);
 }
 
 // 3) Assunção no fluxo externo libera link apenas para o correspondente correto.

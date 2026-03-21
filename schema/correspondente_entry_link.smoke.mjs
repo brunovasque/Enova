@@ -492,7 +492,7 @@ function buildEnvWithState() {
           value: {
             messages: [{
               from: correspondenteWa,
-              id: "wamid.assumir.case.ref.reprovado",
+              id: "wamid.assumir.case.ref.reprovado.v2",
               timestamp: "1773183907",
               type: "text",
               text: { body: `ASSUMIR ${token}` }
@@ -515,7 +515,7 @@ function buildEnvWithState() {
           value: {
             messages: [{
               from: correspondenteWa,
-              id: "wamid.retorno.case.ref.reprovado",
+              id: "wamid.retorno.case.ref.reprovado.v2",
               timestamp: "1773183908",
               type: "text",
               text: { body: "000518 reprovado por score" }
@@ -1076,6 +1076,312 @@ function buildEnvWithState() {
   } finally {
     globalThis.fetch = originalFetch;
   }
+}
+
+// 10) Retorno textual simples "000006 aprovado" deve funcionar com âncora numérica mínima.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.case.ref.simple.000006",
+              timestamp: "1773183924",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(assumirReq, env, {});
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.simple.000006",
+              timestamp: "1773183925",
+              type: "text",
+              text: { body: "000006 aprovado" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aprovado");
+  assert.equal(alvo.fase_conversa, "agendamento_visita");
+}
+
+// 11) "CREDITO APROVADO" + "POSSUI PENDENCIAS" deve classificar como aprovado_condicionado.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "112972";
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.case.ref.aprovado.condicionada",
+              timestamp: "1773183926",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(assumirReq, env, {});
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.aprovado.condicionada",
+              timestamp: "1773183927",
+              type: "text",
+              text: { body: "Pré-cadastro # 112972\nCREDITO APROVADO\nPOSSUI PENDENCIAS" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aprovado_condicionado");
+  assert.equal(alvo.fase_conversa, "agendamento_visita");
+}
+
+// 12) "CREDITO REPROVADO" + "restrição externa" deve classificar reprovado.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "112779";
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.case.ref.reprovado",
+              timestamp: "1773183928",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(assumirReq, env, {});
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.reprovado",
+              timestamp: "1773183929",
+              type: "text",
+              text: { body: "Pré-cadastro # 112779\nCREDITO REPROVADO\nProponente/grupo familiar possui restrição externa." }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "reprovado");
+  assert.equal(alvo.fase_conversa, "aguardando_retorno_correspondente");
+}
+
+// 13) "POSSUI CADIN" e "COMPROMETIMENTO DE RENDA" devem ficar em pendencia_risco.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "112753";
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.case.ref.risco",
+              timestamp: "1773183930",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(assumirReq, env, {});
+  const retornoCadinReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.risco.cadin",
+              timestamp: "1773183931",
+              type: "text",
+              text: { body: "Pré-cadastro # 112753\nSTATUS: CRÉDITO APROVADO\nPOSSUI CADIN" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoCadinReq, env, {});
+  let alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "pendencia_risco");
+  assert.equal(alvo.fase_conversa, "aguardando_retorno_correspondente");
+
+  env.__enovaSimulationCtx.stateByWaId[waCaso].retorno_correspondente_status = null;
+  const retornoComprometimentoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.risco.comprometimento",
+              timestamp: "1773183932",
+              type: "text",
+              text: { body: "Pré-cadastro # 112753\nSTATUS: CRÉDITO APROVADO\nPOSSUI COMPROMETIMENTO DE RENDA" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoComprometimentoReq, env, {});
+  alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "pendencia_risco");
+}
+
+// 14) "FICHA - 61109.pdf" + "APROVADO 30%" + pendências deve ancorar no arquivo e classificar aprovado_condicionado.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "061109";
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.case.ref.ficha",
+              timestamp: "1773183933",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(assumirReq, env, {});
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.ficha",
+              timestamp: "1773183934",
+              type: "document",
+              caption: "APROVADO 30%\nPendências: IRPF, holerite e CTPS",
+              document: {
+                id: "mid.pdf.ficha.61109",
+                filename: "FICHA - 61109.pdf",
+                mime_type: "application/pdf"
+              }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aprovado_condicionado");
 }
 
 console.log("correspondente_entry_link.smoke: ok");

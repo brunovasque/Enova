@@ -10995,14 +10995,16 @@ function extractCorrespondenteCaseRefFromText(text) {
   const normalized = raw.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   const patterns = [
     /\b(?:pre\s*cadastro|cadastro|case\s*ref|ref)\s*[:#-]?\s*C?\s*(\d{1,8})\b/i,
-    /\bC\s*0*(\d{1,8})\b/i
+    /\bC\s*0*(\d{1,8})\b/i,
+    /\bficha\s*[-#: ]+\s*(\d{1,8})(?:\D|$)/i,
+    /(?:^|\D)#\s*(\d{4,8})(?:\D|$)/i
   ];
   for (const pattern of patterns) {
     const match = normalized.match(pattern);
     if (match?.[1]) return normalizeCorrespondenteCaseRefInput(match[1]);
   }
   if (/\b(aprov|reprov|pend|analis|imped)\w*\b/i.test(normalized)) {
-    const simple = normalized.match(/(?:^|\D)(\d{6})(?:\D|$)/);
+    const simple = normalized.match(/(?:^|\D)(\d{4,8})(?:\D|$)/);
     if (simple?.[1]) return normalizeCorrespondenteCaseRefInput(simple[1]);
   }
   return null;
@@ -11609,26 +11611,30 @@ async function findCorrespondenteCaseByCaseRef(env, caseRef) {
 function classifyCorrespondenteReturnFromText(rawText) {
   const ntMsg = normalizeText(rawText || "");
   const hasAny = (terms) => terms.some((term) => ntMsg.includes(term));
+  const hasAprovado = /\b(aprovado|aprovada|credito aprovado|liberado|liberada)\b/.test(ntMsg);
   const reprovado = /\b(reprovado|credito reprovado|negado|nao aprovado)\b/.test(ntMsg);
   const pendenciaRisco = hasAny([
     "conres", "sinad", "scr", "registrato", "registrado", "bacen", "serasa", "spc", "protesto",
-    "restricao", "restricoes", "divida", "dividas", "impedimento", "margem financeira comprometida"
+    "restricao", "restricoes", "restricao externa", "divida", "dividas", "impedimento", "margem financeira comprometida",
+    "cadin", "comprometimento de renda", "comprometimento renda"
   ]);
   const pendenciaDocumental = hasAny([
     "pendencia documental", "complemento documental", "documento adicional",
     "complementacao documental", "pendencia de documento", "falta de documento",
-    "documentacao pendente", "faltando", "comprovante"
+    "documentacao pendente", "faltando", "comprovante", "irpf", "holerite", "estado civil", "ctps"
   ]);
   const aprovadoCondicionado = hasAny([
     "aprovado condicionado", "aprovacao condicionada", "credito aprovado condicionado",
-    "pre aprovacao condicionada", "aprovado com ressalvas", "aprovado com condicoes"
+    "pre aprovacao condicionada", "aprovado com ressalvas", "aprovado com condicoes",
+    "possui pendencia", "possui pendencias"
   ]);
-  const aprovado = /\b(aprovado|aprovada|credito aprovado|liberado|liberada)\b/.test(ntMsg);
+  const aprovadoComPercentual = /\b(aprovado|aprovada|credito aprovado)\b[^\n\r]{0,24}\b\d{1,2}\s*%/.test(ntMsg);
+  const aprovadoComPendenciaLivre = hasAprovado && /\b(pendencia|pendencias)\b/.test(ntMsg);
   if (reprovado) return "reprovado";
   if (pendenciaRisco) return "pendencia_risco";
+  if (hasAprovado && (aprovadoCondicionado || aprovadoComPercentual || aprovadoComPendenciaLivre || pendenciaDocumental)) return "aprovado_condicionado";
   if (pendenciaDocumental) return "pendencia_documental";
-  if (aprovadoCondicionado) return "aprovado_condicionado";
-  if (aprovado) return "aprovado";
+  if (hasAprovado) return "aprovado";
   if (/\b(analise|analisando|em analise|em andamento|aguardando)\b/.test(ntMsg)) return "em_analise";
   return "nao_identificado";
 }
@@ -11665,10 +11671,18 @@ function normalizeCorrespondenteReturnStatus(value) {
   };
   const direct = map[normalized];
   if (direct && CORRESPONDENTE_RETURN_STATUS_CANONICAL.has(direct)) return direct;
+  if (/\baprovad/.test(normalized) && /\b\d{1,2}\s*%/.test(normalized)) return "aprovado_condicionado";
+  if (normalized.includes("possui pendencia")) return "aprovado_condicionado";
   if (normalized.includes("aprovado condicion")) return "aprovado_condicionado";
   if (normalized.includes("reprovad") || normalized.includes("negad")) return "reprovado";
   if (normalized.includes("pendencia documental") || normalized.includes("pendencia document")) return "pendencia_documental";
-  if (normalized.includes("pendencia risco") || normalized.includes("restricao") || normalized.includes("score")) return "pendencia_risco";
+  if (
+    normalized.includes("pendencia risco") ||
+    normalized.includes("restricao") ||
+    normalized.includes("score") ||
+    normalized.includes("cadin") ||
+    normalized.includes("comprometimento de renda")
+  ) return "pendencia_risco";
   if (normalized.includes("aprovad") || normalized.includes("liberad")) return "aprovado";
   if (normalized.includes("analise")) return "em_analise";
   return "nao_identificado";
@@ -11729,11 +11743,20 @@ function tryFastRuleBasedClassification({ consolidatedText, caseRef }) {
     classifier: "fast_path"
   });
 
+  if (/(?:^|\b)\d{4,8}\b[^\n\r]{0,60}\b(reprovado|negado|nao aprovado)\b/.test(normalized)) {
+    return pick("reprovado", 0.99, "Formato simples case_ref + reprovado");
+  }
+  if (/(?:^|\b)\d{4,8}\b[^\n\r]{0,120}\b(cadin|restricao|restricoes|comprometimento de renda|serasa|spc|score)\b/.test(normalized)) {
+    return pick("pendencia_risco", 0.97, "Formato simples case_ref + risco");
+  }
+  if (
+    /(?:^|\b)\d{4,8}\b[^\n\r]{0,120}\b(aprovado|aprovada|liberado|liberada)\b/.test(normalized) &&
+    /\b(\d{1,2}\s*%|pendencia|pendencias|condic|ressalva|irpf|holerite|ctps|estado civil|comprovante)\b/.test(normalized)
+  ) {
+    return pick("aprovado_condicionado", 0.98, "Formato simples case_ref + aprovado com pendências");
+  }
   if (/(?:^|\b)\d{4,8}\b[^\n\r]{0,40}\b(aprovado|aprovada|liberado|liberada)\b/.test(normalized)) {
     return pick("aprovado", 0.99, "Formato simples case_ref + aprovado");
-  }
-  if (/(?:^|\b)\d{4,8}\b[^\n\r]{0,40}\b(reprovado|negado|nao aprovado)\b/.test(normalized)) {
-    return pick("reprovado", 0.99, "Formato simples case_ref + reprovado");
   }
   if (/(?:^|\b)\d{4,8}\b[^\n\r]{0,40}\b(pendencia|pendencia documental|faltando documento)\b/.test(normalized)) {
     return pick("pendencia_documental", 0.96, "Formato simples case_ref + pendencia");
@@ -11836,10 +11859,10 @@ async function classifyCorrespondenteReturnWithAI(env, input = {}) {
     },
     rules: [
       "crédito aprovado/aprovado/liberado => aprovado",
-      "aprovado com condição/ressalva => aprovado_condicionado",
+      "aprovado com condição/ressalva/percentual (ex: 28%, 30%) ou aprovado + pendências => aprovado_condicionado",
       "reprovado/negado/sem aprovação => reprovado",
-      "faltando documento/pendência documental/enviar X => pendencia_documental",
-      "restrição/score/impeditivo/regularizar => pendencia_risco",
+      "faltando documento/pendência documental/lista documental (ex: IRPF, holerite, CTPS, comprovantes) => pendencia_documental",
+      "restrição/score/impeditivo/CADIN/comprometimento de renda/regularizar => pendencia_risco",
       "sem conclusão => em_analise ou nao_identificado"
     ],
     content: {

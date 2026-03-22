@@ -11940,7 +11940,7 @@ function normalizeCorrespondenteStatusFromStatusLine(statusRaw, contexto = "") {
   const statusText = normalizeText(statusRaw || "");
   if (!statusText) return null;
   const fullContext = normalizeText([statusRaw, contexto].filter(Boolean).join("\n"));
-  const hasRiskTerms = /\b(cadin|restricao|restricoes|comprometimento de renda|serasa|spc|score|conres|scr|registrato)\b/.test(fullContext);
+  const hasRiskTerms = /\b(cadin|restricao|restricoes|comprometimento de renda|serasa|spc|score|conres|scr|registrato|registrado|registro)\b/.test(fullContext);
   const hasDocumentalTerms = /\b(comprovante|holerite|ctps|irpf|documento|documental|estado civil|faltando)\b/.test(fullContext);
   const hasApprovedConditionalTerms =
     /\b(condicion|ressalva|pendencia|pendencias)\b/.test(fullContext) ||

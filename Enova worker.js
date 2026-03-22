@@ -11251,13 +11251,21 @@ function isCorrespondenteEntryAllowed(caso) {
 }
 
 function normalizeCorrespondenteWaIdInput(value) {
-  return String(value || "")
+  const digits = String(value || "")
     .trim()
     .toLowerCase()
     .replace(/^whatsapp:/, "")
     .replace(/@.+$/, "")
     .replace(/\D/g, "")
     .trim();
+  if (!digits) return "";
+  if (digits.startsWith("55")) {
+    const withoutCountryCode = digits.slice(2);
+    if (withoutCountryCode.length === 10 || withoutCountryCode.length === 11) {
+      return withoutCountryCode;
+    }
+  }
+  return digits;
 }
 
 function isCorrespondenteEntryAdminOverride(request, env) {
@@ -12858,6 +12866,8 @@ async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
       details: {
         case_ref: buildCorrespondenteCaseRef(current) || null,
         lock_wa_id_before_save: lockAtual || null,
+        lock_wa_id_saved_raw: correspondenteWaId || null,
+        lock_wa_id_saved_normalized: normalizedCorrespondenteWaId || null,
         lock_wa_id_saved: normalizedCorrespondenteWaId || null,
         function_used: "normalizeCorrespondenteWaIdInput"
       }
@@ -12891,6 +12901,8 @@ async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
     details: {
       case_ref: after ? buildCorrespondenteCaseRef(after) : null,
       lock_wa_id_before_save: null,
+      lock_wa_id_saved_raw: correspondenteWaId || null,
+      lock_wa_id_saved_normalized: normalizedCorrespondenteWaId || null,
       lock_wa_id_saved: normalizedCorrespondenteWaId || null,
       function_used: "normalizeCorrespondenteWaIdInput"
     }
@@ -12963,7 +12975,7 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   }
 
   if (!lockAtualNormalized) {
-    const acquired = await tryAcquireCorrespondenteLock(env, caso.wa_id, normalizedCorrespondenteWaId);
+    const acquired = await tryAcquireCorrespondenteLock(env, caso.wa_id, correspondenteWaId);
     if (!acquired) {
       await sendMessage(env, correspondenteWaId, "Este caso acabou de ser assumido por outro correspondente.");
       return { handled: true, reason: "assumir_token_lock_race" };

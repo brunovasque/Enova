@@ -6,6 +6,7 @@ const CTPS_RESOLUTION_PATH_GUARD = "handleDocumentUpload:post_match_target_resol
 const CTPS_NON_BLOCKING_DOC_TYPES = new Set(["ctps_completa", "ctps"]);
 const RESET_REPLY_SUMMARY_MAX_LEN = 140;
 const MIN_CORRESPONDENTE_WA_ID_LENGTH = 10;
+const VISITA_DEFAULT_FIRST_SLOT_OFFSET_MS = 24 * 60 * 60 * 1000;
 const CORRESPONDENTE_RETORNO_ACK_MESSAGE = "Perfeito, obrigado pelo retorno. Já vou seguir com o cliente por aqui e, assim que surgir um novo caso, o Vasques envia lá no grupo.";
 
 function getSimulationContext(env) {
@@ -22010,7 +22011,7 @@ const patchCanal = {
 
     if (retornoStatus) {
       if (retornoStatus === "aprovado" || retornoStatus === "aprovado_condicionado") {
-        const firstSlotIso = st.visita_primeiro_slot_disponivel_em || new Date(Date.now() + (24 * 60 * 60 * 1000)).toISOString();
+        const firstSlotIso = st.visita_primeiro_slot_disponivel_em || new Date(Date.now() + VISITA_DEFAULT_FIRST_SLOT_OFFSET_MS).toISOString();
         await upsertState(env, st.wa_id, {
           visita_origem: st.visita_origem || "aprovado",
           visita_convite_status: st.visita_convite_status || "pendente",
@@ -22022,6 +22023,7 @@ const patchCanal = {
           visita_slot_escolhido: null,
           visita_dia_hora: null
         });
+        // Entrada canônica no trilho de visita (estado + stage), evitando mensagem solta fora do case de agendamento.
         return step(env, st, [
           "Ótima notícia! Seu processo avançou para a visita presencial. 🎉",
           "Posso te mostrar agora as próximas datas e horários oficiais?",

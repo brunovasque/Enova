@@ -12253,45 +12253,6 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   }
 
   const caso = await findCorrespondenteCaseByCaseRef(env, caseRef);
-  if (!trustedReturnChannel) {
-    const waClienteCandidate = String(caso?.wa_id || "").trim();
-    if (!waClienteCandidate || waClienteCandidate === correspondenteWaId) return { handled: false, case_ref: caseRef || null, status: null };
-    const stCasoCandidate = await getState(env, waClienteCandidate);
-    const lockCandidate = String(stCasoCandidate?.corr_lock_correspondente_wa_id || "").trim();
-    if (lockCandidate && lockCandidate === correspondenteWaId) {
-      trustedReturnChannel = true;
-    } else {
-      if (await shouldAskCaseConfirmation()) {
-        return await askCaseConfirmation("corr_return_case_ref_low_confidence_sender_or_case");
-      }
-      return { handled: false, case_ref: caseRef || null, status: null };
-    }
-  }
-  if (!caso?.wa_id) {
-    await logger(env, {
-      tipo: "retorno_correspondente_case_ref_sem_match",
-      wa_id: correspondenteWaId,
-      texto: String(userText || ""),
-      details: {
-        case_ref: caseRef
-      }
-    });
-    return await askCaseConfirmation("corr_return_case_ref_not_found");
-  }
-  const waCliente = String(caso.wa_id || "").trim();
-  if (!waCliente || waCliente === correspondenteWaId) return { handled: false, case_ref: caseRef || null, status: null };
-
-  const stCaso = await getState(env, waCliente);
-  if (!stCaso) return { handled: true, reason: "corr_return_case_ref_state_not_found", case_ref: caseRef || null, status: null };
-  const lockAtual = String(stCaso?.corr_lock_correspondente_wa_id || "").trim();
-  if (!lockAtual) {
-    return { handled: true, reason: "corr_return_case_ref_without_lock", case_ref: caseRef || null, status: null };
-  }
-  if (lockAtual && lockAtual !== correspondenteWaId) {
-    await sendMessage(env, correspondenteWaId, "Este caso já está vinculado a outro correspondente. Retorno não registrado.");
-    return { handled: true, reason: "corr_return_case_ref_locked_other", case_ref: caseRef || null, status: null };
-  }
-
   const statusProbe = parseCorrespondenteStatusLineFromText(consolidatedText);
   await telemetry(env, {
     wa_id: correspondenteWaId,
@@ -12309,8 +12270,89 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       motivo_preview: String(statusProbe.motivo || "").slice(0, 80) || null
     }
   });
-
+  const emitStatusDecisionProbe = async ({ statusClassificado, handled, fallbackCommonFlow, decisionReason, nextStage = null }) => {
+    await telemetry(env, {
+      wa_id: correspondenteWaId,
+      event: "corr_status_probe_decision",
+      stage: "aguardando_retorno_correspondente",
+      severity: "info",
+      force: true,
+      message: "Probe objetiva: decisão de classificação do retorno",
+      details: {
+        case_ref: caseRef || null,
+        status_line_found: statusProbe.statusLineFound ? "sim" : "nao",
+        status_raw: statusProbe.statusRaw || null,
+        status_normalized: statusProbe.statusNormalized || null,
+        status_classificado: statusClassificado || null,
+        handled: handled ? "sim" : "nao",
+        fallback_common_flow: fallbackCommonFlow ? "sim" : "nao",
+        decision_reason: decisionReason || null,
+        next_stage: nextStage
+      }
+    });
+  };
   const shouldUseTextStatusFastPath = Boolean(caseRef && statusProbe.statusLineFound && statusProbe.statusNormalized);
+  if (!trustedReturnChannel) {
+    const waClienteCandidate = String(caso?.wa_id || "").trim();
+    if (!waClienteCandidate || waClienteCandidate === correspondenteWaId) {
+      await emitStatusDecisionProbe({
+        statusClassificado: shouldUseTextStatusFastPath ? statusProbe.statusNormalized : null,
+        handled: false,
+        fallbackCommonFlow: true,
+        decisionReason: "sender_case_target_invalid"
+      });
+      return { handled: false, case_ref: caseRef || null, status: null };
+    }
+    const stCasoCandidate = await getState(env, waClienteCandidate);
+    const lockCandidate = String(stCasoCandidate?.corr_lock_correspondente_wa_id || "").trim();
+    if (lockCandidate && lockCandidate === correspondenteWaId) {
+      trustedReturnChannel = true;
+    } else {
+      if (await shouldAskCaseConfirmation()) {
+        return await askCaseConfirmation("corr_return_case_ref_low_confidence_sender_or_case");
+      }
+      await emitStatusDecisionProbe({
+        statusClassificado: shouldUseTextStatusFastPath ? statusProbe.statusNormalized : null,
+        handled: false,
+        fallbackCommonFlow: true,
+        decisionReason: "sender_low_confidence_without_case_lock"
+      });
+      return { handled: false, case_ref: caseRef || null, status: null };
+    }
+  }
+  if (!caso?.wa_id) {
+    await logger(env, {
+      tipo: "retorno_correspondente_case_ref_sem_match",
+      wa_id: correspondenteWaId,
+      texto: String(userText || ""),
+      details: {
+        case_ref: caseRef
+      }
+    });
+    return await askCaseConfirmation("corr_return_case_ref_not_found");
+  }
+  const waCliente = String(caso.wa_id || "").trim();
+  if (!waCliente || waCliente === correspondenteWaId) {
+    await emitStatusDecisionProbe({
+      statusClassificado: shouldUseTextStatusFastPath ? statusProbe.statusNormalized : null,
+      handled: false,
+      fallbackCommonFlow: true,
+      decisionReason: "resolved_case_target_invalid"
+    });
+    return { handled: false, case_ref: caseRef || null, status: null };
+  }
+
+  const stCaso = await getState(env, waCliente);
+  if (!stCaso) return { handled: true, reason: "corr_return_case_ref_state_not_found", case_ref: caseRef || null, status: null };
+  const lockAtual = String(stCaso?.corr_lock_correspondente_wa_id || "").trim();
+  if (!lockAtual) {
+    return { handled: true, reason: "corr_return_case_ref_without_lock", case_ref: caseRef || null, status: null };
+  }
+  if (lockAtual && lockAtual !== correspondenteWaId) {
+    await sendMessage(env, correspondenteWaId, "Este caso já está vinculado a outro correspondente. Retorno não registrado.");
+    return { handled: true, reason: "corr_return_case_ref_locked_other", case_ref: caseRef || null, status: null };
+  }
+
   const textFastPathClassification = shouldUseTextStatusFastPath
     ? {
       case_ref: caseRef,
@@ -12398,21 +12440,12 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     dispatchTarget === "visita"
       ? "agendamento_visita"
       : (dispatchTarget === "none" ? String(stCaso?.fase_conversa || "aguardando_retorno_correspondente") : "aguardando_retorno_correspondente");
-  await telemetry(env, {
-    wa_id: correspondenteWaId,
-    event: "corr_status_probe_decision",
-    stage: "aguardando_retorno_correspondente",
-    severity: "info",
-    force: true,
-    message: "Probe objetiva: decisão de classificação do retorno",
-    details: {
-      case_ref: caseRef || null,
-      status_classificado: statusCanonico || null,
-      handled: "sim",
-      fallback_common_flow: "nao",
-      decision_reason: decisionReason,
-      next_stage: nextStagePreview
-    }
+  await emitStatusDecisionProbe({
+    statusClassificado: statusCanonico,
+    handled: true,
+    fallbackCommonFlow: false,
+    decisionReason,
+    nextStage: nextStagePreview
   });
   await telemetry(env, {
     wa_id: correspondenteWaId,

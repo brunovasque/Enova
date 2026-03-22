@@ -1758,4 +1758,150 @@ function buildEnvWithState() {
   assert.equal(alvo.fase_conversa, "agendamento_visita");
 }
 
+// 20) Requisitos operacionais: STATUS APROVADO (texto puro) deve ir para visita.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.case.ref.req.aprovado.textual",
+              timestamp: "1773183945",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(assumirReq, env, {});
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.req.aprovado.textual",
+              timestamp: "1773183946",
+              type: "text",
+              text: { body: "Pré-cadastro #000006\nSTATUS: APROVADO" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aprovado");
+  assert.equal(alvo.fase_conversa, "agendamento_visita");
+}
+
+// 21) Telemetria objetiva do probe de STATUS deve registrar etapas e decisão.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  const originalConsoleLog = console.log;
+  const capturedProbe = [];
+  console.log = (...args) => {
+    const line = args.map((part) => String(part)).join(" ");
+    if (line.includes("TELEMETRIA-SAFE:") && line.includes("corr_status_probe_")) {
+      capturedProbe.push(line);
+    }
+    return originalConsoleLog(...args);
+  };
+
+  try {
+    const assumirReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: correspondenteWa,
+                id: "wamid.assumir.case.ref.req.telemetry",
+                timestamp: "1773183947",
+                type: "text",
+                text: { body: `ASSUMIR ${token}` }
+              }],
+              contacts: [{ wa_id: correspondenteWa }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(assumirReq, env, {});
+    const retornoReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: correspondenteWa,
+                id: "wamid.retorno.case.ref.req.telemetry",
+                timestamp: "1773183948",
+                type: "text",
+                text: { body: "Pré-cadastro #000006\nSTATUS: REPROVADO\nMOTIVO: restrição externa" }
+              }],
+              contacts: [{ wa_id: correspondenteWa }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(retornoReq, env, {});
+  } finally {
+    console.log = originalConsoleLog;
+  }
+
+  const telemetryPrefix = "TELEMETRIA-SAFE: ";
+  const parsedEvents = capturedProbe
+    .map((line) => {
+      const payloadStr = line.includes(telemetryPrefix)
+        ? line.slice(line.indexOf(telemetryPrefix) + telemetryPrefix.length)
+        : "";
+      if (!payloadStr) return null;
+      const payload = JSON.parse(payloadStr);
+      return {
+        event: payload?.event || null,
+        details: payload?.details ? JSON.parse(payload.details) : null
+      };
+    })
+    .filter(Boolean);
+  const byEvent = Object.fromEntries(parsedEvents.map((item) => [item.event, item.details]));
+
+  assert.equal(byEvent.corr_status_probe_input?.case_ref_extracted, "000006");
+  assert.equal(byEvent.corr_status_probe_input?.text_source_used, "meta_text");
+  assert.equal(byEvent.corr_status_probe_status_parse?.status_line_found, "sim");
+  assert.equal(byEvent.corr_status_probe_status_parse?.status_normalized, "reprovado");
+  assert.equal(byEvent.corr_status_probe_decision?.handled, "sim");
+  assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "nao");
+  assert.equal(byEvent.corr_status_probe_client_dispatch?.client_wa_id_found, "sim");
+  assert.equal(byEvent.corr_status_probe_client_dispatch?.dispatch_target, "reprovado");
+}
+
 console.log("correspondente_entry_link.smoke: ok");

@@ -11936,6 +11936,56 @@ function tryStructuredStatusClassification({ consolidatedText, caseRef }) {
   };
 }
 
+function normalizeCorrespondenteStatusFromStatusLine(statusRaw, contexto = "") {
+  const statusText = normalizeText(statusRaw || "");
+  if (!statusText) return null;
+  const fullContext = normalizeText([statusRaw, contexto].filter(Boolean).join("\n"));
+  const hasRiskTerms = /\b(cadin|restricao|restricoes|comprometimento de renda|serasa|spc|score|conres|scr|registrato|registrado|registro)\b/.test(fullContext);
+  const hasDocumentalTerms = /\b(comprovante|holerite|ctps|irpf|documento|documental|estado civil|faltando)\b/.test(fullContext);
+  const hasApprovedConditionalTerms =
+    /\b(condicion|ressalva|pendencia|pendencias)\b/.test(fullContext) ||
+    /\d{1,2}\s*%/.test(statusText);
+
+  if (/\b(credito reprovado|reprovado|negado|nao aprovado)\b/.test(statusText)) return "reprovado";
+  if (/\b(credito aprovado|aprovado|aprovada|liberado|liberada)\b/.test(statusText)) {
+    if (hasRiskTerms) return "pendencia_risco";
+    if (hasDocumentalTerms) return "aprovado_condicionado";
+    return hasApprovedConditionalTerms ? "aprovado_condicionado" : "aprovado";
+  }
+  if (/\bpendencia\b/.test(statusText)) {
+    return hasRiskTerms ? "pendencia_risco" : "pendencia_documental";
+  }
+  return null;
+}
+
+function parseCorrespondenteStatusLineFromText(rawText) {
+  const text = String(rawText || "");
+  if (!text.trim()) {
+    return {
+      statusLineFound: false,
+      statusRaw: "",
+      statusNormalized: null,
+      motivo: ""
+    };
+  }
+  const lines = text.split(/\r?\n/).map((line) => String(line || "").trim()).filter(Boolean);
+  const statusLine = lines.find((line) => /\bstatus\s*[:\-]\s*/i.test(line));
+  const inlineStatusMatch = statusLine ? null : text.match(/\bstatus\s*[:\-]\s*([^\n\r]+)/i);
+  const statusRaw = statusLine
+    ? String(statusLine).replace(/^.*?\bstatus\s*[:\-]\s*/i, "").trim()
+    : String(inlineStatusMatch?.[1] || "").trim();
+  const motivoLine = lines.find((line) => /^\s*motivo\s*[:\-]/i.test(line));
+  const motivo = motivoLine
+    ? String(motivoLine).replace(/^\s*motivo\s*[:\-]\s*/i, "").trim()
+    : "";
+  return {
+    statusLineFound: Boolean(statusRaw),
+    statusRaw,
+    statusNormalized: statusRaw ? normalizeCorrespondenteStatusFromStatusLine(statusRaw, text) : null,
+    motivo
+  };
+}
+
 async function extractDocumentTextIfNeeded(env, signals, options = {}) {
   if (!signals?.hasRelevantAttachment || !signals?.mediaNode) {
     return { extracted_text: "", source: "text", ocr_used: false, ocr_ok: false };
@@ -12101,7 +12151,13 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   const from = String(msg?.from || "").trim();
   const isCorrespondenteChannel = Boolean(String(msg?.author || "").trim()) || (from === String(env.CORRESPONDENTE_TO || "").trim());
   const signals = extractCorrespondenteReturnSignals(msg, userText);
+  const textSourceUsed = signals.messageText
+    ? "meta_text"
+    : (signals.caption ? "caption" : "none");
   const docExtraction = await extractDocumentTextIfNeeded(env, signals, { wa_id: correspondenteWaId });
+  const textSourceUsedFinal = docExtraction?.ocr_ok && String(docExtraction?.extracted_text || "").trim()
+    ? "ocr_text"
+    : textSourceUsed;
   const consolidatedText = [
     signals.messageText,
     signals.caption,
@@ -12109,6 +12165,22 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     docExtraction?.extracted_text || ""
   ].filter(Boolean).join("\n");
   let caseRef = extractCorrespondenteCaseRefFromText(consolidatedText);
+  await telemetry(env, {
+    wa_id: correspondenteWaId,
+    event: "corr_status_probe_input",
+    stage: "meta_message",
+    severity: "info",
+    force: true,
+    message: "Probe objetiva: entrada do retorno do correspondente",
+    details: {
+      from_wa_id: correspondenteWaId || null,
+      message_type: String(msg?.type || "").trim() || null,
+      case_ref_extracted: caseRef || null,
+      has_meta_text: Boolean(signals.messageText),
+      has_caption: Boolean(signals.caption),
+      text_source_used: textSourceUsedFinal
+    }
+  });
   let trustedReturnChannel = isCorrespondenteChannel;
   let senderLockedCasesCache = null;
   const getSenderLockedCases = async () => {
@@ -12212,6 +12284,39 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     return { handled: true, reason: "corr_return_case_ref_locked_other", case_ref: caseRef || null, status: null };
   }
 
+  const statusProbe = parseCorrespondenteStatusLineFromText(consolidatedText);
+  await telemetry(env, {
+    wa_id: correspondenteWaId,
+    event: "corr_status_probe_status_parse",
+    stage: "aguardando_retorno_correspondente",
+    severity: "info",
+    force: true,
+    message: "Probe objetiva: parsing de STATUS textual",
+    details: {
+      case_ref: caseRef || null,
+      status_line_found: statusProbe.statusLineFound ? "sim" : "nao",
+      status_raw: statusProbe.statusRaw || null,
+      status_normalized: statusProbe.statusNormalized || null,
+      motivo_found: statusProbe.motivo ? "sim" : "nao",
+      motivo_preview: String(statusProbe.motivo || "").slice(0, 80) || null
+    }
+  });
+
+  const shouldUseTextStatusFastPath = Boolean(caseRef && statusProbe.statusLineFound && statusProbe.statusNormalized);
+  const textFastPathClassification = shouldUseTextStatusFastPath
+    ? {
+      case_ref: caseRef,
+      status: statusProbe.statusNormalized,
+      motivo: statusProbe.motivo || "",
+      pendencias: statusProbe.motivo ? [statusProbe.motivo] : [],
+      confidence: 0.99,
+      manual_review_required: false,
+      extracted_evidence: ["fast_path_status_line"],
+      source: "text",
+      classifier: "status_line_fast_path"
+    }
+    : null;
+
   const structuredPath = tryStructuredStatusClassification({
     consolidatedText,
     caseRef
@@ -12220,7 +12325,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     consolidatedText,
     caseRef
   });
-  const aiClassification = structuredPath || fastPath || await classifyCorrespondenteReturnWithAI(env, {
+  const aiClassification = textFastPathClassification || structuredPath || fastPath || await classifyCorrespondenteReturnWithAI(env, {
     case_ref_hint: caseRef,
     expected_case_ref: buildCorrespondenteCaseRef(caso),
     message_text: signals.messageText,
@@ -12265,6 +12370,55 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     extracted_evidence: sanitizeCorrespondentePendencias(aiClassification?.extracted_evidence),
     classifier: aiClassification?.classifier || null
   };
+
+  const dispatchTarget =
+    statusCanonico === "aprovado" || statusCanonico === "aprovado_condicionado"
+      ? "visita"
+      : (statusCanonico === "reprovado"
+        ? "reprovado"
+        : ((statusCanonico === "pendencia_documental" || statusCanonico === "pendencia_risco" || statusCanonico === "em_analise")
+          ? "pendencia"
+          : "none"));
+  const decisionReason = manualReviewRequired
+    ? "manual_review_required"
+    : (textFastPathClassification
+      ? "status_line_fast_path"
+      : (structuredPath
+        ? "structured_status"
+        : (fastPath ? "fast_rule_based" : "ai_classification")));
+  const nextStagePreview =
+    dispatchTarget === "visita"
+      ? "agendamento_visita"
+      : (dispatchTarget === "none" ? String(stCaso?.fase_conversa || "aguardando_retorno_correspondente") : "aguardando_retorno_correspondente");
+  await telemetry(env, {
+    wa_id: correspondenteWaId,
+    event: "corr_status_probe_decision",
+    stage: "aguardando_retorno_correspondente",
+    severity: "info",
+    force: true,
+    message: "Probe objetiva: decisão de classificação do retorno",
+    details: {
+      case_ref: caseRef || null,
+      status_classificado: statusCanonico || null,
+      handled: "sim",
+      fallback_common_flow: "nao",
+      decision_reason: decisionReason,
+      next_stage: nextStagePreview
+    }
+  });
+  await telemetry(env, {
+    wa_id: correspondenteWaId,
+    event: "corr_status_probe_client_dispatch",
+    stage: "aguardando_retorno_correspondente",
+    severity: "info",
+    force: true,
+    message: "Probe objetiva: roteamento do retorno para cliente",
+    details: {
+      case_ref: caseRef || null,
+      client_wa_id_found: waCliente ? "sim" : "nao",
+      dispatch_target: dispatchTarget
+    }
+  });
 
   await upsertState(env, waCliente, {
     retorno_correspondente_bruto: manualReviewRequired

@@ -12380,7 +12380,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   };
   const emitSenderGateProbe = async ({
     lockWaIdRaw = null,
-    lockWaIdNormalized = null,
+    lockWaIdCmp = null,
     lockMatch = false,
     usedCaseLock = false,
     usedUniqueSenderCaseFallback = false,
@@ -12399,8 +12399,8 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
         from_wa_id_cmp: fromWaIdCmp || null,
         from_wa_id_normalized: fromWaIdCmp || null,
         lock_wa_id_raw: lockWaIdRaw || null,
-        lock_wa_id_cmp: lockWaIdNormalized || null,
-        lock_wa_id_normalized: lockWaIdNormalized || null,
+        lock_wa_id_cmp: lockWaIdCmp || null,
+        lock_wa_id_normalized: lockWaIdCmp || null,
         lock_match: lockMatch ? "sim" : "nao",
         used_case_lock: usedCaseLock ? "sim" : "nao",
         used_unique_sender_case_fallback: usedUniqueSenderCaseFallback ? "sim" : "nao",
@@ -12502,7 +12502,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   if (lockAtualCmp) {
     await emitSenderGateProbe({
       lockWaIdRaw: lockAtualRaw,
-      lockWaIdNormalized: lockAtualCmp,
+      lockWaIdCmp: lockAtualCmp,
       lockMatch,
       usedCaseLock: true,
       decisionReason: lockMatch ? "case_lock_match" : "case_lock_mismatch"
@@ -12549,7 +12549,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     const hasSenderAmbiguity = senderFallbackCandidates.length > 1;
     await emitSenderGateProbe({
       lockWaIdRaw: lockAtualRaw,
-      lockWaIdNormalized: lockAtualCmp || null,
+      lockWaIdCmp: lockAtualCmp || null,
       lockMatch: hasUniqueSenderCompatibleCase,
       usedCaseLock: false,
       usedUniqueSenderCaseFallback: hasUniqueSenderCompatibleCase,

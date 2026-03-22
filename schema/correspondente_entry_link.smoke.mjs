@@ -2139,6 +2139,7 @@ function buildEnvWithState() {
   assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "nao");
   assert.equal(alvo.retorno_correspondente_status, "aprovado");
   assert.equal(alvo.fase_conversa, "agendamento_visita");
+  assert.equal(alvo.corr_lock_correspondente_wa_id, "whatsapp:+55 (11) 99999-9999@s.whatsapp.net");
 }
 
 // 24) lock mismatch em case_ref explícito deve bloquear tratamento operacional.

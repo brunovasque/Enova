@@ -12717,6 +12717,7 @@ async function getCaseDocumentLinks(env, wa_id) {
 }
 
 async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
+  if (!correspondenteWaId) return false;
   const normalizedCorrespondenteWaId = normalizeCorrespondenteWaIdInput(correspondenteWaId);
   if (!normalizedCorrespondenteWaId) return false;
   const simCtx = getSimulationContext(env);
@@ -12812,15 +12813,14 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
     return { handled: true, reason: "assumir_token_already_delivered" };
   }
 
-  const lockAtual = String(caso.corr_lock_correspondente_wa_id || "").trim();
-  const lockAtualNormalized = normalizeCorrespondenteWaIdInput(lockAtual);
+  const lockAtualNormalized = normalizeCorrespondenteWaIdInput(caso.corr_lock_correspondente_wa_id);
   if (lockAtualNormalized && lockAtualNormalized !== normalizedCorrespondenteWaId) {
     await sendMessage(env, correspondenteWaId, "Este caso já foi assumido por outro correspondente.");
     return { handled: true, reason: "assumir_token_locked" };
   }
 
   if (!lockAtualNormalized) {
-    const acquired = await tryAcquireCorrespondenteLock(env, caso.wa_id, correspondenteWaId);
+    const acquired = await tryAcquireCorrespondenteLock(env, caso.wa_id, normalizedCorrespondenteWaId);
     if (!acquired) {
       await sendMessage(env, correspondenteWaId, "Este caso acabou de ser assumido por outro correspondente.");
       return { handled: true, reason: "assumir_token_lock_race" };

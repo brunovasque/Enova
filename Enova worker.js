@@ -4563,13 +4563,21 @@ let userText = null;
         "";
     }
   } else if (isSupportedMediaType) {
+    const mediaTextInput = String(
+      msg?.meta_text ||
+      msg?.metaText ||
+      msg?.context?.meta_text ||
+      ""
+    ).trim();
+    const mediaSignals = extractCorrespondenteReturnSignals(msg, mediaTextInput);
+    const mediaClassifiableText = mediaSignals.messageText || mediaSignals.caption || "";
     const mediaCaseRefProbe = extractCorrespondenteCaseRefFromText(
-      String(msg?.caption || msg?.[type]?.caption || "")
+      mediaClassifiableText
     );
     const possibleCorrespondenteReturn = await handleCorrespondenteReturnByCaseRef(
       env,
       msg,
-      String(msg?.caption || msg?.[type]?.caption || "")
+      mediaClassifiableText
     );
     await telemetry(env, {
       wa_id: waId,

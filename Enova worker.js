@@ -11054,9 +11054,173 @@ function buildCorrespondentePrivateDossierFromState(st) {
     }
   };
 
+  const readStateValue = (value, fallback = null) => {
+    if (value === undefined || value === null || value === "") return fallback;
+    return value;
+  };
+  const printable = (value) => {
+    if (value === null || value === undefined || value === "") return "não informado";
+    if (typeof value === "boolean") return value ? "sim" : "não";
+    if (typeof value === "number") return Number.isFinite(value) ? String(value) : "não informado";
+    if (Array.isArray(value)) return value.length ? JSON.stringify(value) : "[]";
+    if (typeof value === "object") {
+      const entries = Object.entries(value);
+      return entries.length ? JSON.stringify(value) : "{}";
+    }
+    return String(value);
+  };
+  const sectionLines = (title, section) => {
+    const lines = [`${title}`];
+    for (const [key, value] of Object.entries(section || {})) {
+      lines.push(`- ${key}: ${printable(value)}`);
+    }
+    return lines;
+  };
+  const participanteById = (pid) => participantesOrdem.find((p) => normalizeParticipantId(p?.id) === pid) || null;
+  const p1 = participanteById("p1");
+  const p2 = participanteById("p2");
+  const p3 = participanteById("p3");
+
+  const dossie_privado_canonico_json = {
+    meta: {
+      wa_id: st?.wa_id || null,
+      pre_cadastro_numero: st?.pre_cadastro_numero || null,
+      case_ref: buildCorrespondenteCaseRef(st),
+      fase_conversa: st?.fase_conversa || null,
+      origem_caso: readStateValue(st?.origem, readStateValue(st?.origem_lead, st?.canal_origem || null))
+    },
+    identificacao: {
+      nome: st?.nome || null,
+      telefone_wa: st?.wa_id || null,
+      cpf: st?.cpf || null,
+      nacionalidade: readStateValue(st?.nacionalidade, nacionalidade || null),
+      rnm: readStateValue(st?.rnm, st?.rnm_status || null),
+      rnm_validade: readStateValue(st?.rnm_validade, rnmValidade || null),
+      stage_atual: st?.fase_conversa || null
+    },
+    composicao: {
+      estado_civil: st?.estado_civil || null,
+      confirmar_casamento: st?.confirmar_casamento ?? null,
+      financiamento_conjunto: st?.financiamento_conjunto ?? null,
+      somar_renda_solteiro: st?.somar_renda_solteiro ?? null,
+      somar_renda_familiar: st?.somar_renda_familiar ?? null,
+      quem_compoe_renda: readStateValue(st?.quem_compoe_renda, st?.quem_compoe_renda_familiar || null),
+      interpretacao_composicao: payload_tecnico_correspondente_json?.composicao?.tipo_processo || null,
+      dependente: st?.dependente ?? null,
+      parceiro_nome: readStateValue(st?.nome_parceiro, st?.nome_parceiro_familiar || null),
+      p3_tipo_pergunta: st?.p3_tipo_pergunta || null,
+      p3_tipo: readStateValue(st?.p3_tipo, st?.p3_required ? "requerido" : null)
+    },
+    titular: {
+      regime_trabalho: readStateValue(st?.regime_trabalho, p1?.regime_trabalho || null),
+      renda: readStateValue(st?.renda, p1?.renda ?? null),
+      ir_declarado: st?.ir_declarado ?? null,
+      autonomo_ir_pergunta: st?.autonomo_ir_pergunta ?? null,
+      autonomo_sem_ir_este_ano: st?.autonomo_sem_ir_este_ano ?? null,
+      possui_renda_extra: st?.possui_renda_extra ?? null,
+      renda_mista_detalhe: st?.renda_mista_detalhe || null,
+      inicio_multi_regime_pergunta: st?.inicio_multi_regime_pergunta ?? null,
+      inicio_multi_regime_coletar: st?.inicio_multi_regime_coletar || null,
+      inicio_multi_renda_pergunta: st?.inicio_multi_renda_pergunta ?? null,
+      inicio_multi_renda_coletar: st?.inicio_multi_renda_coletar || null,
+      ctps_36: st?.ctps_36 ?? null
+    },
+    parceiro: {
+      parceiro_tem_renda: st?.parceiro_tem_renda ?? null,
+      regime_trabalho_parceiro: readStateValue(st?.regime_trabalho_parceiro, p2?.regime_trabalho || null),
+      renda_parceiro: readStateValue(st?.renda_parceiro, p2?.renda ?? null),
+      ctps_36_parceiro: st?.ctps_36_parceiro ?? null,
+      parceiro_inicio_multi_regime_pergunta: st?.parceiro_inicio_multi_regime_pergunta ?? null,
+      parceiro_inicio_multi_regime_coletar: st?.parceiro_inicio_multi_regime_coletar || null,
+      parceiro_inicio_multi_renda_pergunta: st?.parceiro_inicio_multi_renda_pergunta ?? null,
+      parceiro_inicio_multi_renda_coletar: st?.parceiro_inicio_multi_renda_coletar || null,
+      restricao_parceiro: st?.restricao_parceiro ?? null,
+      regularizacao_restricao_parceiro: st?.regularizacao_restricao_parceiro ?? null
+    },
+    familiar_p3: {
+      regime_trabalho_parceiro_familiar: st?.regime_trabalho_parceiro_familiar || null,
+      renda_parceiro_familiar: st?.renda_parceiro_familiar ?? null,
+      p3_tipo_pergunta: st?.p3_tipo_pergunta || null,
+      p3_tipo: st?.p3_tipo || null,
+      regime_trabalho_parceiro_familiar_p3: readStateValue(st?.regime_trabalho_parceiro_familiar_p3, p3?.regime_trabalho || null),
+      renda_parceiro_familiar_p3: readStateValue(st?.renda_parceiro_familiar_p3, p3?.renda ?? null),
+      ctps_36_parceiro_p3: readStateValue(st?.ctps_36_parceiro_p3, st?.p3_ctps_36 ?? null),
+      restricao_parceiro_p3: st?.restricao_parceiro_p3 ?? null,
+      regularizacao_restricao_p3: st?.regularizacao_restricao_p3 ?? null
+    },
+    restricoes_viabilidade: {
+      restricao: readStateValue(st?.restricao, payload_tecnico_correspondente_json?.restricao?.resumo || null),
+      regularizacao_restricao: st?.regularizacao_restricao ?? null,
+      autonomo_sem_ir_este_ano: st?.autonomo_sem_ir_este_ano ?? null,
+      necessidade_composicao: st?.necessidade_composicao ?? null,
+      gate_viabilidade: st?.gate_viabilidade ?? null,
+      observacoes_operacionais: observacoesPacote.length ? observacoesPacote : null
+    },
+    documentos_pacote: {
+      envio_docs_status: st?.envio_docs_status || null,
+      analise_docs_status: st?.analise_docs_status || null,
+      pacote_status: st?.pacote_status || null,
+      pacote_participantes_json: Array.isArray(st?.pacote_participantes_json) ? st.pacote_participantes_json : null,
+      pacote_documentos_anexados_json: Array.isArray(st?.pacote_documentos_anexados_json) ? st.pacote_documentos_anexados_json : null,
+      pacote_renda_resumo_json: st?.pacote_renda_resumo_json && typeof st.pacote_renda_resumo_json === "object" ? st.pacote_renda_resumo_json : null,
+      pacote_restricoes_json: st?.pacote_restricoes_json && typeof st.pacote_restricoes_json === "object" ? st.pacote_restricoes_json : null
+    },
+    correspondente_operacional: {
+      processo_enviado_correspondente: st?.processo_enviado_correspondente ?? null,
+      case_ref: buildCorrespondenteCaseRef(st),
+      pre_cadastro_numero: st?.pre_cadastro_numero || null,
+      corr_publicacao_status: st?.corr_publicacao_status || null,
+      corr_lock_correspondente_wa_id: st?.corr_lock_correspondente_wa_id || null,
+      corr_entrega_privada_status: st?.corr_entrega_privada_status || null,
+      retorno_correspondente_status: st?.retorno_correspondente_status || null,
+      processo_pre_analise: st?.processo_pre_analise ?? null,
+      processo_pre_analise_status: st?.processo_pre_analise_status || null,
+      corr_follow_base_at: st?.corr_follow_base_at || null,
+      corr_follow_next_at: st?.corr_follow_next_at || null
+    },
+    trilho_fase_atual: {
+      fase_conversa: st?.fase_conversa || null,
+      next_stage_sinalizado: st?.next_stage || null,
+      aguardando_retorno_correspondente: st?.aguardando_retorno_correspondente ?? null
+    },
+    observacoes: {
+      pacote_observacoes_json: observacoesPacote.length ? observacoesPacote : null,
+      docs_invalidos: docsInvalidos.length ? docsInvalidos : null,
+      docs_ilegiveis: docsIlegiveis.length ? docsIlegiveis : null,
+      docs_faltantes: docsFaltantes.length ? docsFaltantes : null
+    }
+  };
+
+  const dossie_privado_completo_correspondente = [
+    "🔒 *Dossiê privado canônico (completo)*",
+    ...sectionLines("🧭 *meta*", dossie_privado_canonico_json.meta),
+    "",
+    ...sectionLines("🪪 *identificacao*", dossie_privado_canonico_json.identificacao),
+    "",
+    ...sectionLines("👥 *composicao*", dossie_privado_canonico_json.composicao),
+    "",
+    ...sectionLines("👤 *titular*", dossie_privado_canonico_json.titular),
+    "",
+    ...sectionLines("🧑‍🤝‍🧑 *parceiro*", dossie_privado_canonico_json.parceiro),
+    "",
+    ...sectionLines("👪 *familiar_p3*", dossie_privado_canonico_json.familiar_p3),
+    "",
+    ...sectionLines("🚧 *restricoes_viabilidade*", dossie_privado_canonico_json.restricoes_viabilidade),
+    "",
+    ...sectionLines("📂 *documentos_pacote*", dossie_privado_canonico_json.documentos_pacote),
+    "",
+    ...sectionLines("📡 *correspondente_operacional*", dossie_privado_canonico_json.correspondente_operacional),
+    "",
+    ...sectionLines("🛤️ *trilho_fase_atual*", dossie_privado_canonico_json.trilho_fase_atual),
+    "",
+    ...sectionLines("📝 *observacoes*", dossie_privado_canonico_json.observacoes)
+  ].join("\n");
+
   return {
     resumo_humano_correspondente,
-    payload_tecnico_correspondente_json
+    payload_tecnico_correspondente_json,
+    dossie_privado_canonico_json,
+    dossie_privado_completo_correspondente
   };
 }
 
@@ -11352,6 +11516,9 @@ function buildCorrespondenteCanonicalDossierBundleFromState(st, options = {}) {
   const baseState = st || {};
   const canonical = buildCorrespondentePrivateDossierFromState(baseState);
   const structured = buildCorrespondenteDossierPayloadFromCanonical(canonical, baseState, options);
+  const privadoCompleto =
+    String(canonical?.dossie_privado_completo_correspondente || "").trim() ||
+    gerarDossieCompleto(baseState);
   const resumoPersistido =
     String(canonical?.resumo_humano_correspondente || "").trim() ||
     String(baseState?.dossie_resumo || "").trim() ||
@@ -11359,6 +11526,7 @@ function buildCorrespondenteCanonicalDossierBundleFromState(st, options = {}) {
   return {
     canonical,
     structured,
+    privadoCompleto,
     resumoPersistido
   };
 }
@@ -13394,7 +13562,7 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
 
   const dossierBundle = buildCorrespondenteCanonicalDossierBundleFromState(stCaso);
   const dossieCanonico = dossierBundle.canonical;
-  const dossiePrivado = dossierBundle.resumoPersistido;
+  const dossiePrivado = dossierBundle.privadoCompleto;
   const docs = await getCaseDocumentLinks(env, caso.wa_id);
   const docsText = buildCorrespondentePrivateDocsLinksText(docs);
   const caseRef = buildCorrespondenteCaseRef(caso);

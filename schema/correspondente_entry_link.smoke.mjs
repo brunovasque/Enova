@@ -111,11 +111,31 @@ function getLastStepMessagesForWa(env, waId) {
     bundle.resumoPersistido,
     String(bundle.canonical?.resumo_humano_correspondente || "").trim()
   );
-  assert.deepEqual(bundle.canonical, privateDirect);
-  assert.deepEqual(bundle.structured, payloadDirect);
+  assert.equal(
+    bundle.privadoCompleto,
+    String(bundle.canonical?.dossie_privado_completo_correspondente || "").trim()
+  );
+  assert.equal(bundle.canonical?.resumo_humano_correspondente, privateDirect?.resumo_humano_correspondente);
+  assert.deepEqual(bundle.canonical?.payload_tecnico_correspondente_json, privateDirect?.payload_tecnico_correspondente_json);
+  assert.deepEqual(bundle.canonical?.dossie_privado_canonico_json, privateDirect?.dossie_privado_canonico_json);
+  assert.equal(bundle.canonical?.dossie_privado_completo_correspondente, privateDirect?.dossie_privado_completo_correspondente);
+  assert.equal(bundle.structured?.meta?.wa_id, payloadDirect?.meta?.wa_id);
+  assert.equal(bundle.structured?.meta?.case_ref, payloadDirect?.meta?.case_ref);
+  assert.equal(bundle.structured?.meta?.token_assumir, payloadDirect?.meta?.token_assumir);
   assert.equal(bundle.structured?.meta?.token_assumir, token);
   assert.equal(bundle.structured?.meta?.case_ref, "000001");
   assert.equal(typeof bundle.structured?.resumo_executivo?.pendencias_total, "number");
+  assert.equal(bundle.resumoPersistido.includes("📊 *Resumo consolidado do caso*"), true);
+  assert.equal(bundle.resumoPersistido.includes("🔒 *Dossiê privado canônico (completo)*"), false);
+  assert.equal(bundle.privadoCompleto.includes("🔒 *Dossiê privado canônico (completo)*"), true);
+  assert.equal(bundle.privadoCompleto.includes("🧭 *meta*"), true);
+  assert.equal(bundle.privadoCompleto.includes("👥 *composicao*"), true);
+  assert.equal(bundle.privadoCompleto.includes("👤 *titular*"), true);
+  assert.equal(bundle.privadoCompleto.includes("📂 *documentos_pacote*"), true);
+  assert.equal(bundle.privadoCompleto.includes("📡 *correspondente_operacional*"), true);
+  assert.equal(bundle.privadoCompleto.includes("- regime_trabalho: "), true);
+  assert.equal(bundle.privadoCompleto.includes("- financiamento_conjunto: "), true);
+  assert.equal(bundle.privadoCompleto.includes("- ir_declarado: "), true);
 }
 
 // 2) GET antes da assunção: entrada oficial exibe capa + ação de assumir.

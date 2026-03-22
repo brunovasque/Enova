@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 
 const workerModule = await import(new URL("../Enova worker.js", import.meta.url).href);
 const worker = workerModule.default;
-const { buildCorrespondenteGroupAlert } = workerModule;
+const {
+  buildCorrespondenteGroupAlert,
+  buildCorrespondenteCanonicalDossierBundleFromState,
+  buildCorrespondenteDossierPayloadFromState,
+  buildCorrespondentePrivateDossierFromState
+} = workerModule;
 
 const token = "AB12CD34EF56GH78JK90LM12";
 const waCaso = "5541999998888";
@@ -92,6 +97,25 @@ function getLastStepMessagesForWa(env, waId) {
     mensagem.includes("https://entrada.enova.local/correspondente/entrada?pre=000001"),
     true
   );
+}
+
+// 1.1) Base canônica única: resumo persistido, dossiê privado e payload estruturado devem derivar da mesma origem.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  const bundle = buildCorrespondenteCanonicalDossierBundleFromState(st, { token });
+  const privateDirect = buildCorrespondentePrivateDossierFromState(st);
+  const payloadDirect = buildCorrespondenteDossierPayloadFromState(st, { token });
+
+  assert.equal(
+    bundle.resumoPersistido,
+    String(bundle.canonical?.resumo_humano_correspondente || "").trim()
+  );
+  assert.deepEqual(bundle.canonical, privateDirect);
+  assert.deepEqual(bundle.structured, payloadDirect);
+  assert.equal(bundle.structured?.meta?.token_assumir, token);
+  assert.equal(bundle.structured?.meta?.case_ref, "000001");
+  assert.equal(typeof bundle.structured?.resumo_executivo?.pendencias_total, "number");
 }
 
 // 2) GET antes da assunção: entrada oficial exibe capa + ação de assumir.

@@ -11263,8 +11263,7 @@ async function ensureCorrespondenteCaseRef(env, st) {
   return allocated;
 }
 
-function buildCorrespondenteDossierPayloadFromState(st, options = {}) {
-  const canonical = buildCorrespondentePrivateDossierFromState(st || {});
+function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, options = {}) {
   const tecnico = canonical?.payload_tecnico_correspondente_json && typeof canonical.payload_tecnico_correspondente_json === "object"
     ? canonical.payload_tecnico_correspondente_json
     : {};
@@ -11340,6 +11339,27 @@ function buildCorrespondenteDossierPayloadFromState(st, options = {}) {
         status: item?.status || "pendente"
       }))
     }
+  };
+}
+
+function buildCorrespondenteDossierPayloadFromState(st, options = {}) {
+  const baseState = st || {};
+  const canonical = buildCorrespondentePrivateDossierFromState(baseState);
+  return buildCorrespondenteDossierPayloadFromCanonical(canonical, baseState, options);
+}
+
+function buildCorrespondenteCanonicalDossierBundleFromState(st, options = {}) {
+  const baseState = st || {};
+  const canonical = buildCorrespondentePrivateDossierFromState(baseState);
+  const structured = buildCorrespondenteDossierPayloadFromCanonical(canonical, baseState, options);
+  const resumoPersistido =
+    String(canonical?.resumo_humano_correspondente || "").trim() ||
+    String(baseState?.dossie_resumo || "").trim() ||
+    gerarDossieCompleto(baseState);
+  return {
+    canonical,
+    structured,
+    resumoPersistido
   };
 }
 
@@ -11640,7 +11660,8 @@ async function handleCorrespondenteEntryPage(request, env) {
   }
 
   const stCompleto = casoAtual?.wa_id ? (await getState(env, casoAtual.wa_id)) || casoAtual : casoAtual;
-  const dossierPayload = buildCorrespondenteDossierPayloadFromState(stCompleto || caso, { token });
+  const dossierBundle = buildCorrespondenteCanonicalDossierBundleFromState(stCompleto || caso, { token });
+  const dossierPayload = dossierBundle.structured;
   return new Response(buildCorrespondenteEntryCoverHtml(casoAtual, {
     lockWaId: lockFinalRaw,
     isAdminOverride: adminOverride,
@@ -13371,11 +13392,9 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
     return { handled: true, reason: "assumir_token_state_not_found" };
   }
 
-  const dossieCanonico = buildCorrespondentePrivateDossierFromState(stCaso);
-  const dossiePrivado =
-    String(dossieCanonico?.resumo_humano_correspondente || "").trim() ||
-    String(stCaso.dossie_resumo || "").trim() ||
-    gerarDossieCompleto(stCaso);
+  const dossierBundle = buildCorrespondenteCanonicalDossierBundleFromState(stCaso);
+  const dossieCanonico = dossierBundle.canonical;
+  const dossiePrivado = dossierBundle.resumoPersistido;
   const docs = await getCaseDocumentLinks(env, caso.wa_id);
   const docsText = buildCorrespondentePrivateDocsLinksText(docs);
   const caseRef = buildCorrespondenteCaseRef(caso);
@@ -23040,18 +23059,8 @@ case "finalizacao_processo": {
     );
   }
 
-  // monta dossiê simples (uso privado após assunção)
-  const dossie = `
-Cliente: ${st.nome || "não informado"}
-Estado Civil: ${st.estado_civil || "não informado"}
-Soma de Renda: ${st.somar_renda ? "Sim" : "Não"}
-Renda Titular: ${st.renda || "não informado"}
-Renda Parceiro: ${st.renda_parceiro || "não informado"}
-CTPS Titular ≥ 36 meses: ${st.ctps_36 === true ? "Sim" : "Não"}
-CTPS Parceiro ≥ 36 meses: ${st.ctps_36_parceiro === true ? "Sim" : "Não"}
-Dependente: ${st.dependente === true ? "Sim" : "Não"}
-Restrição: ${st.restricao || "não informado"}
-`.trim();
+  const dossierBundle = buildCorrespondenteCanonicalDossierBundleFromState(st);
+  const dossie = dossierBundle.resumoPersistido;
 
   const envio = await enviarParaCorrespondente(env, st, dossie);
   await upsertState(env, st.wa_id, {
@@ -23532,6 +23541,9 @@ export {
   generateChecklistForDocs,
   reconcileEnvioDocsItensWithSavedDossier,
   buildDocumentDossierFromState,
+  buildCorrespondenteCanonicalDossierBundleFromState,
+  buildCorrespondenteDossierPayloadFromState,
+  buildCorrespondentePrivateDossierFromState,
   buildCorrespondenteGroupAlert,
   resolveCorrespondentePhoneNumberId,
   buildCorrespondenteCaseRef,

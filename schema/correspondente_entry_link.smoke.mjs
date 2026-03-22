@@ -11,18 +11,10 @@ const CORRESPONDENTE_CASE_CONFIRMATION_PROMPT_PREFIX = "Me confirme no formato:"
 const normalizeCorrespondenteWaId = (value) => {
   const digits = String(value || "")
     .trim()
-    .toLowerCase()
-    .replace(/^whatsapp:/, "")
-    .replace(/@.+$/, "")
     .replace(/\D/g, "")
     .trim();
   if (!digits) return "";
-  if (digits.startsWith("55")) {
-    const withoutCountryCode = digits.slice(2);
-    if (withoutCountryCode.length === 10 || withoutCountryCode.length === 11) {
-      return withoutCountryCode;
-    }
-  }
+  if (digits.startsWith("55")) return digits.slice(2);
   return digits;
 };
 
@@ -127,7 +119,7 @@ function buildEnvWithState() {
   assert.equal(assumirHtml.includes("Resumo executivo"), true);
 
   const atualizado = env.__enovaSimulationCtx.stateByWaId[waCaso];
-  assert.equal(atualizado.corr_lock_correspondente_wa_id, normalizeCorrespondenteWaId(correspondenteWa));
+  assert.equal(atualizado.corr_lock_correspondente_wa_id, correspondenteWa);
   assert.equal(typeof atualizado.corr_lock_assumido_em, "string");
   assert.equal(atualizado.aguardando_retorno_correspondente, true);
   assert.equal(atualizado.processo_enviado_correspondente, true);
@@ -168,7 +160,7 @@ function buildEnvWithState() {
   assert.equal(assumirRes.status, 200);
 
   const atualizado = env.__enovaSimulationCtx.stateByWaId[waCaso];
-  assert.equal(atualizado.corr_lock_correspondente_wa_id, normalizeCorrespondenteWaId(correspondenteWa));
+  assert.equal(atualizado.corr_lock_correspondente_wa_id, correspondenteWa);
   assert.equal(typeof atualizado.corr_lock_assumido_em, "string");
   assert.equal(atualizado.aguardando_retorno_correspondente, true);
   assert.equal(atualizado.processo_enviado_correspondente, true);
@@ -213,7 +205,7 @@ function buildEnvWithState() {
   const sameOwnerPreCadastroRes = await worker.fetch(sameOwnerPreCadastroReq, env, {});
   assert.equal(sameOwnerPreCadastroRes.status, 200);
   const afterSameOwnerPreCadastro = env.__enovaSimulationCtx.stateByWaId[waCaso];
-  assert.equal(afterSameOwnerPreCadastro.corr_lock_correspondente_wa_id, normalizeCorrespondenteWaId(correspondenteWa));
+  assert.equal(afterSameOwnerPreCadastro.corr_lock_correspondente_wa_id, correspondenteWa);
 
   const secondAssumirReq = new Request("https://worker.local/webhook/meta", {
     method: "POST",
@@ -240,7 +232,7 @@ function buildEnvWithState() {
   const secondAssumirRes = await worker.fetch(secondAssumirReq, env, {});
   assert.equal(secondAssumirRes.status, 200);
   const afterSecond = env.__enovaSimulationCtx.stateByWaId[waCaso];
-  assert.equal(afterSecond.corr_lock_correspondente_wa_id, normalizeCorrespondenteWaId(correspondenteWa));
+  assert.equal(afterSecond.corr_lock_correspondente_wa_id, correspondenteWa);
 }
 
 // 3.1) Admin/master deve abrir caso assumido por outro correspondente.
@@ -303,7 +295,7 @@ function buildEnvWithState() {
   const assumirRes = await worker.fetch(assumirReq, env, {});
   assert.equal(assumirRes.status, 200);
   const atualizado = env.__enovaSimulationCtx.stateByWaId[waCaso];
-  assert.equal(atualizado.corr_lock_correspondente_wa_id, normalizeCorrespondenteWaId(correspondenteWa));
+  assert.equal(atualizado.corr_lock_correspondente_wa_id, correspondenteWa);
   assert.equal(atualizado.processo_enviado_correspondente, true);
 }
 
@@ -341,7 +333,7 @@ function buildEnvWithState() {
   const assumirRes = await worker.fetch(assumirReq, env, {});
   assert.equal(assumirRes.status, 200);
   const atualizado = env.__enovaSimulationCtx.stateByWaId[waCaso];
-  assert.equal(atualizado.corr_lock_correspondente_wa_id, normalizeCorrespondenteWaId(correspondenteWa));
+  assert.equal(atualizado.corr_lock_correspondente_wa_id, correspondenteWa);
   assert.equal(atualizado.processo_enviado_correspondente, true);
 }
 
@@ -2149,8 +2141,10 @@ function buildEnvWithState() {
 
   assert.equal(byEvent.corr_sender_gate_probe?.case_ref, "000006");
   assert.equal(byEvent.corr_sender_gate_probe?.from_wa_id_raw, "5511999999999");
+  assert.equal(byEvent.corr_sender_gate_probe?.from_wa_id_cmp, "11999999999");
   assert.equal(byEvent.corr_sender_gate_probe?.from_wa_id_normalized, "11999999999");
   assert.equal(byEvent.corr_sender_gate_probe?.lock_wa_id_raw, "whatsapp:+55 (11) 99999-9999@s.whatsapp.net");
+  assert.equal(byEvent.corr_sender_gate_probe?.lock_wa_id_cmp, "11999999999");
   assert.equal(byEvent.corr_sender_gate_probe?.lock_wa_id_normalized, "11999999999");
   assert.equal(byEvent.corr_sender_gate_probe?.lock_match, "sim");
   assert.equal(byEvent.corr_sender_gate_probe?.decision_reason, "case_lock_match");
@@ -2222,8 +2216,10 @@ function buildEnvWithState() {
 
   assert.equal(byEvent.corr_sender_gate_probe?.case_ref, "000006");
   assert.equal(byEvent.corr_sender_gate_probe?.from_wa_id_raw, "5511888888888");
+  assert.equal(byEvent.corr_sender_gate_probe?.from_wa_id_cmp, "11888888888");
   assert.equal(byEvent.corr_sender_gate_probe?.from_wa_id_normalized, "11888888888");
   assert.equal(byEvent.corr_sender_gate_probe?.lock_wa_id_raw, "5511999999999");
+  assert.equal(byEvent.corr_sender_gate_probe?.lock_wa_id_cmp, "11999999999");
   assert.equal(byEvent.corr_sender_gate_probe?.lock_wa_id_normalized, "11999999999");
   assert.equal(byEvent.corr_sender_gate_probe?.used_case_lock, "sim");
   assert.equal(byEvent.corr_sender_gate_probe?.lock_match, "nao");
@@ -2489,20 +2485,27 @@ function buildEnvWithState() {
   assert.equal(firstLockSave?.case_ref, "000518");
   assert.equal(firstLockSave?.lock_wa_id_before_save, null);
   assert.equal(firstLockSave?.lock_wa_id_saved_raw, "4197780518");
+  assert.equal(firstLockSave?.lock_wa_id_saved_cmp, "4197780518");
   assert.equal(firstLockSave?.lock_wa_id_saved_normalized, "4197780518");
   assert.equal(firstLockSave?.lock_wa_id_saved, "4197780518");
-  assert.equal(firstLockSave?.function_used, "normalizeCorrespondenteWaIdInput");
+  assert.equal(firstLockSave?.function_used, "normalizeCorrespondenteWaIdCmp");
 
   assert.equal(lastByEvent.corr_waid_probe_input?.from_wa_id_raw, "554197780518");
+  assert.equal(lastByEvent.corr_waid_probe_input?.from_wa_id_cmp, "4197780518");
   assert.equal(lastByEvent.corr_waid_probe_input?.from_wa_id_normalized, "4197780518");
-  assert.equal(lastByEvent.corr_waid_probe_input?.function_used, "normalizeCorrespondenteWaIdInput");
+  assert.equal(lastByEvent.corr_waid_probe_input?.function_used, "normalizeCorrespondenteWaIdCmp");
 
   assert.equal(lastByEvent.corr_waid_probe_lock_read?.case_ref, "000518");
   assert.equal(lastByEvent.corr_waid_probe_lock_read?.lock_wa_id_raw, "4197780518");
+  assert.equal(lastByEvent.corr_waid_probe_lock_read?.lock_wa_id_cmp, "4197780518");
   assert.equal(lastByEvent.corr_waid_probe_lock_read?.lock_wa_id_normalized, "4197780518");
 
   assert.equal(lastByEvent.corr_waid_probe_compare?.case_ref, "000518");
+  assert.equal(lastByEvent.corr_waid_probe_compare?.from_wa_id_raw, "554197780518");
+  assert.equal(lastByEvent.corr_waid_probe_compare?.from_wa_id_cmp, "4197780518");
   assert.equal(lastByEvent.corr_waid_probe_compare?.from_wa_id_normalized, "4197780518");
+  assert.equal(lastByEvent.corr_waid_probe_compare?.lock_wa_id_raw, "4197780518");
+  assert.equal(lastByEvent.corr_waid_probe_compare?.lock_wa_id_cmp, "4197780518");
   assert.equal(lastByEvent.corr_waid_probe_compare?.lock_wa_id_normalized, "4197780518");
   assert.equal(lastByEvent.corr_waid_probe_compare?.lock_match, "sim");
   assert.equal(lastByEvent.corr_waid_probe_compare?.decision_reason, "case_lock_match");
@@ -2605,10 +2608,13 @@ function buildEnvWithState() {
 
   assert.equal(firstLockSave?.case_ref, "000519");
   assert.equal(firstLockSave?.lock_wa_id_saved_raw, "5541999997777");
+  assert.equal(firstLockSave?.lock_wa_id_saved_cmp, "41999997777");
   assert.equal(firstLockSave?.lock_wa_id_saved_normalized, "41999997777");
-  assert.equal(firstLockSave?.lock_wa_id_saved, "41999997777");
+  assert.equal(firstLockSave?.lock_wa_id_saved, "5541999997777");
   assert.equal(lastByEvent.corr_waid_probe_input?.from_wa_id_raw, "41999997777");
+  assert.equal(lastByEvent.corr_waid_probe_input?.from_wa_id_cmp, "41999997777");
   assert.equal(lastByEvent.corr_waid_probe_input?.from_wa_id_normalized, "41999997777");
+  assert.equal(lastByEvent.corr_waid_probe_lock_read?.lock_wa_id_cmp, "41999997777");
   assert.equal(lastByEvent.corr_waid_probe_lock_read?.lock_wa_id_normalized, "41999997777");
   assert.equal(lastByEvent.corr_waid_probe_compare?.lock_match, "sim");
   assert.equal(lastByEvent.corr_sender_gate_probe?.decision_reason, "case_lock_match");

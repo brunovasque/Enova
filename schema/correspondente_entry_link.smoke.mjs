@@ -70,6 +70,24 @@ function buildEnvWithState() {
   };
 }
 
+function isFilled(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim() !== "";
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return true;
+}
+
+function shouldExcludeInternalStateKey(key) {
+  const k = String(key || "");
+  if (!k) return true;
+  if (k.startsWith("__")) return true;
+  if (k.startsWith("tmp_")) return true;
+  if (k.startsWith("debug_")) return true;
+  if (k === "id") return true;
+  return false;
+}
+
 function getLastStepMessagesForWa(env, waId) {
   const logs = Array.isArray(env?.__enovaSimulationCtx?.messageLog)
     ? env.__enovaSimulationCtx.messageLog
@@ -106,6 +124,15 @@ function getLastStepMessagesForWa(env, waId) {
   const bundle = buildCorrespondenteCanonicalDossierBundleFromState(st, { token });
   const privateDirect = buildCorrespondentePrivateDossierFromState(st);
   const payloadDirect = buildCorrespondenteDossierPayloadFromState(st, { token });
+  const stateFilledKeys = Object.entries(st)
+    .filter(([key, value]) => !shouldExcludeInternalStateKey(key) && isFilled(value))
+    .map(([key]) => key)
+    .sort((a, b) => a.localeCompare(b));
+  const privadoFilledKeys = Array.isArray(bundle.canonical?.dossie_privado_canonico_json?.extras_state?.chaves_campos_preenchidos)
+    ? bundle.canonical.dossie_privado_canonico_json.extras_state.chaves_campos_preenchidos.slice().sort((a, b) => a.localeCompare(b))
+    : [];
+  const faltandoNoPrivado = stateFilledKeys.filter((key) => !privadoFilledKeys.includes(key));
+  const sobrandoNoPrivado = privadoFilledKeys.filter((key) => !stateFilledKeys.includes(key));
 
   assert.equal(
     bundle.resumoPersistido,
@@ -136,6 +163,10 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(bundle.privadoCompleto.includes("- regime_trabalho: "), true);
   assert.equal(bundle.privadoCompleto.includes("- financiamento_conjunto: "), true);
   assert.equal(bundle.privadoCompleto.includes("- ir_declarado: "), true);
+  assert.equal(bundle.privadoCompleto.includes("🧾 *espelho_state_preenchido*"), true);
+  assert.deepEqual(privadoFilledKeys, stateFilledKeys);
+  assert.deepEqual(faltandoNoPrivado, []);
+  assert.deepEqual(sobrandoNoPrivado, []);
 }
 
 // 2) GET antes da assunção: entrada oficial exibe capa + ação de assumir.

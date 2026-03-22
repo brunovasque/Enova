@@ -11076,6 +11076,30 @@ function buildCorrespondentePrivateDossierFromState(st) {
     }
     return lines;
   };
+  const isStateValueFilled = (value) => {
+    if (value === null || value === undefined) return false;
+    if (typeof value === "string" && value.trim() === "") return false;
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === "object") return Object.keys(value).length > 0;
+    return true;
+  };
+  const shouldExcludeInternalStateKey = (key) => {
+    const k = String(key || "");
+    if (!k) return true;
+    if (k.startsWith("__")) return true;
+    if (k.startsWith("tmp_")) return true;
+    if (k.startsWith("debug_")) return true;
+    if (k === "id") return true;
+    return false;
+  };
+  const filledStateEntries = Object.entries(st || {})
+    .filter(([key, value]) => !shouldExcludeInternalStateKey(key) && isStateValueFilled(value))
+    .sort(([a], [b]) => a.localeCompare(b));
+  const filledStateMap = Object.fromEntries(filledStateEntries);
+  const filledStateKeys = filledStateEntries.map(([key]) => key);
+  const excludedInternalKeys = Object.keys(st || {})
+    .filter((key) => shouldExcludeInternalStateKey(key))
+    .sort((a, b) => a.localeCompare(b));
   const participanteById = (pid) => participantesOrdem.find((p) => normalizeParticipantId(p?.id) === pid) || null;
   const p1 = participanteById("p1");
   const p2 = participanteById("p2");
@@ -11188,9 +11212,20 @@ function buildCorrespondentePrivateDossierFromState(st) {
       docs_invalidos: docsInvalidos.length ? docsInvalidos : null,
       docs_ilegiveis: docsIlegiveis.length ? docsIlegiveis : null,
       docs_faltantes: docsFaltantes.length ? docsFaltantes : null
+    },
+    extras_state: {
+      total_campos_preenchidos: filledStateKeys.length,
+      chaves_campos_preenchidos: filledStateKeys,
+      campos_preenchidos: filledStateMap,
+      chaves_excluidas_tecnicas: excludedInternalKeys
     }
   };
 
+  const espelhoStateLines = [
+    "🧾 *espelho_state_preenchido*",
+    `- total_campos_preenchidos: ${filledStateKeys.length}`,
+    ...filledStateEntries.map(([key, value]) => `- ${key}: ${printable(value)}`)
+  ];
   const dossie_privado_completo_correspondente = [
     "🔒 *Dossiê privado canônico (completo)*",
     ...sectionLines("🧭 *meta*", dossie_privado_canonico_json.meta),
@@ -11213,7 +11248,9 @@ function buildCorrespondentePrivateDossierFromState(st) {
     "",
     ...sectionLines("🛤️ *trilho_fase_atual*", dossie_privado_canonico_json.trilho_fase_atual),
     "",
-    ...sectionLines("📝 *observacoes*", dossie_privado_canonico_json.observacoes)
+    ...sectionLines("📝 *observacoes*", dossie_privado_canonico_json.observacoes),
+    "",
+    ...espelhoStateLines
   ].join("\n");
 
   return {

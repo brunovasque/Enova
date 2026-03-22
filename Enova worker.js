@@ -12182,7 +12182,9 @@ function extractCorrespondentePendenciasFromText(rawText) {
 
 async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   const correspondenteWaId = extractCorrespondenteWaId(msg, env);
-  const fromWaIdNormalized = normalizeCorrespondenteWaIdInput(correspondenteWaId);
+  const fromWaIdNormalized = correspondenteWaId
+    ? normalizeCorrespondenteWaIdInput(correspondenteWaId)
+    : "";
   await telemetry(env, {
     wa_id: correspondenteWaId || String(msg?.from || "").trim() || null,
     event: "corr_waid_probe_input",
@@ -12196,6 +12198,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       function_used: "normalizeCorrespondenteWaIdInput"
     }
   });
+  if (!correspondenteWaId) return { handled: false, case_ref: null, status: null };
   await telemetry(env, {
     wa_id: correspondenteWaId || String(msg?.from || "").trim() || null,
     event: "corr_flow_probe_enter",
@@ -12208,7 +12211,6 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       has_correspondente_wa_id: Boolean(correspondenteWaId)
     }
   });
-  if (!correspondenteWaId) return { handled: false, case_ref: null, status: null };
   const from = String(msg?.from || "").trim();
   const isCorrespondenteChannel = Boolean(String(msg?.author || "").trim()) || (from === String(env.CORRESPONDENTE_TO || "").trim());
   const signals = extractCorrespondenteReturnSignals(msg, userText);
@@ -12839,7 +12841,6 @@ async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
     if (!current) return false;
     const lockAtual = normalizeCorrespondenteWaIdInput(current.corr_lock_correspondente_wa_id);
     if (lockAtual && lockAtual !== normalizedCorrespondenteWaId) return false;
-    const caseRef = buildCorrespondenteCaseRef(current);
 
     await upsertState(env, wa_id, {
       corr_lock_correspondente_wa_id: normalizedCorrespondenteWaId,
@@ -12855,7 +12856,7 @@ async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
       force: true,
       message: "Probe read-only: persistência do lock de correspondente",
       details: {
-        case_ref: caseRef || null,
+        case_ref: buildCorrespondenteCaseRef(current) || null,
         lock_wa_id_before_save: lockAtual || null,
         lock_wa_id_saved: normalizedCorrespondenteWaId || null,
         function_used: "normalizeCorrespondenteWaIdInput"
@@ -12866,8 +12867,6 @@ async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
     return normalizeCorrespondenteWaIdInput(afterSim?.corr_lock_correspondente_wa_id) === normalizedCorrespondenteWaId;
   }
 
-  const stateBeforePatch = await getState(env, wa_id);
-  const lockBeforePatch = normalizeCorrespondenteWaIdInput(stateBeforePatch?.corr_lock_correspondente_wa_id);
   await sbFetch(env, "/rest/v1/enova_state", {
     method: "PATCH",
     query: {
@@ -12881,7 +12880,7 @@ async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
       updated_at: new Date().toISOString()
     })
   });
-  const stateAfterPatch = await getState(env, wa_id);
+  const after = await getState(env, wa_id);
   await telemetry(env, {
     wa_id,
     event: "corr_waid_probe_lock_save",
@@ -12890,14 +12889,13 @@ async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
     force: true,
     message: "Probe read-only: persistência do lock de correspondente",
     details: {
-      case_ref: stateAfterPatch ? buildCorrespondenteCaseRef(stateAfterPatch) : null,
-      lock_wa_id_before_save: lockBeforePatch || null,
+      case_ref: after ? buildCorrespondenteCaseRef(after) : null,
+      lock_wa_id_before_save: null,
       lock_wa_id_saved: normalizedCorrespondenteWaId || null,
       function_used: "normalizeCorrespondenteWaIdInput"
     }
   });
 
-  const after = await getState(env, wa_id);
   return normalizeCorrespondenteWaIdInput(after?.corr_lock_correspondente_wa_id) === normalizedCorrespondenteWaId;
 }
 

@@ -1593,7 +1593,7 @@ function buildEnvWithState() {
   assert.equal(alvo.fase_conversa, "agendamento_visita");
 }
 
-// 17) Requisitos operacionais: texto reprovado + motivo não vai para visita.
+// 17) Requisitos operacionais: imagem reprovado + motivo não vai para visita.
 {
   const env = buildEnvWithState();
   env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
@@ -1632,8 +1632,9 @@ function buildEnvWithState() {
               from: correspondenteWa,
               id: "wamid.retorno.case.ref.req.reprovado",
               timestamp: "1773183940",
-              type: "text",
-              text: { body: "Pré-cadastro #000006\nSTATUS: REPROVADO\nMOTIVO: restrição externa" }
+              type: "image",
+              caption: "Pré-cadastro #000006\nSTATUS: REPROVADO\nMOTIVO: restrição externa",
+              image: { id: "mid.image.req.reprovado", mime_type: "image/jpeg" }
             }],
             contacts: [{ wa_id: correspondenteWa }],
             metadata: { phone_number_id: "test" }
@@ -1648,7 +1649,7 @@ function buildEnvWithState() {
   assert.equal(alvo.fase_conversa, "aguardando_retorno_correspondente");
 }
 
-// 18) Requisitos operacionais: texto pendência + motivo documental não vai para visita.
+// 18) Requisitos operacionais: imagem pendência + motivo documental não vai para visita.
 {
   const env = buildEnvWithState();
   env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
@@ -1687,8 +1688,9 @@ function buildEnvWithState() {
               from: correspondenteWa,
               id: "wamid.retorno.case.ref.req.pendencia",
               timestamp: "1773183942",
-              type: "text",
-              text: { body: "Pré-cadastro #000006\nSTATUS: PENDÊNCIA\nMOTIVO: comprovante de renda" }
+              type: "image",
+              caption: "Pré-cadastro #000006\nSTATUS: PENDÊNCIA\nMOTIVO: comprovante de renda",
+              image: { id: "mid.image.req.pendencia", mime_type: "image/jpeg" }
             }],
             contacts: [{ wa_id: correspondenteWa }],
             metadata: { phone_number_id: "test" }
@@ -1813,7 +1815,7 @@ function buildEnvWithState() {
   assert.equal(alvo.fase_conversa, "agendamento_visita");
 }
 
-// 21) Telemetria objetiva do probe de STATUS deve registrar etapas e decisão.
+// 21) Telemetria objetiva do probe de STATUS deve registrar etapas e decisão também no fluxo de imagem.
 {
   const env = buildEnvWithState();
   env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
@@ -1863,8 +1865,9 @@ function buildEnvWithState() {
                 from: correspondenteWa,
                 id: "wamid.retorno.case.ref.req.telemetry",
                 timestamp: "1773183948",
-                type: "text",
-                text: { body: "Pré-cadastro #000006\nSTATUS: REPROVADO\nMOTIVO: restrição externa" }
+                type: "image",
+                caption: "Pré-cadastro #000006\nSTATUS: REPROVADO\nMOTIVO: restrição externa",
+                image: { id: "mid.image.req.telemetry", mime_type: "image/jpeg" }
               }],
               contacts: [{ wa_id: correspondenteWa }],
               metadata: { phone_number_id: "test" }
@@ -1895,6 +1898,7 @@ function buildEnvWithState() {
   const byEvent = Object.fromEntries(parsedEvents.map((item) => [item.event, item.details]));
 
   assert.equal(byEvent.corr_status_probe_input?.case_ref_extracted, "000006");
+  assert.equal(byEvent.corr_status_probe_input?.message_type, "image");
   assert.equal(byEvent.corr_status_probe_input?.text_source_used, "meta_text");
   assert.equal(byEvent.corr_status_probe_status_parse?.status_line_found, "sim");
   assert.equal(byEvent.corr_status_probe_status_parse?.status_normalized, "reprovado");

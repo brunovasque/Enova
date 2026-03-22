@@ -4563,13 +4563,17 @@ let userText = null;
         "";
     }
   } else if (isSupportedMediaType) {
+    const mediaClassifiableText = [
+      String(msg?.text?.body || "").trim(),
+      String(msg?.caption || msg?.[type]?.caption || "").trim()
+    ].filter(Boolean).join("\n");
     const mediaCaseRefProbe = extractCorrespondenteCaseRefFromText(
-      String(msg?.caption || msg?.[type]?.caption || "")
+      mediaClassifiableText
     );
     const possibleCorrespondenteReturn = await handleCorrespondenteReturnByCaseRef(
       env,
       msg,
-      String(msg?.caption || msg?.[type]?.caption || "")
+      mediaClassifiableText
     );
     await telemetry(env, {
       wa_id: waId,

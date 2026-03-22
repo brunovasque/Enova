@@ -1665,6 +1665,8 @@ async function resetTotal(env, wa_id) {
 
     processo_pre_analise: null,
     processo_pre_analise_status: null,
+    corr_follow_base_at: null,
+    corr_follow_next_at: null,
     corr_assumir_token: null,
     corr_publicacao_status: null,
     corr_publicado_grupo_em: null,
@@ -4058,7 +4060,7 @@ if (isAdminProdPath) {
 
 async function runColdFollowupBatch(env, ctx) {
   const now = Date.now();
-  const projection = "wa_id,nome,pre_cadastro_numero,fase_conversa,corr_publicacao_status,corr_lock_correspondente_wa_id,processo_enviado_correspondente,aguardando_retorno_correspondente,corr_entrega_privada_em,retorno_correspondente_status,processo_pre_analise_status,updated_at";
+  const projection = "wa_id,nome,pre_cadastro_numero,fase_conversa,corr_publicacao_status,corr_lock_correspondente_wa_id,processo_enviado_correspondente,aguardando_retorno_correspondente,corr_entrega_privada_em,retorno_correspondente_status,processo_pre_analise_status,corr_follow_base_at,corr_follow_next_at,updated_at";
   const simCtx = getSimulationContext(env);
   const rows = simCtx?.active && simCtx.stateByWaId
     ? Object.values(simCtx.stateByWaId)
@@ -4087,16 +4089,26 @@ async function runColdFollowupBatch(env, ctx) {
   ]);
   const parseUsefulPrazoMs = (st) => {
     const statusText = String(st?.processo_pre_analise_status || "");
-    const m = statusText.match(/:(\d{1,3})h\b/i);
+    const m = statusText.match(/(\d{1,3})h\b/i);
     if (!m) return null;
     const h = Number.parseInt(String(m[1] || ""), 10);
     if (!Number.isFinite(h) || h <= 0) return null;
     return Math.min(h, 240) * 60 * 60 * 1000;
   };
-  const baseTimestamp = (st) => {
-    const ts = Date.parse(String(st?.updated_at || st?.corr_entrega_privada_em || ""));
-    if (Number.isFinite(ts)) return ts;
-    return now;
+  const parseTs = (value) => {
+    const ts = Date.parse(String(value || ""));
+    return Number.isFinite(ts) ? ts : null;
+  };
+  const resolveBaseTimestamp = (st) => {
+    const explicitBase = parseTs(st?.corr_follow_base_at);
+    if (explicitBase !== null) return explicitBase;
+    const legacyBase = parseTs(st?.corr_entrega_privada_em) ?? parseTs(st?.updated_at);
+    return legacyBase ?? now;
+  };
+  const resolveNextTimestamp = (st, fallbackMs) => {
+    const explicitNext = parseTs(st?.corr_follow_next_at);
+    if (explicitNext !== null) return explicitNext;
+    return resolveBaseTimestamp(st) + fallbackMs;
   };
 
   let dispatched = 0;
@@ -4119,11 +4131,10 @@ async function runColdFollowupBatch(env, ctx) {
     const prazoMs = parseUsefulPrazoMs(st);
     if (isUseful) {
       if (!prazoMs) continue;
-      const dueAt = baseTimestamp(st) + prazoMs;
+      const dueAt = resolveNextTimestamp(st, prazoMs);
       if (now < dueAt) continue;
     } else {
-      const sentAt = Date.parse(String(st?.corr_entrega_privada_em || st?.updated_at || ""));
-      const followDueAt = (Number.isFinite(sentAt) ? sentAt : now) + FOLLOW_SIMPLE_MS;
+      const followDueAt = resolveNextTimestamp(st, FOLLOW_SIMPLE_MS);
       if (now < followDueAt) continue;
     }
 
@@ -12225,11 +12236,16 @@ function buildCorrespondenteOperationalFollowPatch(status, rawText, nowIso = new
   const prazoHoras = extractOperationalHoursDeadline(rawText);
   const isUseful = isUsefulCorrespondenteReturnStatus(normalizedStatus);
   const prazoLabel = prazoHoras ? `${prazoHoras}h` : "sem_prazo_explicito";
+  const nowTs = Date.parse(String(nowIso || "")) || Date.now();
+  const prazoNextIso = prazoHoras
+    ? new Date(nowTs + (Math.min(prazoHoras, 240) * 60 * 60 * 1000)).toISOString()
+    : null;
   return {
     processo_pre_analise: isUseful,
     processo_pre_analise_status: isUseful
       ? `retorno_util:${normalizedStatus || "indefinido"}:${prazoLabel}`
-      : "sem_retorno_util"
+      : "sem_retorno_util",
+    ...(isUseful && prazoHoras ? { corr_follow_base_at: nowIso, corr_follow_next_at: prazoNextIso } : {})
   };
 }
 
@@ -13376,7 +13392,11 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
     return { handled: true, reason: "assumir_token_private_delivery_failed" };
   }
 
+  const followBaseIso = new Date().toISOString();
+  const followNextIso = new Date(Date.now() + (3 * 60 * 60 * 1000)).toISOString();
   await upsertState(env, caso.wa_id, {
+    corr_follow_base_at: followBaseIso,
+    corr_follow_next_at: followNextIso,
     corr_lock_correspondente_wa_id: correspondenteWaIdRaw,
     corr_entrega_privada_status: "entregue_privado_aguardando_retorno",
     corr_entrega_privada_em: new Date().toISOString(),

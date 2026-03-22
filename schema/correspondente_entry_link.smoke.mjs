@@ -51,6 +51,8 @@ function buildEnvWithState() {
           corr_lock_correspondente_wa_id: null,
           corr_lock_assumido_em: null,
           corr_entrega_privada_status: null,
+          corr_follow_base_at: null,
+          corr_follow_next_at: null,
           processo_enviado_correspondente: false,
           aguardando_retorno_correspondente: false,
           dossie_resumo: "SEGREDO DOSSIE",
@@ -3096,8 +3098,10 @@ function getLastStepMessagesForWa(env, waId) {
     aguardando_retorno_correspondente: true,
     fase_conversa: "aguardando_retorno_correspondente",
     corr_publicacao_status: "entregue_privado_aguardando_retorno",
+    corr_follow_base_at: "2026-03-20T00:00:00.000Z",
+    corr_follow_next_at: "2026-03-20T03:00:00.000Z",
     corr_entrega_privada_em: "2026-03-20T00:00:00.000Z",
-    updated_at: "2026-03-20T00:00:00.000Z",
+    updated_at: new Date().toISOString(),
     retorno_correspondente_status: null,
     processo_pre_analise_status: null
   };
@@ -3118,8 +3122,10 @@ function getLastStepMessagesForWa(env, waId) {
     aguardando_retorno_correspondente: true,
     fase_conversa: "aguardando_retorno_correspondente",
     corr_publicacao_status: "entregue_privado_aguardando_retorno",
+    corr_follow_base_at: "2026-03-20T00:00:00.000Z",
+    corr_follow_next_at: "2026-03-20T03:00:00.000Z",
     corr_entrega_privada_em: "2026-03-20T00:00:00.000Z",
-    updated_at: "2026-03-20T00:00:00.000Z",
+    updated_at: new Date().toISOString(),
     retorno_correspondente_status: "analise_ativa_existente",
     processo_pre_analise_status: "retorno_util:analise_ativa_existente:sem_prazo_explicito"
   };
@@ -3139,6 +3145,8 @@ function getLastStepMessagesForWa(env, waId) {
     aguardando_retorno_correspondente: true,
     fase_conversa: "aguardando_retorno_correspondente",
     corr_publicacao_status: "entregue_privado_aguardando_retorno",
+    corr_follow_base_at: new Date(Date.now() - (24 * 60 * 60 * 1000)).toISOString(),
+    corr_follow_next_at: new Date(Date.now() + (24 * 60 * 60 * 1000)).toISOString(),
     retorno_correspondente_status: "aguardando_autorizacao",
     processo_pre_analise_status: "retorno_util:aguardando_autorizacao:48h",
     updated_at: new Date(Date.now() - (24 * 60 * 60 * 1000)).toISOString()
@@ -3148,14 +3156,61 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(followPayload, null);
 
   env.__enovaSimulationCtx.sendPreview = null;
-  env.__enovaSimulationCtx.stateByWaId[waCaso].updated_at = new Date(Date.now() - (60 * 60 * 60 * 1000)).toISOString();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_follow_base_at = new Date(Date.now() - (60 * 60 * 1000)).toISOString();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_follow_next_at = new Date(Date.now() - (12 * 60 * 60 * 1000)).toISOString();
   await worker.scheduled({}, env, {});
   followPayload = env.__enovaSimulationCtx.sendPreview || null;
   assert.equal(followPayload?.to, correspondenteWa);
   assert.equal(String(followPayload?.text?.body || "").includes("prazo informado já vencido"), true);
 }
 
-// 40) Cartinha fraca/duvidosa com anexo sem sinais fortes não é autoencaminhada.
+// 40) CRON: update irrelevante (updated_at novo) não reinicia relógio explícito.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    pre_cadastro_numero: "000545",
+    corr_lock_correspondente_wa_id: correspondenteWa,
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true,
+    fase_conversa: "aguardando_retorno_correspondente",
+    corr_publicacao_status: "entregue_privado_aguardando_retorno",
+    corr_follow_base_at: "2026-03-20T00:00:00.000Z",
+    corr_follow_next_at: "2026-03-20T03:00:00.000Z",
+    updated_at: new Date().toISOString(),
+    retorno_correspondente_status: null,
+    processo_pre_analise_status: null
+  };
+  await worker.scheduled({}, env, {});
+  const followPayload = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(followPayload?.to, correspondenteWa);
+}
+
+// 41) CRON: legado sem campo novo segue com fallback compatível.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    pre_cadastro_numero: "000546",
+    corr_lock_correspondente_wa_id: correspondenteWa,
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true,
+    fase_conversa: "aguardando_retorno_correspondente",
+    corr_publicacao_status: "entregue_privado_aguardando_retorno",
+    corr_follow_base_at: null,
+    corr_follow_next_at: null,
+    corr_entrega_privada_em: "2026-03-20T00:00:00.000Z",
+    updated_at: "2026-03-20T00:00:00.000Z",
+    retorno_correspondente_status: null,
+    processo_pre_analise_status: null
+  };
+  await worker.scheduled({}, env, {});
+  const followPayload = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(followPayload?.to, correspondenteWa);
+  assert.equal(String(followPayload?.text?.body || "").includes("ainda não identifiquei retorno estruturado"), true);
+}
+
+// 42) Cartinha fraca/duvidosa com anexo sem sinais fortes não é autoencaminhada.
 {
   const env = buildEnvWithState();
   env.__enovaSimulationCtx.stateByWaId[waCaso] = {

@@ -63,6 +63,19 @@ function buildEnvWithState() {
   };
 }
 
+function getLastStepMessagesForWa(env, waId) {
+  const logs = Array.isArray(env?.__enovaSimulationCtx?.messageLog)
+    ? env.__enovaSimulationCtx.messageLog
+    : [];
+  for (let i = logs.length - 1; i >= 0; i -= 1) {
+    const row = logs[i];
+    if (row?.wa_id === waId) {
+      return Array.isArray(row.messages) ? row.messages : [];
+    }
+  }
+  return [];
+}
+
 // 1) Mensagem de correspondente deve conter link permanente de entrada.
 {
   const env = buildEnvWithState();
@@ -2907,6 +2920,169 @@ function buildEnvWithState() {
   assert.equal(Boolean(correspondenteAck), true);
   assert.equal(correspondenteAck?.to, correspondenteWa);
   assert.equal(String(correspondenteAck?.text?.body || "").includes(CORRESPONDENTE_RETORNO_ACK_PREFIX), true);
+}
+
+// 33) Análise ativa sem cartinha: cliente recebe orientação sem pedir cartinha e status útil é persistido.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000531";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = correspondenteWa;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].aguardando_retorno_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].fase_conversa = "aguardando_retorno_correspondente";
+
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.000531.analise.ativa",
+              timestamp: "1773183970",
+              type: "text",
+              text: { body: "Pré-cadastro #000531\nSTATUS: EM ANÁLISE\nMOTIVO: cliente já possui análise ativa em andamento" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "analise_ativa_existente");
+  assert.equal(String(alvo.processo_pre_analise_status || "").includes("retorno_util:analise_ativa_existente"), true);
+  const lastClientMsgs = getLastStepMessagesForWa(env, waCaso).join("\n");
+  assert.equal(lastClientMsgs.includes("processo de análise ativo em seu nome"), true);
+  assert.equal(lastClientMsgs.includes("papel escrito à mão"), false);
+}
+
+// 34) Análise ativa com pedido explícito de cartinha: cliente recebe instrução de cartinha.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000532";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = correspondenteWa;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].aguardando_retorno_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].fase_conversa = "aguardando_retorno_correspondente";
+
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.000532.cartinha",
+              timestamp: "1773183971",
+              type: "text",
+              text: { body: "Pré-cadastro #000532\nSTATUS: EM ANÁLISE\nMOTIVO: análise ativa em aberto; necessário enviar cartinha de cancelamento com autorização escrita" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aguardando_cartinha_cancelamento");
+  const lastClientMsgs = getLastStepMessagesForWa(env, waCaso).join("\n");
+  assert.equal(lastClientMsgs.includes("papel escrito à mão"), true);
+  assert.equal(lastClientMsgs.includes("AUTORIZO O CANCELAMENTO DA ANÁLISE ATIVA"), true);
+}
+
+// 35) Cliente envia cartinha válida: agradece e reencaminha ao mesmo correspondente lockado.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    pre_cadastro_numero: "000533",
+    corr_lock_correspondente_wa_id: correspondenteWa,
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true,
+    fase_conversa: "aguardando_retorno_correspondente",
+    retorno_correspondente_status: "aguardando_cartinha_cancelamento"
+  };
+
+  const clientReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: waCaso,
+              id: "wamid.cartinha.cliente.000533",
+              timestamp: "1773183972",
+              type: "text",
+              text: { body: "EU, JOAO TESTE, PORTADOR(A) DO CPF 123.456.789-10, AUTORIZO O CANCELAMENTO DA ANÁLISE ATIVA EM MEU NOME. DATA 22/03/2026 ASSINATURA JOAO TESTE" }
+            }],
+            contacts: [{ wa_id: waCaso }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(clientReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aguardando_autorizacao");
+  assert.equal(String(alvo.processo_pre_analise_status || "").includes("retorno_util:aguardando_autorizacao"), true);
+  const lastClientMsgs = getLastStepMessagesForWa(env, waCaso).join("\n");
+  assert.equal(lastClientMsgs.includes("Perfeito, obrigado pelo envio."), true);
+  assert.equal(alvo.corr_lock_correspondente_wa_id, correspondenteWa);
+  assert.equal(String(alvo.retorno_correspondente_motivo || "").includes("enviada ao correspondente"), true);
+}
+
+// 36) Aguardando autorização com 48h: persiste prazo operacional e não segue como ausência de retorno.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000534";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = correspondenteWa;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].aguardando_retorno_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].fase_conversa = "aguardando_retorno_correspondente";
+
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.000534.autorizacao.48h",
+              timestamp: "1773183973",
+              type: "text",
+              text: { body: "Pré-cadastro #000534\nSTATUS: AGUARDANDO AUTORIZAÇÃO\nMOTIVO: retorno em até 48h" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aguardando_autorizacao");
+  assert.equal(String(alvo.processo_pre_analise_status || "").includes("48h"), true);
+  const lastClientMsgs = getLastStepMessagesForWa(env, waCaso).join("\n");
+  assert.equal(lastClientMsgs.includes("até 48h"), true);
 }
 
 console.log("correspondente_entry_link.smoke: ok");

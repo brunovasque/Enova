@@ -8,6 +8,7 @@ const token = "AB12CD34EF56GH78JK90LM12";
 const waCaso = "5541999998888";
 const correspondenteWa = "5511999999999";
 const CORRESPONDENTE_CASE_CONFIRMATION_PROMPT_PREFIX = "Me confirme no formato:";
+const CORRESPONDENTE_RETORNO_ACK_PREFIX = "Perfeito, obrigado pelo retorno.";
 const normalizeCorrespondenteWaId = (value) => {
   const digits = String(value || "")
     .trim()
@@ -692,6 +693,10 @@ function buildEnvWithState() {
   const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(alvo.retorno_correspondente_status, "aprovado");
   assert.equal(alvo.fase_conversa, "agendamento_visita");
+  const correspondenteAck = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(Boolean(correspondenteAck), true);
+  assert.equal(correspondenteAck?.to, correspondenteWa);
+  assert.equal(String(correspondenteAck?.text?.body || "").includes(CORRESPONDENTE_RETORNO_ACK_PREFIX), true);
 }
 
 // 8.2) Retorno com PDF (caption) deve ser processado no fluxo oficial e classificar aprovado.
@@ -1310,6 +1315,10 @@ function buildEnvWithState() {
   const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(alvo.retorno_correspondente_status, "aprovado");
   assert.equal(alvo.fase_conversa, "agendamento_visita");
+  const correspondenteAck = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(Boolean(correspondenteAck), true);
+  assert.equal(correspondenteAck?.to, correspondenteWa);
+  assert.equal(String(correspondenteAck?.text?.body || "").includes(CORRESPONDENTE_RETORNO_ACK_PREFIX), true);
 }
 
 // 11) "CREDITO APROVADO" + "POSSUI PENDENCIAS" deve classificar como aprovado_condicionado.
@@ -1804,6 +1813,10 @@ function buildEnvWithState() {
   const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(alvo.retorno_correspondente_status, "pendencia_documental");
   assert.equal(alvo.fase_conversa, "aguardando_retorno_correspondente");
+  const correspondenteAck = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(Boolean(correspondenteAck), true);
+  assert.equal(correspondenteAck?.to, correspondenteWa);
+  assert.equal(String(correspondenteAck?.text?.body || "").includes(CORRESPONDENTE_RETORNO_ACK_PREFIX), true);
 }
 
 // 19) Requisitos operacionais: aprovado_condicionado deve seguir para visita.
@@ -2890,6 +2903,10 @@ function buildEnvWithState() {
   const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(alvo.retorno_correspondente_status, "reprovado");
   assert.notEqual(alvo.fase_conversa, "agendamento_visita");
+  const correspondenteAck = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(Boolean(correspondenteAck), true);
+  assert.equal(correspondenteAck?.to, correspondenteWa);
+  assert.equal(String(correspondenteAck?.text?.body || "").includes(CORRESPONDENTE_RETORNO_ACK_PREFIX), true);
 }
 
 console.log("correspondente_entry_link.smoke: ok");

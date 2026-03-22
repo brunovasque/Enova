@@ -2000,4 +2000,72 @@ function buildEnvWithState() {
   assert.equal(byEvent.corr_status_probe_client_dispatch?.dispatch_target, "reprovado");
 }
 
+// 22) Hotfix textual urgente: STATUS deve ser parseado antes de fallback handled:false por remetente não confiável.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  const originalConsoleLog = console.log;
+  const capturedProbe = [];
+  console.log = (...args) => {
+    const line = args.map((part) => String(part)).join(" ");
+    if (line.includes("TELEMETRIA-SAFE:") && line.includes("corr_status_probe_")) {
+      capturedProbe.push(line);
+    }
+    return originalConsoleLog(...args);
+  };
+
+  try {
+    const retornoReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: "5511888888888",
+                id: "wamid.retorno.case.ref.req.hotfix.untrusted.text",
+                timestamp: "1773183949",
+                type: "text",
+                text: { body: "Pré-cadastro #000006\nSTATUS: CRÉDITO APROVADO" }
+              }],
+              contacts: [{ wa_id: "5511888888888" }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(retornoReq, env, {});
+  } finally {
+    console.log = originalConsoleLog;
+  }
+
+  const telemetryPrefix = "TELEMETRIA-SAFE: ";
+  const parsedEvents = capturedProbe
+    .map((line) => {
+      const payloadStr = line.includes(telemetryPrefix)
+        ? line.slice(line.indexOf(telemetryPrefix) + telemetryPrefix.length)
+        : "";
+      if (!payloadStr) return null;
+      const payload = JSON.parse(payloadStr);
+      return {
+        event: payload?.event || null,
+        details: payload?.details ? JSON.parse(payload.details) : null
+      };
+    })
+    .filter(Boolean);
+  const byEvent = Object.fromEntries(parsedEvents.map((item) => [item.event, item.details]));
+
+  assert.equal(byEvent.corr_status_probe_input?.case_ref_extracted, "000006");
+  assert.equal(byEvent.corr_status_probe_input?.message_type, "text");
+  assert.equal(byEvent.corr_status_probe_status_parse?.status_line_found, "sim");
+  assert.equal(byEvent.corr_status_probe_status_parse?.status_normalized, "aprovado");
+  assert.equal(byEvent.corr_status_probe_decision?.status_classificado, "aprovado");
+  assert.equal(byEvent.corr_status_probe_decision?.handled, "nao");
+  assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "sim");
+  assert.equal(byEvent.corr_status_probe_decision?.decision_reason, "sender_low_confidence_without_case_lock");
+}
+
 console.log("correspondente_entry_link.smoke: ok");

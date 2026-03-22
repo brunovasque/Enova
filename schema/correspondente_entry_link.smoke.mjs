@@ -2379,4 +2379,116 @@ function buildEnvWithState() {
   assert.equal(byEvent.corr_flow_probe_confirm_exit?.stopped_before_common_flow, true);
 }
 
+// 27) diagnóstico read-only do ciclo completo do wa_id (entrada -> lock save -> lock read -> compare).
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000518";
+  const originalConsoleLog = console.log;
+  const capturedProbe = [];
+  console.log = (...args) => {
+    const line = args.map((part) => String(part)).join(" ");
+    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_waid_probe_") || line.includes("corr_sender_gate_probe") || line.includes("corr_status_probe_decision"))) {
+      capturedProbe.push(line);
+    }
+    return originalConsoleLog(...args);
+  };
+
+  try {
+    const assumirReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: "554197780518",
+                id: "wamid.assumir.readonly.waid.probe",
+                timestamp: "1773183960",
+                type: "text",
+                text: { body: `ASSUMIR ${token}` }
+              }],
+              contacts: [{ wa_id: "554197780518" }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(assumirReq, env, {});
+
+    const retornoReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: "4197780518",
+                id: "wamid.retorno.readonly.waid.probe",
+                timestamp: "1773183961",
+                type: "text",
+                text: { body: "Pré-cadastro #000518\nSTATUS: APROVADO" }
+              }],
+              contacts: [{ wa_id: "4197780518" }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(retornoReq, env, {});
+  } finally {
+    console.log = originalConsoleLog;
+  }
+
+  const telemetryPrefix = "TELEMETRIA-SAFE: ";
+  const parsedEvents = capturedProbe
+    .map((line) => {
+      const payloadStr = line.includes(telemetryPrefix)
+        ? line.slice(line.indexOf(telemetryPrefix) + telemetryPrefix.length)
+        : "";
+      if (!payloadStr) return null;
+      const payload = JSON.parse(payloadStr);
+      return {
+        event: payload?.event || null,
+        details: payload?.details ? JSON.parse(payload.details) : null
+      };
+    })
+    .filter(Boolean);
+  const groupedByEvent = parsedEvents.reduce((acc, item) => {
+    if (!acc[item.event]) acc[item.event] = [];
+    acc[item.event].push(item.details);
+    return acc;
+  }, {});
+  const lastByEvent = Object.fromEntries(
+    Object.entries(groupedByEvent).map(([event, details]) => [event, details[details.length - 1]])
+  );
+  const firstLockSave = groupedByEvent.corr_waid_probe_lock_save?.[0] || null;
+
+  assert.equal(firstLockSave?.case_ref, "000518");
+  assert.equal(firstLockSave?.lock_wa_id_before_save, null);
+  assert.equal(firstLockSave?.lock_wa_id_saved, "554197780518");
+  assert.equal(firstLockSave?.function_used, "normalizeCorrespondenteWaIdInput");
+
+  assert.equal(lastByEvent.corr_waid_probe_input?.from_wa_id_raw, "4197780518");
+  assert.equal(lastByEvent.corr_waid_probe_input?.from_wa_id_normalized, "4197780518");
+  assert.equal(lastByEvent.corr_waid_probe_input?.function_used, "normalizeCorrespondenteWaIdInput");
+
+  assert.equal(lastByEvent.corr_waid_probe_lock_read?.case_ref, "000518");
+  assert.equal(lastByEvent.corr_waid_probe_lock_read?.lock_wa_id_raw, "554197780518");
+  assert.equal(lastByEvent.corr_waid_probe_lock_read?.lock_wa_id_normalized, "554197780518");
+
+  assert.equal(lastByEvent.corr_waid_probe_compare?.case_ref, "000518");
+  assert.equal(lastByEvent.corr_waid_probe_compare?.from_wa_id_normalized, "4197780518");
+  assert.equal(lastByEvent.corr_waid_probe_compare?.lock_wa_id_normalized, "554197780518");
+  assert.equal(lastByEvent.corr_waid_probe_compare?.lock_match, "nao");
+  assert.equal(lastByEvent.corr_waid_probe_compare?.decision_reason, "case_lock_mismatch");
+  assert.equal(lastByEvent.corr_sender_gate_probe?.decision_reason, "case_lock_mismatch");
+  assert.equal(lastByEvent.corr_status_probe_decision?.decision_reason, "corr_return_case_ref_locked_other_sender_mismatch");
+}
+
 console.log("correspondente_entry_link.smoke: ok");

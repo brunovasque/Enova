@@ -51,6 +51,8 @@ function buildEnvWithState() {
           corr_lock_correspondente_wa_id: null,
           corr_lock_assumido_em: null,
           corr_entrega_privada_status: null,
+          corr_follow_base_at: null,
+          corr_follow_next_at: null,
           processo_enviado_correspondente: false,
           aguardando_retorno_correspondente: false,
           dossie_resumo: "SEGREDO DOSSIE",
@@ -61,6 +63,19 @@ function buildEnvWithState() {
       }
     }
   };
+}
+
+function getLastStepMessagesForWa(env, waId) {
+  const logs = Array.isArray(env?.__enovaSimulationCtx?.messageLog)
+    ? env.__enovaSimulationCtx.messageLog
+    : [];
+  for (let i = logs.length - 1; i >= 0; i -= 1) {
+    const row = logs[i];
+    if (row?.wa_id === waId) {
+      return Array.isArray(row.messages) ? row.messages : [];
+    }
+  }
+  return [];
 }
 
 // 1) Mensagem de correspondente deve conter link permanente de entrada.
@@ -2907,6 +2922,334 @@ function buildEnvWithState() {
   assert.equal(Boolean(correspondenteAck), true);
   assert.equal(correspondenteAck?.to, correspondenteWa);
   assert.equal(String(correspondenteAck?.text?.body || "").includes(CORRESPONDENTE_RETORNO_ACK_PREFIX), true);
+}
+
+// 33) Análise ativa sem cartinha: cliente recebe orientação sem pedir cartinha e status útil é persistido.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000531";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = correspondenteWa;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].aguardando_retorno_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].fase_conversa = "aguardando_retorno_correspondente";
+
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.000531.analise.ativa",
+              timestamp: "1773183970",
+              type: "text",
+              text: { body: "Pré-cadastro #000531\nSTATUS: EM ANÁLISE\nMOTIVO: cliente já possui análise ativa em andamento" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "analise_ativa_existente");
+  assert.equal(String(alvo.processo_pre_analise_status || "").includes("retorno_util:analise_ativa_existente"), true);
+  const lastClientMsgs = getLastStepMessagesForWa(env, waCaso).join("\n");
+  assert.equal(lastClientMsgs.includes("processo de análise ativo em seu nome"), true);
+  assert.equal(lastClientMsgs.includes("papel escrito à mão"), false);
+}
+
+// 34) Análise ativa com pedido explícito de cartinha: cliente recebe instrução de cartinha.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000532";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = correspondenteWa;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].aguardando_retorno_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].fase_conversa = "aguardando_retorno_correspondente";
+
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.000532.cartinha",
+              timestamp: "1773183971",
+              type: "text",
+              text: { body: "Pré-cadastro #000532\nSTATUS: EM ANÁLISE\nMOTIVO: análise ativa em aberto; necessário enviar cartinha de cancelamento com autorização escrita" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aguardando_cartinha_cancelamento");
+  const lastClientMsgs = getLastStepMessagesForWa(env, waCaso).join("\n");
+  assert.equal(lastClientMsgs.includes("papel escrito à mão"), true);
+  assert.equal(lastClientMsgs.includes("AUTORIZO O CANCELAMENTO DA ANÁLISE ATIVA"), true);
+}
+
+// 35) Cliente envia cartinha válida: agradece e reencaminha ao mesmo correspondente lockado.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    pre_cadastro_numero: "000533",
+    corr_lock_correspondente_wa_id: correspondenteWa,
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true,
+    fase_conversa: "aguardando_retorno_correspondente",
+    retorno_correspondente_status: "aguardando_cartinha_cancelamento"
+  };
+
+  const clientReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: waCaso,
+              id: "wamid.cartinha.cliente.000533",
+              timestamp: "1773183972",
+              type: "text",
+              text: { body: "EU, JOAO TESTE, PORTADOR(A) DO CPF 123.456.789-10, AUTORIZO O CANCELAMENTO DA ANÁLISE ATIVA EM MEU NOME. DATA 22/03/2026 ASSINATURA JOAO TESTE" }
+            }],
+            contacts: [{ wa_id: waCaso }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(clientReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aguardando_autorizacao");
+  assert.equal(String(alvo.processo_pre_analise_status || "").includes("retorno_util:aguardando_autorizacao"), true);
+  const lastClientMsgs = getLastStepMessagesForWa(env, waCaso).join("\n");
+  assert.equal(lastClientMsgs.includes("Perfeito, obrigado pelo envio."), true);
+  assert.equal(alvo.corr_lock_correspondente_wa_id, correspondenteWa);
+  assert.equal(String(alvo.retorno_correspondente_motivo || "").includes("enviada ao correspondente"), true);
+}
+
+// 36) Aguardando autorização com 48h: persiste prazo operacional e não segue como ausência de retorno.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000534";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = correspondenteWa;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].aguardando_retorno_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].fase_conversa = "aguardando_retorno_correspondente";
+
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.000534.autorizacao.48h",
+              timestamp: "1773183973",
+              type: "text",
+              text: { body: "Pré-cadastro #000534\nSTATUS: AGUARDANDO AUTORIZAÇÃO\nMOTIVO: retorno em até 48h" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aguardando_autorizacao");
+  assert.equal(String(alvo.processo_pre_analise_status || "").includes("48h"), true);
+  const lastClientMsgs = getLastStepMessagesForWa(env, waCaso).join("\n");
+  assert.equal(lastClientMsgs.includes("até 48h"), true);
+}
+
+// 37) CRON: sem retorno útil, follow simples de 3h pode disparar.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    pre_cadastro_numero: "000541",
+    corr_lock_correspondente_wa_id: correspondenteWa,
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true,
+    fase_conversa: "aguardando_retorno_correspondente",
+    corr_publicacao_status: "entregue_privado_aguardando_retorno",
+    corr_follow_base_at: "2026-03-20T00:00:00.000Z",
+    corr_follow_next_at: "2026-03-20T03:00:00.000Z",
+    corr_entrega_privada_em: "2026-03-20T00:00:00.000Z",
+    updated_at: new Date().toISOString(),
+    retorno_correspondente_status: null,
+    processo_pre_analise_status: null
+  };
+  await worker.scheduled({}, env, {});
+  const followPayload = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(followPayload?.to, correspondenteWa);
+  assert.equal(String(followPayload?.text?.body || "").includes("ainda não identifiquei retorno estruturado"), true);
+}
+
+// 38) CRON: retorno útil sem prazo explícito (análise ativa) bloqueia follow burro.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    pre_cadastro_numero: "000542",
+    corr_lock_correspondente_wa_id: correspondenteWa,
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true,
+    fase_conversa: "aguardando_retorno_correspondente",
+    corr_publicacao_status: "entregue_privado_aguardando_retorno",
+    corr_follow_base_at: "2026-03-20T00:00:00.000Z",
+    corr_follow_next_at: "2026-03-20T03:00:00.000Z",
+    corr_entrega_privada_em: "2026-03-20T00:00:00.000Z",
+    updated_at: new Date().toISOString(),
+    retorno_correspondente_status: "analise_ativa_existente",
+    processo_pre_analise_status: "retorno_util:analise_ativa_existente:sem_prazo_explicito"
+  };
+  await worker.scheduled({}, env, {});
+  const followPayload = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(followPayload, null);
+}
+
+// 39) CRON: retorno útil com 48h só permite follow após vencimento do prazo real.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    pre_cadastro_numero: "000543",
+    corr_lock_correspondente_wa_id: correspondenteWa,
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true,
+    fase_conversa: "aguardando_retorno_correspondente",
+    corr_publicacao_status: "entregue_privado_aguardando_retorno",
+    corr_follow_base_at: new Date(Date.now() - (24 * 60 * 60 * 1000)).toISOString(),
+    corr_follow_next_at: new Date(Date.now() + (24 * 60 * 60 * 1000)).toISOString(),
+    retorno_correspondente_status: "aguardando_autorizacao",
+    processo_pre_analise_status: "retorno_util:aguardando_autorizacao:48h",
+    updated_at: new Date(Date.now() - (24 * 60 * 60 * 1000)).toISOString()
+  };
+  await worker.scheduled({}, env, {});
+  let followPayload = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(followPayload, null);
+
+  env.__enovaSimulationCtx.sendPreview = null;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_follow_base_at = new Date(Date.now() - (60 * 60 * 1000)).toISOString();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_follow_next_at = new Date(Date.now() - (12 * 60 * 60 * 1000)).toISOString();
+  await worker.scheduled({}, env, {});
+  followPayload = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(followPayload?.to, correspondenteWa);
+  assert.equal(String(followPayload?.text?.body || "").includes("prazo informado já vencido"), true);
+}
+
+// 40) CRON: update irrelevante (updated_at novo) não reinicia relógio explícito.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    pre_cadastro_numero: "000545",
+    corr_lock_correspondente_wa_id: correspondenteWa,
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true,
+    fase_conversa: "aguardando_retorno_correspondente",
+    corr_publicacao_status: "entregue_privado_aguardando_retorno",
+    corr_follow_base_at: "2026-03-20T00:00:00.000Z",
+    corr_follow_next_at: "2026-03-20T03:00:00.000Z",
+    updated_at: new Date().toISOString(),
+    retorno_correspondente_status: null,
+    processo_pre_analise_status: null
+  };
+  await worker.scheduled({}, env, {});
+  const followPayload = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(followPayload?.to, correspondenteWa);
+}
+
+// 41) CRON: legado sem campo novo segue com fallback compatível.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    pre_cadastro_numero: "000546",
+    corr_lock_correspondente_wa_id: correspondenteWa,
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true,
+    fase_conversa: "aguardando_retorno_correspondente",
+    corr_publicacao_status: "entregue_privado_aguardando_retorno",
+    corr_follow_base_at: null,
+    corr_follow_next_at: null,
+    corr_entrega_privada_em: "2026-03-20T00:00:00.000Z",
+    updated_at: "2026-03-20T00:00:00.000Z",
+    retorno_correspondente_status: null,
+    processo_pre_analise_status: null
+  };
+  await worker.scheduled({}, env, {});
+  const followPayload = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(followPayload?.to, correspondenteWa);
+  assert.equal(String(followPayload?.text?.body || "").includes("ainda não identifiquei retorno estruturado"), true);
+}
+
+// 42) Cartinha fraca/duvidosa com anexo sem sinais fortes não é autoencaminhada.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    pre_cadastro_numero: "000544",
+    corr_lock_correspondente_wa_id: correspondenteWa,
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true,
+    fase_conversa: "aguardando_retorno_correspondente",
+    retorno_correspondente_status: "aguardando_cartinha_cancelamento"
+  };
+  const weakReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: waCaso,
+              id: "wamid.cartinha.fraca.000544",
+              timestamp: "1773183974",
+              type: "image",
+              caption: "segue ai",
+              image: { id: "mid.image.fraca", mime_type: "image/jpeg" }
+            }],
+            contacts: [{ wa_id: waCaso }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(weakReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aguardando_cartinha_cancelamento");
+  const lastClientMsgs = getLastStepMessagesForWa(env, waCaso).join("\n");
+  assert.equal(lastClientMsgs.includes("me envie novamente a cartinha de forma mais legível"), true);
 }
 
 console.log("correspondente_entry_link.smoke: ok");

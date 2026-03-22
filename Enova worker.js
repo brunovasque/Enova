@@ -8,6 +8,18 @@ const RESET_REPLY_SUMMARY_MAX_LEN = 140;
 const MIN_CORRESPONDENTE_WA_ID_LENGTH = 10;
 const VISITA_DEFAULT_FIRST_SLOT_OFFSET_MS = 24 * 60 * 60 * 1000;
 const CORRESPONDENTE_RETORNO_ACK_MESSAGE = "Perfeito, obrigado pelo retorno. Já vou seguir com o cliente por aqui e, assim que surgir um novo caso, o Vasques envia lá no grupo.";
+const CORRESPONDENTE_ANALISE_ATIVA_SEM_CARTINHA_MSG = "Identificamos que existe um processo de análise ativo em seu nome. Para seguirmos com uma nova avaliação atualizada, o despachante bancário precisa primeiro verificar essa análise ativa. Assim que ele me confirmar o próximo passo, eu sigo com você por aqui.";
+const CORRESPONDENTE_ANALISE_ATIVA_COM_CARTINHA_MSG = [
+  "Identificamos que existe um processo de análise ativo em seu nome. Para seguirmos com uma nova avaliação atualizada, o despachante bancário precisa primeiro cancelar essa análise ativa.",
+  "Para isso, me envie em um papel escrito à mão, por favor:",
+  "",
+  "EU, (NOME COMPLETO), PORTADOR(A) DO CPF XXXX, AUTORIZO O CANCELAMENTO DA ANÁLISE ATIVA EM MEU NOME.",
+  "",
+  "DATA",
+  "ASSINATURA",
+  "",
+  "Assim que você me enviar, eu já dou continuidade no seu processo por aqui."
+].join("\n");
 
 function getSimulationContext(env) {
   return env && env.__enovaSimulationCtx ? env.__enovaSimulationCtx : null;
@@ -1653,6 +1665,8 @@ async function resetTotal(env, wa_id) {
 
     processo_pre_analise: null,
     processo_pre_analise_status: null,
+    corr_follow_base_at: null,
+    corr_follow_next_at: null,
     corr_assumir_token: null,
     corr_publicacao_status: null,
     corr_publicado_grupo_em: null,
@@ -4045,7 +4059,95 @@ if (isAdminProdPath) {
 };
 
 async function runColdFollowupBatch(env, ctx) {
-  console.log("CRON: runColdFollowupBatch() stub executado sem impacto no fetch");
+  const now = Date.now();
+  const projection = "wa_id,nome,pre_cadastro_numero,fase_conversa,corr_publicacao_status,corr_lock_correspondente_wa_id,processo_enviado_correspondente,aguardando_retorno_correspondente,corr_entrega_privada_em,retorno_correspondente_status,processo_pre_analise_status,corr_follow_base_at,corr_follow_next_at,updated_at";
+  const simCtx = getSimulationContext(env);
+  const rows = simCtx?.active && simCtx.stateByWaId
+    ? Object.values(simCtx.stateByWaId)
+    : normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_state", {
+      method: "GET",
+      query: {
+        select: projection,
+        order: "updated_at.desc",
+        limit: 200
+      }
+    }));
+
+  const FOLLOW_SIMPLE_MS = 3 * 60 * 60 * 1000;
+  const terminalStatuses = new Set(["aprovado", "aprovado_condicionado", "reprovado", "pendencia_documental", "pendencia_risco"]);
+  const usefulStatuses = new Set([
+    "analise_ativa_existente",
+    "aguardando_cartinha_cancelamento",
+    "aguardando_autorizacao",
+    "em_analise_com_prazo",
+    "aprovado",
+    "aprovado_condicionado",
+    "reprovado",
+    "pendencia_documental",
+    "pendencia_risco",
+    "em_analise"
+  ]);
+  const parseUsefulPrazoMs = (st) => {
+    const statusText = String(st?.processo_pre_analise_status || "");
+    const m = statusText.match(/(\d{1,3})h\b/i);
+    if (!m) return null;
+    const h = Number.parseInt(String(m[1] || ""), 10);
+    if (!Number.isFinite(h) || h <= 0) return null;
+    return Math.min(h, 240) * 60 * 60 * 1000;
+  };
+  const parseTs = (value) => {
+    const ts = Date.parse(String(value || ""));
+    return Number.isFinite(ts) ? ts : null;
+  };
+  const resolveBaseTimestamp = (st) => {
+    const explicitBase = parseTs(st?.corr_follow_base_at);
+    if (explicitBase !== null) return explicitBase;
+    const legacyBase = parseTs(st?.corr_entrega_privada_em) ?? parseTs(st?.updated_at);
+    return legacyBase ?? now;
+  };
+  const resolveNextTimestamp = (st, fallbackMs) => {
+    const explicitNext = parseTs(st?.corr_follow_next_at);
+    if (explicitNext !== null) return explicitNext;
+    return resolveBaseTimestamp(st) + fallbackMs;
+  };
+
+  let dispatched = 0;
+  for (const st of rows) {
+    const lockWa = String(st?.corr_lock_correspondente_wa_id || "").trim();
+    if (!lockWa) continue;
+    if (st?.processo_enviado_correspondente !== true) continue;
+    const publicStatus = String(st?.corr_publicacao_status || "").trim().toLowerCase();
+    const fase = String(st?.fase_conversa || "").trim().toLowerCase();
+    const seemsWaiting =
+      st?.aguardando_retorno_correspondente === true ||
+      fase === "aguardando_retorno_correspondente" ||
+      publicStatus.includes("aguardando_retorno");
+    if (!seemsWaiting) continue;
+
+    const retornoStatus = String(st?.retorno_correspondente_status || "").trim().toLowerCase();
+    if (terminalStatuses.has(retornoStatus)) continue;
+
+    const isUseful = usefulStatuses.has(retornoStatus);
+    const prazoMs = parseUsefulPrazoMs(st);
+    if (isUseful) {
+      if (!prazoMs) continue;
+      const dueAt = resolveNextTimestamp(st, prazoMs);
+      if (now < dueAt) continue;
+    } else {
+      const followDueAt = resolveNextTimestamp(st, FOLLOW_SIMPLE_MS);
+      if (now < followDueAt) continue;
+    }
+
+    const caseRef = buildCorrespondenteCaseRef(st);
+    const clienteNome = String(st?.nome || "").trim() || "cliente";
+    const body = isUseful
+      ? `Lembrete operacional do Pré-cadastro #${caseRef}: prazo informado já vencido. Pode me atualizar com o status atual deste caso, por favor?`
+      : `Lembrete do Pré-cadastro #${caseRef}: ainda não identifiquei retorno estruturado deste caso. Pode me enviar STATUS e MOTIVO, por favor?`;
+    await sendWhatsToCorrespondente(env, lockWa, body);
+    dispatched += 1;
+  }
+
+  console.log(`CRON: runColdFollowupBatch() concluído. follow_dispatch_total=${dispatched}`);
 }
 
 // =============================================================
@@ -11815,6 +11917,8 @@ async function listOperationalCasesForSenderFallback(env, limit = 5) {
 function classifyCorrespondenteReturnFromText(rawText) {
   const ntMsg = normalizeText(rawText || "");
   const hasAny = (terms) => terms.some((term) => ntMsg.includes(term));
+  const operationalSignal = detectCorrespondenteOperationalSignal(ntMsg);
+  if (operationalSignal?.status) return operationalSignal.status;
   const hasAprovado = /\b(aprovado|aprovada|credito aprovado|liberado|liberada)\b/.test(ntMsg);
   const reprovado = /\b(reprovado|credito reprovado|negado|nao aprovado)\b/.test(ntMsg);
   const pendenciaRisco = hasAny([
@@ -11844,6 +11948,10 @@ function classifyCorrespondenteReturnFromText(rawText) {
 }
 
 const CORRESPONDENTE_RETURN_STATUS_CANONICAL = new Set([
+  "analise_ativa_existente",
+  "aguardando_cartinha_cancelamento",
+  "aguardando_autorizacao",
+  "em_analise_com_prazo",
   "aprovado",
   "aprovado_condicionado",
   "reprovado",
@@ -11858,6 +11966,10 @@ function normalizeCorrespondenteReturnStatus(value) {
   const normalized = normalizeText(value || "");
   if (!normalized) return "nao_identificado";
   const map = {
+    analise_ativa_existente: "analise_ativa_existente",
+    aguardando_cartinha_cancelamento: "aguardando_cartinha_cancelamento",
+    aguardando_autorizacao: "aguardando_autorizacao",
+    em_analise_com_prazo: "em_analise_com_prazo",
     aprovado: "aprovado",
     aprovado_condicionado: "aprovado_condicionado",
     aprovado_com_condicao: "aprovado_condicionado",
@@ -11888,6 +12000,10 @@ function normalizeCorrespondenteReturnStatus(value) {
     normalized.includes("comprometimento de renda")
   ) return "pendencia_risco";
   if (normalized.includes("aprovad") || normalized.includes("liberad")) return "aprovado";
+  if (normalized.includes("analise ativa") || normalized.includes("processo ativo")) return "analise_ativa_existente";
+  if (normalized.includes("cartinha") || normalized.includes("autorizacao escrita")) return "aguardando_cartinha_cancelamento";
+  if (normalized.includes("aguardando autorizacao")) return "aguardando_autorizacao";
+  if (normalized.includes("prazo") && normalized.includes("hora")) return "em_analise_com_prazo";
   if (normalized.includes("analise")) return "em_analise";
   return "nao_identificado";
 }
@@ -12018,6 +12134,8 @@ function normalizeCorrespondenteStatusFromStatusLine(statusRaw, contexto = "") {
   const statusText = normalizeText(statusRaw || "");
   if (!statusText) return null;
   const fullContext = normalizeText([statusRaw, contexto].filter(Boolean).join("\n"));
+  const operationalSignal = detectCorrespondenteOperationalSignal(fullContext);
+  if (operationalSignal?.status) return operationalSignal.status;
   const hasRiskTerms = /\b(cadin|restricao|restricoes|comprometimento de renda|serasa|spc|score|conres|scr|registrato|registrado|registro)\b/.test(fullContext);
   const hasDocumentalTerms = /\b(comprovante|holerite|ctps|irpf|documento|documental|estado civil|faltando)\b/.test(fullContext);
   const hasApprovedConditionalTerms =
@@ -12062,6 +12180,177 @@ function parseCorrespondenteStatusLineFromText(rawText) {
     statusNormalized: statusRaw ? normalizeCorrespondenteStatusFromStatusLine(statusRaw, text) : null,
     motivo
   };
+}
+
+function extractOperationalHoursDeadline(rawText) {
+  const normalized = normalizeText(rawText || "");
+  if (!normalized) return null;
+  const hoursMatch = normalized.match(/\b(?:(?:ate|até|em|retorno em|prazo de)\s*)?(\d{1,3})\s*h(?:oras?)?\b/);
+  const hoursRaw = hoursMatch?.[1] || null;
+  const hours = Number.parseInt(String(hoursRaw || ""), 10);
+  if (!Number.isFinite(hours) || hours <= 0) return null;
+  return Math.min(hours, 240);
+}
+
+function detectCorrespondenteOperationalSignal(rawText) {
+  const normalized = normalizeText(rawText || "");
+  if (!normalized) return { status: null, prazo_horas: null };
+  const hasAnaliseAtiva = /\b(analise ativa|analise em aberto|analise aberta|ja possui analise|ja tem analise|processo ativo|analise vigente)\b/.test(normalized);
+  const hasCartinhaPedido = /\b(cartinha|cancelamento da analise|cancelar analise|autorizacao escrita|autorizacao de cancelamento|carta de proprio punho|de proprio punho)\b/.test(normalized);
+  const hasAguardandoAutorizacao = /\b(aguardando autorizacao|aguardando autorizacao interna|aguardando liberacao|aguardando aprovação interna|aguardando aprovacao interna)\b/.test(normalized);
+  const hasEmAnalisePrazo = /\b(em analise|analise em andamento|retorno em|prazo)\b/.test(normalized);
+  const prazoHoras = extractOperationalHoursDeadline(normalized);
+
+  if (hasAnaliseAtiva && hasCartinhaPedido) {
+    return { status: "aguardando_cartinha_cancelamento", prazo_horas: prazoHoras };
+  }
+  if (hasAnaliseAtiva) {
+    return { status: "analise_ativa_existente", prazo_horas: prazoHoras };
+  }
+  if (hasAguardandoAutorizacao) {
+    return { status: "aguardando_autorizacao", prazo_horas: prazoHoras };
+  }
+  if (hasEmAnalisePrazo && prazoHoras) {
+    return { status: "em_analise_com_prazo", prazo_horas: prazoHoras };
+  }
+  return { status: null, prazo_horas: prazoHoras };
+}
+
+function isUsefulCorrespondenteReturnStatus(status) {
+  return new Set([
+    "analise_ativa_existente",
+    "aguardando_cartinha_cancelamento",
+    "aguardando_autorizacao",
+    "em_analise_com_prazo",
+    "aprovado",
+    "aprovado_condicionado",
+    "reprovado",
+    "pendencia_documental",
+    "pendencia_risco",
+    "em_analise"
+  ]).has(String(status || "").trim().toLowerCase());
+}
+
+function buildCorrespondenteOperationalFollowPatch(status, rawText, nowIso = new Date().toISOString()) {
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+  const prazoHoras = extractOperationalHoursDeadline(rawText);
+  const isUseful = isUsefulCorrespondenteReturnStatus(normalizedStatus);
+  const prazoLabel = prazoHoras ? `${prazoHoras}h` : "sem_prazo_explicito";
+  const nowTs = Date.parse(String(nowIso || "")) || Date.now();
+  const prazoNextIso = prazoHoras
+    ? new Date(nowTs + (Math.min(prazoHoras, 240) * 60 * 60 * 1000)).toISOString()
+    : null;
+  return {
+    processo_pre_analise: isUseful,
+    processo_pre_analise_status: isUseful
+      ? `retorno_util:${normalizedStatus || "indefinido"}:${prazoLabel}`
+      : "sem_retorno_util",
+    ...(isUseful && prazoHoras ? { corr_follow_base_at: nowIso, corr_follow_next_at: prazoNextIso } : {})
+  };
+}
+
+function isLikelyCancellationLetterText(rawText) {
+  const raw = String(rawText || "");
+  const normalized = normalizeText(rawText || "");
+  if (!normalized) return false;
+  const cpfDigits = raw.replace(/\D/g, "");
+  const hasCpf = /\bcpf\b/.test(normalized) && (/\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b/.test(raw) || cpfDigits.length >= 11);
+  const hasAutorizacao = /\b(autorizo|autorizacao)\b/.test(normalized);
+  const hasCancelamento = /\b(cancelamento|cancelar)\b/.test(normalized) && /\b(analise ativa|analise)\b/.test(normalized);
+  const hasData = /\bdata\b/.test(normalized) || /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(normalized);
+  const hasAssinatura = /\bassinatura\b/.test(normalized) || /\bassino\b/.test(normalized);
+  const hasNome = /\beu\b/.test(normalized) || /\b(nome completo|portador|portadora)\b/.test(normalized);
+  return hasCpf && hasAutorizacao && hasCancelamento && hasData && hasAssinatura && hasNome;
+}
+
+function isStrongCancellationLetterSignal(rawText) {
+  const normalized = normalizeText(rawText || "");
+  if (!normalized) return false;
+  const hasAutorizoCancelar = /\b(autorizo|autorizacao)\b/.test(normalized) && /\b(cancelamento|cancelar)\b/.test(normalized);
+  const hasAnaliseAtiva = /\b(analise ativa|analise)\b/.test(normalized);
+  const hasCpfWord = /\bcpf\b/.test(normalized);
+  const hasDataOuAssinatura = /\b(data|assinatura)\b/.test(normalized) || /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(String(rawText || ""));
+  return hasAutorizoCancelar && hasAnaliseAtiva && hasCpfWord && hasDataOuAssinatura;
+}
+
+async function handleCorrespondenteCancellationLetterFromClient(env, st, userText) {
+  const currentStatus = String(st?.retorno_correspondente_status || "").trim().toLowerCase();
+  if (currentStatus !== "aguardando_cartinha_cancelamento") return null;
+
+  const incomingMedia = st?._incoming_media || null;
+  const msgText = String(userText || "").trim();
+  const caption = String(
+    incomingMedia?.caption ||
+    incomingMedia?.document?.caption ||
+    incomingMedia?.image?.caption ||
+    ""
+  ).trim();
+  const hasAttachment = Boolean(incomingMedia?.document || incomingMedia?.image);
+  const fromClientMatchesCase = Boolean(String(st?.wa_id || "").trim());
+  const consolidated = [msgText, caption].filter(Boolean).join("\n");
+  const textLooksValid = isLikelyCancellationLetterText(consolidated);
+  const strongSignal = isStrongCancellationLetterSignal(consolidated);
+  const attachmentWithStrongContext = hasAttachment && strongSignal;
+  const conservativeValid = fromClientMatchesCase && (textLooksValid || attachmentWithStrongContext);
+  if (!conservativeValid) {
+    await upsertState(env, st.wa_id, { _incoming_media: null });
+    return step(env, st, [
+      "Recebi seu envio, obrigado. Para eu conseguir dar continuidade por aqui sem erro, me envie novamente a cartinha de forma mais legível, com o texto completo, CPF, data e assinatura aparecendo bem na imagem."
+    ], "aguardando_retorno_correspondente");
+  }
+
+  const caseRef = buildCorrespondenteCaseRef(st);
+  const lockWa = String(st?.corr_lock_correspondente_wa_id || "").trim();
+  const forwardBody = `Perfeito. Cliente do pré-cadastro ${caseRef} enviou a cartinha de cancelamento da análise ativa para seguirmos com a nova avaliação atualizada. Segue anexo.`;
+
+  if (lockWa) {
+    await sendWhatsToCorrespondente(env, lockWa, forwardBody);
+    if (hasAttachment && incomingMedia?.document) {
+      const mediaId = String(incomingMedia.document.id || "").trim();
+      if (mediaId) {
+        await sendWhatsPayloadToCorrespondente(env, {
+          messaging_product: "whatsapp",
+          to: lockWa,
+          type: "document",
+          document: {
+            id: mediaId,
+            caption: `Cartinha de cancelamento • Pré-cadastro #${caseRef}`
+          }
+        });
+      }
+    } else if (hasAttachment && incomingMedia?.image) {
+      const mediaId = String(incomingMedia.image.id || "").trim();
+      if (mediaId) {
+        await sendWhatsPayloadToCorrespondente(env, {
+          messaging_product: "whatsapp",
+          to: lockWa,
+          type: "image",
+          image: {
+            id: mediaId,
+            caption: `Cartinha de cancelamento • Pré-cadastro #${caseRef}`
+          }
+        });
+      }
+    } else {
+      await sendWhatsToCorrespondente(
+        env,
+        lockWa,
+        `Pré-cadastro #${caseRef} — conteúdo textual informado pelo cliente:\n${consolidated || "(sem texto adicional)"}`
+      );
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  await upsertState(env, st.wa_id, {
+    _incoming_media: null,
+    retorno_correspondente_status: "aguardando_autorizacao",
+    retorno_correspondente_motivo: "Cartinha de cancelamento enviada ao correspondente.",
+    ...buildCorrespondenteOperationalFollowPatch("aguardando_autorizacao", "aguardando autorizacao 48h", nowIso)
+  });
+
+  return step(env, st, [
+    "Perfeito, obrigado pelo envio. Já vou dar continuidade no seu processo por aqui e encaminhar isso para seguirmos com a nova avaliação."
+  ], "aguardando_retorno_correspondente");
 }
 
 async function extractDocumentTextIfNeeded(env, signals, options = {}) {
@@ -12138,7 +12427,7 @@ async function classifyCorrespondenteReturnWithAI(env, input = {}) {
 
   const system = [
     "Você classifica retornos de correspondente bancário e responde APENAS JSON válido.",
-    "Status permitido: aprovado, aprovado_condicionado, reprovado, pendencia_documental, pendencia_risco, em_analise, nao_identificado.",
+    "Status permitido: analise_ativa_existente, aguardando_cartinha_cancelamento, aguardando_autorizacao, em_analise_com_prazo, aprovado, aprovado_condicionado, reprovado, pendencia_documental, pendencia_risco, em_analise, nao_identificado.",
     "Regra: baixa confiança, ambiguidade ou case_ref incerto => manual_review_required=true.",
     "Não invente dados; use evidências textuais curtas."
   ].join(" ");
@@ -12146,7 +12435,7 @@ async function classifyCorrespondenteReturnWithAI(env, input = {}) {
     task: "classificar_retorno_correspondente",
     schema: {
       case_ref: "string|null",
-      status: "aprovado|aprovado_condicionado|reprovado|pendencia_documental|pendencia_risco|em_analise|nao_identificado",
+      status: "analise_ativa_existente|aguardando_cartinha_cancelamento|aguardando_autorizacao|em_analise_com_prazo|aprovado|aprovado_condicionado|reprovado|pendencia_documental|pendencia_risco|em_analise|nao_identificado",
       motivo: "string",
       pendencias: "string[]",
       confidence: "number(0..1)",
@@ -12163,6 +12452,10 @@ async function classifyCorrespondenteReturnWithAI(env, input = {}) {
       "reprovado/negado/sem aprovação => reprovado",
       "faltando documento/pendência documental/lista documental (ex: IRPF, holerite, CTPS, comprovantes) => pendencia_documental",
       "restrição/score/impeditivo/CADIN/comprometimento de renda/regularizar => pendencia_risco",
+      "análise ativa/processo ativo sem pedido explícito de cartinha => analise_ativa_existente",
+      "pedido explícito de cartinha/cancelamento/autorização escrita => aguardando_cartinha_cancelamento",
+      "aguardando autorização com ou sem prazo => aguardando_autorizacao",
+      "em análise com prazo explícito em horas => em_analise_com_prazo",
       "sem conclusão => em_analise ou nao_identificado"
     ],
     content: {
@@ -12323,12 +12616,12 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     });
     return { handled: options?.handled !== false, reason };
   };
+  const senderLockedCases = await getSenderLockedCases();
+  const senderSeemsCorrespondente = isCorrespondenteChannel || senderLockedCases.length > 0;
 
   if (!caseRef) {
     const maybeRetorno = /pré[- ]?cadastro|pre[- ]?cadastro|aprovad|reprovad|pend[eê]n|analise|imped/i.test(String(consolidatedText || ""));
     if (!maybeRetorno) return { handled: false, case_ref: caseRef || null, status: null };
-    const senderLockedCases = await getSenderLockedCases();
-    const senderSeemsCorrespondente = isCorrespondenteChannel || senderLockedCases.length > 0;
     if (!senderSeemsCorrespondente) return { handled: false, case_ref: caseRef || null, status: null };
     if (senderLockedCases.length === 1) {
       caseRef = buildCorrespondenteCaseRef(senderLockedCases[0]);
@@ -12442,6 +12735,9 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       ? fallbackStatusClassificado
       : null);
   if (!caso?.wa_id) {
+    if (!senderSeemsCorrespondente) {
+      return { handled: false, case_ref: caseRef || null, status: null };
+    }
     await logger(env, {
       tipo: "retorno_correspondente_case_ref_sem_match",
       wa_id: correspondenteWaId,
@@ -12686,7 +12982,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       ? "visita"
       : (statusCanonico === "reprovado"
         ? "reprovado"
-        : ((statusCanonico === "pendencia_documental" || statusCanonico === "pendencia_risco" || statusCanonico === "em_analise")
+        : ((statusCanonico === "pendencia_documental" || statusCanonico === "pendencia_risco" || statusCanonico === "em_analise" || statusCanonico === "analise_ativa_existente" || statusCanonico === "aguardando_cartinha_cancelamento" || statusCanonico === "aguardando_autorizacao" || statusCanonico === "em_analise_com_prazo")
           ? "pendencia"
           : "none"));
   const decisionReason = manualReviewRequired
@@ -12721,12 +13017,17 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     }
   });
 
+  const operationalFollowPatch = buildCorrespondenteOperationalFollowPatch(
+    statusCanonico,
+    [String(signals.messageText || ""), String(signals.caption || ""), String(docExtraction?.extracted_text || "")].filter(Boolean).join("\n")
+  );
   await upsertState(env, waCliente, {
     retorno_correspondente_bruto: manualReviewRequired
       ? JSON.stringify(rawPayload)
       : String(signals.messageText || userText || "").trim(),
     retorno_correspondente_status: statusCanonico,
-    retorno_correspondente_motivo: motivo
+    retorno_correspondente_motivo: motivo,
+    ...operationalFollowPatch
   });
   await logger(env, {
     tipo: "retorno_correspondente_case_ref_processado",
@@ -12823,6 +13124,27 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       "Se quiser, posso te orientar os próximos passos para nova tentativa."
     ], "aguardando_retorno_correspondente");
     return { handled: true, reason: "corr_return_case_ref_reprovado", case_ref: caseRef || null, status: statusCanonico };
+  }
+  if (statusCanonico === "analise_ativa_existente") {
+    await step(env, stAtualizado, [
+      CORRESPONDENTE_ANALISE_ATIVA_SEM_CARTINHA_MSG
+    ], "aguardando_retorno_correspondente");
+    return { handled: true, reason: "corr_return_case_ref_analise_ativa_existente", case_ref: caseRef || null, status: statusCanonico };
+  }
+  if (statusCanonico === "aguardando_cartinha_cancelamento") {
+    await step(env, stAtualizado, [
+      CORRESPONDENTE_ANALISE_ATIVA_COM_CARTINHA_MSG
+    ], "aguardando_retorno_correspondente");
+    return { handled: true, reason: "corr_return_case_ref_aguardando_cartinha_cancelamento", case_ref: caseRef || null, status: statusCanonico };
+  }
+  if (statusCanonico === "aguardando_autorizacao" || statusCanonico === "em_analise_com_prazo") {
+    const prazoHoras = extractOperationalHoursDeadline([signals.messageText, signals.caption, docExtraction?.extracted_text].filter(Boolean).join("\n"));
+    const prazoMsg = prazoHoras ? `Há um prazo operacional informado de até ${prazoHoras}h para retorno.` : "Assim que houver definição final, eu te atualizo por aqui.";
+    await step(env, stAtualizado, [
+      "Recebemos um retorno operacional do despachante e seu caso segue em andamento.",
+      prazoMsg
+    ], "aguardando_retorno_correspondente");
+    return { handled: true, reason: "corr_return_case_ref_aguardando_autorizacao", case_ref: caseRef || null, status: statusCanonico };
   }
   if (statusCanonico === "pendencia_risco" || statusCanonico === "pendencia_documental" || statusCanonico === "em_analise") {
     const detalhe = motivo ? `Detalhe informado: *${String(motivo).replace(/[*_`~]/g, "").trim()}*.` : "Assim que houver definição final, te aviso por aqui.";
@@ -13070,7 +13392,11 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
     return { handled: true, reason: "assumir_token_private_delivery_failed" };
   }
 
+  const followBaseIso = new Date().toISOString();
+  const followNextIso = new Date(Date.now() + (3 * 60 * 60 * 1000)).toISOString();
   await upsertState(env, caso.wa_id, {
+    corr_follow_base_at: followBaseIso,
+    corr_follow_next_at: followNextIso,
     corr_lock_correspondente_wa_id: correspondenteWaIdRaw,
     corr_entrega_privada_status: "entregue_privado_aguardando_retorno",
     corr_entrega_privada_em: new Date().toISOString(),
@@ -22835,6 +23161,8 @@ case "aguardando_retorno_correspondente": {
   });
 
   const txt = (userText || "").trim();
+  const cartinhaFlow = await handleCorrespondenteCancellationLetterFromClient(env, st, txt);
+  if (cartinhaFlow) return cartinhaFlow;
 
   // ✅ Anti-loop: se o usuário mandar "oi" (ou reset) enquanto está aguardando status,
   // volta pro início em vez de ficar pedindo *status* infinitamente.

@@ -11260,6 +11260,29 @@ function normalizeCorrespondenteWaIdCmp(value) {
   return digits;
 }
 
+function isCorrespondenteWaIdBr9FlexMatch(cmpA, cmpB) {
+  const BR_NUMBER_LENGTH_WITH_OPTIONAL_MOBILE_9 = 11;
+  const BR_NUMBER_LENGTH_WITHOUT_OPTIONAL_MOBILE_9 = 10;
+  const BR_DDD_LENGTH = 2;
+  const BR_OPTIONAL_MOBILE_9_POSITION = BR_DDD_LENGTH;
+  const a = String(cmpA || "").trim();
+  const b = String(cmpB || "").trim();
+  if (!a || !b || a === b) return false;
+  const normalizeBrMobileOptional9 = (value) => {
+    if (value.length === BR_NUMBER_LENGTH_WITH_OPTIONAL_MOBILE_9 && value[BR_OPTIONAL_MOBILE_9_POSITION] === "9") {
+      return `${value.slice(0, BR_DDD_LENGTH)}${value.slice(BR_DDD_LENGTH + 1)}`;
+    }
+    return value;
+  };
+  const aNormalized = normalizeBrMobileOptional9(a);
+  const bNormalized = normalizeBrMobileOptional9(b);
+  if (!aNormalized || !bNormalized || aNormalized !== bNormalized) return false;
+  const hasOptional9Shape = (value) =>
+    value.length === BR_NUMBER_LENGTH_WITHOUT_OPTIONAL_MOBILE_9 ||
+    (value.length === BR_NUMBER_LENGTH_WITH_OPTIONAL_MOBILE_9 && value[BR_OPTIONAL_MOBILE_9_POSITION] === "9");
+  return hasOptional9Shape(a) && hasOptional9Shape(b);
+}
+
 function normalizeCorrespondenteWaIdInput(value) {
   return normalizeCorrespondenteWaIdCmp(value);
 }
@@ -12479,7 +12502,18 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       lock_wa_id_normalized: lockAtualCmp || null
     }
   });
-  const lockMatch = Boolean(lockAtualCmp && fromWaIdCmp && lockAtualCmp === fromWaIdCmp);
+  const lockMatchMode = (() => {
+    if (!lockAtualCmp || !fromWaIdCmp) return "no_match";
+    if (lockAtualCmp === fromWaIdCmp) return "exact_cmp";
+    if (isCorrespondenteWaIdBr9FlexMatch(lockAtualCmp, fromWaIdCmp)) return "br_9_flex";
+    return "no_match";
+  })();
+  const lockMatch = lockMatchMode !== "no_match";
+  const lockDecisionReason = lockMatchMode === "exact_cmp"
+    ? "case_lock_match"
+    : lockMatchMode === "br_9_flex"
+      ? "case_lock_match_br_9_flex"
+      : "case_lock_mismatch";
   await telemetry(env, {
     wa_id: correspondenteWaId,
     event: "corr_waid_probe_compare",
@@ -12496,7 +12530,8 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
         lock_wa_id_cmp: lockAtualCmp || null,
         lock_wa_id_normalized: lockAtualCmp || null,
         lock_match: lockMatch ? "sim" : "nao",
-        decision_reason: lockMatch ? "case_lock_match" : "case_lock_mismatch"
+        lock_match_mode: lockMatchMode,
+        decision_reason: lockDecisionReason
       }
     });
   if (lockAtualCmp) {
@@ -12505,7 +12540,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       lockWaIdCmp: lockAtualCmp,
       lockMatch,
       usedCaseLock: true,
-      decisionReason: lockMatch ? "case_lock_match" : "case_lock_mismatch"
+      decisionReason: lockDecisionReason
     });
   }
   if (lockAtualCmp && !lockMatch) {

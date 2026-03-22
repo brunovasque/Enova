@@ -2000,7 +2000,7 @@ function buildEnvWithState() {
   assert.equal(byEvent.corr_status_probe_client_dispatch?.dispatch_target, "reprovado");
 }
 
-// 22) Hotfix textual urgente: STATUS deve ser parseado antes de fallback handled:false por remetente não confiável.
+// 22) Hotfix textual urgente: caso explícito + status válido deve validar lock do caso antes do fallback comum.
 {
   const env = buildEnvWithState();
   env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
@@ -2008,7 +2008,7 @@ function buildEnvWithState() {
   const capturedProbe = [];
   console.log = (...args) => {
     const line = args.map((part) => String(part)).join(" ");
-    if (line.includes("TELEMETRIA-SAFE:") && line.includes("corr_status_probe_")) {
+    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe"))) {
       capturedProbe.push(line);
     }
     return originalConsoleLog(...args);
@@ -2063,9 +2063,231 @@ function buildEnvWithState() {
   assert.equal(byEvent.corr_status_probe_status_parse?.status_line_found, "sim");
   assert.equal(byEvent.corr_status_probe_status_parse?.status_normalized, "aprovado");
   assert.equal(byEvent.corr_status_probe_decision?.status_classificado, "aprovado");
+  assert.equal(byEvent.corr_sender_gate_probe?.decision_reason, "case_lock_missing_without_unique_sender_case");
   assert.equal(byEvent.corr_status_probe_decision?.handled, "nao");
   assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "sim");
-  assert.equal(byEvent.corr_status_probe_decision?.decision_reason, "sender_low_confidence_without_case_lock");
+}
+
+// 23) lock mismatch em case_ref explícito deve bloquear tratamento operacional.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = correspondenteWa;
+  const originalConsoleLog = console.log;
+  const capturedProbe = [];
+  console.log = (...args) => {
+    const line = args.map((part) => String(part)).join(" ");
+    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe"))) {
+      capturedProbe.push(line);
+    }
+    return originalConsoleLog(...args);
+  };
+
+  try {
+    const retornoReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: "5511888888888",
+                id: "wamid.retorno.case.ref.req.hotfix.lock.mismatch",
+                timestamp: "1773183950",
+                type: "text",
+                text: { body: "Pré-cadastro #000006\nSTATUS: REPROVADO\nMOTIVO: restrição externa" }
+              }],
+              contacts: [{ wa_id: "5511888888888" }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(retornoReq, env, {});
+  } finally {
+    console.log = originalConsoleLog;
+  }
+
+  const telemetryPrefix = "TELEMETRIA-SAFE: ";
+  const parsedEvents = capturedProbe
+    .map((line) => {
+      const payloadStr = line.includes(telemetryPrefix)
+        ? line.slice(line.indexOf(telemetryPrefix) + telemetryPrefix.length)
+        : "";
+      if (!payloadStr) return null;
+      const payload = JSON.parse(payloadStr);
+      return {
+        event: payload?.event || null,
+        details: payload?.details ? JSON.parse(payload.details) : null
+      };
+    })
+    .filter(Boolean);
+  const byEvent = Object.fromEntries(parsedEvents.map((item) => [item.event, item.details]));
+
+  assert.equal(byEvent.corr_sender_gate_probe?.used_case_lock, "sim");
+  assert.equal(byEvent.corr_sender_gate_probe?.lock_match, "nao");
+  assert.equal(byEvent.corr_sender_gate_probe?.decision_reason, "case_lock_mismatch");
+  assert.equal(byEvent.corr_status_probe_decision?.handled, "nao");
+  assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "sim");
+}
+
+// 24) sem lock salvo + remetente com 1 caso ativo compatível deve passar no fallback seguro.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = null;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].aguardando_retorno_correspondente = true;
+  const originalConsoleLog = console.log;
+  const capturedProbe = [];
+  console.log = (...args) => {
+    const line = args.map((part) => String(part)).join(" ");
+    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe"))) {
+      capturedProbe.push(line);
+    }
+    return originalConsoleLog(...args);
+  };
+
+  try {
+    const retornoReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: correspondenteWa,
+                author: correspondenteWa,
+                id: "wamid.retorno.case.ref.req.hotfix.single.fallback",
+                timestamp: "1773183951",
+                type: "text",
+                text: { body: "Pré-cadastro #000006\nSTATUS: APROVADO" }
+              }],
+              contacts: [{ wa_id: correspondenteWa }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(retornoReq, env, {});
+  } finally {
+    console.log = originalConsoleLog;
+  }
+
+  const telemetryPrefix = "TELEMETRIA-SAFE: ";
+  const parsedEvents = capturedProbe
+    .map((line) => {
+      const payloadStr = line.includes(telemetryPrefix)
+        ? line.slice(line.indexOf(telemetryPrefix) + telemetryPrefix.length)
+        : "";
+      if (!payloadStr) return null;
+      const payload = JSON.parse(payloadStr);
+      return {
+        event: payload?.event || null,
+        details: payload?.details ? JSON.parse(payload.details) : null
+      };
+    })
+    .filter(Boolean);
+  const byEvent = Object.fromEntries(parsedEvents.map((item) => [item.event, item.details]));
+
+  assert.equal(byEvent.corr_sender_gate_probe?.used_case_lock, "nao");
+  assert.equal(byEvent.corr_sender_gate_probe?.used_unique_sender_case_fallback, "sim");
+  assert.equal(byEvent.corr_status_probe_decision?.handled, "sim");
+  assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "nao");
+}
+
+// 25) ambiguidade real de mais de um caso ativo para o remetente deve bloquear.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = null;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].aguardando_retorno_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId["5541999997777"] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    wa_id: "5541999997777",
+    nome: "SEGUNDO CASO",
+    pre_cadastro_numero: "000777",
+    corr_assumir_token: "YY12YY12",
+    corr_lock_correspondente_wa_id: correspondenteWa,
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true
+  };
+  env.__enovaSimulationCtx.stateByWaId["5541999996666"] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    wa_id: "5541999996666",
+    nome: "TERCEIRO CASO",
+    pre_cadastro_numero: "000666",
+    corr_assumir_token: "ZZ12ZZ12",
+    corr_lock_correspondente_wa_id: correspondenteWa,
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true
+  };
+  const originalConsoleLog = console.log;
+  const capturedProbe = [];
+  console.log = (...args) => {
+    const line = args.map((part) => String(part)).join(" ");
+    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe"))) {
+      capturedProbe.push(line);
+    }
+    return originalConsoleLog(...args);
+  };
+
+  try {
+    const retornoReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: correspondenteWa,
+                author: correspondenteWa,
+                id: "wamid.retorno.case.ref.req.hotfix.ambiguous",
+                timestamp: "1773183952",
+                type: "text",
+                text: { body: "Pré-cadastro #000006\nSTATUS: APROVADO" }
+              }],
+              contacts: [{ wa_id: correspondenteWa }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(retornoReq, env, {});
+  } finally {
+    console.log = originalConsoleLog;
+  }
+
+  const telemetryPrefix = "TELEMETRIA-SAFE: ";
+  const parsedEvents = capturedProbe
+    .map((line) => {
+      const payloadStr = line.includes(telemetryPrefix)
+        ? line.slice(line.indexOf(telemetryPrefix) + telemetryPrefix.length)
+        : "";
+      if (!payloadStr) return null;
+      const payload = JSON.parse(payloadStr);
+      return {
+        event: payload?.event || null,
+        details: payload?.details ? JSON.parse(payload.details) : null
+      };
+    })
+    .filter(Boolean);
+  const byEvent = Object.fromEntries(parsedEvents.map((item) => [item.event, item.details]));
+
+  assert.equal(byEvent.corr_sender_gate_probe?.used_unique_sender_case_fallback, "nao");
+  assert.equal(byEvent.corr_sender_gate_probe?.decision_reason, "sender_case_ambiguity");
+  assert.equal(byEvent.corr_status_probe_decision?.handled, "nao");
+  assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "sim");
 }
 
 console.log("correspondente_entry_link.smoke: ok");

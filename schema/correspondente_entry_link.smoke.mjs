@@ -746,6 +746,98 @@ function buildEnvWithState() {
   assert.equal(alvo.fase_conversa, "agendamento_visita");
 }
 
+// 8.2.1) Telemetria em document com STATUS deve registrar parse/decisão e handled sem fallback.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  const originalConsoleLog = console.log;
+  const capturedProbe = [];
+  console.log = (...args) => {
+    const line = args.map((part) => String(part)).join(" ");
+    if (line.includes("TELEMETRIA-SAFE:") && line.includes("corr_status_probe_")) {
+      capturedProbe.push(line);
+    }
+    return originalConsoleLog(...args);
+  };
+
+  try {
+    const assumirReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: correspondenteWa,
+                id: "wamid.assumir.case.ref.req.telemetry.document",
+                timestamp: "1773183914",
+                type: "text",
+                text: { body: `ASSUMIR ${token}` }
+              }],
+              contacts: [{ wa_id: correspondenteWa }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(assumirReq, env, {});
+
+    const retornoReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: correspondenteWa,
+                id: "wamid.retorno.case.ref.req.telemetry.document",
+                timestamp: "1773183915",
+                type: "document",
+                caption: "Pré-cadastro #000006\nSTATUS: REPROVADO\nMOTIVO: restrição externa",
+                document: {
+                  id: "mid.pdf.telemetry.document",
+                  filename: "retorno-000006.pdf",
+                  mime_type: "application/pdf"
+                }
+              }],
+              contacts: [{ wa_id: correspondenteWa }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(retornoReq, env, {});
+  } finally {
+    console.log = originalConsoleLog;
+  }
+
+  const telemetryPrefix = "TELEMETRIA-SAFE: ";
+  const parsedEvents = capturedProbe
+    .map((line) => {
+      const payloadStr = line.includes(telemetryPrefix)
+        ? line.slice(line.indexOf(telemetryPrefix) + telemetryPrefix.length)
+        : "";
+      if (!payloadStr) return null;
+      const payload = JSON.parse(payloadStr);
+      return {
+        event: payload?.event || null,
+        details: payload?.details ? JSON.parse(payload.details) : null
+      };
+    })
+    .filter(Boolean);
+  const byEvent = Object.fromEntries(parsedEvents.map((item) => [item.event, item.details]));
+  assert.equal(byEvent.corr_status_probe_input?.message_type, "document");
+  assert.equal(byEvent.corr_status_probe_status_parse?.status_line_found, "sim");
+  assert.equal(byEvent.corr_status_probe_decision?.handled, "sim");
+  assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "nao");
+}
+
 // 8.3) Retorno com imagem (caption) deve ser processado no fluxo oficial e classificar pendência documental.
 {
   const env = buildEnvWithState();

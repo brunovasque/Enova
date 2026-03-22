@@ -4563,10 +4563,14 @@ let userText = null;
         "";
     }
   } else if (isSupportedMediaType) {
-    const mediaClassifiableText = [
-      String(msg?.text?.body || "").trim(),
-      String(msg?.caption || msg?.[type]?.caption || "").trim()
-    ].filter(Boolean).join("\n");
+    const mediaTextInput = String(
+      msg?.meta_text ||
+      msg?.metaText ||
+      msg?.context?.meta_text ||
+      ""
+    ).trim();
+    const mediaSignals = extractCorrespondenteReturnSignals(msg, mediaTextInput);
+    const mediaClassifiableText = mediaSignals.messageText || mediaSignals.caption || "";
     const mediaCaseRefProbe = extractCorrespondenteCaseRefFromText(
       mediaClassifiableText
     );

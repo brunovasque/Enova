@@ -11426,7 +11426,7 @@ async function handleCorrespondenteEntryPage(request, env) {
   }
 
   const adminOverride = isCorrespondenteEntryAdminOverride(request, env);
-  const lockAtual = String(caso?.corr_lock_correspondente_wa_id || "").trim();
+  const lockAtual = normalizeCorrespondenteWaIdInput(caso?.corr_lock_correspondente_wa_id);
   const requesterWaId = normalizeCorrespondenteWaIdInput(
     (postForm ? String(postForm.get("cw") || postForm.get("correspondente_wa_id") || "") : "")
       || requestUrl.searchParams.get("cw")
@@ -11434,7 +11434,7 @@ async function handleCorrespondenteEntryPage(request, env) {
   );
 
   let casoAtual = await getState(env, caso.wa_id) || caso;
-  let lockFinal = String(casoAtual?.corr_lock_correspondente_wa_id || "").trim();
+  let lockFinal = normalizeCorrespondenteWaIdInput(casoAtual?.corr_lock_correspondente_wa_id);
   const caseRefFinal = buildCorrespondenteCaseRef(casoAtual);
   const entryAction = `/correspondente/entrada?pre=${encodeURIComponent(caseRefFinal)}`;
   if (request.method === "GET" && !lockFinal && !adminOverride) {
@@ -11475,7 +11475,7 @@ async function handleCorrespondenteEntryPage(request, env) {
       : `ASSUMIR PRÉ-CADASTRO ${caseRefFinal}`;
     await handleCorrespondenteAssumirCommand(env, { from: requesterWaId }, assumirText);
     casoAtual = await getState(env, caso.wa_id) || casoAtual;
-    lockFinal = String(casoAtual?.corr_lock_correspondente_wa_id || "").trim();
+    lockFinal = normalizeCorrespondenteWaIdInput(casoAtual?.corr_lock_correspondente_wa_id);
     if (lockFinal !== requesterWaId) {
       return new Response(buildCorrespondenteEntryCoverHtml(casoAtual, {
         allowAssumir: true,
@@ -11725,13 +11725,13 @@ function isCorrespondenteOperationalCase(row) {
 }
 
 async function listOperationalCasesLockedByCorrespondente(env, correspondenteWaId, limit = 5) {
-  const lockWaId = String(correspondenteWaId || "").trim();
+  const lockWaId = normalizeCorrespondenteWaIdInput(correspondenteWaId);
   if (!lockWaId) return [];
   const projection = "wa_id,nome,fase_conversa,pre_cadastro_numero,corr_publicacao_status,corr_lock_correspondente_wa_id,processo_enviado_correspondente,aguardando_retorno_correspondente,updated_at";
   const simCtx = getSimulationContext(env);
   if (simCtx?.active && simCtx.stateByWaId) {
     return Object.values(simCtx.stateByWaId)
-      .filter((row) => String(row?.corr_lock_correspondente_wa_id || "").trim() === lockWaId)
+      .filter((row) => normalizeCorrespondenteWaIdInput(row?.corr_lock_correspondente_wa_id) === lockWaId)
       .filter((row) => isCorrespondenteOperationalCase(row))
       .sort((a, b) => (Date.parse(String(b?.updated_at || "")) || 0) - (Date.parse(String(a?.updated_at || "")) || 0))
       .slice(0, Math.max(1, Number(limit) || 5));
@@ -12717,22 +12717,24 @@ async function getCaseDocumentLinks(env, wa_id) {
 }
 
 async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
+  const normalizedCorrespondenteWaId = normalizeCorrespondenteWaIdInput(correspondenteWaId);
+  if (!normalizedCorrespondenteWaId) return false;
   const simCtx = getSimulationContext(env);
   if (simCtx?.active) {
     const current = await getState(env, wa_id);
     if (!current) return false;
-    const lockAtual = String(current.corr_lock_correspondente_wa_id || "").trim();
-    if (lockAtual && lockAtual !== correspondenteWaId) return false;
+    const lockAtual = normalizeCorrespondenteWaIdInput(current.corr_lock_correspondente_wa_id);
+    if (lockAtual && lockAtual !== normalizedCorrespondenteWaId) return false;
 
     await upsertState(env, wa_id, {
-      corr_lock_correspondente_wa_id: correspondenteWaId,
+      corr_lock_correspondente_wa_id: normalizedCorrespondenteWaId,
       corr_lock_assumido_em: new Date().toISOString(),
       corr_publicacao_status: "lock_adquirido_tentando_entrega",
       updated_at: new Date().toISOString()
     });
 
     const afterSim = await getState(env, wa_id);
-    return afterSim?.corr_lock_correspondente_wa_id === correspondenteWaId;
+    return normalizeCorrespondenteWaIdInput(afterSim?.corr_lock_correspondente_wa_id) === normalizedCorrespondenteWaId;
   }
 
   await sbFetch(env, "/rest/v1/enova_state", {
@@ -12742,7 +12744,7 @@ async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
       corr_lock_correspondente_wa_id: "is.null"
     },
     body: JSON.stringify({
-      corr_lock_correspondente_wa_id: correspondenteWaId,
+      corr_lock_correspondente_wa_id: normalizedCorrespondenteWaId,
       corr_lock_assumido_em: new Date().toISOString(),
       corr_publicacao_status: "lock_adquirido_tentando_entrega",
       updated_at: new Date().toISOString()
@@ -12750,13 +12752,15 @@ async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
   });
 
   const after = await getState(env, wa_id);
-  return after?.corr_lock_correspondente_wa_id === correspondenteWaId;
+  return normalizeCorrespondenteWaIdInput(after?.corr_lock_correspondente_wa_id) === normalizedCorrespondenteWaId;
 }
 
 async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   const token = parseAssumirTokenFromText(userText);
   const correspondenteWaId = extractCorrespondenteWaId(msg, env);
   if (!correspondenteWaId) return { handled: false };
+  const normalizedCorrespondenteWaId = normalizeCorrespondenteWaIdInput(correspondenteWaId);
+  if (!normalizedCorrespondenteWaId) return { handled: false };
   const normalizedText = String(userText || "").trim();
   const commandOnlyMatch = normalizedText.match(/^assumir(?:\s+pr[eé][-\s]?cadastro)?(?:\s+c?(\d{4,}))?\s*$/i);
   const isCommandWithoutToken = !token && Boolean(commandOnlyMatch);
@@ -12768,8 +12772,8 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   } else {
     const candidatos = (await listCorrespondenteAssumirCandidates(env))
       .filter((row) => {
-        const lockAtualCandidato = String(row?.corr_lock_correspondente_wa_id || "").trim();
-        return !lockAtualCandidato || lockAtualCandidato === correspondenteWaId;
+        const lockAtualCandidato = normalizeCorrespondenteWaIdInput(row?.corr_lock_correspondente_wa_id);
+        return !lockAtualCandidato || lockAtualCandidato === normalizedCorrespondenteWaId;
       });
     const refSuffix = String(commandOnlyMatch?.[1] || "").trim();
     const candidatosFiltrados = refSuffix
@@ -12809,12 +12813,13 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   }
 
   const lockAtual = String(caso.corr_lock_correspondente_wa_id || "").trim();
-  if (lockAtual && lockAtual !== correspondenteWaId) {
+  const lockAtualNormalized = normalizeCorrespondenteWaIdInput(lockAtual);
+  if (lockAtualNormalized && lockAtualNormalized !== normalizedCorrespondenteWaId) {
     await sendMessage(env, correspondenteWaId, "Este caso já foi assumido por outro correspondente.");
     return { handled: true, reason: "assumir_token_locked" };
   }
 
-  if (!lockAtual) {
+  if (!lockAtualNormalized) {
     const acquired = await tryAcquireCorrespondenteLock(env, caso.wa_id, correspondenteWaId);
     if (!acquired) {
       await sendMessage(env, correspondenteWaId, "Este caso acabou de ser assumido por outro correspondente.");
@@ -12850,7 +12855,7 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   }
 
   await upsertState(env, caso.wa_id, {
-    corr_lock_correspondente_wa_id: correspondenteWaId,
+    corr_lock_correspondente_wa_id: normalizedCorrespondenteWaId,
     corr_entrega_privada_status: "entregue_privado_aguardando_retorno",
     corr_entrega_privada_em: new Date().toISOString(),
     corr_publicacao_status: "entregue_privado_aguardando_retorno",

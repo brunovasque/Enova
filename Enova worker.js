@@ -12292,11 +12292,12 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     });
   };
   const shouldUseTextStatusFastPath = Boolean(caseRef && statusProbe.statusLineFound && statusProbe.statusNormalized);
+  const fastPathStatusClassificado = shouldUseTextStatusFastPath ? statusProbe.statusNormalized : null;
   if (!trustedReturnChannel) {
     const waClienteCandidate = String(caso?.wa_id || "").trim();
     if (!waClienteCandidate || waClienteCandidate === correspondenteWaId) {
       await emitStatusDecisionProbe({
-        statusClassificado: shouldUseTextStatusFastPath ? statusProbe.statusNormalized : null,
+        statusClassificado: fastPathStatusClassificado,
         handled: false,
         fallbackCommonFlow: true,
         decisionReason: "sender_case_target_invalid"
@@ -12312,7 +12313,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
         return await askCaseConfirmation("corr_return_case_ref_low_confidence_sender_or_case");
       }
       await emitStatusDecisionProbe({
-        statusClassificado: shouldUseTextStatusFastPath ? statusProbe.statusNormalized : null,
+        statusClassificado: fastPathStatusClassificado,
         handled: false,
         fallbackCommonFlow: true,
         decisionReason: "sender_low_confidence_without_case_lock"
@@ -12334,7 +12335,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   const waCliente = String(caso.wa_id || "").trim();
   if (!waCliente || waCliente === correspondenteWaId) {
     await emitStatusDecisionProbe({
-      statusClassificado: shouldUseTextStatusFastPath ? statusProbe.statusNormalized : null,
+      statusClassificado: fastPathStatusClassificado,
       handled: false,
       fallbackCommonFlow: true,
       decisionReason: "resolved_case_target_invalid"
@@ -12343,13 +12344,33 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   }
 
   const stCaso = await getState(env, waCliente);
-  if (!stCaso) return { handled: true, reason: "corr_return_case_ref_state_not_found", case_ref: caseRef || null, status: null };
+  if (!stCaso) {
+    await emitStatusDecisionProbe({
+      statusClassificado: fastPathStatusClassificado,
+      handled: true,
+      fallbackCommonFlow: false,
+      decisionReason: "corr_return_case_ref_state_not_found"
+    });
+    return { handled: true, reason: "corr_return_case_ref_state_not_found", case_ref: caseRef || null, status: null };
+  }
   const lockAtual = String(stCaso?.corr_lock_correspondente_wa_id || "").trim();
   if (!lockAtual) {
+    await emitStatusDecisionProbe({
+      statusClassificado: fastPathStatusClassificado,
+      handled: true,
+      fallbackCommonFlow: false,
+      decisionReason: "corr_return_case_ref_without_lock"
+    });
     return { handled: true, reason: "corr_return_case_ref_without_lock", case_ref: caseRef || null, status: null };
   }
   if (lockAtual && lockAtual !== correspondenteWaId) {
     await sendMessage(env, correspondenteWaId, "Este caso já está vinculado a outro correspondente. Retorno não registrado.");
+    await emitStatusDecisionProbe({
+      statusClassificado: fastPathStatusClassificado,
+      handled: true,
+      fallbackCommonFlow: false,
+      decisionReason: "corr_return_case_ref_locked_other"
+    });
     return { handled: true, reason: "corr_return_case_ref_locked_other", case_ref: caseRef || null, status: null };
   }
 

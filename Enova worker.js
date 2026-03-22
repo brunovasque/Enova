@@ -4693,7 +4693,7 @@ let userText = null;
   const isResetCmd = type === "text" && normalizedUserText === "reset";
   await telemetry(env, {
     wa_id: waId,
-    event: "corr_route_probe_common_fallback",
+    event: "corr_flow_probe_common_fallback",
     stage: "meta_message",
     severity: "info",
     force: true,
@@ -12182,6 +12182,18 @@ function extractCorrespondentePendenciasFromText(rawText) {
 
 async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   const correspondenteWaId = extractCorrespondenteWaId(msg, env);
+  await telemetry(env, {
+    wa_id: correspondenteWaId || String(msg?.from || "").trim() || null,
+    event: "corr_flow_probe_enter",
+    stage: "meta_message",
+    severity: "info",
+    force: true,
+    message: "Probe objetiva: entrada no handler do correspondente",
+    details: {
+      entered_correspondente_handler: true,
+      has_correspondente_wa_id: Boolean(correspondenteWaId)
+    }
+  });
   if (!correspondenteWaId) return { handled: false, case_ref: null, status: null };
   const from = String(msg?.from || "").trim();
   const isCorrespondenteChannel = Boolean(String(msg?.author || "").trim()) || (from === String(env.CORRESPONDENTE_TO || "").trim());
@@ -12235,6 +12247,21 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       "MOTIVO: opcional"
     ].join("\n");
     await sendMessage(env, correspondenteWaId, confirmationPrompt);
+    await telemetry(env, {
+      wa_id: correspondenteWaId,
+      event: "corr_flow_probe_confirm_exit",
+      stage: "aguardando_retorno_correspondente",
+      severity: "info",
+      force: true,
+      message: "Probe objetiva: saída por confirmação no fluxo de correspondente",
+      details: {
+        case_ref: caseRef || null,
+        handled: true,
+        confirmation_requested: true,
+        stopped_before_common_flow: true,
+        reason: reason || null
+      }
+    });
     return { handled: options?.handled !== false, reason };
   };
 
@@ -12367,12 +12394,12 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     });
     await emitStatusDecisionProbe({
       statusClassificado: preliminaryStatusClassificado,
-      handled: false,
-      fallbackCommonFlow: true,
+      handled: true,
+      fallbackCommonFlow: false,
       decisionReason: "case_ref_not_found"
     });
-    await askCaseConfirmation("corr_return_case_ref_not_found", { handled: false });
-    return { handled: false, case_ref: caseRef || null, status: null };
+    await askCaseConfirmation("corr_return_case_ref_not_found");
+    return { handled: true, reason: "corr_return_case_ref_not_found", case_ref: caseRef || null, status: null };
   }
   const waCliente = String(caso.wa_id || "").trim();
   if (!waCliente || waCliente === correspondenteWaId) {
@@ -12414,13 +12441,28 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   }
   if (lockAtualNormalized && !lockMatch) {
     await sendMessage(env, correspondenteWaId, "Este caso já está vinculado a outro correspondente. Retorno não registrado.");
+    await telemetry(env, {
+      wa_id: correspondenteWaId,
+      event: "corr_flow_probe_confirm_exit",
+      stage: "aguardando_retorno_correspondente",
+      severity: "info",
+      force: true,
+      message: "Probe objetiva: saída por bloqueio de remetente no fluxo de correspondente",
+      details: {
+        case_ref: caseRef || null,
+        handled: true,
+        confirmation_requested: false,
+        stopped_before_common_flow: true,
+        reason: "corr_return_case_ref_locked_other_sender_mismatch"
+      }
+    });
     await emitStatusDecisionProbe({
       statusClassificado: preliminaryStatusClassificado,
-      handled: false,
-      fallbackCommonFlow: true,
+      handled: true,
+      fallbackCommonFlow: false,
       decisionReason: "corr_return_case_ref_locked_other_sender_mismatch"
     });
-    return { handled: false, case_ref: caseRef || null, status: null };
+    return { handled: true, reason: "corr_return_case_ref_locked_other_sender_mismatch", case_ref: caseRef || null, status: null };
   }
   if (!lockAtualNormalized) {
     const senderLockedCases = await getSenderLockedCases();
@@ -12451,14 +12493,15 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     if (!hasUniqueSenderCompatibleCase) {
       await emitStatusDecisionProbe({
         statusClassificado: preliminaryStatusClassificado,
-        handled: false,
-        fallbackCommonFlow: true,
+        handled: true,
+        fallbackCommonFlow: false,
         decisionReason: hasSenderAmbiguity
           ? "sender_case_ambiguity"
           : "case_lock_missing_without_unique_sender_case"
       });
       if (hasSenderAmbiguity || await shouldAskCaseConfirmation()) {
-        await askCaseConfirmation("corr_return_case_ref_sender_confirmation_needed", { handled: false });
+        await askCaseConfirmation("corr_return_case_ref_sender_confirmation_needed");
+        return { handled: true, reason: "corr_return_case_ref_sender_confirmation_needed", case_ref: caseRef || null, status: null };
       }
       return { handled: false, case_ref: caseRef || null, status: null };
     }
@@ -12601,6 +12644,21 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       "STATUS: APROVADO, REPROVADO ou PENDÊNCIA",
       "MOTIVO: opcional"
     ].join("\n"));
+    await telemetry(env, {
+      wa_id: correspondenteWaId,
+      event: "corr_flow_probe_confirm_exit",
+      stage: "aguardando_retorno_correspondente",
+      severity: "info",
+      force: true,
+      message: "Probe objetiva: saída por confirmação no fluxo de correspondente",
+      details: {
+        case_ref: caseRef || null,
+        handled: true,
+        confirmation_requested: true,
+        stopped_before_common_flow: true,
+        reason: "corr_return_case_ref_manual_review_required"
+      }
+    });
     await funnelTelemetry(env, {
       wa_id: waCliente,
       event: "corr_return_case_ref_manual_review_required",
@@ -12617,6 +12675,20 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     });
     return { handled: true, reason: "corr_return_case_ref_manual_review_required", case_ref: caseRef || null, status: statusCanonico };
   }
+  await telemetry(env, {
+    wa_id: correspondenteWaId,
+    event: "corr_flow_probe_success_exit",
+    stage: "aguardando_retorno_correspondente",
+    severity: "info",
+    force: true,
+    message: "Probe objetiva: saída com sucesso no fluxo de correspondente",
+    details: {
+      case_ref: caseRef || null,
+      status_classificado: statusCanonico || null,
+      handled: true,
+      stopped_before_common_flow: true
+    }
+  });
 
   const stAtualizado = await getState(env, waCliente) || stCaso;
   if (statusCanonico === "aprovado") {

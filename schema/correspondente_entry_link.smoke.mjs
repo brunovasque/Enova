@@ -2008,7 +2008,7 @@ function buildEnvWithState() {
   const capturedProbe = [];
   console.log = (...args) => {
     const line = args.map((part) => String(part)).join(" ");
-    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe"))) {
+    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe") || line.includes("corr_flow_probe_"))) {
       capturedProbe.push(line);
     }
     return originalConsoleLog(...args);
@@ -2064,8 +2064,10 @@ function buildEnvWithState() {
   assert.equal(byEvent.corr_status_probe_status_parse?.status_normalized, "aprovado");
   assert.equal(byEvent.corr_status_probe_decision?.status_classificado, "aprovado");
   assert.equal(byEvent.corr_sender_gate_probe?.decision_reason, "case_lock_missing_without_unique_sender_case");
-  assert.equal(byEvent.corr_status_probe_decision?.handled, "nao");
-  assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "sim");
+  assert.equal(byEvent.corr_status_probe_decision?.handled, "sim");
+  assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "nao");
+  assert.equal(byEvent.corr_flow_probe_enter?.entered_correspondente_handler, true);
+  assert.equal(byEvent.corr_flow_probe_common_fallback?.fallback_common_flow, "sim");
 }
 
 // 23) lock mismatch em case_ref explícito deve bloquear tratamento operacional.
@@ -2077,7 +2079,7 @@ function buildEnvWithState() {
   const capturedProbe = [];
   console.log = (...args) => {
     const line = args.map((part) => String(part)).join(" ");
-    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe"))) {
+    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe") || line.includes("corr_flow_probe_"))) {
       capturedProbe.push(line);
     }
     return originalConsoleLog(...args);
@@ -2151,7 +2153,7 @@ function buildEnvWithState() {
   const capturedProbe = [];
   console.log = (...args) => {
     const line = args.map((part) => String(part)).join(" ");
-    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe"))) {
+    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe") || line.includes("corr_flow_probe_"))) {
       capturedProbe.push(line);
     }
     return originalConsoleLog(...args);
@@ -2209,8 +2211,12 @@ function buildEnvWithState() {
   assert.equal(byEvent.corr_sender_gate_probe?.used_case_lock, "sim");
   assert.equal(byEvent.corr_sender_gate_probe?.lock_match, "nao");
   assert.equal(byEvent.corr_sender_gate_probe?.decision_reason, "case_lock_mismatch");
-  assert.equal(byEvent.corr_status_probe_decision?.handled, "nao");
-  assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "sim");
+  assert.equal(byEvent.corr_status_probe_decision?.handled, "sim");
+  assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "nao");
+  assert.equal(byEvent.corr_flow_probe_confirm_exit?.case_ref, "000006");
+  assert.equal(byEvent.corr_flow_probe_confirm_exit?.handled, true);
+  assert.equal(byEvent.corr_flow_probe_confirm_exit?.confirmation_requested, false);
+  assert.equal(byEvent.corr_flow_probe_confirm_exit?.stopped_before_common_flow, true);
 }
 
 // 25) sem lock salvo + remetente com 1 caso ativo compatível deve passar no fallback seguro.
@@ -2224,7 +2230,7 @@ function buildEnvWithState() {
   const capturedProbe = [];
   console.log = (...args) => {
     const line = args.map((part) => String(part)).join(" ");
-    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe"))) {
+    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe") || line.includes("corr_flow_probe_"))) {
       capturedProbe.push(line);
     }
     return originalConsoleLog(...args);
@@ -2312,7 +2318,7 @@ function buildEnvWithState() {
   const capturedProbe = [];
   console.log = (...args) => {
     const line = args.map((part) => String(part)).join(" ");
-    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe"))) {
+    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe") || line.includes("corr_flow_probe_"))) {
       capturedProbe.push(line);
     }
     return originalConsoleLog(...args);
@@ -2365,8 +2371,12 @@ function buildEnvWithState() {
 
   assert.equal(byEvent.corr_sender_gate_probe?.used_unique_sender_case_fallback, "nao");
   assert.equal(byEvent.corr_sender_gate_probe?.decision_reason, "sender_case_ambiguity");
-  assert.equal(byEvent.corr_status_probe_decision?.handled, "nao");
-  assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "sim");
+  assert.equal(byEvent.corr_status_probe_decision?.handled, "sim");
+  assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "nao");
+  assert.equal(byEvent.corr_flow_probe_confirm_exit?.case_ref, "000006");
+  assert.equal(byEvent.corr_flow_probe_confirm_exit?.handled, true);
+  assert.equal(byEvent.corr_flow_probe_confirm_exit?.confirmation_requested, true);
+  assert.equal(byEvent.corr_flow_probe_confirm_exit?.stopped_before_common_flow, true);
 }
 
 console.log("correspondente_entry_link.smoke: ok");

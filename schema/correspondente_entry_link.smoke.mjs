@@ -3085,4 +3085,116 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(lastClientMsgs.includes("até 48h"), true);
 }
 
+// 37) CRON: sem retorno útil, follow simples de 3h pode disparar.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    pre_cadastro_numero: "000541",
+    corr_lock_correspondente_wa_id: correspondenteWa,
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true,
+    fase_conversa: "aguardando_retorno_correspondente",
+    corr_publicacao_status: "entregue_privado_aguardando_retorno",
+    corr_entrega_privada_em: "2026-03-20T00:00:00.000Z",
+    updated_at: "2026-03-20T00:00:00.000Z",
+    retorno_correspondente_status: null,
+    processo_pre_analise_status: null
+  };
+  await worker.scheduled({}, env, {});
+  const followPayload = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(followPayload?.to, correspondenteWa);
+  assert.equal(String(followPayload?.text?.body || "").includes("ainda não identifiquei retorno estruturado"), true);
+}
+
+// 38) CRON: retorno útil sem prazo explícito (análise ativa) bloqueia follow burro.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    pre_cadastro_numero: "000542",
+    corr_lock_correspondente_wa_id: correspondenteWa,
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true,
+    fase_conversa: "aguardando_retorno_correspondente",
+    corr_publicacao_status: "entregue_privado_aguardando_retorno",
+    corr_entrega_privada_em: "2026-03-20T00:00:00.000Z",
+    updated_at: "2026-03-20T00:00:00.000Z",
+    retorno_correspondente_status: "analise_ativa_existente",
+    processo_pre_analise_status: "retorno_util:analise_ativa_existente:sem_prazo_explicito"
+  };
+  await worker.scheduled({}, env, {});
+  const followPayload = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(followPayload, null);
+}
+
+// 39) CRON: retorno útil com 48h só permite follow após vencimento do prazo real.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    pre_cadastro_numero: "000543",
+    corr_lock_correspondente_wa_id: correspondenteWa,
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true,
+    fase_conversa: "aguardando_retorno_correspondente",
+    corr_publicacao_status: "entregue_privado_aguardando_retorno",
+    retorno_correspondente_status: "aguardando_autorizacao",
+    processo_pre_analise_status: "retorno_util:aguardando_autorizacao:48h",
+    updated_at: new Date(Date.now() - (24 * 60 * 60 * 1000)).toISOString()
+  };
+  await worker.scheduled({}, env, {});
+  let followPayload = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(followPayload, null);
+
+  env.__enovaSimulationCtx.sendPreview = null;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].updated_at = new Date(Date.now() - (60 * 60 * 60 * 1000)).toISOString();
+  await worker.scheduled({}, env, {});
+  followPayload = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(followPayload?.to, correspondenteWa);
+  assert.equal(String(followPayload?.text?.body || "").includes("prazo informado já vencido"), true);
+}
+
+// 40) Cartinha fraca/duvidosa com anexo sem sinais fortes não é autoencaminhada.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    pre_cadastro_numero: "000544",
+    corr_lock_correspondente_wa_id: correspondenteWa,
+    processo_enviado_correspondente: true,
+    aguardando_retorno_correspondente: true,
+    fase_conversa: "aguardando_retorno_correspondente",
+    retorno_correspondente_status: "aguardando_cartinha_cancelamento"
+  };
+  const weakReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: waCaso,
+              id: "wamid.cartinha.fraca.000544",
+              timestamp: "1773183974",
+              type: "image",
+              caption: "segue ai",
+              image: { id: "mid.image.fraca", mime_type: "image/jpeg" }
+            }],
+            contacts: [{ wa_id: waCaso }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(weakReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aguardando_cartinha_cancelamento");
+  const lastClientMsgs = getLastStepMessagesForWa(env, waCaso).join("\n");
+  assert.equal(lastClientMsgs.includes("me envie novamente a cartinha de forma mais legível"), true);
+}
+
 console.log("correspondente_entry_link.smoke: ok");

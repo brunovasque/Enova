@@ -4057,7 +4057,86 @@ if (isAdminProdPath) {
 };
 
 async function runColdFollowupBatch(env, ctx) {
-  console.log("CRON: runColdFollowupBatch() stub executado sem impacto no fetch");
+  const now = Date.now();
+  const projection = "wa_id,nome,pre_cadastro_numero,fase_conversa,corr_publicacao_status,corr_lock_correspondente_wa_id,processo_enviado_correspondente,aguardando_retorno_correspondente,corr_entrega_privada_em,retorno_correspondente_status,processo_pre_analise_status,updated_at";
+  const simCtx = getSimulationContext(env);
+  const rows = simCtx?.active && simCtx.stateByWaId
+    ? Object.values(simCtx.stateByWaId)
+    : normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_state", {
+      method: "GET",
+      query: {
+        select: projection,
+        order: "updated_at.desc",
+        limit: 200
+      }
+    }));
+
+  const FOLLOW_SIMPLE_MS = 3 * 60 * 60 * 1000;
+  const terminalStatuses = new Set(["aprovado", "aprovado_condicionado", "reprovado", "pendencia_documental", "pendencia_risco"]);
+  const usefulStatuses = new Set([
+    "analise_ativa_existente",
+    "aguardando_cartinha_cancelamento",
+    "aguardando_autorizacao",
+    "em_analise_com_prazo",
+    "aprovado",
+    "aprovado_condicionado",
+    "reprovado",
+    "pendencia_documental",
+    "pendencia_risco",
+    "em_analise"
+  ]);
+  const parseUsefulPrazoMs = (st) => {
+    const statusText = String(st?.processo_pre_analise_status || "");
+    const m = statusText.match(/:(\d{1,3})h\b/i);
+    if (!m) return null;
+    const h = Number.parseInt(String(m[1] || ""), 10);
+    if (!Number.isFinite(h) || h <= 0) return null;
+    return Math.min(h, 240) * 60 * 60 * 1000;
+  };
+  const baseTimestamp = (st) => {
+    const ts = Date.parse(String(st?.updated_at || st?.corr_entrega_privada_em || ""));
+    if (Number.isFinite(ts)) return ts;
+    return now;
+  };
+
+  let dispatched = 0;
+  for (const st of rows) {
+    const lockWa = String(st?.corr_lock_correspondente_wa_id || "").trim();
+    if (!lockWa) continue;
+    if (st?.processo_enviado_correspondente !== true) continue;
+    const publicStatus = String(st?.corr_publicacao_status || "").trim().toLowerCase();
+    const fase = String(st?.fase_conversa || "").trim().toLowerCase();
+    const seemsWaiting =
+      st?.aguardando_retorno_correspondente === true ||
+      fase === "aguardando_retorno_correspondente" ||
+      publicStatus.includes("aguardando_retorno");
+    if (!seemsWaiting) continue;
+
+    const retornoStatus = String(st?.retorno_correspondente_status || "").trim().toLowerCase();
+    if (terminalStatuses.has(retornoStatus)) continue;
+
+    const isUseful = usefulStatuses.has(retornoStatus);
+    const prazoMs = parseUsefulPrazoMs(st);
+    if (isUseful) {
+      if (!prazoMs) continue;
+      const dueAt = baseTimestamp(st) + prazoMs;
+      if (now < dueAt) continue;
+    } else {
+      const sentAt = Date.parse(String(st?.corr_entrega_privada_em || st?.updated_at || ""));
+      const followDueAt = (Number.isFinite(sentAt) ? sentAt : now) + FOLLOW_SIMPLE_MS;
+      if (now < followDueAt) continue;
+    }
+
+    const caseRef = buildCorrespondenteCaseRef(st);
+    const clienteNome = String(st?.nome || "").trim() || "cliente";
+    const body = isUseful
+      ? `Lembrete operacional do Pré-cadastro #${caseRef}: prazo informado já vencido. Pode me atualizar com o status atual deste caso, por favor?`
+      : `Lembrete do Pré-cadastro #${caseRef}: ainda não identifiquei retorno estruturado deste caso. Pode me enviar STATUS e MOTIVO, por favor?`;
+    await sendWhatsToCorrespondente(env, lockWa, body);
+    dispatched += 1;
+  }
+
+  console.log(`CRON: runColdFollowupBatch() concluído. follow_dispatch_total=${dispatched}`);
 }
 
 // =============================================================
@@ -12095,9 +12174,8 @@ function parseCorrespondenteStatusLineFromText(rawText) {
 function extractOperationalHoursDeadline(rawText) {
   const normalized = normalizeText(rawText || "");
   if (!normalized) return null;
-  const explicitHours = normalized.match(/\b(?:ate|até|em|retorno em|prazo de)\s*(\d{1,3})\s*h(?:oras?)?\b/);
-  const genericHours = explicitHours ? null : normalized.match(/\b(\d{1,3})\s*h(?:oras?)?\b/);
-  const hoursRaw = explicitHours?.[1] || genericHours?.[1] || null;
+  const hoursMatch = normalized.match(/\b(?:(?:ate|até|em|retorno em|prazo de)\s*)?(\d{1,3})\s*h(?:oras?)?\b/);
+  const hoursRaw = hoursMatch?.[1] || null;
   const hours = Number.parseInt(String(hoursRaw || ""), 10);
   if (!Number.isFinite(hours) || hours <= 0) return null;
   return Math.min(hours, 240);
@@ -12169,6 +12247,16 @@ function isLikelyCancellationLetterText(rawText) {
   return hasCpf && hasAutorizacao && hasCancelamento && hasData && hasAssinatura && hasNome;
 }
 
+function isStrongCancellationLetterSignal(rawText) {
+  const normalized = normalizeText(rawText || "");
+  if (!normalized) return false;
+  const hasAutorizoCancelar = /\b(autorizo|autorizacao)\b/.test(normalized) && /\b(cancelamento|cancelar)\b/.test(normalized);
+  const hasAnaliseAtiva = /\b(analise ativa|analise)\b/.test(normalized);
+  const hasCpfWord = /\bcpf\b/.test(normalized);
+  const hasDataOuAssinatura = /\b(data|assinatura)\b/.test(normalized) || /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.test(String(rawText || ""));
+  return hasAutorizoCancelar && hasAnaliseAtiva && hasCpfWord && hasDataOuAssinatura;
+}
+
 async function handleCorrespondenteCancellationLetterFromClient(env, st, userText) {
   const currentStatus = String(st?.retorno_correspondente_status || "").trim().toLowerCase();
   if (currentStatus !== "aguardando_cartinha_cancelamento") return null;
@@ -12182,14 +12270,16 @@ async function handleCorrespondenteCancellationLetterFromClient(env, st, userTex
     ""
   ).trim();
   const hasAttachment = Boolean(incomingMedia?.document || incomingMedia?.image);
+  const fromClientMatchesCase = Boolean(String(st?.wa_id || "").trim());
   const consolidated = [msgText, caption].filter(Boolean).join("\n");
   const textLooksValid = isLikelyCancellationLetterText(consolidated);
-  const conservativeValid = textLooksValid || (hasAttachment && consolidated.length >= 20);
+  const strongSignal = isStrongCancellationLetterSignal(consolidated);
+  const attachmentWithStrongContext = hasAttachment && strongSignal;
+  const conservativeValid = fromClientMatchesCase && (textLooksValid || attachmentWithStrongContext);
   if (!conservativeValid) {
     await upsertState(env, st.wa_id, { _incoming_media: null });
     return step(env, st, [
-      "Para eu encaminhar corretamente, a cartinha precisa conter: nome completo, CPF, autorização de cancelamento da análise ativa, data e assinatura.",
-      "Se puder, me envie novamente com esses itens no texto da cartinha."
+      "Recebi seu envio, obrigado. Para eu conseguir dar continuidade por aqui sem erro, me envie novamente a cartinha de forma mais legível, com o texto completo, CPF, data e assinatura aparecendo bem na imagem."
     ], "aguardando_retorno_correspondente");
   }
 
@@ -12510,15 +12600,15 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     });
     return { handled: options?.handled !== false, reason };
   };
-  const senderLockedCasesEarly = await getSenderLockedCases();
-  const senderSeemsCorrespondente = isCorrespondenteChannel || senderLockedCasesEarly.length > 0;
+  const senderLockedCases = await getSenderLockedCases();
+  const senderSeemsCorrespondente = isCorrespondenteChannel || senderLockedCases.length > 0;
 
   if (!caseRef) {
     const maybeRetorno = /pré[- ]?cadastro|pre[- ]?cadastro|aprovad|reprovad|pend[eê]n|analise|imped/i.test(String(consolidatedText || ""));
     if (!maybeRetorno) return { handled: false, case_ref: caseRef || null, status: null };
     if (!senderSeemsCorrespondente) return { handled: false, case_ref: caseRef || null, status: null };
-    if (senderLockedCasesEarly.length === 1) {
-      caseRef = buildCorrespondenteCaseRef(senderLockedCasesEarly[0]);
+    if (senderLockedCases.length === 1) {
+      caseRef = buildCorrespondenteCaseRef(senderLockedCases[0]);
     }
   }
   if (!caseRef) {

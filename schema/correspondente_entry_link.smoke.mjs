@@ -414,22 +414,30 @@ function getLastStepMessagesForWa(env, waId) {
   // 11.2) CTPS 36 deve aparecer no resumo humano (sim e não) quando existir base técnica.
   {
     const canonicalComCtps = buildCanonicalFromState({
-      ctps_36: true,
+      ctps_36: "sim",
       dossie_participantes_json: [
         { id: "p1", role: "titular", regime_trabalho: "clt", renda: 5000, ctps_36: true }
       ]
     });
     const resumoComCtps = String(canonicalComCtps?.dossie_privado_canonico_json?.resumo_humano || "");
+    const consolidadoComCtps = String(canonicalComCtps?.mensagem_privada_correspondente_whatsapp || "");
     assert.equal(resumoComCtps.includes("possui 36 meses de registro em CTPS"), true);
+    assert.equal(canonicalComCtps?.payload_tecnico_correspondente_json?.formalizacao?.ctps_36, true);
+    assert.equal(canonicalComCtps?.dossie_privado_canonico_json?.titular?.ctps_36, true);
+    assert.equal(consolidadoComCtps.includes("CTPS 36 meses: sim"), true);
 
     const canonicalSemCtps = buildCanonicalFromState({
-      ctps_36: false,
+      ctps_36: "não",
       dossie_participantes_json: [
         { id: "p1", role: "titular", regime_trabalho: "clt", renda: 5000, ctps_36: false }
       ]
     });
     const resumoSemCtps = String(canonicalSemCtps?.dossie_privado_canonico_json?.resumo_humano || "");
+    const consolidadoSemCtps = String(canonicalSemCtps?.mensagem_privada_correspondente_whatsapp || "");
     assert.equal(resumoSemCtps.includes("não possui 36 meses de registro em CTPS"), true);
+    assert.equal(canonicalSemCtps?.payload_tecnico_correspondente_json?.formalizacao?.ctps_36, false);
+    assert.equal(canonicalSemCtps?.dossie_privado_canonico_json?.titular?.ctps_36, false);
+    assert.equal(consolidadoSemCtps.includes("CTPS 36 meses: não"), true);
   }
 
   // 11.3) Fonte canônica de CTPS 36 no consolidado deve refletir apenas resposta final do titular.
@@ -447,6 +455,8 @@ function getLastStepMessagesForWa(env, waId) {
     const resumo = String(canonicalTitularNaoParceiroSim?.dossie_privado_canonico_json?.resumo_humano || "");
     const consolidado = String(canonicalTitularNaoParceiroSim?.mensagem_privada_correspondente_whatsapp || "");
     assert.equal(canonicalTitularNaoParceiroSim?.payload_tecnico_correspondente_json?.formalizacao?.ctps_36, false);
+    assert.equal(canonicalTitularNaoParceiroSim?.dossie_privado_canonico_json?.titular?.ctps_36, false);
+    assert.equal(canonicalTitularNaoParceiroSim?.dossie_privado_canonico_json?.parceiro?.ctps_36_parceiro, true);
     assert.equal(resumo.includes("não possui 36 meses de registro em CTPS"), true);
     assert.equal(consolidado.includes("CTPS 36 meses: não"), true);
   }

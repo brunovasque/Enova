@@ -11612,13 +11612,13 @@ function buildCorrespondentePrivateDossierFromState(st) {
       inicio_multi_regime_coletar: st?.inicio_multi_regime_coletar || null,
       inicio_multi_renda_pergunta: st?.inicio_multi_renda_pergunta ?? null,
       inicio_multi_renda_coletar: st?.inicio_multi_renda_coletar || null,
-      ctps_36: st?.ctps_36 ?? null
+      ctps_36: readCanonicalBool(st?.ctps_36)
     },
     parceiro: {
       parceiro_tem_renda: st?.parceiro_tem_renda ?? null,
       regime_trabalho_parceiro: readStateValue(st?.regime_trabalho_parceiro, p2?.regime_trabalho || null),
       renda_parceiro: readStateValue(st?.renda_parceiro, p2?.renda ?? null),
-      ctps_36_parceiro: st?.ctps_36_parceiro ?? null,
+      ctps_36_parceiro: readCanonicalBool(st?.ctps_36_parceiro),
       parceiro_inicio_multi_regime_pergunta: st?.parceiro_inicio_multi_regime_pergunta ?? null,
       parceiro_inicio_multi_regime_coletar: st?.parceiro_inicio_multi_regime_coletar || null,
       parceiro_inicio_multi_renda_pergunta: st?.parceiro_inicio_multi_renda_pergunta ?? null,

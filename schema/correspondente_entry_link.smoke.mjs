@@ -155,6 +155,8 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("CAMADA 1 — RESUMO HUMANO"), true);
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("CAMADA 2 — PERFIL TÉCNICO CONSOLIDADO"), true);
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("CAMADA 3 — ENTREGA OPERACIONAL DE DOCS"), true);
+  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("Dossiê privado canônico (completo)"), false);
+  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("espelho_state_preenchido"), false);
   assert.equal(bundle.resumoPersistido.includes("🔒 *Dossiê privado canônico (completo)*"), false);
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("não informado"), false);
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("_json"), false);
@@ -422,6 +424,23 @@ function getLastStepMessagesForWa(env, waId) {
     assert.equal(/"\w+"\s*:/.test(privado), false);
     assert.equal(/\{\s*"/.test(privado), false);
     assert.equal(/\[\s*\{/.test(privado), false);
+  }
+
+  // 13) fallback seguro: quando a mensagem principal fica vazia, mantém saída limpa.
+  {
+    const canonical = buildCanonicalFromState({
+      nome: "",
+      dossie_participantes_json: [],
+      pacote_renda_resumo_json: null,
+      pacote_restricoes_json: null,
+      envio_docs_status: ""
+    });
+    const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
+    assert.equal(privado.includes("CAMADA 1 — RESUMO HUMANO"), true);
+    assert.equal(privado.includes("_json"), false);
+    assert.equal(privado.includes("espelho_state_preenchido"), false);
+    assert.equal(/"\w+"\s*:/.test(privado), false);
+    assert.equal(privado.includes("Dossiê privado canônico (completo)"), false);
   }
 }
 

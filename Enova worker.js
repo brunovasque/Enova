@@ -11032,6 +11032,58 @@ function buildCorrespondentePrivateWhatsAppMessage({ payloadTecnico, dossieCanon
   return lines.join("\n");
 }
 
+function buildCorrespondentePrivateWhatsAppSafeFallback(st = {}, canonical = {}) {
+  const safeCaseRef = String(buildCorrespondenteCaseRef(st) || "000000").trim();
+  const safeNome = String(st?.nome || canonical?.payload_tecnico_correspondente_json?.identificacao?.nome || "Cliente").trim() || "Cliente";
+  const payload = canonical?.payload_tecnico_correspondente_json && typeof canonical.payload_tecnico_correspondente_json === "object"
+    ? canonical.payload_tecnico_correspondente_json
+    : {};
+  const composicao = payload?.composicao && typeof payload.composicao === "object" ? payload.composicao : {};
+  const documental = payload?.documental && typeof payload.documental === "object" ? payload.documental : {};
+  const renda = payload?.renda && typeof payload.renda === "object" ? payload.renda : {};
+  const conclusao = payload?.conclusao_operacional && typeof payload.conclusao_operacional === "object" ? payload.conclusao_operacional : {};
+  const tipoProcesso = String(composicao?.tipo_processo || "").trim() || "não classificado";
+  const rendaTotal = Number(renda?.total ?? 0) || 0;
+  const pendencias = Number(documental?.pendencias_total ?? conclusao?.pendencias_remanescentes ?? 0) || 0;
+
+  return [
+    "🔒 *Dossiê privado do correspondente*",
+    "",
+    "CAMADA 1 — RESUMO HUMANO",
+    `Caso #${safeCaseRef} de ${safeNome}.`,
+    "",
+    "CAMADA 2 — PERFIL TÉCNICO CONSOLIDADO",
+    `• Composição: ${tipoProcesso}`,
+    `• Renda total: ${rendaTotal > 0 ? `R$ ${rendaTotal.toFixed(2)}` : "não registrada"}`,
+    `• Status documental: ${String(documental?.envio_docs_status || "não definido").trim()}`,
+    "",
+    "CAMADA 3 — ENTREGA OPERACIONAL DE DOCS",
+    `• Pendências totais: ${pendencias}`,
+    "• Links de documentos: vide bloco de links em seguida (quando disponíveis)."
+  ].join("\n");
+}
+
+function sanitizeCorrespondentePrivateWhatsAppMessage(text, st = {}, canonical = {}) {
+  const raw = String(text || "").trim();
+  if (!raw) return buildCorrespondentePrivateWhatsAppSafeFallback(st, canonical);
+  const blockedTokens = [
+    "_json",
+    "espelho_state_preenchido",
+    "gerardossiecompleto(",
+    "dossie privado canonico (completo)"
+  ];
+  const normalizedRaw = raw
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const hasBlockedToken = blockedTokens.some((token) => normalizedRaw.includes(token));
+  const hasJsonShape = /"\w+"\s*:/.test(raw) || /\{\s*"/.test(raw) || /\[\s*\{/.test(raw);
+  if (hasBlockedToken || hasJsonShape) {
+    return buildCorrespondentePrivateWhatsAppSafeFallback(st, canonical);
+  }
+  return raw;
+}
+
 function buildCorrespondentePrivateDossierFromState(st) {
   const participantes = Array.isArray(st?.dossie_participantes_json) ? st.dossie_participantes_json : [];
   const pacoteRenda = st?.pacote_renda_resumo_json && typeof st.pacote_renda_resumo_json === "object" ? st.pacote_renda_resumo_json : {};
@@ -11912,10 +11964,14 @@ function buildCorrespondenteCanonicalDossierBundleFromState(st, options = {}) {
   const baseState = st || {};
   const canonical = buildCorrespondentePrivateDossierFromState(baseState);
   const structured = buildCorrespondenteDossierPayloadFromCanonical(canonical, baseState, options);
-  const mensagemPrivadaWhatsapp =
+  const mensagemPrivadaWhatsappUnsafe =
     String(canonical?.mensagem_privada_correspondente_whatsapp || "").trim() ||
-    String(canonical?.resumo_humano_correspondente || "").trim() ||
-    gerarDossieCompleto(baseState);
+    buildCorrespondentePrivateWhatsAppSafeFallback(baseState, canonical);
+  const mensagemPrivadaWhatsapp = sanitizeCorrespondentePrivateWhatsAppMessage(
+    mensagemPrivadaWhatsappUnsafe,
+    baseState,
+    canonical
+  );
   const privadoCompleto =
     String(canonical?.dossie_privado_completo_correspondente || "").trim() ||
     gerarDossieCompleto(baseState);

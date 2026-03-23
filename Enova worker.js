@@ -12090,6 +12090,18 @@ function normalizeCorrespondenteWaIdInput(value) {
   return normalizeCorrespondenteWaIdCmp(value);
 }
 
+function normalizeCorrespondenteWaIdOutbound(value) {
+  const digitsRaw = String(value || "")
+    .trim()
+    .replace(/\D/g, "")
+    .trim();
+  if (!digitsRaw) return "";
+  if (digitsRaw.startsWith("55")) return digitsRaw;
+  const cmp = normalizeCorrespondenteWaIdCmp(digitsRaw);
+  if (!cmp) return "";
+  return `55${cmp}`;
+}
+
 function isCorrespondenteEntryAdminOverride(request, env) {
   const envKey = String(env?.ENOVA_ADMIN_KEY || "").trim();
   if (!envKey) return false;
@@ -14123,6 +14135,20 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   const correspondenteWaIdRaw = String(correspondenteWaId || "").trim();
   const correspondenteWaIdCmp = normalizeCorrespondenteWaIdCmp(correspondenteWaIdRaw);
   if (!correspondenteWaIdCmp) return { handled: false };
+  const correspondenteWaIdOutbound = normalizeCorrespondenteWaIdOutbound(correspondenteWaIdRaw) || correspondenteWaIdRaw;
+  await telemetry(env, {
+    wa_id: null,
+    event: "corr_private_delivery_probe_assumir_enter",
+    stage: "aguardando_retorno_correspondente",
+    severity: "info",
+    force: true,
+    message: "Probe: entrada na assunção via link/comando do correspondente",
+    details: {
+      from_wa_id_raw: correspondenteWaIdRaw || null,
+      from_wa_id_cmp: correspondenteWaIdCmp || null,
+      from_wa_id_outbound: correspondenteWaIdOutbound || null
+    }
+  });
   const normalizedText = String(userText || "").trim();
   const commandOnlyMatch = normalizedText.match(/^assumir(?:\s+pr[eé][-\s]?cadastro)?(?:\s+c?(\d{4,}))?\s*$/i);
   const isCommandWithoutToken = !token && Boolean(commandOnlyMatch);
@@ -14200,16 +14226,80 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   const docs = await getCaseDocumentLinks(env, caso.wa_id, stCaso);
   const docsText = buildCorrespondentePrivateDocsLinksText(docs, stCaso);
   const caseRef = buildCorrespondenteCaseRef(caso);
+  await telemetry(env, {
+    wa_id: caso.wa_id,
+    event: "corr_private_delivery_probe_wa_resolved",
+    stage: "aguardando_retorno_correspondente",
+    severity: "info",
+    force: true,
+    message: "Probe: wa_id de envio privado resolvido",
+    details: {
+      case_ref: caseRef,
+      lock_wa_id_raw: correspondenteWaIdRaw || null,
+      lock_wa_id_cmp: correspondenteWaIdCmp || null,
+      outbound_wa_id: correspondenteWaIdOutbound || null
+    }
+  });
 
   try {
-    await sendCorrespondentePrivateDelivery(env, correspondenteWaId, dossiePrivado, docsText, caseRef);
+    await telemetry(env, {
+      wa_id: caso.wa_id,
+      event: "corr_private_delivery_probe_send_attempt",
+      stage: "aguardando_retorno_correspondente",
+      severity: "info",
+      force: true,
+      message: "Probe: tentativa de envio privado para correspondente",
+      details: {
+        case_ref: caseRef,
+        outbound_wa_id: correspondenteWaIdOutbound || null
+      }
+    });
+    await sendCorrespondentePrivateDelivery(env, correspondenteWaIdOutbound, dossiePrivado, docsText, caseRef);
+    await telemetry(env, {
+      wa_id: caso.wa_id,
+      event: "corr_private_delivery_probe_send_success",
+      stage: "aguardando_retorno_correspondente",
+      severity: "info",
+      force: true,
+      message: "Probe: envio privado concluído com sucesso",
+      details: {
+        case_ref: caseRef,
+        outbound_wa_id: correspondenteWaIdOutbound || null
+      }
+    });
   } catch (err) {
     await upsertState(env, caso.wa_id, {
       corr_entrega_privada_status: "falha_entrega_privada",
       corr_entrega_privada_em: new Date().toISOString(),
       corr_publicacao_status: "assumido_falha_entrega_privada"
     });
-    await sendMessage(env, correspondenteWaId, "Consegui registrar a assunção, mas falhou a entrega privada do dossiê. Tente novamente com o mesmo comando.");
+    await telemetry(env, {
+      wa_id: caso.wa_id,
+      event: "corr_private_delivery_probe_send_error",
+      stage: "aguardando_retorno_correspondente",
+      severity: "error",
+      force: true,
+      message: "Probe: erro no envio privado para correspondente",
+      details: {
+        case_ref: caseRef,
+        outbound_wa_id: correspondenteWaIdOutbound || null,
+        error: err?.message || String(err)
+      }
+    });
+    await telemetry(env, {
+      wa_id: caso.wa_id,
+      event: "corr_private_delivery_probe_status_saved",
+      stage: "aguardando_retorno_correspondente",
+      severity: "info",
+      force: true,
+      message: "Probe: status final de entrega privada gravado",
+      details: {
+        case_ref: caseRef,
+        corr_entrega_privada_status: "falha_entrega_privada",
+        corr_publicacao_status: "assumido_falha_entrega_privada"
+      }
+    });
+    await sendMessage(env, correspondenteWaIdOutbound, "Consegui registrar a assunção, mas falhou a entrega privada do dossiê. Tente novamente com o mesmo comando.");
     return { handled: true, reason: "assumir_token_private_delivery_failed" };
   }
 
@@ -14225,6 +14315,19 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
     processo_enviado_correspondente: true,
     aguardando_retorno_correspondente: true
   });
+  await telemetry(env, {
+    wa_id: caso.wa_id,
+    event: "corr_private_delivery_probe_status_saved",
+    stage: "aguardando_retorno_correspondente",
+    severity: "info",
+    force: true,
+    message: "Probe: status final de entrega privada gravado",
+    details: {
+      case_ref: caseRef,
+      corr_entrega_privada_status: "entregue_privado_aguardando_retorno",
+      corr_publicacao_status: "entregue_privado_aguardando_retorno"
+    }
+  });
 
   const stAtualizado = await getState(env, caso.wa_id);
   if (stAtualizado) {
@@ -14239,7 +14342,7 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   const entryLink = buildCorrespondenteEntryLinkForCorrespondente(env, token, correspondenteWaId, caseRef);
   await sendMessage(
     env,
-    correspondenteWaId,
+    correspondenteWaIdOutbound,
     entryLink
       ? `Assunção confirmada. Reabertura do dossiê: ${entryLink}`
       : `Assunção confirmada. Caso ${token} entregue no seu privado.`
@@ -14565,9 +14668,10 @@ async function trySendWhatsPayloadToCorrespondente(env, payload) {
 // 🔧 Helper — enviar mensagem de texto pro correspondente
 // =========================================================
 async function sendWhatsToCorrespondente(env, to, body) {
+  const resolvedTo = normalizeCorrespondenteWaIdOutbound(to) || String(to || "").trim();
   const payload = {
     messaging_product: "whatsapp",
-    to,
+    to: resolvedTo,
     type: "text",
     text: { body }
   };

@@ -10705,6 +10705,146 @@ function normalizeAssumirToken(token) {
     .slice(0, 24);
 }
 
+function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCanonico }) {
+  const payload = payloadTecnico && typeof payloadTecnico === "object" ? payloadTecnico : {};
+  const dossie = dossieCanonico && typeof dossieCanonico === "object" ? dossieCanonico : {};
+  const composicao = payload?.composicao && typeof payload.composicao === "object" ? payload.composicao : {};
+  const participantes = Array.isArray(composicao?.participantes) ? composicao.participantes : [];
+  const restricao = payload?.restricao && typeof payload.restricao === "object" ? payload.restricao : {};
+  const documental = payload?.documental && typeof payload.documental === "object" ? payload.documental : {};
+  const renda = payload?.renda && typeof payload.renda === "object" ? payload.renda : {};
+  const formalizacao = payload?.formalizacao && typeof payload.formalizacao === "object" ? payload.formalizacao : {};
+
+  const moneyToLabel = (value) => `R$ ${Math.max(0, Number(value || 0)).toFixed(2)}`;
+  const isFilledText = (value) => String(value || "").trim() !== "";
+  const normalize = (value) => String(value || "").trim().toLowerCase();
+  const boolValue = (value) => {
+    if (value === true || value === false) return value;
+    if (value === null || value === undefined) return null;
+    const txt = normalize(value);
+    if (["true", "1", "sim", "yes"].includes(txt)) return true;
+    if (["false", "0", "nao", "não", "no"].includes(txt)) return false;
+    return null;
+  };
+  const normalizeRegime = (value) => {
+    const txt = normalize(value);
+    if (!txt) return null;
+    if (txt === "clt") return "CLT";
+    if (txt === "autonomo" || txt === "autônomo") return "autônomo";
+    if (txt === "pj") return "PJ";
+    return txt.toUpperCase();
+  };
+
+  const nome = String(dossie?.identificacao?.nome || payload?.identificacao?.nome || "Cliente").trim();
+  const estadoCivil = String(dossie?.composicao?.estado_civil || "").trim();
+  const solo = composicao?.solo === true;
+  const tipoProcesso = String(composicao?.tipo_processo || "").trim().toLowerCase();
+  const isSoloProcesso = solo || tipoProcesso === "solo";
+  const parceiroNome = String(dossie?.composicao?.parceiro_nome || "").trim();
+  const quemCompoe = String(dossie?.composicao?.quem_compoe_renda || "").trim().toLowerCase();
+  const p3Tipo = String(dossie?.composicao?.p3_tipo || "").trim().toLowerCase();
+  const temP3 = participantes.some((p) => normalize(p?.id) === "p3");
+
+  const sentences = [];
+  const identificationParts = [];
+  if (isFilledText(estadoCivil)) {
+    identificationParts.push(`Cliente ${nome} é ${estadoCivil.toLowerCase()}`);
+  } else {
+    identificationParts.push(`Cliente ${nome}`);
+  }
+  if (isSoloProcesso) {
+    identificationParts.push("seguirá em processo solo");
+  } else if (tipoProcesso === "conjunto" && parceiroNome) {
+    identificationParts.push(`seguirá em processo conjunto com ${parceiroNome}`);
+  } else if (quemCompoe.includes("familiar") || p3Tipo.includes("familiar")) {
+    identificationParts.push("fará composição de renda com familiar");
+  } else if (isFilledText(parceiroNome)) {
+    identificationParts.push(`fará composição de renda com ${parceiroNome}`);
+  } else {
+    identificationParts.push("fará composição de renda com outra pessoa do grupo familiar");
+  }
+  sentences.push(`${identificationParts.join(" ")}.`);
+
+  const participantById = (id) => participantes.find((p) => normalize(p?.id) === id) || null;
+  const humanTrabalhoFrase = (pessoa, label) => {
+    if (!pessoa) return null;
+    const regime = normalizeRegime(pessoa?.regime_trabalho);
+    const rendaValor = Number(pessoa?.renda ?? 0);
+    const hasRenda = Number.isFinite(rendaValor) && rendaValor > 0;
+    const fragments = [];
+    if (regime) fragments.push(`${label} atua como ${regime}`);
+    if (hasRenda) fragments.push(`informou renda de ${moneyToLabel(rendaValor)}`);
+    if (!fragments.length) return null;
+    return `${fragments.join(" e ")}.`;
+  };
+
+  const titular = participantById("p1");
+  const p2 = participantById("p2");
+  const p3 = participantById("p3");
+  const trabalhoTitular = humanTrabalhoFrase(titular, "O titular");
+  if (trabalhoTitular) sentences.push(trabalhoTitular);
+  const trabalhoP2 = humanTrabalhoFrase(p2, "Na composição, P2");
+  if (trabalhoP2) sentences.push(trabalhoP2);
+  const trabalhoP3 = humanTrabalhoFrase(p3, "Há participante adicional P3 que");
+  if (trabalhoP3) sentences.push(trabalhoP3);
+
+  const titularAutonomoSemDeclaracaoIR = normalize(titular?.regime_trabalho) === "autonomo" && boolValue(titular?.ir_autonomo) === false;
+  const p2AutonomoSemDeclaracaoIR = normalize(p2?.regime_trabalho) === "autonomo" && boolValue(p2?.ir_autonomo) === false;
+  if (titularAutonomoSemDeclaracaoIR || p2AutonomoSemDeclaracaoIR || boolValue(dossie?.restricoes_viabilidade?.autonomo_sem_ir_este_ano) === true) {
+    sentences.push("Há renda autônoma informada sem IR declarado até o momento.");
+  }
+  if (formalizacao?.ctps_36 === true) {
+    sentences.push("Consta participante com 36 meses de registro em CTPS.");
+  }
+  if (renda?.multi_renda === true) {
+    sentences.push("O perfil apresenta múltiplas fontes de renda.");
+  }
+
+  if (restricao?.tem_restricao === true) {
+    if (restricao?.regularizavel === true) {
+      sentences.push("Há indicação de restrição em um dos participantes, com sinalização de regularização.");
+    } else {
+      sentences.push("Há indicação de restrição em um dos participantes, com necessidade de regularização.");
+    }
+  } else if (restricao?.tem_restricao === false) {
+    sentences.push("Até o momento, não há indicação de restrição no perfil.");
+  }
+  if (boolValue(dossie?.restricoes_viabilidade?.necessidade_composicao) === true) {
+    sentences.push("O caso depende de composição para melhor viabilidade.");
+  }
+
+  const envioStatus = normalize(documental?.envio_docs_status || dossie?.documentos_pacote?.envio_docs_status);
+  const faseAtual = String(dossie?.trilho_fase_atual?.fase_conversa || dossie?.identificacao?.stage_atual || "").trim();
+  const aguardandoCorrespondente = boolValue(dossie?.trilho_fase_atual?.aguardando_retorno_correspondente) === true;
+  const statusPreAnalise = normalize(
+    dossie?.correspondente_operacional?.processo_pre_analise_status ||
+    dossie?.correspondente_operacional?.retorno_correspondente_status
+  );
+  const aprovadoParaVisita =
+    statusPreAnalise === "aprovado" ||
+    statusPreAnalise === "aprovado_condicionado" ||
+    normalize(faseAtual) === "agendamento_visita";
+
+  if (envioStatus === "completo") {
+    sentences.push("A documentação já foi enviada e o caso seguiu para análise.");
+  } else if (envioStatus === "pendente") {
+    sentences.push("O caso está em fase de coleta e organização documental.");
+  }
+  if (aguardandoCorrespondente) {
+    sentences.push("O correspondente já recebeu o pré-cadastro e o caso aguarda retorno.");
+  } else if (aprovadoParaVisita) {
+    sentences.push("O caso está em andamento para visita e apresentação.");
+  } else if (isFilledText(faseAtual)) {
+    sentences.push(`O caso está na fase ${faseAtual}.`);
+  }
+
+  const result = sentences
+    .map((line) => String(line || "").trim())
+    .filter(Boolean)
+    .join(" ");
+  return result || `Cliente ${nome} com perfil técnico consolidado para análise operacional.`;
+}
+
 function buildCorrespondentePrivateDossierFromState(st) {
   const participantes = Array.isArray(st?.dossie_participantes_json) ? st.dossie_participantes_json : [];
   const pacoteRenda = st?.pacote_renda_resumo_json && typeof st.pacote_renda_resumo_json === "object" ? st.pacote_renda_resumo_json : {};
@@ -11054,9 +11194,219 @@ function buildCorrespondentePrivateDossierFromState(st) {
     }
   };
 
+  const readStateValue = (value, fallback = null) => {
+    if (value === undefined || value === null || value === "") return fallback;
+    return value;
+  };
+  const printable = (value) => {
+    if (value === null || value === undefined || value === "") return "não informado";
+    if (typeof value === "boolean") return value ? "sim" : "não";
+    if (typeof value === "number") return Number.isFinite(value) ? String(value) : "não informado";
+    if (Array.isArray(value)) return value.length ? JSON.stringify(value) : "[]";
+    if (typeof value === "object") {
+      const entries = Object.entries(value);
+      return entries.length ? JSON.stringify(value) : "{}";
+    }
+    return String(value);
+  };
+  const sectionLines = (title, section) => {
+    const lines = [`${title}`];
+    for (const [key, value] of Object.entries(section || {})) {
+      lines.push(`- ${key}: ${printable(value)}`);
+    }
+    return lines;
+  };
+  const isStateValueFilled = (value) => {
+    if (value === null || value === undefined) return false;
+    if (typeof value === "string" && value.trim() === "") return false;
+    if (Array.isArray(value)) return value.length > 0;
+    if (typeof value === "object") return Object.keys(value).length > 0;
+    return true;
+  };
+  const shouldExcludeInternalStateKey = (key) => {
+    const k = String(key || "");
+    if (!k) return true;
+    if (k.startsWith("__")) return true;
+    if (k.startsWith("tmp_")) return true;
+    if (k.startsWith("debug_")) return true;
+    if (k === "id") return true;
+    return false;
+  };
+  const filledStateEntries = Object.entries(st || {})
+    .filter(([key, value]) => !shouldExcludeInternalStateKey(key) && isStateValueFilled(value))
+    .sort(([a], [b]) => a.localeCompare(b));
+  const filledStateMap = Object.fromEntries(filledStateEntries);
+  const filledStateKeys = filledStateEntries.map(([key]) => key);
+  const excludedInternalKeys = Object.keys(st || {})
+    .filter((key) => shouldExcludeInternalStateKey(key))
+    .sort((a, b) => a.localeCompare(b));
+  const participanteById = (pid) => participantesOrdem.find((p) => normalizeParticipantId(p?.id) === pid) || null;
+  const p1 = participanteById("p1");
+  const p2 = participanteById("p2");
+  const p3 = participanteById("p3");
+
+  const dossie_privado_canonico_json = {
+    meta: {
+      wa_id: st?.wa_id || null,
+      pre_cadastro_numero: st?.pre_cadastro_numero || null,
+      case_ref: buildCorrespondenteCaseRef(st),
+      fase_conversa: st?.fase_conversa || null,
+      origem_caso: readStateValue(st?.origem, readStateValue(st?.origem_lead, st?.canal_origem || null))
+    },
+    identificacao: {
+      nome: st?.nome || null,
+      telefone_wa: st?.wa_id || null,
+      cpf: st?.cpf || null,
+      nacionalidade: readStateValue(st?.nacionalidade, nacionalidade || null),
+      rnm: readStateValue(st?.rnm, st?.rnm_status || null),
+      rnm_validade: readStateValue(st?.rnm_validade, rnmValidade || null),
+      stage_atual: st?.fase_conversa || null
+    },
+    composicao: {
+      estado_civil: st?.estado_civil || null,
+      confirmar_casamento: st?.confirmar_casamento ?? null,
+      financiamento_conjunto: st?.financiamento_conjunto ?? null,
+      somar_renda_solteiro: st?.somar_renda_solteiro ?? null,
+      somar_renda_familiar: st?.somar_renda_familiar ?? null,
+      quem_compoe_renda: readStateValue(st?.quem_compoe_renda, st?.quem_compoe_renda_familiar || null),
+      interpretacao_composicao: payload_tecnico_correspondente_json?.composicao?.tipo_processo || null,
+      dependente: st?.dependente ?? null,
+      parceiro_nome: readStateValue(st?.nome_parceiro, st?.nome_parceiro_familiar || null),
+      p3_tipo_pergunta: st?.p3_tipo_pergunta || null,
+      p3_tipo: readStateValue(st?.p3_tipo, st?.p3_required ? "requerido" : null)
+    },
+    titular: {
+      regime_trabalho: readStateValue(st?.regime_trabalho, p1?.regime_trabalho || null),
+      renda: readStateValue(st?.renda, p1?.renda ?? null),
+      ir_declarado: st?.ir_declarado ?? null,
+      autonomo_ir_pergunta: st?.autonomo_ir_pergunta ?? null,
+      autonomo_sem_ir_este_ano: st?.autonomo_sem_ir_este_ano ?? null,
+      possui_renda_extra: st?.possui_renda_extra ?? null,
+      renda_mista_detalhe: st?.renda_mista_detalhe || null,
+      inicio_multi_regime_pergunta: st?.inicio_multi_regime_pergunta ?? null,
+      inicio_multi_regime_coletar: st?.inicio_multi_regime_coletar || null,
+      inicio_multi_renda_pergunta: st?.inicio_multi_renda_pergunta ?? null,
+      inicio_multi_renda_coletar: st?.inicio_multi_renda_coletar || null,
+      ctps_36: st?.ctps_36 ?? null
+    },
+    parceiro: {
+      parceiro_tem_renda: st?.parceiro_tem_renda ?? null,
+      regime_trabalho_parceiro: readStateValue(st?.regime_trabalho_parceiro, p2?.regime_trabalho || null),
+      renda_parceiro: readStateValue(st?.renda_parceiro, p2?.renda ?? null),
+      ctps_36_parceiro: st?.ctps_36_parceiro ?? null,
+      parceiro_inicio_multi_regime_pergunta: st?.parceiro_inicio_multi_regime_pergunta ?? null,
+      parceiro_inicio_multi_regime_coletar: st?.parceiro_inicio_multi_regime_coletar || null,
+      parceiro_inicio_multi_renda_pergunta: st?.parceiro_inicio_multi_renda_pergunta ?? null,
+      parceiro_inicio_multi_renda_coletar: st?.parceiro_inicio_multi_renda_coletar || null,
+      restricao_parceiro: st?.restricao_parceiro ?? null,
+      regularizacao_restricao_parceiro: st?.regularizacao_restricao_parceiro ?? null
+    },
+    familiar_p3: {
+      regime_trabalho_parceiro_familiar: st?.regime_trabalho_parceiro_familiar || null,
+      renda_parceiro_familiar: st?.renda_parceiro_familiar ?? null,
+      p3_tipo_pergunta: st?.p3_tipo_pergunta || null,
+      p3_tipo: st?.p3_tipo || null,
+      regime_trabalho_parceiro_familiar_p3: readStateValue(st?.regime_trabalho_parceiro_familiar_p3, p3?.regime_trabalho || null),
+      renda_parceiro_familiar_p3: readStateValue(st?.renda_parceiro_familiar_p3, p3?.renda ?? null),
+      ctps_36_parceiro_p3: readStateValue(st?.ctps_36_parceiro_p3, st?.p3_ctps_36 ?? null),
+      restricao_parceiro_p3: st?.restricao_parceiro_p3 ?? null,
+      regularizacao_restricao_p3: st?.regularizacao_restricao_p3 ?? null
+    },
+    restricoes_viabilidade: {
+      restricao: readStateValue(st?.restricao, payload_tecnico_correspondente_json?.restricao?.resumo || null),
+      regularizacao_restricao: st?.regularizacao_restricao ?? null,
+      autonomo_sem_ir_este_ano: st?.autonomo_sem_ir_este_ano ?? null,
+      necessidade_composicao: st?.necessidade_composicao ?? null,
+      gate_viabilidade: st?.gate_viabilidade ?? null,
+      observacoes_operacionais: observacoesPacote.length ? observacoesPacote : null
+    },
+    documentos_pacote: {
+      envio_docs_status: st?.envio_docs_status || null,
+      analise_docs_status: st?.analise_docs_status || null,
+      pacote_status: st?.pacote_status || null,
+      pacote_participantes_json: Array.isArray(st?.pacote_participantes_json) ? st.pacote_participantes_json : null,
+      pacote_documentos_anexados_json: Array.isArray(st?.pacote_documentos_anexados_json) ? st.pacote_documentos_anexados_json : null,
+      pacote_renda_resumo_json: st?.pacote_renda_resumo_json && typeof st.pacote_renda_resumo_json === "object" ? st.pacote_renda_resumo_json : null,
+      pacote_restricoes_json: st?.pacote_restricoes_json && typeof st.pacote_restricoes_json === "object" ? st.pacote_restricoes_json : null
+    },
+    correspondente_operacional: {
+      processo_enviado_correspondente: st?.processo_enviado_correspondente ?? null,
+      case_ref: buildCorrespondenteCaseRef(st),
+      pre_cadastro_numero: st?.pre_cadastro_numero || null,
+      corr_publicacao_status: st?.corr_publicacao_status || null,
+      corr_lock_correspondente_wa_id: st?.corr_lock_correspondente_wa_id || null,
+      corr_entrega_privada_status: st?.corr_entrega_privada_status || null,
+      retorno_correspondente_status: st?.retorno_correspondente_status || null,
+      processo_pre_analise: st?.processo_pre_analise ?? null,
+      processo_pre_analise_status: st?.processo_pre_analise_status || null,
+      corr_follow_base_at: st?.corr_follow_base_at || null,
+      corr_follow_next_at: st?.corr_follow_next_at || null
+    },
+    trilho_fase_atual: {
+      fase_conversa: st?.fase_conversa || null,
+      next_stage_sinalizado: st?.next_stage || null,
+      aguardando_retorno_correspondente: st?.aguardando_retorno_correspondente ?? null
+    },
+    observacoes: {
+      pacote_observacoes_json: observacoesPacote.length ? observacoesPacote : null,
+      docs_invalidos: docsInvalidos.length ? docsInvalidos : null,
+      docs_ilegiveis: docsIlegiveis.length ? docsIlegiveis : null,
+      docs_faltantes: docsFaltantes.length ? docsFaltantes : null
+    },
+    extras_state: {
+      total_campos_preenchidos: filledStateKeys.length,
+      chaves_campos_preenchidos: filledStateKeys,
+      campos_preenchidos: filledStateMap,
+      chaves_excluidas_tecnicas: excludedInternalKeys
+    }
+  };
+  const resumo_humano_dinamico_correspondente = buildCorrespondenteHumanSummaryFromCanonical({
+    payloadTecnico: payload_tecnico_correspondente_json,
+    dossieCanonico: dossie_privado_canonico_json
+  });
+  dossie_privado_canonico_json.resumo_humano = resumo_humano_dinamico_correspondente;
+
+  const espelhoStateLines = [
+    "🧾 *espelho_state_preenchido*",
+    `- total_campos_preenchidos: ${filledStateKeys.length}`,
+    ...filledStateEntries.map(([key, value]) => `- ${key}: ${printable(value)}`)
+  ];
+  const dossie_privado_completo_correspondente = [
+    "🔒 *Dossiê privado canônico (completo)*",
+    ...sectionLines("🧭 *meta*", dossie_privado_canonico_json.meta),
+    "",
+    ...sectionLines("🪪 *identificacao*", dossie_privado_canonico_json.identificacao),
+    "",
+    ...sectionLines("👥 *composicao*", dossie_privado_canonico_json.composicao),
+    "",
+    ...sectionLines("👤 *titular*", dossie_privado_canonico_json.titular),
+    "",
+    ...sectionLines("🧑‍🤝‍🧑 *parceiro*", dossie_privado_canonico_json.parceiro),
+    "",
+    ...sectionLines("👪 *familiar_p3*", dossie_privado_canonico_json.familiar_p3),
+    "",
+    ...sectionLines("🚧 *restricoes_viabilidade*", dossie_privado_canonico_json.restricoes_viabilidade),
+    "",
+    ...sectionLines("📂 *documentos_pacote*", dossie_privado_canonico_json.documentos_pacote),
+    "",
+    ...sectionLines("📡 *correspondente_operacional*", dossie_privado_canonico_json.correspondente_operacional),
+    "",
+    ...sectionLines("🛤️ *trilho_fase_atual*", dossie_privado_canonico_json.trilho_fase_atual),
+    "",
+    ...sectionLines("📝 *observacoes*", dossie_privado_canonico_json.observacoes),
+    "",
+    "🗣️ *resumo_humano*",
+    resumo_humano_dinamico_correspondente || "Resumo humano não disponível.",
+    "",
+    ...espelhoStateLines
+  ].join("\n");
+
   return {
     resumo_humano_correspondente,
-    payload_tecnico_correspondente_json
+    resumo_humano_dinamico_correspondente,
+    payload_tecnico_correspondente_json,
+    dossie_privado_canonico_json,
+    dossie_privado_completo_correspondente
   };
 }
 
@@ -11263,8 +11613,7 @@ async function ensureCorrespondenteCaseRef(env, st) {
   return allocated;
 }
 
-function buildCorrespondenteDossierPayloadFromState(st, options = {}) {
-  const canonical = buildCorrespondentePrivateDossierFromState(st || {});
+function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, options = {}) {
   const tecnico = canonical?.payload_tecnico_correspondente_json && typeof canonical.payload_tecnico_correspondente_json === "object"
     ? canonical.payload_tecnico_correspondente_json
     : {};
@@ -11340,6 +11689,31 @@ function buildCorrespondenteDossierPayloadFromState(st, options = {}) {
         status: item?.status || "pendente"
       }))
     }
+  };
+}
+
+function buildCorrespondenteDossierPayloadFromState(st, options = {}) {
+  const baseState = st || {};
+  const canonical = buildCorrespondentePrivateDossierFromState(baseState);
+  return buildCorrespondenteDossierPayloadFromCanonical(canonical, baseState, options);
+}
+
+function buildCorrespondenteCanonicalDossierBundleFromState(st, options = {}) {
+  const baseState = st || {};
+  const canonical = buildCorrespondentePrivateDossierFromState(baseState);
+  const structured = buildCorrespondenteDossierPayloadFromCanonical(canonical, baseState, options);
+  const privadoCompleto =
+    String(canonical?.dossie_privado_completo_correspondente || "").trim() ||
+    gerarDossieCompleto(baseState);
+  const resumoPersistido =
+    String(canonical?.resumo_humano_correspondente || "").trim() ||
+    String(baseState?.dossie_resumo || "").trim() ||
+    gerarDossieCompleto(baseState);
+  return {
+    canonical,
+    structured,
+    privadoCompleto,
+    resumoPersistido
   };
 }
 
@@ -11640,7 +12014,8 @@ async function handleCorrespondenteEntryPage(request, env) {
   }
 
   const stCompleto = casoAtual?.wa_id ? (await getState(env, casoAtual.wa_id)) || casoAtual : casoAtual;
-  const dossierPayload = buildCorrespondenteDossierPayloadFromState(stCompleto || caso, { token });
+  const dossierBundle = buildCorrespondenteCanonicalDossierBundleFromState(stCompleto || caso, { token });
+  const dossierPayload = dossierBundle.structured;
   return new Response(buildCorrespondenteEntryCoverHtml(casoAtual, {
     lockWaId: lockFinalRaw,
     isAdminOverride: adminOverride,
@@ -13371,11 +13746,9 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
     return { handled: true, reason: "assumir_token_state_not_found" };
   }
 
-  const dossieCanonico = buildCorrespondentePrivateDossierFromState(stCaso);
-  const dossiePrivado =
-    String(dossieCanonico?.resumo_humano_correspondente || "").trim() ||
-    String(stCaso.dossie_resumo || "").trim() ||
-    gerarDossieCompleto(stCaso);
+  const dossierBundle = buildCorrespondenteCanonicalDossierBundleFromState(stCaso);
+  const dossieCanonico = dossierBundle.canonical;
+  const dossiePrivado = dossierBundle.privadoCompleto;
   const docs = await getCaseDocumentLinks(env, caso.wa_id);
   const docsText = buildCorrespondentePrivateDocsLinksText(docs);
   const caseRef = buildCorrespondenteCaseRef(caso);
@@ -23040,18 +23413,8 @@ case "finalizacao_processo": {
     );
   }
 
-  // monta dossiê simples (uso privado após assunção)
-  const dossie = `
-Cliente: ${st.nome || "não informado"}
-Estado Civil: ${st.estado_civil || "não informado"}
-Soma de Renda: ${st.somar_renda ? "Sim" : "Não"}
-Renda Titular: ${st.renda || "não informado"}
-Renda Parceiro: ${st.renda_parceiro || "não informado"}
-CTPS Titular ≥ 36 meses: ${st.ctps_36 === true ? "Sim" : "Não"}
-CTPS Parceiro ≥ 36 meses: ${st.ctps_36_parceiro === true ? "Sim" : "Não"}
-Dependente: ${st.dependente === true ? "Sim" : "Não"}
-Restrição: ${st.restricao || "não informado"}
-`.trim();
+  const dossierBundle = buildCorrespondenteCanonicalDossierBundleFromState(st);
+  const dossie = dossierBundle.resumoPersistido;
 
   const envio = await enviarParaCorrespondente(env, st, dossie);
   await upsertState(env, st.wa_id, {
@@ -23532,6 +23895,9 @@ export {
   generateChecklistForDocs,
   reconcileEnvioDocsItensWithSavedDossier,
   buildDocumentDossierFromState,
+  buildCorrespondenteCanonicalDossierBundleFromState,
+  buildCorrespondenteDossierPayloadFromState,
+  buildCorrespondentePrivateDossierFromState,
   buildCorrespondenteGroupAlert,
   resolveCorrespondentePhoneNumberId,
   buildCorrespondenteCaseRef,

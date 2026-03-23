@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 
 const workerModule = await import(new URL("../Enova worker.js", import.meta.url).href);
 const worker = workerModule.default;
-const { buildCorrespondenteGroupAlert } = workerModule;
+const {
+  buildCorrespondenteGroupAlert,
+  buildCorrespondenteCanonicalDossierBundleFromState,
+  buildCorrespondenteDossierPayloadFromState,
+  buildCorrespondentePrivateDossierFromState
+} = workerModule;
 
 const token = "AB12CD34EF56GH78JK90LM12";
 const waCaso = "5541999998888";
@@ -65,6 +70,24 @@ function buildEnvWithState() {
   };
 }
 
+function isFilled(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") return value.trim() !== "";
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "object") return Object.keys(value).length > 0;
+  return true;
+}
+
+function shouldExcludeInternalStateKey(key) {
+  const k = String(key || "");
+  if (!k) return true;
+  if (k.startsWith("__")) return true;
+  if (k.startsWith("tmp_")) return true;
+  if (k.startsWith("debug_")) return true;
+  if (k === "id") return true;
+  return false;
+}
+
 function getLastStepMessagesForWa(env, waId) {
   const logs = Array.isArray(env?.__enovaSimulationCtx?.messageLog)
     ? env.__enovaSimulationCtx.messageLog
@@ -92,6 +115,200 @@ function getLastStepMessagesForWa(env, waId) {
     mensagem.includes("https://entrada.enova.local/correspondente/entrada?pre=000001"),
     true
   );
+}
+
+// 1.1) Base canônica única: resumo persistido, dossiê privado e payload estruturado devem derivar da mesma origem.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  const bundle = buildCorrespondenteCanonicalDossierBundleFromState(st, { token });
+  const privateDirect = buildCorrespondentePrivateDossierFromState(st);
+  const payloadDirect = buildCorrespondenteDossierPayloadFromState(st, { token });
+  const stateFilledKeys = Object.entries(st)
+    .filter(([key, value]) => !shouldExcludeInternalStateKey(key) && isFilled(value))
+    .map(([key]) => key)
+    .sort((a, b) => a.localeCompare(b));
+  const privadoFilledKeys = Array.isArray(bundle.canonical?.dossie_privado_canonico_json?.extras_state?.chaves_campos_preenchidos)
+    ? bundle.canonical.dossie_privado_canonico_json.extras_state.chaves_campos_preenchidos.slice().sort((a, b) => a.localeCompare(b))
+    : [];
+  const faltandoNoPrivado = stateFilledKeys.filter((key) => !privadoFilledKeys.includes(key));
+  const sobrandoNoPrivado = privadoFilledKeys.filter((key) => !stateFilledKeys.includes(key));
+
+  assert.equal(
+    bundle.resumoPersistido,
+    String(bundle.canonical?.resumo_humano_correspondente || "").trim()
+  );
+  assert.equal(
+    bundle.privadoCompleto,
+    String(bundle.canonical?.dossie_privado_completo_correspondente || "").trim()
+  );
+  assert.equal(bundle.canonical?.resumo_humano_correspondente, privateDirect?.resumo_humano_correspondente);
+  assert.deepEqual(bundle.canonical?.payload_tecnico_correspondente_json, privateDirect?.payload_tecnico_correspondente_json);
+  assert.deepEqual(bundle.canonical?.dossie_privado_canonico_json, privateDirect?.dossie_privado_canonico_json);
+  assert.equal(bundle.canonical?.dossie_privado_completo_correspondente, privateDirect?.dossie_privado_completo_correspondente);
+  assert.equal(bundle.structured?.meta?.wa_id, payloadDirect?.meta?.wa_id);
+  assert.equal(bundle.structured?.meta?.case_ref, payloadDirect?.meta?.case_ref);
+  assert.equal(bundle.structured?.meta?.token_assumir, payloadDirect?.meta?.token_assumir);
+  assert.equal(bundle.structured?.meta?.token_assumir, token);
+  assert.equal(bundle.structured?.meta?.case_ref, "000001");
+  assert.equal(typeof bundle.structured?.resumo_executivo?.pendencias_total, "number");
+  assert.equal(bundle.resumoPersistido.includes("📊 *Resumo consolidado do caso*"), true);
+  assert.equal(bundle.resumoPersistido.includes("🔒 *Dossiê privado canônico (completo)*"), false);
+  assert.equal(bundle.privadoCompleto.includes("🔒 *Dossiê privado canônico (completo)*"), true);
+  assert.equal(bundle.privadoCompleto.includes("🧭 *meta*"), true);
+  assert.equal(bundle.privadoCompleto.includes("👥 *composicao*"), true);
+  assert.equal(bundle.privadoCompleto.includes("👤 *titular*"), true);
+  assert.equal(bundle.privadoCompleto.includes("📂 *documentos_pacote*"), true);
+  assert.equal(bundle.privadoCompleto.includes("📡 *correspondente_operacional*"), true);
+  assert.equal(bundle.privadoCompleto.includes("- regime_trabalho: "), true);
+  assert.equal(bundle.privadoCompleto.includes("- financiamento_conjunto: "), true);
+  assert.equal(bundle.privadoCompleto.includes("- ir_declarado: "), true);
+  assert.equal(bundle.privadoCompleto.includes("🧾 *espelho_state_preenchido*"), true);
+  assert.deepEqual(privadoFilledKeys, stateFilledKeys);
+  assert.deepEqual(faltandoNoPrivado, []);
+  assert.deepEqual(sobrandoNoPrivado, []);
+}
+
+// 1.2) Resumo humano dinâmico derivado do canônico técnico: cenários mínimos obrigatórios.
+{
+  const buildCanonicalFromState = (overrides = {}) => {
+    const base = {
+      wa_id: waCaso,
+      nome: "JOAO TESTE",
+      pre_cadastro_numero: "000001",
+      fase_conversa: "finalizacao_processo",
+      estado_civil: "solteiro",
+      regime_trabalho: "clt",
+      renda: 5000,
+      ir_declarado: false,
+      envio_docs_status: "pendente",
+      aguardando_retorno_correspondente: false,
+      pacote_restricoes_json: { resumo: "ok", participantes: [] },
+      dossie_participantes_json: [
+        { id: "p1", role: "titular", regime_trabalho: "clt", renda: 5000 }
+      ],
+      pacote_renda_resumo_json: {
+        total_geral: 5000,
+        por_participante: { p1: { total_geral: 5000 } }
+      },
+      pacote_documentos_anexados_json: [],
+      pacote_pendencias_json: [],
+      envio_docs_itens_json: []
+    };
+    return buildCorrespondentePrivateDossierFromState({ ...base, ...overrides });
+  };
+
+  // 1) solo CLT sem restrição
+  {
+    const canonical = buildCanonicalFromState();
+    const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
+    assert.equal(resumo.includes("processo solo"), true);
+    assert.equal(resumo.includes("atua como CLT"), true);
+    assert.equal(resumo.includes("não há indicação de restrição"), true);
+  }
+
+  // 2) composição com parceira autônoma (regime + renda de ambos)
+  {
+    const canonical = buildCanonicalFromState({
+      nome_parceiro: "MARIA TESTE",
+      dossie_participantes_json: [
+        { id: "p1", role: "titular", regime_trabalho: "clt", renda: 4200 },
+        { id: "p2", role: "parceiro", regime_trabalho: "autonomo", renda: 3100 }
+      ],
+      pacote_renda_resumo_json: {
+        total_geral: 7300,
+        por_participante: { p1: { total_geral: 4200 }, p2: { total_geral: 3100 } }
+      },
+      ir_declarado_parceiro: true
+    });
+    const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
+    assert.equal(resumo.includes("MARIA TESTE"), true);
+    assert.equal(resumo.includes("O titular atua como CLT"), true);
+    assert.equal(resumo.includes("Na composição, P2 atua como autônomo"), true);
+    assert.equal(resumo.includes("R$ 4200.00"), true);
+    assert.equal(resumo.includes("R$ 3100.00"), true);
+  }
+
+  // 3) autônomo sem IR
+  {
+    const canonical = buildCanonicalFromState({
+      regime_trabalho: "autonomo",
+      dossie_participantes_json: [
+        { id: "p1", role: "titular", regime_trabalho: "autonomo", renda: 6800 }
+      ],
+      pacote_renda_resumo_json: {
+        total_geral: 6800,
+        por_participante: { p1: { total_geral: 6800 } }
+      },
+      ir_declarado: false,
+      autonomo_sem_ir_este_ano: true
+    });
+    const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
+    assert.equal(resumo.includes("atua como autônomo"), true);
+    assert.equal(resumo.includes("sem IR declarado até o momento"), true);
+  }
+
+  // 4) caso com restrição
+  {
+    const canonical = buildCanonicalFromState({
+      pacote_restricoes_json: {
+        resumo: "restricao_em_analise",
+        participantes: [{ participante: "p1", tem_restricao: true, restricao_regularizada: false }]
+      }
+    });
+    const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
+    assert.equal(resumo.includes("indicação de restrição"), true);
+    assert.equal(resumo.includes("necessidade de regularização"), true);
+    assert.equal(resumo.includes("aprovado"), false);
+  }
+
+  // 5) docs enviados e aguardando correspondente
+  {
+    const canonical = buildCanonicalFromState({
+      envio_docs_status: "completo",
+      aguardando_retorno_correspondente: true,
+      processo_enviado_correspondente: true
+    });
+    const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
+    assert.equal(resumo.includes("documentação já foi enviada"), true);
+    assert.equal(resumo.includes("aguarda retorno"), true);
+  }
+
+  // 6) aprovado/aprovado_condicionado em visita
+  {
+    const canonical = buildCanonicalFromState({
+      fase_conversa: "agendamento_visita",
+      retorno_correspondente_status: "aprovado_condicionado",
+      envio_docs_status: "completo",
+      aguardando_retorno_correspondente: false
+    });
+    const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
+    assert.equal(resumo.includes("andamento para visita"), true);
+    assert.equal(resumo.includes("aguarda retorno"), false);
+  }
+
+  // 7) fidelidade técnico vs humano (sem contradição básica)
+  {
+    const canonical = buildCanonicalFromState({
+      regime_trabalho: "autonomo",
+      dossie_participantes_json: [
+        { id: "p1", role: "titular", regime_trabalho: "autonomo", renda: 6400 }
+      ],
+      pacote_renda_resumo_json: {
+        total_geral: 6400,
+        por_participante: { p1: { total_geral: 6400 } }
+      },
+      ir_declarado: false,
+      pacote_restricoes_json: { resumo: "ok", participantes: [] }
+    });
+    const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
+    const tecnico = canonical?.payload_tecnico_correspondente_json || {};
+    assert.equal(tecnico?.composicao?.solo, true);
+    assert.equal(tecnico?.restricao?.tem_restricao, false);
+    assert.equal(resumo.includes("processo solo"), true);
+    assert.equal(resumo.includes("não há indicação de restrição"), true);
+    assert.equal(resumo.includes("composição de renda"), false);
+  }
 }
 
 // 2) GET antes da assunção: entrada oficial exibe capa + ação de assumir.

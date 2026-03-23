@@ -14061,7 +14061,6 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
       },
       force: true
     });
-    rows = [];
   }
   const rowsWithFallback = rows.map(withHistoryFallbackUrl);
   return rowsWithFallback.length ? rowsWithFallback : stateDocsDerived;

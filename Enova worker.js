@@ -7147,23 +7147,48 @@ function buildPacoteRendaResumoPorParticipante(participantes = []) {
   });
 }
 
-function buildPacoteDocumentosAnexadosResumo(itens = [], analiseBase = {}) {
+function buildPacoteDocumentosAnexadosResumo(itens = [], analiseBase = {}, historico = []) {
   const invalidos = Array.isArray(analiseBase?.analise_docs_docs_invalidos_json) ? analiseBase.analise_docs_docs_invalidos_json : [];
   const ilegiveis = Array.isArray(analiseBase?.analise_docs_docs_ilegiveis_json) ? analiseBase.analise_docs_docs_ilegiveis_json : [];
   const faltantes = Array.isArray(analiseBase?.analise_docs_docs_faltantes_json) ? analiseBase.analise_docs_docs_faltantes_json : [];
+  const historicoLista = Array.isArray(historico) ? historico : [];
 
   const invalidosSet = new Set(invalidos.map((i) => `${i?.tipo || ""}:${i?.participante || ""}`));
   const ilegiveisSet = new Set(ilegiveis.map((i) => `${i?.tipo || ""}:${i?.participante || ""}`));
   const faltantesSet = new Set(faltantes.map((i) => `${i?.tipo || ""}:${i?.participante || ""}`));
+  const latestUploadByKey = new Map();
+  for (let idx = historicoLista.length - 1; idx >= 0; idx -= 1) {
+    const row = historicoLista[idx];
+    if (String(row?.origem || "").toLowerCase() !== "upload") continue;
+    const tipo = String(row?.associado?.tipo || row?.matched_checklist_item?.tipo || "").trim().toLowerCase();
+    const participante = String(row?.associado?.participante || row?.matched_checklist_item?.participante || "").trim().toLowerCase();
+    if (!tipo || !participante) continue;
+    const key = `${tipo}:${participante}`;
+    if (!latestUploadByKey.has(key)) latestUploadByKey.set(key, row);
+  }
 
   return (Array.isArray(itens) ? itens : []).map((item) => {
     const key = `${item?.tipo || ""}:${item?.participante || ""}`;
+    const uploadRef = latestUploadByKey.get(key);
+    const mediaRef = uploadRef?.media_ref && typeof uploadRef.media_ref === "object" ? uploadRef.media_ref : {};
+    const resolvedUrl = String(
+      mediaRef?.url ||
+      mediaRef?.link ||
+      mediaRef?.document_url ||
+      mediaRef?.download_url ||
+      mediaRef?.media_url ||
+      ""
+    ).trim();
     return {
       tipo: item?.tipo || null,
       participante: item?.participante || null,
       bucket: item?.bucket || null,
       status: item?.status || null,
       recebido_em: item?.recebido_em || null,
+      media_id: mediaRef?.media_id || null,
+      mime_type: mediaRef?.mime_type || null,
+      file_name: mediaRef?.file_name || null,
+      ...(resolvedUrl ? { url: resolvedUrl } : {}),
       validacao_basica_motivo: item?.validacao_basica_motivo || null,
       observacao_analise: invalidosSet.has(key)
         ? "invalido"
@@ -7207,6 +7232,7 @@ function buildPacoteCorrespondentePayloadFromState(st, itens = [], analisePayloa
   const observacoesCorrespondente = Array.isArray(st?.dossie_observacoes_correspondente_json) ? st.dossie_observacoes_correspondente_json : [];
   const observacoesCliente = Array.isArray(st?.dossie_observacoes_cliente_json) ? st.dossie_observacoes_cliente_json : [];
   const observacoes = [...new Set([...observacoesCorrespondente, ...observacoesCliente])];
+  const historicoUploads = Array.isArray(st?.envio_docs_historico_json) ? st.envio_docs_historico_json : [];
 
   const rendaResumoPorParticipante = buildPacoteRendaResumoPorParticipante(participantes);
   const rendaTotalFormal = Number(st?.dossie_renda_total_formal ?? 0) || 0;
@@ -7233,7 +7259,7 @@ function buildPacoteCorrespondentePayloadFromState(st, itens = [], analisePayloa
       }))
     },
     pacote_pendencias_json: pendencias,
-    pacote_documentos_anexados_json: buildPacoteDocumentosAnexadosResumo(itens, analiseBase),
+    pacote_documentos_anexados_json: buildPacoteDocumentosAnexadosResumo(itens, analiseBase, historicoUploads),
     pacote_observacoes_json: observacoes
   };
 }
@@ -10534,7 +10560,20 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
           validacao_basica: validation,
           document_classification: documentClassification,
           participant_inference: participantInference,
-          checklist_match: checklistMatch
+          checklist_match: checklistMatch,
+          media_ref: {
+            media_id: mediaObject?.id || null,
+            mime_type: mediaObject?.mime_type || null,
+            file_name: mediaObject?.filename || mediaObject?.file_name || null,
+            url: String(
+              mediaObject?.url ||
+              mediaObject?.link ||
+              mediaObject?.document_url ||
+              mediaObject?.download_url ||
+              mediaObject?.media_url ||
+              ""
+            ).trim() || null
+          }
         }
       ]
     };
@@ -10766,11 +10805,7 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
   sentences.push(`${identificationParts.join(" ")}.`);
 
   const participantById = (id) => participantes.find((p) => normalize(p?.id) === id) || null;
-  const knownCtpsFlags = participantes
-    .map((p) => boolValue(p?.ctps_36))
-    .filter((value) => value !== null);
-  const hasCtps36 = formalizacao?.ctps_36 === true || knownCtpsFlags.includes(true);
-  const hasKnownCtpsWithout36 = !hasCtps36 && knownCtpsFlags.length > 0 && knownCtpsFlags.every((value) => value === false);
+  const canonicalCtps36 = boolValue(formalizacao?.ctps_36);
   const dependenteTitular = boolValue(
     participantes.find((p) => normalize(p?.id) === "p1")?.dependente ??
     dossie?.composicao?.dependente
@@ -10802,9 +10837,9 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
   if (titularAutonomoSemDeclaracaoIR || p2AutonomoSemDeclaracaoIR || boolValue(dossie?.restricoes_viabilidade?.autonomo_sem_ir_este_ano) === true) {
     sentences.push("Há renda autônoma informada sem IR declarado até o momento.");
   }
-  if (hasCtps36) {
+  if (canonicalCtps36 === true) {
     sentences.push("O cliente possui 36 meses de registro em CTPS.");
-  } else if (hasKnownCtpsWithout36) {
+  } else if (canonicalCtps36 === false) {
     sentences.push("O cliente não possui 36 meses de registro em CTPS.");
   }
   if (dependenteTitular === true) {
@@ -12316,11 +12351,22 @@ async function handleCorrespondenteEntryPage(request, env) {
   });
 }
 
-function buildCorrespondentePrivateDocsLinksText(docs = []) {
-  if (!Array.isArray(docs) || docs.length === 0) {
-    return "Links de documentos: nenhum link encontrado no momento.";
-  }
-
+function buildCorrespondentePrivateDocsLinksText(docs = [], st = null) {
+  const docsList = Array.isArray(docs) ? docs : [];
+  const pendingItems = Array.isArray(st?.envio_docs_itens_json)
+    ? st.envio_docs_itens_json
+      .filter((item) => !isEnvioDocsItemReceived(item))
+      .filter((item) => String(item?.bucket || "").toLowerCase() !== "recomendado")
+    : [];
+  const normalizeDocType = (tipo) => normalizeEnvioDocsTipoForChecklist(tipo) || String(tipo || "").trim().toLowerCase() || "documento";
+  const docLabelMap = {
+    rg: "RG",
+    cpf: "CPF",
+    identidade_cpf: "Identidade / CPF",
+    comprovante_residencia: "Comprovante de residência",
+    comprovante_renda: "Comprovante de renda"
+  };
+  const docLabel = (tipo) => docLabelMap[tipo] || prettyDocLabel(tipo);
   const resolveDocumentUrl = (doc) =>
     String(
       doc?.url ||
@@ -12330,19 +12376,71 @@ function buildCorrespondentePrivateDocsLinksText(docs = []) {
       doc?.media_url ||
       ""
     ).trim();
-  const lines = docs
-    .map((d) => ({ ...d, _resolved_url: resolveDocumentUrl(d) }))
-    .filter((d) => d?._resolved_url)
-    .slice(0, 30)
-    .map((d, idx) => {
-      const tipo = d?.tipo || "documento";
-      const participante = d?.participante ? ` (${String(d.participante).toUpperCase()})` : "";
-      return `${idx + 1}. ${tipo}${participante}: ${d._resolved_url}`;
-    });
+  const resolveStatus = (doc) => String(doc?.status || "").trim().toLowerCase();
+  const isReceivedDoc = (doc) => {
+    const status = resolveStatus(doc);
+    if (!status) return true;
+    return status !== "pendente";
+  };
+  const formatDocName = (tipo, participanteRaw = null) => {
+    const participant = String(participanteRaw || "").trim().toLowerCase();
+    const participantSuffix = participant ? ` (${participant.toUpperCase()})` : "";
+    return `${docLabel(tipo)}${participantSuffix}`;
+  };
 
-  return lines.length
-    ? ["🔗 *Links dos documentos do caso:*", ...lines].join("\n")
-    : "Links de documentos: nenhum link encontrado no momento.";
+  const grouped = new Map();
+  for (const doc of docsList.filter(isReceivedDoc)) {
+    const tipo = normalizeDocType(doc?.tipo);
+    const participant = String(doc?.participante || "").trim().toLowerCase();
+    const key = `${tipo}|${participant}`;
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        tipo,
+        participante: participant || null,
+        display: formatDocName(tipo, participant),
+        links: [],
+        semLink: false
+      });
+    }
+    const group = grouped.get(key);
+    const resolvedUrl = resolveDocumentUrl(doc);
+    if (resolvedUrl) group.links.push(resolvedUrl);
+    else group.semLink = true;
+  }
+
+  const receivedLines = grouped.size
+    ? [...grouped.values()].map((entry) => `- ${entry.display}`)
+    : ["- Nenhum documento recebido no momento."];
+
+  const pendingLines = pendingItems.length
+    ? pendingItems.map((item) => {
+      const tipo = normalizeDocType(item?.tipo);
+      const participant = String(item?.participante || "").trim().toLowerCase();
+      return `- ${formatDocName(tipo, participant)}`;
+    })
+    : ["- Sem pendências documentais ativas."];
+
+  const linkLines = [];
+  for (const entry of grouped.values()) {
+    const uniqueLinks = [...new Set(entry.links)];
+    if (uniqueLinks.length) {
+      linkLines.push(`- ${entry.display}: ${uniqueLinks.join(" | ")}`);
+    } else if (entry.semLink) {
+      linkLines.push(`- ${entry.display}: link não disponível no arquivo enviado.`);
+    }
+  }
+  if (!linkLines.length) linkLines.push("- Nenhum link disponível no momento.");
+
+  return [
+    "📄 *Documentos recebidos*",
+    ...receivedLines,
+    "",
+    "⏳ *Documentos pendentes*",
+    ...pendingLines,
+    "",
+    "🔗 *Links disponíveis*",
+    ...linkLines
+  ].join("\n");
 }
 
 function extractCorrespondenteWaId(msg, env) {
@@ -13877,22 +13975,69 @@ async function listCorrespondenteAssumirCandidates(env) {
 
 async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
   if (!wa_id) return [];
-  const stateDocs = Array.isArray(stateFallback?.pacote_documentos_anexados_json)
+  const stateDocsRaw = Array.isArray(stateFallback?.pacote_documentos_anexados_json)
     ? stateFallback.pacote_documentos_anexados_json
     : [];
+  const itensEnvioDocs = Array.isArray(stateFallback?.envio_docs_itens_json)
+    ? stateFallback.envio_docs_itens_json
+    : [];
+  const historicoUploads = Array.isArray(stateFallback?.envio_docs_historico_json)
+    ? stateFallback.envio_docs_historico_json
+    : [];
+  const resolveUrl = (doc) =>
+    String(
+      doc?.url ||
+      doc?.link ||
+      doc?.document_url ||
+      doc?.download_url ||
+      doc?.media_url ||
+      ""
+    ).trim();
+  const latestUploadByKey = new Map();
+  for (let idx = historicoUploads.length - 1; idx >= 0; idx -= 1) {
+    const row = historicoUploads[idx];
+    if (String(row?.origem || "").toLowerCase() !== "upload") continue;
+    const tipo = String(row?.associado?.tipo || row?.matched_checklist_item?.tipo || "").trim().toLowerCase();
+    const participante = String(row?.associado?.participante || row?.matched_checklist_item?.participante || "").trim().toLowerCase();
+    if (!tipo || !participante) continue;
+    const key = `${tipo}:${participante}`;
+    if (!latestUploadByKey.has(key)) latestUploadByKey.set(key, row);
+  }
+  const withHistoryFallbackUrl = (doc) => {
+    const urlAtual = resolveUrl(doc);
+    if (urlAtual) return doc;
+    const tipo = String(doc?.tipo || "").trim().toLowerCase();
+    const participante = String(doc?.participante || "").trim().toLowerCase();
+    if (!tipo || !participante) return doc;
+    const uploadRef = latestUploadByKey.get(`${tipo}:${participante}`);
+    const mediaRef = uploadRef?.media_ref && typeof uploadRef.media_ref === "object" ? uploadRef.media_ref : {};
+    const fallbackUrl = resolveUrl(mediaRef);
+    return fallbackUrl ? { ...doc, url: fallbackUrl } : doc;
+  };
+  const stateDocs = stateDocsRaw.map(withHistoryFallbackUrl);
+  const stateDocsDerived = stateDocs.length
+    ? stateDocs
+    : itensEnvioDocs
+      .filter((item) => isEnvioDocsItemReceived(item))
+      .map((item) => withHistoryFallbackUrl({
+        tipo: item?.tipo || null,
+        participante: item?.participante || null,
+        status: item?.status || null
+      }));
   const simCtx = getSimulationContext(env);
   // Em simulação canônica, não consultamos storage externo de documentos.
-  if (simCtx?.active) return stateDocs;
+  if (simCtx?.active) return stateDocsDerived;
   const rows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_docs", {
     method: "GET",
     query: {
       wa_id: `eq.${encodeURIComponent(wa_id)}`,
-      select: "tipo,participante,url,created_at",
+      select: "tipo,participante,url,link,document_url,download_url,media_url,status,mime_type,file_name,filename,created_at",
       order: "created_at.asc",
       limit: 50
     }
   }));
-  return rows.length ? rows : stateDocs;
+  const rowsWithFallback = rows.map(withHistoryFallbackUrl);
+  return rowsWithFallback.length ? rowsWithFallback : stateDocsDerived;
 }
 
 async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
@@ -14053,7 +14198,7 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   const dossieCanonico = dossierBundle.canonical;
   const dossiePrivado = dossierBundle.mensagemPrivadaWhatsapp || dossierBundle.privadoCompleto;
   const docs = await getCaseDocumentLinks(env, caso.wa_id, stCaso);
-  const docsText = buildCorrespondentePrivateDocsLinksText(docs);
+  const docsText = buildCorrespondentePrivateDocsLinksText(docs, stCaso);
   const caseRef = buildCorrespondenteCaseRef(caso);
 
   try {

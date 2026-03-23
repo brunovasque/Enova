@@ -701,9 +701,10 @@ function getLastStepMessagesForWa(env, waId) {
 
   const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
     .map((p) => String(p?.text?.body || ""));
-  assert.equal(bodies.some((body) => body.includes("🔗 *Links dos documentos do caso:*")), true);
-  assert.equal(bodies.some((body) => body.includes("https://docs.example.com/rg-p1.pdf")), true);
-  assert.equal(bodies.some((body) => body.includes("https://docs.example.com/cpf-p1.pdf")), true);
+  assert.equal(bodies.some((body) => body.includes("📄 *Documentos recebidos*")), true);
+  assert.equal(bodies.some((body) => body.includes("🔗 *Links disponíveis*")), true);
+  assert.equal(bodies.some((body) => body.includes("RG (P1): https://docs.example.com/rg-p1.pdf")), true);
+  assert.equal(bodies.some((body) => body.includes("CPF (P1): https://docs.example.com/cpf-p1.pdf")), true);
 }
 
 {
@@ -738,10 +739,8 @@ function getLastStepMessagesForWa(env, waId) {
 
   const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
     .map((p) => String(p?.text?.body || ""));
-  assert.equal(
-    bodies.some((body) => body.includes("Links de documentos: nenhum link encontrado no momento.")),
-    true
-  );
+  assert.equal(bodies.some((body) => body.includes("🔗 *Links disponíveis*")), true);
+  assert.equal(bodies.some((body) => body.includes("RG (P1): link não disponível no arquivo enviado.")), true);
   assert.equal(
     bodies.some((body) => /"tipo"\s*:|^\s*\{/.test(body)),
     false
@@ -1698,6 +1697,62 @@ function getLastStepMessagesForWa(env, waId) {
   const stEnvioDocs = env.__enovaSimulationCtx.stateByWaId[waEnvioDocs];
   assert.equal(stEnvioDocs?.fase_conversa, "envio_docs");
   assert.equal(env.__enovaSimulationCtx.stateByWaId[waCaso].retorno_correspondente_status || null, null);
+}
+
+// 8.6c) Fallback da origem real no dossiê privado: sem enova_docs e sem pacote pronto, link deve vir do histórico de upload.
+{
+  const env = buildEnvWithState();
+  const waCaseFallback = "5541992222555";
+  const tokenFallback = "ZX12CV34BN56MK78LP90QW12";
+  env.__enovaSimulationCtx.stateByWaId[waCaseFallback] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waCaso],
+    wa_id: waCaseFallback,
+    pre_cadastro_numero: "000888",
+    corr_assumir_token: tokenFallback,
+    fase_conversa: "finalizacao_processo",
+    corr_publicacao_status: "publicado_grupo_pendente_assumir",
+    processo_enviado_correspondente: false,
+    corr_lock_correspondente_wa_id: null,
+    envio_docs_itens_json: [
+      { tipo: "rg", participante: "p1", bucket: "obrigatorio", status: "recebido" }
+    ],
+    pacote_documentos_anexados_json: null,
+    envio_docs_historico_json: [
+      {
+        origem: "upload",
+        associado: { tipo: "rg", participante: "p1" },
+        media_ref: { url: "https://docs.example.com/rg-fallback-case.pdf", mime_type: "application/pdf" }
+      }
+    ]
+  };
+
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.docs.links.fallback.origin",
+              timestamp: "1773183925",
+              type: "text",
+              text: { body: `ASSUMIR ${tokenFallback}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  const assumirRes = await worker.fetch(assumirReq, env, {});
+  assert.equal(assumirRes.status, 200);
+  const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
+    .map((p) => String(p?.text?.body || ""));
+  assert.equal(bodies.some((body) => body.includes("RG (P1): https://docs.example.com/rg-fallback-case.pdf")), true);
 }
 
 // 9) Lookup por ?pre deve funcionar também quando o proxy retorna envelope { data: [...] }.

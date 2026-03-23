@@ -152,9 +152,9 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(bundle.structured?.meta?.token_assumir, token);
   assert.equal(bundle.structured?.meta?.case_ref, "000001");
   assert.equal(typeof bundle.structured?.resumo_executivo?.pendencias_total, "number");
-  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("CAMADA 1 — RESUMO HUMANO"), true);
-  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("CAMADA 2 — PERFIL TÉCNICO CONSOLIDADO"), true);
-  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("CAMADA 3 — ENTREGA OPERACIONAL DE DOCS"), true);
+  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("Acesse o dossiê completo pelo link oficial da Enova."), true);
+  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("Retorno no grupo: STATUS + MOTIVO (opcional)."), true);
+  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("CAMADA 1 — RESUMO HUMANO"), false);
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("Dossiê privado canônico (completo)"), false);
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("espelho_state_preenchido"), false);
   assert.equal(bundle.resumoPersistido.includes("🔒 *Dossiê privado canônico (completo)*"), false);
@@ -208,9 +208,9 @@ function getLastStepMessagesForWa(env, waId) {
   {
     const canonical = buildCanonicalFromState();
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
-    assert.equal(resumo.includes("processo solo"), true);
-    assert.equal(resumo.includes("atua como CLT"), true);
-    assert.equal(resumo.includes("não há indicação de restrição"), true);
+    assert.equal(resumo.includes("JOAO TESTE segue em processo solo"), true);
+    assert.equal(resumo.includes("Informou trabalho CLT"), true);
+    assert.equal(resumo.includes("Informou que não possui restrição"), true);
   }
 
   // 2) composição com parceira autônoma (regime + renda de ambos)
@@ -228,11 +228,11 @@ function getLastStepMessagesForWa(env, waId) {
       ir_declarado_parceiro: true
     });
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
-    assert.equal(resumo.includes("MARIA TESTE"), true);
-    assert.equal(resumo.includes("O titular atua como CLT"), true);
-    assert.equal(resumo.includes("Na composição, P2 atua como autônomo"), true);
-    assert.equal(resumo.includes("R$ 4200.00"), true);
-    assert.equal(resumo.includes("R$ 3100.00"), true);
+    assert.equal(resumo.includes("JOAO TESTE segue em processo com composição de renda"), true);
+    assert.equal(resumo.includes("Informou trabalho CLT"), true);
+    assert.equal(resumo.includes("renda de R$ 4.200,00"), true);
+    assert.equal(resumo.includes("MARIA TESTE"), false);
+    assert.equal(resumo.includes("autônomo"), true);
   }
 
   // 3) autônomo sem IR
@@ -250,8 +250,9 @@ function getLastStepMessagesForWa(env, waId) {
       autonomo_sem_ir_este_ano: true
     });
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
-    assert.equal(resumo.includes("atua como autônomo"), true);
-    assert.equal(resumo.includes("sem IR declarado até o momento"), true);
+    assert.equal(resumo.includes("Informou trabalho autônomo"), true);
+    assert.equal(resumo.includes("sem IR declarado até o momento"), false);
+    assert.equal(resumo.includes("IR"), false);
   }
 
   // 4) caso com restrição
@@ -263,8 +264,9 @@ function getLastStepMessagesForWa(env, waId) {
       }
     });
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
-    assert.equal(resumo.includes("indicação de restrição"), true);
-    assert.equal(resumo.includes("necessidade de regularização"), true);
+    assert.equal(resumo.includes("Informou que possui restrição"), true);
+    assert.equal(resumo.includes("necessidade de regularização"), false);
+    assert.equal(resumo.includes("regulariza"), false);
     assert.equal(resumo.includes("aprovado"), false);
   }
 
@@ -276,8 +278,8 @@ function getLastStepMessagesForWa(env, waId) {
       processo_enviado_correspondente: true
     });
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
-    assert.equal(resumo.includes("documentação já foi enviada"), true);
-    assert.equal(resumo.includes("aguarda retorno"), true);
+    assert.equal(resumo.includes("documentação já foi enviada"), false);
+    assert.equal(resumo.includes("aguarda retorno"), false);
   }
 
   // 6) aprovado/aprovado_condicionado em visita
@@ -289,7 +291,7 @@ function getLastStepMessagesForWa(env, waId) {
       aguardando_retorno_correspondente: false
     });
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
-    assert.equal(resumo.includes("andamento para visita"), true);
+    assert.equal(resumo.includes("andamento para visita"), false);
     assert.equal(resumo.includes("aguarda retorno"), false);
   }
 
@@ -312,7 +314,7 @@ function getLastStepMessagesForWa(env, waId) {
     assert.equal(tecnico?.composicao?.solo, true);
     assert.equal(tecnico?.restricao?.tem_restricao, false);
     assert.equal(resumo.includes("processo solo"), true);
-    assert.equal(resumo.includes("não há indicação de restrição"), true);
+    assert.equal(resumo.includes("Informou que não possui restrição"), true);
     assert.equal(resumo.includes("composição de renda"), false);
   }
 
@@ -333,9 +335,10 @@ function getLastStepMessagesForWa(env, waId) {
       ]
     });
     const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
-    assert.equal(privado.includes("CAMADA 1 — RESUMO HUMANO"), true);
-    assert.equal(privado.includes("Documentos recebidos"), true);
-    assert.equal(privado.includes("ctps_completa"), true);
+    assert.equal(privado.includes("Acesse o dossiê completo pelo link oficial da Enova."), true);
+    assert.equal(privado.includes("Retorno no grupo: STATUS + MOTIVO (opcional)."), true);
+    assert.equal(privado.includes("Documentos recebidos"), false);
+    assert.equal(privado.includes("ctps_completa"), false);
     assert.equal(privado.includes("não informado"), false);
     assert.equal(privado.includes("_json"), false);
     assert.equal(privado.includes("{"), false);
@@ -365,7 +368,7 @@ function getLastStepMessagesForWa(env, waId) {
       ["p1", "p2"]
     );
     assert.equal(resumo.includes("processo solo"), false);
-    assert.equal(resumo.includes("processo conjunto"), true);
+    assert.equal(resumo.includes("processo com composição"), true);
   }
 
   // 10) sem restrição: humano e técnico coerentes.
@@ -376,7 +379,7 @@ function getLastStepMessagesForWa(env, waId) {
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
     const tecnico = canonical?.payload_tecnico_correspondente_json || {};
     assert.equal(tecnico?.restricao?.tem_restricao, false);
-    assert.equal(resumo.includes("indicação de restrição"), true);
+    assert.equal(resumo.includes("Informou que não possui restrição"), true);
     assert.equal(resumo.includes("necessidade de regularização"), false);
   }
 
@@ -390,8 +393,8 @@ function getLastStepMessagesForWa(env, waId) {
       ]
     });
     const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
-    assert.equal(privado.includes("Documentos pendentes"), true);
-    assert.equal(privado.includes("não bloqueante"), true);
+    assert.equal(privado.includes("Documentos pendentes"), false);
+    assert.equal(privado.includes("não bloqueante"), false);
     assert.equal(privado.includes("envio_docs_itens_json"), false);
     assert.equal(privado.includes("pacote_documentos_anexados_json"), false);
     assert.equal(privado.includes("_incoming_media"), false);
@@ -407,8 +410,8 @@ function getLastStepMessagesForWa(env, waId) {
     });
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
     const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
-    assert.equal(resumo.includes("possui dependente"), true);
-    assert.equal(privado.includes("Dependente: sim"), true);
+    assert.equal(resumo.includes("Informou que possui dependente"), true);
+    assert.equal(privado.includes("Dependente: sim"), false);
   }
 
   // 11.2) CTPS 36 deve aparecer no resumo humano (sim e não) quando existir base técnica.
@@ -421,10 +424,10 @@ function getLastStepMessagesForWa(env, waId) {
     });
     const resumoComCtps = String(canonicalComCtps?.dossie_privado_canonico_json?.resumo_humano || "");
     const consolidadoComCtps = String(canonicalComCtps?.mensagem_privada_correspondente_whatsapp || "");
-    assert.equal(resumoComCtps.includes("possui 36 meses de registro em CTPS"), true);
+    assert.equal(resumoComCtps.includes("Confirmou possuir 36 meses de carteira assinada"), true);
     assert.equal(canonicalComCtps?.payload_tecnico_correspondente_json?.formalizacao?.ctps_36, true);
     assert.equal(canonicalComCtps?.dossie_privado_canonico_json?.titular?.ctps_36, true);
-    assert.equal(consolidadoComCtps.includes("CTPS 36 meses: sim"), true);
+    assert.equal(consolidadoComCtps.includes("CTPS 36 meses: sim"), false);
 
     const canonicalSemCtps = buildCanonicalFromState({
       ctps_36: "não",
@@ -434,10 +437,10 @@ function getLastStepMessagesForWa(env, waId) {
     });
     const resumoSemCtps = String(canonicalSemCtps?.dossie_privado_canonico_json?.resumo_humano || "");
     const consolidadoSemCtps = String(canonicalSemCtps?.mensagem_privada_correspondente_whatsapp || "");
-    assert.equal(resumoSemCtps.includes("não possui 36 meses de registro em CTPS"), true);
+    assert.equal(resumoSemCtps.includes("Informou não possuir 36 meses de carteira assinada"), true);
     assert.equal(canonicalSemCtps?.payload_tecnico_correspondente_json?.formalizacao?.ctps_36, false);
     assert.equal(canonicalSemCtps?.dossie_privado_canonico_json?.titular?.ctps_36, false);
-    assert.equal(consolidadoSemCtps.includes("CTPS 36 meses: não"), true);
+    assert.equal(consolidadoSemCtps.includes("CTPS 36 meses: não"), false);
   }
 
   // 11.3) Fonte canônica de CTPS 36 no consolidado deve refletir apenas resposta final do titular.
@@ -457,8 +460,8 @@ function getLastStepMessagesForWa(env, waId) {
     assert.equal(canonicalTitularNaoParceiroSim?.payload_tecnico_correspondente_json?.formalizacao?.ctps_36, false);
     assert.equal(canonicalTitularNaoParceiroSim?.dossie_privado_canonico_json?.titular?.ctps_36, false);
     assert.equal(canonicalTitularNaoParceiroSim?.dossie_privado_canonico_json?.parceiro?.ctps_36_parceiro, true);
-    assert.equal(resumo.includes("não possui 36 meses de registro em CTPS"), true);
-    assert.equal(consolidado.includes("CTPS 36 meses: não"), true);
+    assert.equal(resumo.includes("Informou não possuir 36 meses de carteira assinada"), true);
+    assert.equal(consolidado.includes("CTPS 36 meses: não"), false);
   }
 
   // 12) prova de não vazamento de JSON bruto em render final privado.
@@ -500,7 +503,8 @@ function getLastStepMessagesForWa(env, waId) {
       envio_docs_status: ""
     });
     const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
-    assert.equal(privado.includes("CAMADA 1 — RESUMO HUMANO"), true);
+    assert.equal(privado.includes("Acesse o dossiê completo pelo link oficial da Enova."), true);
+    assert.equal(privado.includes("Retorno no grupo: STATUS + MOTIVO (opcional)."), true);
     assert.equal(privado.includes("_json"), false);
     assert.equal(privado.includes("espelho_state_preenchido"), false);
     assert.equal(/"\w+"\s*:/.test(privado), false);
@@ -730,7 +734,7 @@ function getLastStepMessagesForWa(env, waId) {
     : [];
   const guidanceHits = sentPayloads
     .map((p) => String(p?.text?.body || ""))
-    .filter((body) => body.includes("Para me devolver o resultado, responda neste formato:"));
+    .filter((body) => body.includes("Retorno no grupo: STATUS + MOTIVO (opcional)."));
   assert.equal(guidanceHits.length, 1);
   const reminderHits = sentPayloads
     .map((p) => String(p?.text?.body || ""))
@@ -756,7 +760,7 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(body.includes("Token/identificador de entrada"), false);
 }
 
-// 3.8) Links/docs: quando houver URL no state, deve renderizar; sem URL, mensagem curta e limpa.
+// 3.8) WhatsApp privado deve ficar enxuto (sem dossiê/docs completos), mantendo link oficial.
 {
   const env = buildEnvWithState();
   env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [
@@ -790,13 +794,12 @@ function getLastStepMessagesForWa(env, waId) {
 
   const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
     .map((p) => String(p?.text?.body || ""));
-  assert.equal(bodies.some((body) => body.includes("📄 *Documentos recebidos*")), true);
-  assert.equal(bodies.some((body) => body.includes("🔗 *Links disponíveis*")), true);
-  assert.equal(bodies.some((body) => body.includes("RG (P1): https://entrada.enova.local/correspondente/doc?pre=000001")), true);
-  assert.equal(bodies.some((body) => body.includes("CPF (P1): https://entrada.enova.local/correspondente/doc?pre=000001")), true);
+  assert.equal(bodies.some((body) => body.includes("Dossiê web (fonte principal): https://entrada.enova.local/correspondente/entrada?pre=000001")), true);
+  assert.equal(bodies.some((body) => body.includes("📄 *Documentos recebidos*")), false);
+  assert.equal(bodies.some((body) => body.includes("🔗 *Links disponíveis*")), false);
 }
 
-// 3.8c) CTPS completa enviada via fluxo (item + histórico) deve entrar como recebida e com link operacional.
+// 3.8c) Mesmo com CTPS recebida, WhatsApp privado segue enxuto (sem dossiê/docs no corpo).
 {
   const env = buildEnvWithState();
   env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [];
@@ -837,12 +840,11 @@ function getLastStepMessagesForWa(env, waId) {
 
   const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
     .map((p) => String(p?.text?.body || ""));
-  assert.equal(bodies.some((body) => body.includes("📄 *Documentos recebidos*")), true);
-  assert.equal(bodies.some((body) => body.includes("Carteira de Trabalho Completa (P1)")), true);
-  assert.equal(bodies.some((body) => body.includes("Carteira de Trabalho Completa (P1): https://entrada.enova.local/correspondente/doc?pre=000001")), true);
+  assert.equal(bodies.some((body) => body.includes("Dossiê web (fonte principal): https://entrada.enova.local/correspondente/entrada?pre=000001")), true);
+  assert.equal(bodies.some((body) => body.includes("Carteira de Trabalho Completa (P1)")), false);
 }
 
-// 3.8d) CTPS enviada sem URL utilizável deve aparecer como recebida e com diagnóstico de link indisponível.
+// 3.8d) Mesmo sem URL utilizável, WhatsApp privado segue enxuto.
 {
   const env = buildEnvWithState();
   env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [];
@@ -883,11 +885,11 @@ function getLastStepMessagesForWa(env, waId) {
 
   const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
     .map((p) => String(p?.text?.body || ""));
-  assert.equal(bodies.some((body) => body.includes("Carteira de Trabalho Completa (P1)")), true);
-  assert.equal(bodies.some((body) => body.includes("Carteira de Trabalho Completa (P1): link não disponível no arquivo enviado.")), true);
+  assert.equal(bodies.some((body) => body.includes("Dossiê web (fonte principal): https://entrada.enova.local/correspondente/entrada?pre=000001")), true);
+  assert.equal(bodies.some((body) => body.includes("link não disponível no arquivo enviado")), false);
 }
 
-// 3.8e) Sem CTPS anexada, permanece pendente e não aparece como recebida (sem confundir com CTPS 36 lógica).
+// 3.8e) Sem CTPS anexada, WhatsApp privado não deve exibir bloco de docs.
 {
   const env = buildEnvWithState();
   env.__enovaSimulationCtx.stateByWaId[waCaso].ctps_36 = true;
@@ -922,12 +924,11 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(assumirRes.status, 200);
 
   const docsBodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
-    .map((p) => String(p?.text?.body || ""))
-    .filter((body) => body.includes("📄 *Documentos recebidos*") || body.includes("⏳ *Documentos pendentes*") || body.includes("🔗 *Links disponíveis*"));
+    .map((p) => String(p?.text?.body || ""));
   const docsMessage = docsBodies.join("\n");
-  assert.equal(docsMessage.includes("Carteira de Trabalho Completa (P1)"), true);
-  assert.equal(docsMessage.includes("⏳ *Documentos pendentes*"), true);
-  assert.equal(docsMessage.includes("📄 *Documentos recebidos*\n- Carteira de Trabalho Completa (P1)"), false);
+  assert.equal(docsMessage.includes("Dossiê web (fonte principal): https://entrada.enova.local/correspondente/entrada?pre=000001"), true);
+  assert.equal(docsMessage.includes("⏳ *Documentos pendentes*"), false);
+  assert.equal(docsMessage.includes("📄 *Documentos recebidos*"), false);
 }
 
 {
@@ -962,8 +963,8 @@ function getLastStepMessagesForWa(env, waId) {
 
   const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
     .map((p) => String(p?.text?.body || ""));
-  assert.equal(bodies.some((body) => body.includes("🔗 *Links disponíveis*")), true);
-  assert.equal(bodies.some((body) => body.includes("RG (P1): link não disponível no arquivo enviado.")), true);
+  assert.equal(bodies.some((body) => body.includes("Dossiê web (fonte principal): https://entrada.enova.local/correspondente/entrada?pre=000001")), true);
+  assert.equal(bodies.some((body) => body.includes("RG (P1): link não disponível no arquivo enviado.")), false);
   assert.equal(
     bodies.some((body) => /"tipo"\s*:|^\s*\{/.test(body)),
     false
@@ -1002,9 +1003,9 @@ function getLastStepMessagesForWa(env, waId) {
 
   const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
     .map((p) => String(p?.text?.body || ""));
-  const docsMessage = bodies.find((body) => body.includes("🔗 *Links disponíveis*")) || "";
+  const docsMessage = bodies.join("\n");
   assert.equal(docsMessage.includes("https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=abc"), false);
-  assert.equal(docsMessage.includes("RG (P1): https://entrada.enova.local/correspondente/doc?pre=000001"), true);
+  assert.equal(docsMessage.includes("https://entrada.enova.local/correspondente/entrada?pre=000001"), true);
 }
 
 // 3.8b) Link operacional /correspondente/doc deve ser utilizável no fluxo (redirect para URL final não-meta).
@@ -2027,7 +2028,7 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(assumirRes.status, 200);
   const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
     .map((p) => String(p?.text?.body || ""));
-  assert.equal(bodies.some((body) => body.includes("RG (P1): https://entrada.enova.local/correspondente/doc?pre=000888")), true);
+  assert.equal(bodies.some((body) => body.includes("Dossiê web (fonte principal): https://entrada.enova.local/correspondente/entrada?pre=000888")), true);
 }
 
 // 9) Lookup por ?pre deve funcionar também quando o proxy retorna envelope { data: [...] }.

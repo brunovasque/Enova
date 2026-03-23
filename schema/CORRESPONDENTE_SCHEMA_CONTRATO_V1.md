@@ -41,7 +41,8 @@ Fontes usadas:
 | envio_docs_historico_json | sim | não (há fallback sem histórico) | **não** (ausente em `enova_state.columns.txt`) | não |
 
 Notas objetivas:
-- Os cinco campos acima ausentes no inventário local são usados pelo Worker atual.
+- Os cinco campos acima ausentes no inventário local e usados pelo Worker atual são:
+  `corr_follow_base_at`, `corr_follow_next_at`, `pacote_documentos_anexados_json`, `envio_docs_itens_json`, `envio_docs_historico_json`.
 - Para disponibilidade imediata da rota de correspondente, os dois campos de follow (`corr_follow_*`) são os únicos desse bloco que influenciam operação de follow/entrega após assunção.
 
 ---

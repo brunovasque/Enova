@@ -432,6 +432,25 @@ function getLastStepMessagesForWa(env, waId) {
     assert.equal(resumoSemCtps.includes("não possui 36 meses de registro em CTPS"), true);
   }
 
+  // 11.3) Fonte canônica de CTPS 36 no consolidado deve refletir apenas resposta final do titular.
+  {
+    const canonicalTitularNaoParceiroSim = buildCanonicalFromState({
+      ctps_36: false,
+      ctps_36_parceiro: true,
+      p3_ctps_36: true,
+      dossie_participantes_json: [
+        { id: "p1", role: "titular", regime_trabalho: "clt", renda: 5000, ctps_36: false },
+        { id: "p2", role: "parceiro", regime_trabalho: "autonomo", renda: 2200, ctps_36: true },
+        { id: "p3", role: "familiar", regime_trabalho: "clt", renda: 900, ctps_36: true }
+      ]
+    });
+    const resumo = String(canonicalTitularNaoParceiroSim?.dossie_privado_canonico_json?.resumo_humano || "");
+    const consolidado = String(canonicalTitularNaoParceiroSim?.mensagem_privada_correspondente_whatsapp || "");
+    assert.equal(canonicalTitularNaoParceiroSim?.payload_tecnico_correspondente_json?.formalizacao?.ctps_36, false);
+    assert.equal(resumo.includes("não possui 36 meses de registro em CTPS"), true);
+    assert.equal(consolidado.includes("CTPS 36 meses: não"), true);
+  }
+
   // 12) prova de não vazamento de JSON bruto em render final privado.
   {
     const canonical = buildCanonicalFromState({
@@ -763,8 +782,8 @@ function getLastStepMessagesForWa(env, waId) {
     .map((p) => String(p?.text?.body || ""));
   assert.equal(bodies.some((body) => body.includes("📄 *Documentos recebidos*")), true);
   assert.equal(bodies.some((body) => body.includes("🔗 *Links disponíveis*")), true);
-  assert.equal(bodies.some((body) => body.includes("RG (P1): https://docs.example.com/rg-p1.pdf")), true);
-  assert.equal(bodies.some((body) => body.includes("CPF (P1): https://docs.example.com/cpf-p1.pdf")), true);
+  assert.equal(bodies.some((body) => body.includes("RG (P1): https://entrada.enova.local/correspondente/doc?pre=000001")), true);
+  assert.equal(bodies.some((body) => body.includes("CPF (P1): https://entrada.enova.local/correspondente/doc?pre=000001")), true);
 }
 
 {
@@ -805,6 +824,58 @@ function getLastStepMessagesForWa(env, waId) {
     bodies.some((body) => /"tipo"\s*:|^\s*\{/.test(body)),
     false
   );
+}
+
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [
+    { tipo: "rg", participante: "p1", status: "recebido", url: "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=abc" }
+  ];
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.docs.links.lookaside",
+              timestamp: "1773183905",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  const assumirRes = await worker.fetch(assumirReq, env, {});
+  assert.equal(assumirRes.status, 200);
+
+  const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
+    .map((p) => String(p?.text?.body || ""));
+  const docsMessage = bodies.find((body) => body.includes("🔗 *Links disponíveis*")) || "";
+  assert.equal(docsMessage.includes("https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=abc"), false);
+  assert.equal(docsMessage.includes("RG (P1): https://entrada.enova.local/correspondente/doc?pre=000001"), true);
+}
+
+// 3.8b) Link operacional /correspondente/doc deve ser utilizável no fluxo (redirect para URL final não-meta).
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = correspondenteWa;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [
+    { tipo: "rg", participante: "p1", status: "recebido", url: "https://docs.example.com/rg-p1.pdf" }
+  ];
+  const req = new Request(`https://worker.local/correspondente/doc?pre=000001&t=${token}&doc=0`, { method: "GET" });
+  const res = await worker.fetch(req, env, {});
+  assert.equal(res.status, 302);
+  assert.equal(String(res.headers.get("location") || ""), "https://docs.example.com/rg-p1.pdf");
 }
 
 // 3.1b) Compatibilidade: link legado com token continua funcionando.
@@ -1812,7 +1883,7 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(assumirRes.status, 200);
   const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
     .map((p) => String(p?.text?.body || ""));
-  assert.equal(bodies.some((body) => body.includes("RG (P1): https://docs.example.com/rg-fallback-case.pdf")), true);
+  assert.equal(bodies.some((body) => body.includes("RG (P1): https://entrada.enova.local/correspondente/doc?pre=000888")), true);
 }
 
 // 9) Lookup por ?pre deve funcionar também quando o proxy retorna envelope { data: [...] }.

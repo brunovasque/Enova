@@ -3996,6 +3996,9 @@ if (isAdminProdPath) {
     ) {
       return handleCorrespondenteEntryPage(request, env);
     }
+    if (request.method === "GET" && pathname === "/correspondente/doc") {
+      return handleCorrespondenteDocumentAccess(request, env);
+    }
 
     // ---------------------------------------------
     // 🔄 GET /webhook/meta — verificação do webhook
@@ -10713,6 +10716,17 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
 // =============================================================
 function gerarDossieCompleto(st) {
   const statusDocs = st.envio_docs_status || st.docs_status_geral || "pendente";
+  const formatCanonicalBool = (value) => value === true ? "Sim" : value === false ? "Não" : "Não informado";
+  const toCanonicalBool = (value) => {
+    if (value === true || value === false) return value;
+    if (value === null || value === undefined) return null;
+    const txt = String(value).trim().toLowerCase();
+    if (["true", "1", "sim", "yes"].includes(txt)) return true;
+    if (["false", "0", "nao", "não", "no"].includes(txt)) return false;
+    return null;
+  };
+  const ctpsTitular = toCanonicalBool(st.ctps_36);
+  const ctpsParceiro = toCanonicalBool(st.ctps_36_parceiro);
 
   return `
 📌 *Dossiê do Cliente*
@@ -10724,8 +10738,8 @@ function gerarDossieCompleto(st) {
 💰 Renda Parceiro: ${st.renda_parceiro || "não informado"}
 🧮 Soma de Renda: ${st.somar_renda ? "Sim" : "Não"}
 
-📄 CTPS Titular ≥ 36 meses: ${st.ctps_36 === true ? "Sim" : "Não"}
-📄 CTPS Parceiro ≥ 36 meses: ${st.ctps_36_parceiro === true ? "Sim" : "Não"}
+📄 CTPS Titular ≥ 36 meses: ${formatCanonicalBool(ctpsTitular)}
+📄 CTPS Parceiro ≥ 36 meses: ${formatCanonicalBool(ctpsParceiro)}
 
 👶 Dependente: ${st.dependente === true ? "Sim" : "Não"}
 
@@ -11221,7 +11235,7 @@ function buildCorrespondentePrivateDossierFromState(st) {
     dossieIsYes(st?.ir_declarado_parceiro) ||
     dossieIsYes(st?.ir_declarado_p2)
   );
-  const ctps36 = dossieIsYes(st?.ctps_36) || dossieIsYes(st?.ctps_36_parceiro) || dossieIsYes(st?.p3_ctps_36);
+  const ctps36 = readCanonicalBool(st?.ctps_36);
 
   const restricaoResumo = String(pacoteRestricoes?.resumo || st?.dossie_restricao_resumo || "sem_restricao").toLowerCase();
   const restricoesParticipantes = Array.isArray(pacoteRestricoes?.participantes) ? pacoteRestricoes.participantes : [];
@@ -11790,6 +11804,15 @@ function buildCorrespondenteEntryLinkForCorrespondente(env, token, correspondent
   const safeWa = String(correspondenteWaId || "").trim();
   if (!baseLink || !safeWa) return baseLink;
   return `${baseLink}&cw=${encodeURIComponent(safeWa)}`;
+}
+
+function buildCorrespondenteDocumentAccessLink(env, token, caseRefInput, docIndex) {
+  const safeToken = normalizeAssumirToken(token);
+  const safeCaseRef = normalizeCorrespondenteCaseRefInput(caseRefInput);
+  const idx = Number.parseInt(String(docIndex ?? ""), 10);
+  const base = resolveCorrespondenteEntryBaseUrl(env);
+  if (!base || !safeToken || !safeCaseRef || !Number.isInteger(idx) || idx < 0) return null;
+  return `${base}/correspondente/doc?pre=${encodeURIComponent(safeCaseRef)}&t=${encodeURIComponent(safeToken)}&doc=${idx}`;
 }
 
 function buildCorrespondenteAssumirButtonPayload(token) {
@@ -12362,7 +12385,111 @@ async function handleCorrespondenteEntryPage(request, env) {
   });
 }
 
-function buildCorrespondentePrivateDocsLinksText(docs = [], st = null) {
+function resolveCorrespondenteDocumentUrl(doc) {
+  return String(
+    doc?.url ||
+    doc?.link ||
+    doc?.document_url ||
+    doc?.download_url ||
+    doc?.media_url ||
+    ""
+  ).trim();
+}
+
+function isMetaProtectedDocumentUrl(rawUrl) {
+  const value = String(rawUrl || "").trim();
+  if (!value) return false;
+  try {
+    const parsed = new URL(value);
+    const host = String(parsed.hostname || "").toLowerCase();
+    if (!host) return false;
+    return (
+      host === "lookaside.fbsbx.com" ||
+      host.endsWith(".lookaside.fbsbx.com") ||
+      host === "graph.facebook.com" ||
+      host.endsWith(".graph.facebook.com") ||
+      host.endsWith(".fbsbx.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function handleCorrespondenteDocumentAccess(request, env) {
+  const requestUrl = new URL(request.url);
+  const caseRef = normalizeCorrespondenteCaseRefInput(
+    requestUrl.searchParams.get("pre") ||
+    requestUrl.searchParams.get("caseRef") ||
+    requestUrl.searchParams.get("case_ref")
+  );
+  const token = normalizeAssumirToken(
+    requestUrl.searchParams.get("t") ||
+    requestUrl.searchParams.get("token")
+  );
+  const docIndex = Number.parseInt(String(requestUrl.searchParams.get("doc") || ""), 10);
+  if (!caseRef || !token || !Number.isInteger(docIndex) || docIndex < 0) {
+    return new Response("Link de documento inválido.", { status: 400 });
+  }
+
+  const caso = await getCorrespondenteCaseByToken(env, token);
+  if (!caso?.wa_id) {
+    return new Response("Link de documento inválido ou expirado.", { status: 404 });
+  }
+
+  const resolvedCaseRef = normalizeCorrespondenteCaseRefInput(buildCorrespondenteCaseRef(caso));
+  if (!resolvedCaseRef || resolvedCaseRef !== caseRef) {
+    return new Response("Link de documento inválido.", { status: 403 });
+  }
+  if (!isCorrespondenteEntryAllowed(caso)) {
+    return new Response("Link de documento indisponível para o estado atual do caso.", { status: 403 });
+  }
+
+  const stCaso = await getState(env, caso.wa_id) || caso;
+  const docs = await getCaseDocumentLinks(env, caso.wa_id, stCaso);
+  const receivedDocs = (Array.isArray(docs) ? docs : []).filter((doc) => {
+    const status = String(doc?.status || "").trim().toLowerCase();
+    return status !== "pendente";
+  });
+  const targetDoc = receivedDocs[docIndex] || null;
+  const targetUrl = resolveCorrespondenteDocumentUrl(targetDoc);
+  if (!targetUrl) {
+    return new Response("Documento não encontrado.", { status: 404 });
+  }
+
+  if (!isMetaProtectedDocumentUrl(targetUrl)) {
+    return Response.redirect(targetUrl, 302);
+  }
+
+  const headers = {};
+  if (env?.WHATS_TOKEN) headers.Authorization = `Bearer ${env.WHATS_TOKEN}`;
+  let upstream;
+  try {
+    upstream = await fetch(targetUrl, { headers });
+  } catch {
+    return new Response("Falha ao carregar documento.", { status: 502 });
+  }
+  if (!upstream?.ok) {
+    return new Response("Falha ao carregar documento.", { status: 502 });
+  }
+
+  const contentType = String(upstream.headers.get("content-type") || "").trim() || "application/octet-stream";
+  const fileNameRaw = String(targetDoc?.file_name || targetDoc?.tipo || "documento").trim() || "documento";
+  const fileName = fileNameRaw
+    .replace(/[^a-z0-9._-]/gi, "_")
+    .replace(/\.\.+/g, "_")
+    .replace(/^\.+/g, "")
+    .slice(0, 120) || "documento";
+  return new Response(upstream.body, {
+    status: 200,
+    headers: {
+      "content-type": contentType,
+      "content-disposition": `inline; filename="${fileName}"`,
+      "cache-control": "private, max-age=300"
+    }
+  });
+}
+
+function buildCorrespondentePrivateDocsLinksText(docs = [], st = null, options = {}) {
   const docsList = Array.isArray(docs) ? docs : [];
   const pendingItems = Array.isArray(st?.envio_docs_itens_json)
     ? st.envio_docs_itens_json
@@ -12378,15 +12505,19 @@ function buildCorrespondentePrivateDocsLinksText(docs = [], st = null) {
     comprovante_renda: "Comprovante de renda"
   };
   const docLabel = (tipo) => docLabelMap[tipo] || prettyDocLabel(tipo);
-  const resolveDocumentUrl = (doc) =>
-    String(
-      doc?.url ||
-      doc?.link ||
-      doc?.document_url ||
-      doc?.download_url ||
-      doc?.media_url ||
-      ""
-    ).trim();
+  const env = options?.env || null;
+  const caseRef = normalizeCorrespondenteCaseRefInput(options?.caseRef || buildCorrespondenteCaseRef(st));
+  const token = normalizeAssumirToken(options?.token || st?.corr_assumir_token || "");
+  const resolveDocumentUrl = (doc, docIndex) => {
+    const rawUrl = resolveCorrespondenteDocumentUrl(doc);
+    if (!rawUrl) return "";
+    const controlledLink = buildCorrespondenteDocumentAccessLink(env, token, caseRef, docIndex);
+    if (controlledLink) return controlledLink;
+    if (rawUrl && env?.DEBUG_META_WEBHOOK === "1") {
+      console.warn("correspondente_docs_link_without_controlled_url", { caseRef, docIndex });
+    }
+    return "";
+  };
   const resolveStatus = (doc) => String(doc?.status || "").trim().toLowerCase();
   const isReceivedDoc = (doc) => {
     const status = resolveStatus(doc);
@@ -12400,6 +12531,7 @@ function buildCorrespondentePrivateDocsLinksText(docs = [], st = null) {
   };
 
   const grouped = new Map();
+  let receivedDocIndex = 0;
   for (const doc of docsList.filter(isReceivedDoc)) {
     const tipo = normalizeDocType(doc?.tipo);
     const participant = String(doc?.participante || "").trim().toLowerCase();
@@ -12414,7 +12546,8 @@ function buildCorrespondentePrivateDocsLinksText(docs = [], st = null) {
       });
     }
     const group = grouped.get(key);
-    const resolvedUrl = resolveDocumentUrl(doc);
+    const resolvedUrl = resolveDocumentUrl(doc, receivedDocIndex);
+    receivedDocIndex += 1;
     if (resolvedUrl) group.links.push(resolvedUrl);
     else group.semLink = true;
   }
@@ -13995,15 +14128,7 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
   const historicoUploads = Array.isArray(stateFallback?.envio_docs_historico_json)
     ? stateFallback.envio_docs_historico_json
     : [];
-  const resolveUrl = (doc) =>
-    String(
-      doc?.url ||
-      doc?.link ||
-      doc?.document_url ||
-      doc?.download_url ||
-      doc?.media_url ||
-      ""
-    ).trim();
+  const resolveUrl = (doc) => resolveCorrespondenteDocumentUrl(doc);
   const latestUploadByKey = new Map();
   for (let idx = historicoUploads.length - 1; idx >= 0; idx -= 1) {
     const row = historicoUploads[idx];
@@ -14238,7 +14363,7 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   const dossieCanonico = dossierBundle.canonical;
   const dossiePrivado = dossierBundle.mensagemPrivadaWhatsapp || dossierBundle.privadoCompleto;
   const docs = await getCaseDocumentLinks(env, caso.wa_id, stCaso);
-  const docsText = buildCorrespondentePrivateDocsLinksText(docs, stCaso);
+  const docsText = buildCorrespondentePrivateDocsLinksText(docs, stCaso, { env, token, caseRef: buildCorrespondenteCaseRef(caso) });
   const caseRef = buildCorrespondenteCaseRef(caso);
   await telemetry(env, {
     wa_id: caso.wa_id,

@@ -152,8 +152,12 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(bundle.structured?.meta?.token_assumir, token);
   assert.equal(bundle.structured?.meta?.case_ref, "000001");
   assert.equal(typeof bundle.structured?.resumo_executivo?.pendencias_total, "number");
-  assert.equal(bundle.resumoPersistido.includes("📊 *Resumo consolidado do caso*"), true);
+  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("CAMADA 1 — RESUMO HUMANO"), true);
+  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("CAMADA 2 — PERFIL TÉCNICO CONSOLIDADO"), true);
+  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("CAMADA 3 — ENTREGA OPERACIONAL DE DOCS"), true);
   assert.equal(bundle.resumoPersistido.includes("🔒 *Dossiê privado canônico (completo)*"), false);
+  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("não informado"), false);
+  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("_json"), false);
   assert.equal(bundle.privadoCompleto.includes("🔒 *Dossiê privado canônico (completo)*"), true);
   assert.equal(bundle.privadoCompleto.includes("🧭 *meta*"), true);
   assert.equal(bundle.privadoCompleto.includes("👥 *composicao*"), true);
@@ -308,6 +312,116 @@ function getLastStepMessagesForWa(env, waId) {
     assert.equal(resumo.includes("processo solo"), true);
     assert.equal(resumo.includes("não há indicação de restrição"), true);
     assert.equal(resumo.includes("composição de renda"), false);
+  }
+
+  // 8) solo CLT com docs quase completos: privado limpo, útil e sem JSON bruto.
+  {
+    const canonical = buildCanonicalFromState({
+      envio_docs_status: "parcial",
+      pacote_documentos_anexados_json: [
+        { tipo: "rg", participante: "p1", status: "recebido" },
+        { tipo: "cpf", participante: "p1", status: "recebido" },
+        { tipo: "comprovante_renda", participante: "p1", status: "recebido" }
+      ],
+      envio_docs_itens_json: [
+        { tipo: "rg", participante: "p1", status: "recebido", bucket: "obrigatorio" },
+        { tipo: "cpf", participante: "p1", status: "recebido", bucket: "obrigatorio" },
+        { tipo: "comprovante_renda", participante: "p1", status: "recebido", bucket: "obrigatorio" },
+        { tipo: "ctps_completa", participante: "p1", status: "pendente", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false }
+      ]
+    });
+    const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
+    assert.equal(privado.includes("CAMADA 1 — RESUMO HUMANO"), true);
+    assert.equal(privado.includes("Documentos recebidos"), true);
+    assert.equal(privado.includes("ctps_completa"), true);
+    assert.equal(privado.includes("não informado"), false);
+    assert.equal(privado.includes("_json"), false);
+    assert.equal(privado.includes("{"), false);
+    assert.equal(privado.includes("}"), false);
+  }
+
+  // 9) composição: sem contradição entre técnico e resumo humano.
+  {
+    const canonical = buildCanonicalFromState({
+      nome_parceiro: "MARIA TESTE",
+      dossie_participantes_json: [
+        { id: "p1", role: "titular", regime_trabalho: "clt", renda: 4000 },
+        { id: "p2", role: "parceiro", regime_trabalho: "clt", renda: 3500 }
+      ],
+      pacote_renda_resumo_json: {
+        total_geral: 7500,
+        por_participante: { p1: { total_geral: 4000 }, p2: { total_geral: 3500 } }
+      },
+      pacote_restricoes_json: { resumo: "ok", participantes: [] }
+    });
+    const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
+    const tecnico = canonical?.payload_tecnico_correspondente_json || {};
+    assert.equal(tecnico?.composicao?.solo, false);
+    assert.equal(Array.isArray(tecnico?.composicao?.participantes), true);
+    assert.deepEqual(
+      (tecnico?.composicao?.participantes || []).map((p) => p?.id),
+      ["p1", "p2"]
+    );
+    assert.equal(resumo.includes("processo solo"), false);
+    assert.equal(resumo.includes("processo conjunto"), true);
+  }
+
+  // 10) sem restrição: humano e técnico coerentes.
+  {
+    const canonical = buildCanonicalFromState({
+      pacote_restricoes_json: { resumo: "sem_restricao", participantes: [] }
+    });
+    const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
+    const tecnico = canonical?.payload_tecnico_correspondente_json || {};
+    assert.equal(tecnico?.restricao?.tem_restricao, false);
+    assert.equal(resumo.includes("indicação de restrição"), true);
+    assert.equal(resumo.includes("necessidade de regularização"), false);
+  }
+
+  // 11) pendência documental não bloqueante: apresentação limpa e operacional.
+  {
+    const canonical = buildCanonicalFromState({
+      envio_docs_status: "parcial",
+      envio_docs_itens_json: [
+        { tipo: "rg", participante: "p1", status: "recebido", bucket: "obrigatorio" },
+        { tipo: "ctps_completa", participante: "p1", status: "pendente", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false }
+      ]
+    });
+    const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
+    assert.equal(privado.includes("Documentos pendentes"), true);
+    assert.equal(privado.includes("não bloqueante"), true);
+    assert.equal(privado.includes("envio_docs_itens_json"), false);
+    assert.equal(privado.includes("pacote_documentos_anexados_json"), false);
+    assert.equal(privado.includes("_incoming_media"), false);
+  }
+
+  // 12) prova de não vazamento de JSON bruto em render final privado.
+  {
+    const canonical = buildCanonicalFromState({
+      pacote_participantes_json: [{ id: "p1", nome: "JOAO TESTE" }],
+      pacote_documentos_anexados_json: [{ tipo: "rg", status: "recebido", participante: "p1" }],
+      pacote_renda_resumo_json: { total_geral: 5000, por_participante: { p1: { total_geral: 5000 } } },
+      pacote_restricoes_json: { resumo: "ok", participantes: [] },
+      envio_docs_historico_json: [{ event: "upload" }],
+      envio_docs_itens_json: [{ tipo: "rg", status: "recebido", participante: "p1" }],
+      _incoming_media: [{ id: "mid1" }]
+    });
+    const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
+    const blockedRawTokens = [
+      "pacote_participantes_json",
+      "pacote_documentos_anexados_json",
+      "pacote_renda_resumo_json",
+      "pacote_restricoes_json",
+      "envio_docs_historico_json",
+      "envio_docs_itens_json",
+      "_incoming_media"
+    ];
+    for (const tokenRaw of blockedRawTokens) {
+      assert.equal(privado.includes(tokenRaw), false);
+    }
+    assert.equal(/"\w+"\s*:/.test(privado), false);
+    assert.equal(/\{\s*"/.test(privado), false);
+    assert.equal(/\[\s*\{/.test(privado), false);
   }
 }
 
@@ -466,6 +580,15 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(secondAssumirRes.status, 200);
   const afterSecond = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(afterSecond.corr_lock_correspondente_wa_id, correspondenteWa);
+
+  // 3.4) Instrução final deve sair apenas uma vez (sem duplicidade).
+  const sentPayloads = Array.isArray(env.__enovaSimulationCtx.sentPayloads)
+    ? env.__enovaSimulationCtx.sentPayloads
+    : [];
+  const guidanceHits = sentPayloads
+    .map((p) => String(p?.text?.body || ""))
+    .filter((body) => body.includes("Para me devolver o resultado, responda neste formato:"));
+  assert.equal(guidanceHits.length, 1);
 }
 
 // 3.1) Admin/master deve abrir caso assumido por outro correspondente.

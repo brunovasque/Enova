@@ -10984,7 +10984,7 @@ function buildCorrespondentePrivateWhatsAppMessage({ payloadTecnico, dossieCanon
     "✅ Caso assumido com exclusividade.",
     `Pré-cadastro: ${caseRef}`,
     "Acesse o dossiê completo pelo link oficial da Enova.",
-    "Retorno no grupo: STATUS + MOTIVO (opcional)."
+    `Retorno no grupo: Pré-cadastro #${caseRef} + STATUS + MOTIVO (opcional).`
   ].join("\n");
 }
 
@@ -10994,7 +10994,7 @@ function buildCorrespondentePrivateWhatsAppSafeFallback(st = {}, canonical = {})
     "✅ Caso assumido com exclusividade.",
     `Pré-cadastro: ${safeCaseRef}`,
     "Acesse o dossiê completo pelo link oficial da Enova.",
-    "Retorno no grupo: STATUS + MOTIVO (opcional)."
+    `Retorno no grupo: Pré-cadastro #${safeCaseRef} + STATUS + MOTIVO (opcional).`
   ].join("\n");
 }
 
@@ -11829,10 +11829,31 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
   const documental = tecnico.documental && typeof tecnico.documental === "object" ? tecnico.documental : {};
   const conclusao = tecnico.conclusao_operacional && typeof tecnico.conclusao_operacional === "object" ? tecnico.conclusao_operacional : {};
   const documentos = tecnico.documentos && typeof tecnico.documentos === "object" ? tecnico.documentos : {};
+  const restricao = tecnico.restricao && typeof tecnico.restricao === "object" ? tecnico.restricao : {};
+  const formalizacao = tecnico.formalizacao && typeof tecnico.formalizacao === "object" ? tecnico.formalizacao : {};
 
   const token = normalizeAssumirToken(options?.token || st?.corr_assumir_token || "");
   const documentosPorParticipante = {};
   const asArray = (value) => Array.isArray(value) ? value : [];
+  const parseCanonicalBool = (...values) => {
+    for (const value of values) {
+      if (value === true || value === false) return value;
+      if (value === null || value === undefined) continue;
+      const txt = String(value).trim().toLowerCase();
+      if (["true", "1", "sim", "yes"].includes(txt)) return true;
+      if (["false", "0", "nao", "não", "no"].includes(txt)) return false;
+    }
+    return null;
+  };
+  const normalizeParticipantId = (value) => String(value || "").trim().toLowerCase();
+  const normalizeRegime = (value) => {
+    const txt = String(value || "").trim().toLowerCase();
+    if (!txt) return null;
+    if (txt === "clt") return "clt";
+    if (txt === "autonomo" || txt === "autônomo") return "autonomo";
+    if (txt === "pj") return "pj";
+    return txt;
+  };
   const mergeDoc = (item, origem) => {
     const participante = String(item?.participante || "desconhecido").trim().toLowerCase();
     if (!documentosPorParticipante[participante]) {
@@ -11852,6 +11873,41 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
   };
   for (const doc of asArray(documentos.recebidos)) mergeDoc(doc, "recebidos");
   for (const doc of asArray(documentos.pendentes)) mergeDoc(doc, "pendentes");
+
+  const participantesTecnico = asArray(composicao.participantes);
+  const participantesState = Array.isArray(st?.dossie_participantes_json) ? st.dossie_participantes_json : [];
+  const participantesBase = participantesTecnico.length
+    ? participantesTecnico
+    : participantesState.length
+      ? participantesState
+      : [{ id: "p1", papel: "titular", regime_trabalho: st?.regime_trabalho ?? null, renda: Number(st?.renda) || 0 }];
+  const participantesPerfil = participantesBase.map((p) => {
+    const pid = normalizeParticipantId(p?.id || p?.participante) || "p1";
+    const regimeState = pid === "p1"
+      ? st?.regime_trabalho
+      : pid === "p2"
+        ? (st?.regime_trabalho_parceiro ?? st?.regime_trabalho_parceiro_familiar)
+        : st?.regime_trabalho_parceiro_familiar_p3;
+    const regime = normalizeRegime(p?.regime_trabalho ?? regimeState);
+    const rendaState = pid === "p1"
+      ? st?.renda
+      : pid === "p2"
+        ? (st?.renda_parceiro ?? st?.renda_parceiro_familiar)
+        : st?.renda_parceiro_familiar_p3;
+    const temRestricao = parseCanonicalBool(
+      p?.tem_restricao,
+      p?.restricao,
+      pid === "p1" ? st?.restricao : null
+    );
+    return {
+      id: pid,
+      papel: p?.papel || p?.role || (pid === "p1" ? "titular" : pid === "p2" ? "parceiro" : "familiar"),
+      regime_trabalho: regime || null,
+      renda: Number(p?.renda ?? rendaState ?? 0) || 0,
+      tem_restricao: temRestricao === true
+    };
+  });
+  const composicaoIds = [...new Set(participantesPerfil.map((p) => String(p?.id || "").trim().toUpperCase()).filter(Boolean))];
 
   return {
     meta: {
@@ -11875,14 +11931,17 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
     perfil: {
       nome: identificacao.nome || st?.nome || null,
       estado_civil: identificacao.estado_civil || st?.estado_civil || null,
-      tipo_processo: composicao.tipo_processo || null,
-      participantes: asArray(composicao.participantes).map((p) => ({
-        id: p?.id || null,
-        papel: p?.papel || null,
-        regime_trabalho: p?.regime_trabalho || null,
-        renda: Number(p?.renda) || 0,
-        tem_restricao: p?.tem_restricao === true
-      }))
+      tipo_processo: composicao.tipo_processo || (participantesPerfil.length <= 1 ? "solo" : participantesPerfil.length === 2 ? "conjunto" : "composicao"),
+      composicao: composicaoIds.length ? composicaoIds.join(" / ") : null,
+      restricao: restricao.tem_restricao === true,
+      ctps_36: parseCanonicalBool(formalizacao.ctps_36),
+      dependente: parseCanonicalBool(
+        participantesTecnico.find((p) => normalizeParticipantId(p?.id || p?.participante) === "p1")?.dependente,
+        st?.dependente
+      ),
+      multi_renda: renda.multi_renda === true,
+      multi_regime: renda.multi_regime === true,
+      participantes: participantesPerfil
     },
     documentos_por_participante: Object.values(documentosPorParticipante),
     pendencias: {
@@ -11920,6 +11979,8 @@ function buildCorrespondenteCanonicalDossierBundleFromState(st, options = {}) {
     String(canonical?.dossie_privado_completo_correspondente || "").trim() ||
     gerarDossieCompleto(baseState);
   const resumoPersistido =
+    String(canonical?.resumo_humano_dinamico_correspondente || "").trim() ||
+    String(canonical?.dossie_privado_canonico_json?.resumo_humano || "").trim() ||
     String(canonical?.resumo_humano_correspondente || "").trim() ||
     String(baseState?.dossie_resumo || "").trim() ||
     gerarDossieCompleto(baseState);
@@ -12037,6 +12098,7 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     return `R$ ${num.toFixed(2)}`;
   };
   const formatMultiline = (value) => escapeHtml(String(value || "").trim()).replace(/\n/g, "<br />");
+  const boolLabel = (value) => value === true ? "sim" : value === false ? "não" : "não informado";
   const participantRoleLabel = (value) => {
     const txt = String(value || "").trim().toLowerCase();
     if (txt === "titular") return "Titular";
@@ -12186,6 +12248,17 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
       <div class="row"><span class="label">Nome:</span> ${escapeHtml(perfil?.nome || clienteNome)}</div>
       <div class="row"><span class="label">Estado civil:</span> ${escapeHtml(perfil?.estado_civil || "não informado")}</div>
       <div class="row"><span class="label">Tipo de processo:</span> ${escapeHtml(String(perfil?.tipo_processo || "não informado"))}</div>
+      <div class="row"><span class="label">Composição:</span> ${escapeHtml(String(perfil?.composicao || "não informado"))}</div>
+      <div class="row"><span class="label">CTPS 36 meses:</span> ${escapeHtml(boolLabel(perfil?.ctps_36))}</div>
+      <div class="row"><span class="label">Dependente:</span> ${escapeHtml(boolLabel(perfil?.dependente))}</div>
+      <div class="row"><span class="label">Restrição:</span> ${escapeHtml(boolLabel(perfil?.restricao))}</div>
+      ${(perfil?.multi_regime === true || perfil?.multi_renda === true)
+        ? `<div class="row"><span class="label">Múltiplos indicadores:</span> ${escapeHtml([
+          perfil?.multi_regime === true ? "multi-regime" : null,
+          perfil?.multi_renda === true ? "multi-renda" : null
+        ].filter(Boolean).join(" / "))}</div>`
+        : ""
+      }
       <div class="grid2">
         ${(Array.isArray(perfil?.participantes) && perfil.participantes.length
           ? perfil.participantes
@@ -12365,45 +12438,11 @@ async function handleCorrespondenteEntryPage(request, env) {
   let docsForUi = [];
   try {
     const docs = await getCaseDocumentLinks(env, casoAtual?.wa_id || caso?.wa_id, stCompleto || casoAtual || caso);
-    const docsMap = new Map();
-    const normalizeDocUiStatus = (value) => {
-      const txt = String(value || "").trim().toLowerCase();
-      if (!txt) return "recebido";
-      return txt === "pendente" ? "pendente" : "recebido";
-    };
-    const normalizeDocUiType = (value) => normalizeEnvioDocsTipoForChecklist(value) || String(value || "").trim().toLowerCase() || "documento";
-    const normalizeDocUiParticipant = (value) => String(value || "").trim().toLowerCase() || "-";
-    const docsList = Array.isArray(docs) ? docs : [];
-    docsList.forEach((doc, idx) => {
-      const tipo = normalizeDocUiType(doc?.tipo);
-      const participante = normalizeDocUiParticipant(doc?.participante);
-      const status = normalizeDocUiStatus(doc?.status || doc?.observacao_analise);
-      const hasUsableUrl = Boolean(resolveCorrespondenteDocumentUrl(doc));
-      const key = `${tipo}|${participante}`;
-      const score = (status !== "pendente" ? 100 : 0) + (hasUsableUrl ? 10 : 0) + idx / 1000;
-      const current = docsMap.get(key);
-      if (!current || score >= current.__score) {
-        docsMap.set(key, {
-          tipo,
-          participante,
-          status,
-          __score: score,
-          __hasUsableUrl: hasUsableUrl
-        });
-      }
-    });
-    const normalizedDocs = [...docsMap.values()];
-    let receivedDocIndex = 0;
-    docsForUi = normalizedDocs.map((doc) => {
-      const isReceived = doc.status !== "pendente";
-      const accessLink = isReceived
-        ? (
-          doc.__hasUsableUrl
-            ? (buildCorrespondenteDocumentAccessLink(env, tokenResolved, caseRefResolved, receivedDocIndex) || "")
-            : ""
-        )
+    const docsModel = buildCorrespondenteWebDocsModel(docs);
+    docsForUi = docsModel.normalizedDocs.map((doc) => {
+      const accessLink = Number.isInteger(doc?.received_access_index)
+        ? (buildCorrespondenteDocumentAccessLink(env, tokenResolved, caseRefResolved, doc.received_access_index) || "")
         : "";
-      if (isReceived && doc.__hasUsableUrl) receivedDocIndex += 1;
       return {
         tipo: doc?.tipo || null,
         participante: doc?.participante || null,
@@ -12418,7 +12457,11 @@ async function handleCorrespondenteEntryPage(request, env) {
     lockWaId: lockFinalRaw,
     isAdminOverride: adminOverride,
     dossierPayload,
-    resumoHumano: dossierBundle?.canonical?.resumo_humano_correspondente || dossierBundle?.resumoPersistido || "",
+    resumoHumano:
+      dossierBundle?.canonical?.resumo_humano_dinamico_correspondente ||
+      dossierBundle?.canonical?.dossie_privado_canonico_json?.resumo_humano ||
+      dossierBundle?.resumoPersistido ||
+      "",
     retornoCorrespondente: {
       status: stCompleto?.retorno_correspondente_status || casoAtual?.retorno_correspondente_status || null,
       motivo: stCompleto?.retorno_correspondente_motivo || null,
@@ -12441,6 +12484,54 @@ function resolveCorrespondenteDocumentUrl(doc) {
     doc?.media_url ||
     ""
   ).trim();
+}
+
+function buildCorrespondenteWebDocsModel(docs) {
+  const normalizeDocUiStatus = (value) => {
+    const txt = String(value || "").trim().toLowerCase();
+    if (!txt) return "recebido";
+    return txt === "pendente" ? "pendente" : "recebido";
+  };
+  const normalizeDocUiType = (value) => normalizeEnvioDocsTipoForChecklist(value) || String(value || "").trim().toLowerCase() || "documento";
+  const normalizeDocUiParticipant = (value) => String(value || "").trim().toLowerCase() || "-";
+  const docsMap = new Map();
+  const docsList = Array.isArray(docs) ? docs : [];
+  docsList.forEach((doc, idx) => {
+    const tipo = normalizeDocUiType(doc?.tipo);
+    const participante = normalizeDocUiParticipant(doc?.participante);
+    const status = normalizeDocUiStatus(doc?.status || doc?.observacao_analise);
+    const url = resolveCorrespondenteDocumentUrl(doc);
+    const hasUsableUrl = Boolean(url);
+    const key = `${tipo}|${participante}`;
+    const score = (status !== "pendente" ? 100 : 0) + (hasUsableUrl ? 10 : 0) + idx / 1000;
+    const current = docsMap.get(key);
+    if (!current || score >= current.__score) {
+      docsMap.set(key, {
+        tipo,
+        participante,
+        status,
+        url,
+        file_name: doc?.file_name || null,
+        __score: score,
+        __hasUsableUrl: hasUsableUrl
+      });
+    }
+  });
+  const normalizedDocs = [...docsMap.values()];
+  let receivedAccessIndex = 0;
+  for (const doc of normalizedDocs) {
+    if (doc.status !== "pendente" && doc.__hasUsableUrl) {
+      doc.received_access_index = receivedAccessIndex;
+      receivedAccessIndex += 1;
+    } else {
+      doc.received_access_index = null;
+    }
+  }
+  const receivedWithUrl = normalizedDocs.filter((doc) => Number.isInteger(doc?.received_access_index));
+  return {
+    normalizedDocs,
+    receivedWithUrl
+  };
 }
 
 function isMetaProtectedDocumentUrl(rawUrl) {
@@ -12493,12 +12584,8 @@ async function handleCorrespondenteDocumentAccess(request, env) {
 
   const stCaso = await getState(env, caso.wa_id) || caso;
   const docs = await getCaseDocumentLinks(env, caso.wa_id, stCaso);
-  const receivedDocs = (Array.isArray(docs) ? docs : []).filter((doc) => {
-    const status = String(doc?.status || "").trim().toLowerCase();
-    if (status === "pendente") return false;
-    return Boolean(resolveCorrespondenteDocumentUrl(doc));
-  });
-  const targetDoc = receivedDocs[docIndex] || null;
+  const docsModel = buildCorrespondenteWebDocsModel(docs);
+  const targetDoc = docsModel.receivedWithUrl[docIndex] || null;
   const targetUrl = resolveCorrespondenteDocumentUrl(targetDoc);
   if (!targetUrl) {
     return new Response("Documento não encontrado.", { status: 404 });

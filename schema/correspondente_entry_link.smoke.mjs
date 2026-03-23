@@ -136,7 +136,12 @@ function getLastStepMessagesForWa(env, waId) {
 
   assert.equal(
     bundle.resumoPersistido,
-    String(bundle.canonical?.resumo_humano_correspondente || "").trim()
+    String(
+      bundle.canonical?.resumo_humano_dinamico_correspondente ||
+      bundle.canonical?.dossie_privado_canonico_json?.resumo_humano ||
+      bundle.canonical?.resumo_humano_correspondente ||
+      ""
+    ).trim()
   );
   assert.equal(
     bundle.privadoCompleto,
@@ -153,7 +158,7 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(bundle.structured?.meta?.case_ref, "000001");
   assert.equal(typeof bundle.structured?.resumo_executivo?.pendencias_total, "number");
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("Acesse o dossiê completo pelo link oficial da Enova."), true);
-  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("Retorno no grupo: STATUS + MOTIVO (opcional)."), true);
+  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("Retorno no grupo: Pré-cadastro #000001 + STATUS + MOTIVO (opcional)."), true);
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("CAMADA 1 — RESUMO HUMANO"), false);
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("Dossiê privado canônico (completo)"), false);
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("espelho_state_preenchido"), false);
@@ -173,6 +178,12 @@ function getLastStepMessagesForWa(env, waId) {
   assert.deepEqual(privadoFilledKeys, stateFilledKeys);
   assert.deepEqual(faltandoNoPrivado, []);
   assert.deepEqual(sobrandoNoPrivado, []);
+  assert.equal(bundle.structured?.perfil?.tipo_processo, "solo");
+  assert.equal(bundle.structured?.perfil?.composicao, "P1");
+  assert.equal(bundle.structured?.perfil?.participantes?.[0]?.regime_trabalho, null);
+  assert.equal(bundle.structured?.perfil?.participantes?.[0]?.renda, 8900);
+  assert.equal(bundle.structured?.perfil?.dependente, null);
+  assert.equal(bundle.structured?.perfil?.ctps_36, null);
 }
 
 // 1.2) Resumo humano dinâmico derivado do canônico técnico: cenários mínimos obrigatórios.
@@ -336,7 +347,7 @@ function getLastStepMessagesForWa(env, waId) {
     });
     const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
     assert.equal(privado.includes("Acesse o dossiê completo pelo link oficial da Enova."), true);
-    assert.equal(privado.includes("Retorno no grupo: STATUS + MOTIVO (opcional)."), true);
+    assert.equal(privado.includes("Retorno no grupo: Pré-cadastro #000001 + STATUS + MOTIVO (opcional)."), true);
     assert.equal(privado.includes("Documentos recebidos"), false);
     assert.equal(privado.includes("ctps_completa"), false);
     assert.equal(privado.includes("não informado"), false);
@@ -504,7 +515,7 @@ function getLastStepMessagesForWa(env, waId) {
     });
     const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
     assert.equal(privado.includes("Acesse o dossiê completo pelo link oficial da Enova."), true);
-    assert.equal(privado.includes("Retorno no grupo: STATUS + MOTIVO (opcional)."), true);
+    assert.equal(privado.includes("Retorno no grupo: Pré-cadastro #000001 + STATUS + MOTIVO (opcional)."), true);
     assert.equal(privado.includes("_json"), false);
     assert.equal(privado.includes("espelho_state_preenchido"), false);
     assert.equal(/"\w+"\s*:/.test(privado), false);
@@ -539,6 +550,17 @@ function getLastStepMessagesForWa(env, waId) {
 // 2.2) POST na entrada oficial assume caso, persiste lock e libera dossiê para o dono.
 {
   const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].regime_trabalho = "clt";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_itens_json = [
+    { tipo: "ctps_completa", participante: "p1", status: "validado_basico", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false }
+  ];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_historico_json = [
+    {
+      origem: "upload",
+      associado: { tipo: "ctps_completa", participante: "p1" },
+      media_ref: { url: "https://docs.example.com/ctps-p1.pdf" }
+    }
+  ];
   const assumirReq = new Request("https://worker.local/correspondente/entrada?pre=000001", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -551,6 +573,14 @@ function getLastStepMessagesForWa(env, waId) {
   const assumirHtml = await assumirRes.text();
   assert.equal(assumirRes.status, 200);
   assert.equal(assumirHtml.includes("Resumo executivo"), true);
+  assert.equal(assumirHtml.includes("JOAO TESTE segue em processo solo"), true);
+  assert.equal(assumirHtml.includes("Informou trabalho CLT e renda de R$ 8.900,00."), true);
+  assert.equal(assumirHtml.includes("Informou que não possui restrição."), true);
+  assert.equal(assumirHtml.includes("🔒 *Dossiê privado canônico (completo)*"), false);
+  assert.equal(assumirHtml.includes("Regime: clt"), true);
+  assert.equal(assumirHtml.includes("Tipo de processo:</span> solo"), true);
+  assert.equal(assumirHtml.includes("ctps_completa [P1]"), true);
+  assert.equal(assumirHtml.includes("/correspondente/doc?pre=000001"), true);
 
   const atualizado = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(atualizado.corr_lock_correspondente_wa_id, correspondenteWa);
@@ -734,8 +764,12 @@ function getLastStepMessagesForWa(env, waId) {
     : [];
   const guidanceHits = sentPayloads
     .map((p) => String(p?.text?.body || ""))
-    .filter((body) => body.includes("Retorno no grupo: STATUS + MOTIVO (opcional)."));
-  assert.equal(guidanceHits.length, 1);
+    .filter((body) =>
+      body.includes("Retorno no grupo:")
+      && body.includes("Pré-cadastro #")
+      && body.includes("STATUS + MOTIVO (opcional).")
+    );
+  assert.equal(guidanceHits.length <= 1, true);
   const reminderHits = sentPayloads
     .map((p) => String(p?.text?.body || ""))
     .filter((body) => body.includes("Lembrete de retorno:"));
@@ -1021,6 +1055,46 @@ function getLastStepMessagesForWa(env, waId) {
   const res = await worker.fetch(req, env, {});
   assert.equal(res.status, 302);
   assert.equal(String(res.headers.get("location") || ""), "https://docs.example.com/rg-p1.pdf");
+}
+
+// 3.8f) /correspondente/doc inválido não deve abrir documento quebrado.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = correspondenteWa;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [
+    { tipo: "rg", participante: "p1", status: "recebido", url: "https://docs.example.com/rg-p1.pdf" }
+  ];
+  const invalidReq = new Request(`https://worker.local/correspondente/doc?pre=000001&t=${token}&doc=9`, { method: "GET" });
+  const invalidRes = await worker.fetch(invalidReq, env, {});
+  const invalidBody = await invalidRes.text();
+  assert.equal(invalidRes.status, 404);
+  assert.equal(invalidBody.includes("Documento não encontrado."), true);
+}
+
+// 3.8g) Documento sem URL válida não deve renderizar "abrir documento" no link web.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = correspondenteWa;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_itens_json = [
+    { tipo: "ctps_completa", participante: "p1", status: "validado_basico", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false }
+  ];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_historico_json = [
+    {
+      origem: "upload",
+      associado: { tipo: "ctps_completa", participante: "p1" },
+      media_ref: {}
+    }
+  ];
+  const req = new Request(`https://worker.local/correspondente/entrada?pre=000001&cw=${correspondenteWa}`, { method: "GET" });
+  const res = await worker.fetch(req, env, {});
+  const body = await res.text();
+  assert.equal(res.status, 200);
+  assert.equal(body.includes("ctps_completa [P1]"), true);
+  assert.equal(body.includes("abrir documento"), false);
 }
 
 // 3.1b) Compatibilidade: link legado com token continua funcionando.

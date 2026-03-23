@@ -12093,8 +12093,7 @@ function normalizeCorrespondenteWaIdInput(value) {
 function normalizeCorrespondenteWaIdOutbound(value) {
   const digitsRaw = String(value || "")
     .trim()
-    .replace(/\D/g, "")
-    .trim();
+    .replace(/\D/g, "");
   if (!digitsRaw) return "";
   if (digitsRaw.startsWith("55")) return digitsRaw;
   const cmp = normalizeCorrespondenteWaIdCmp(digitsRaw);

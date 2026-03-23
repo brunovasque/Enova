@@ -568,8 +568,9 @@ function getLastStepMessagesForWa(env, waId) {
   const sentPayloads = Array.isArray(env.__enovaSimulationCtx.sentPayloads)
     ? env.__enovaSimulationCtx.sentPayloads
     : [];
+  const waOutbound = `55${waSem55}`;
   const outboundPrivatePayloads = sentPayloads.filter(
-    (row) => String(row?.to || "") === "5541999997777" && String(row?.type || "") === "text"
+    (row) => String(row?.to || "") === waOutbound && String(row?.type || "") === "text"
   );
   assert.equal(outboundPrivatePayloads.length > 0, true);
 

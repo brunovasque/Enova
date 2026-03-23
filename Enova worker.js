@@ -12245,6 +12245,38 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   const pendencias = dossierPayload?.pendencias && typeof dossierPayload.pendencias === "object"
     ? dossierPayload.pendencias
     : null;
+  const meta = dossierPayload?.meta && typeof dossierPayload.meta === "object"
+    ? dossierPayload.meta
+    : null;
+  const resumoHumano = String(options?.resumoHumano || "").trim();
+  const retornoCorrespondente = options?.retornoCorrespondente && typeof options.retornoCorrespondente === "object"
+    ? options.retornoCorrespondente
+    : null;
+  const retornoGuidance = String(options?.retornoGuidance || "").trim();
+  const docsForUi = Array.isArray(options?.docsForUi)
+    ? options.docsForUi
+    : [];
+  const formatMoney = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num) || num <= 0) return "não informado";
+    return `R$ ${num.toFixed(2)}`;
+  };
+  const formatMultiline = (value) => escapeHtml(String(value || "").trim()).replace(/\n/g, "<br />");
+  const participantRoleLabel = (value) => {
+    const txt = String(value || "").trim().toLowerCase();
+    if (txt === "titular") return "Titular";
+    if (txt === "parceiro") return "Parceiro(a)";
+    if (txt === "familiar" || txt === "familiar_p3") return "Familiar";
+    return txt ? txt : "participante";
+  };
+  const docsRecebidosUi = docsForUi.filter((doc) => String(doc?.status || "").trim().toLowerCase() !== "pendente");
+  const docsPendentesUi = docsForUi.filter((doc) => String(doc?.status || "").trim().toLowerCase() === "pendente");
+  const linksOperacionaisUi = docsRecebidosUi
+    .map((doc) => ({
+      tipo: String(doc?.tipo || "documento").trim() || "documento",
+      participante: String(doc?.participante || "").trim().toLowerCase(),
+      link: String(doc?.access_link || "").trim()
+    }));
   const allowAssumir = options?.allowAssumir === true;
   const assumirError = String(options?.assumirError || "").trim();
   const assumirHint = String(options?.assumirHint || "").trim();
@@ -12268,33 +12300,80 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Entrada do caso ${escapeHtml(ref)}</title>
   <style>
-    body{font-family:Arial,sans-serif;background:#f5f7fb;color:#18202a;margin:0;padding:24px}
-    .card{max-width:560px;margin:0 auto;background:#fff;border:1px solid #dfe6f0;border-radius:12px;padding:20px}
-    h1{font-size:20px;margin:0 0 12px}
+    :root{color-scheme:dark}
+    body{font-family:Inter,Arial,sans-serif;background:#08101e;color:#e8f0ff;margin:0;padding:28px 16px}
+    .wrap{max-width:1040px;margin:0 auto}
+    .mast{display:flex;align-items:center;gap:14px;margin-bottom:20px}
+    .logo-dot{color:#00d9ff;font-size:10px;letter-spacing:.2em;text-transform:uppercase}
+    .mast h1{font-size:22px;margin:0;font-weight:700;letter-spacing:.02em}
+    .subhead{color:#8ca2c7;font-size:13px;margin-top:4px}
+    .card{background:linear-gradient(180deg,#111b31 0%,#0f182b 100%);border:1px solid #22314f;border-radius:14px;padding:20px;margin-bottom:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
     .row{margin:8px 0}
-    .label{font-weight:700}
-    .status{margin-top:14px;padding:10px 12px;border-radius:8px;background:#edf3ff;border:1px solid #d2e1ff}
-    .dossie{margin-top:16px;padding-top:12px;border-top:1px solid #e2e8f3}
-    .dossie h2{font-size:16px;margin:12px 0 6px}
-    .dossie ul{margin:6px 0 0 18px;padding:0}
-    .dossie li{margin:4px 0}
-    .warn{margin-top:14px;padding:10px 12px;border-radius:8px;background:#fff6ec;border:1px solid #ffd9b3}
-    .err{margin-top:14px;padding:10px 12px;border-radius:8px;background:#fff0f0;border:1px solid #ffc9c9}
-    .assumir{margin-top:16px;padding:12px;border:1px solid #cce3d2;background:#f2fbf5;border-radius:8px}
+    .label{font-weight:700;color:#96add3}
+    .status{margin-top:14px;padding:12px;border-radius:10px;background:#10284a;border:1px solid #234f86;color:#dbe9ff}
+    .chips{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+    .chip{padding:6px 10px;border-radius:999px;font-size:12px;font-weight:700}
+    .chip.info{background:#10314d;color:#00d9ff;border:1px solid #1d5278}
+    .chip.alerta{background:#47202b;color:#ff6b6b;border:1px solid #7c3145}
+    .grid4{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:16px}
+    .grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px}
+    .mini{background:#10192b;border:1px solid #202f4c;border-radius:10px;padding:12px}
+    .mini .k{font-size:12px;color:#8ca2c7;margin-bottom:6px}
+    .mini .v{font-size:14px;font-weight:600;line-height:1.35}
+    .section-title{font-size:22px;margin:0 0 12px}
+    .section-kicker{font-size:18px;margin:0 0 10px}
+    .list{margin:0;padding-left:18px}
+    .list li{margin:6px 0;line-height:1.4}
+    .muted{color:#90a8ce}
+    .warn{margin-top:14px;padding:10px 12px;border-radius:8px;background:#2f2414;border:1px solid #7f6638;color:#ffe2a7}
+    .err{margin-top:14px;padding:10px 12px;border-radius:8px;background:#3a1b24;border:1px solid #8f3b4e;color:#ffd3dd}
+    .assumir{margin-top:16px;padding:12px;border:1px solid #2d4f39;background:#12251b;border-radius:8px}
     .assumir h2{font-size:16px;margin:0 0 8px}
-    .assumir p{margin:0 0 10px}
+    .assumir p{margin:0 0 10px;color:#a9c9b3}
     .assumir label{display:block;font-weight:700;margin:8px 0 4px}
-    .assumir input{width:100%;box-sizing:border-box;padding:8px;border:1px solid #bfd0e6;border-radius:6px}
-    .assumir button{margin-top:10px;background:#0b7a3e;color:#fff;border:0;border-radius:6px;padding:10px 14px;font-weight:700;cursor:pointer}
-    .hint{margin-top:10px;padding:8px 10px;border-radius:6px;background:#edf3ff;border:1px solid #d2e1ff}
+    .assumir input{width:100%;box-sizing:border-box;padding:8px;border:1px solid #2d4768;border-radius:6px;background:#0c1627;color:#e8f0ff}
+    .assumir button{margin-top:10px;background:#00a9ce;color:#07111f;border:0;border-radius:6px;padding:10px 14px;font-weight:700;cursor:pointer}
+    .hint{margin-top:10px;padding:8px 10px;border-radius:6px;background:#10284a;border:1px solid #234f86;color:#d9e9ff}
+    a{color:#00d9ff;text-decoration:none}
+    a:hover{text-decoration:underline}
   </style>
 </head>
 <body>
-  <main class="card">
-    <h1>Capa do caso</h1>
-    <div class="row"><span class="label">Referência:</span> ${escapeHtml(ref)}</div>
-    <div class="row"><span class="label">Cliente:</span> ${escapeHtml(clienteNome)}</div>
-    <div class="status">${escapeHtml(statusText)}</div>
+  <main class="wrap">
+    <header class="mast">
+      <div class="logo-dot">ENOVA</div>
+      <div>
+        <h1>Dossiê do Correspondente</h1>
+        <div class="subhead">Camada visual baseada no contrato canônico já existente</div>
+      </div>
+    </header>
+    <section class="card">
+      <h2 class="section-title">Capa do caso</h2>
+      <div class="row"><span class="label">Referência:</span> ${escapeHtml(ref)}</div>
+      <div class="row"><span class="label">Cliente:</span> ${escapeHtml(clienteNome)}</div>
+      <div class="chips">
+        <span class="chip info">Status: ${escapeHtml(String(caso?.corr_publicacao_status || "não informado"))}</span>
+        <span class="chip alerta">Retorno: ${escapeHtml(String(retornoCorrespondente?.status || "sem retorno"))}</span>
+      </div>
+      <div class="status">${escapeHtml(statusText)}</div>
+      <div class="grid4">
+        <div class="mini">
+          <div class="k">Case ref</div>
+          <div class="v">${escapeHtml(String(meta?.case_ref || ref))}</div>
+        </div>
+        <div class="mini">
+          <div class="k">Pré-cadastro</div>
+          <div class="v">${escapeHtml(String(meta?.id_pre_cadastro || caso?.pre_cadastro_numero || "não informado"))}</div>
+        </div>
+        <div class="mini">
+          <div class="k">Lock correspondente</div>
+          <div class="v">${escapeHtml(lockAtual || "sem correspondente definido")}</div>
+        </div>
+        <div class="mini">
+          <div class="k">Gerado em</div>
+          <div class="v">${escapeHtml(String(meta?.generated_at || "não informado"))}</div>
+        </div>
+      </div>
     ${isAdminOverride ? `<div class="warn">
       Você está visualizando este caso com bypass administrativo (master/admin).<br />
       O lock atual do caso permanece em: <strong>${escapeHtml(lockAtual || "sem correspondente definido")}</strong>.
@@ -12316,23 +12395,62 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
       ${assumirError ? `<div class="err"><strong>${escapeHtml(assumirError)}</strong></div>` : ""}
       ${assumirHint ? `<div class="hint">${escapeHtml(assumirHint)}</div>` : ""}
     </section>` : ""}
-    ${dossierPayload ? `<section class="dossie">
-      <h2>Resumo executivo</h2>
+    </section>
+    ${dossierPayload ? `<section class="card">
+      <h2 class="section-kicker">Resumo executivo</h2>
       <div class="row"><span class="label">Pronto para pré-análise:</span> ${escapeHtml(resumo?.pronto_para_pre_analise === true ? "sim" : "não")}</div>
       <div class="row"><span class="label">Status documental:</span> ${escapeHtml(resumo?.envio_docs_status || "não informado")}</div>
       <div class="row"><span class="label">Pendências totais:</span> ${escapeHtml(String(resumo?.pendencias_total ?? 0))}</div>
-      <h2>Perfil</h2>
+      <div class="row"><span class="label">Renda total:</span> ${escapeHtml(formatMoney(resumo?.renda_total))}</div>
+      <div class="row"><span class="label">Participantes totais:</span> ${escapeHtml(String(resumo?.participantes_total ?? 0))}</div>
+      <h2 class="section-kicker">Resumo humano</h2>
+      <div class="mini">${resumoHumano ? formatMultiline(resumoHumano) : "<span class=\"muted\">Resumo humano não disponível no contrato atual.</span>"}</div>
+    </section>
+    <section class="card">
+      <h2 class="section-kicker">Perfil Técnico Consolidado</h2>
       <div class="row"><span class="label">Nome:</span> ${escapeHtml(perfil?.nome || clienteNome)}</div>
       <div class="row"><span class="label">Estado civil:</span> ${escapeHtml(perfil?.estado_civil || "não informado")}</div>
-      <div class="row"><span class="label">Participantes:</span> ${escapeHtml(String(Array.isArray(perfil?.participantes) ? perfil.participantes.length : 0))}</div>
-      <h2>Documentos por participante</h2>
-      ${docsParticipante.length
-        ? `<ul>${docsParticipante.map((item) => `<li>${escapeHtml(String(item?.participante || "desconhecido").toUpperCase())}: recebidos ${escapeHtml(String(Array.isArray(item?.recebidos) ? item.recebidos.length : 0))}, pendentes ${escapeHtml(String(Array.isArray(item?.pendentes) ? item.pendentes.length : 0))}</li>`).join("")}</ul>`
-        : "<div class=\"row\">Sem documentos mapeados.</div>"
+      <div class="row"><span class="label">Tipo de processo:</span> ${escapeHtml(String(perfil?.tipo_processo || "não informado"))}</div>
+      <div class="grid2">
+        ${(Array.isArray(perfil?.participantes) && perfil.participantes.length
+          ? perfil.participantes
+          : []
+        ).map((item) => `<article class="mini">
+          <div class="k">${escapeHtml(String(item?.id || "participante").toUpperCase())} · ${escapeHtml(participantRoleLabel(item?.papel))}</div>
+          <div class="v">Regime: ${escapeHtml(String(item?.regime_trabalho || "não informado"))}</div>
+          <div class="v">Renda: ${escapeHtml(formatMoney(item?.renda))}</div>
+          <div class="v">Restrição: ${escapeHtml(item?.tem_restricao === true ? "sim" : "não")}</div>
+        </article>`).join("") || `<article class="mini"><span class="muted">Participantes não disponíveis no contrato atual.</span></article>`}
+      </div>
+    </section>
+    <section class="card">
+      <h2 class="section-kicker">Documentos Recebidos</h2>
+      ${docsRecebidosUi.length
+        ? `<ul class="list">${docsRecebidosUi.map((doc) => `<li>${escapeHtml(String(doc?.tipo || "documento"))} [${escapeHtml(String(doc?.participante || "-").toUpperCase())}]</li>`).join("")}</ul>`
+        : "<div class=\"row muted\">Sem documentos recebidos mapeados.</div>"
       }
-      <h2>Pendências</h2>
+      <h2 class="section-kicker">Documentos Pendentes</h2>
+      ${docsPendentesUi.length
+        ? `<ul class="list">${docsPendentesUi.map((doc) => `<li>${escapeHtml(String(doc?.tipo || "documento"))} [${escapeHtml(String(doc?.participante || "-").toUpperCase())}]</li>`).join("")}</ul>`
+        : "<div class=\"row muted\">Sem pendências documentais ativas.</div>"
+      }
+      <h2 class="section-kicker">Links operacionais dos documentos</h2>
+      ${linksOperacionaisUi.length
+        ? `<ul class="list">${linksOperacionaisUi.map((entry) => `<li>${escapeHtml(entry.tipo)} [${escapeHtml((entry.participante || "-").toUpperCase())}]: ${entry.link ? `<a href="${escapeHtml(entry.link)}" target="_blank" rel="noreferrer noopener">abrir documento</a>` : "<span class=\"muted\">link não disponível</span>"}</li>`).join("")}</ul>`
+        : "<div class=\"row muted\">Nenhum link operacional disponível no momento.</div>"
+      }
+    </section>
+    <section class="card">
+      <h2 class="section-kicker">Instrução/estado de retorno do correspondente</h2>
+      <div class="row"><span class="label">Status:</span> ${escapeHtml(String(retornoCorrespondente?.status || "não informado"))}</div>
+      <div class="row"><span class="label">Motivo:</span> ${escapeHtml(String(retornoCorrespondente?.motivo || "não informado"))}</div>
+      <div class="row"><span class="label">Retorno bruto:</span> ${escapeHtml(String(retornoCorrespondente?.bruto || "não informado"))}</div>
+      <div class="row"><span class="label">Instrução operacional:</span></div>
+      <div class="mini">${retornoGuidance ? formatMultiline(retornoGuidance) : "<span class=\"muted\">Instrução não disponível no contrato atual.</span>"}</div>
+      <h2 class="section-kicker">Pendências</h2>
       <div class="row"><span class="label">Bloqueantes:</span> ${escapeHtml(String(pendencias?.bloqueantes ?? 0))}</div>
       <div class="row"><span class="label">Não bloqueantes:</span> ${escapeHtml(String(pendencias?.nao_bloqueantes ?? 0))}</div>
+      <div class="row"><span class="label">Remanescentes:</span> ${escapeHtml(String(pendencias?.remanescentes ?? 0))}</div>
     </section>` : ""}
   </main>
 </body>
@@ -12467,10 +12585,41 @@ async function handleCorrespondenteEntryPage(request, env) {
   const stCompleto = casoAtual?.wa_id ? (await getState(env, casoAtual.wa_id)) || casoAtual : casoAtual;
   const dossierBundle = buildCorrespondenteCanonicalDossierBundleFromState(stCompleto || caso, { token });
   const dossierPayload = dossierBundle.structured;
+  const caseRefResolved = buildCorrespondenteCaseRef(casoAtual || caso);
+  const tokenResolved = normalizeAssumirToken(token || stCompleto?.corr_assumir_token || "");
+  let docsForUi = [];
+  try {
+    const docs = await getCaseDocumentLinks(env, casoAtual?.wa_id || caso?.wa_id, stCompleto || casoAtual || caso);
+    let receivedDocIndex = 0;
+    docsForUi = (Array.isArray(docs) ? docs : []).map((doc) => {
+      const status = String(doc?.status || "").trim().toLowerCase();
+      const isReceived = status !== "pendente";
+      const accessLink = isReceived
+        ? buildCorrespondenteDocumentAccessLink(env, tokenResolved, caseRefResolved, receivedDocIndex) || ""
+        : "";
+      if (isReceived) receivedDocIndex += 1;
+      return {
+        tipo: doc?.tipo || null,
+        participante: doc?.participante || null,
+        status: doc?.status || null,
+        access_link: accessLink
+      };
+    });
+  } catch {
+    docsForUi = [];
+  }
   return new Response(buildCorrespondenteEntryCoverHtml(casoAtual, {
     lockWaId: lockFinalRaw,
     isAdminOverride: adminOverride,
-    dossierPayload
+    dossierPayload,
+    resumoHumano: dossierBundle?.canonical?.resumo_humano_correspondente || dossierBundle?.resumoPersistido || "",
+    retornoCorrespondente: {
+      status: stCompleto?.retorno_correspondente_status || casoAtual?.retorno_correspondente_status || null,
+      motivo: stCompleto?.retorno_correspondente_motivo || null,
+      bruto: stCompleto?.retorno_correspondente_bruto || null
+    },
+    retornoGuidance: buildCorrespondenteReturnFormatGuidance(caseRefResolved),
+    docsForUi
   }), {
     status: 200,
     headers: { "content-type": "text/html; charset=utf-8", "X-Enova-Build": buildHeaderValue }

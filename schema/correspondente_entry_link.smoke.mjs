@@ -796,6 +796,140 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(bodies.some((body) => body.includes("CPF (P1): https://entrada.enova.local/correspondente/doc?pre=000001")), true);
 }
 
+// 3.8c) CTPS completa enviada via fluxo (item + histórico) deve entrar como recebida e com link operacional.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_itens_json = [
+    { tipo: "ctps_completa", participante: "p1", status: "validado_basico", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false }
+  ];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_historico_json = [
+    {
+      origem: "upload",
+      associado: { tipo: "ctps_completa", participante: "p1" },
+      media_ref: { url: "https://docs.example.com/ctps-p1.pdf" }
+    }
+  ];
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.docs.links.ctps.ok",
+              timestamp: "17731839031",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  const assumirRes = await worker.fetch(assumirReq, env, {});
+  assert.equal(assumirRes.status, 200);
+
+  const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
+    .map((p) => String(p?.text?.body || ""));
+  assert.equal(bodies.some((body) => body.includes("📄 *Documentos recebidos*")), true);
+  assert.equal(bodies.some((body) => body.includes("Carteira de Trabalho Completa (P1)")), true);
+  assert.equal(bodies.some((body) => body.includes("Carteira de Trabalho Completa (P1): https://entrada.enova.local/correspondente/doc?pre=000001")), true);
+}
+
+// 3.8d) CTPS enviada sem URL utilizável deve aparecer como recebida e com diagnóstico de link indisponível.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_itens_json = [
+    { tipo: "ctps_completa", participante: "p1", status: "validado_basico", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false }
+  ];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_historico_json = [
+    {
+      origem: "upload",
+      associado: { tipo: "ctps_completa", participante: "p1" },
+      media_ref: {}
+    }
+  ];
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.docs.links.ctps.no_url",
+              timestamp: "17731839032",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  const assumirRes = await worker.fetch(assumirReq, env, {});
+  assert.equal(assumirRes.status, 200);
+
+  const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
+    .map((p) => String(p?.text?.body || ""));
+  assert.equal(bodies.some((body) => body.includes("Carteira de Trabalho Completa (P1)")), true);
+  assert.equal(bodies.some((body) => body.includes("Carteira de Trabalho Completa (P1): link não disponível no arquivo enviado.")), true);
+}
+
+// 3.8e) Sem CTPS anexada, permanece pendente e não aparece como recebida (sem confundir com CTPS 36 lógica).
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].ctps_36 = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_itens_json = [
+    { tipo: "ctps_completa", participante: "p1", status: "pendente", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false }
+  ];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_historico_json = [];
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.docs.links.ctps.pending",
+              timestamp: "17731839033",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  const assumirRes = await worker.fetch(assumirReq, env, {});
+  assert.equal(assumirRes.status, 200);
+
+  const docsBodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
+    .map((p) => String(p?.text?.body || ""))
+    .filter((body) => body.includes("📄 *Documentos recebidos*") || body.includes("⏳ *Documentos pendentes*") || body.includes("🔗 *Links disponíveis*"));
+  const docsMessage = docsBodies.join("\n");
+  assert.equal(docsMessage.includes("Carteira de Trabalho Completa (P1)"), true);
+  assert.equal(docsMessage.includes("⏳ *Documentos pendentes*"), true);
+  assert.equal(docsMessage.includes("📄 *Documentos recebidos*\n- Carteira de Trabalho Completa (P1)"), false);
+}
+
 {
   const env = buildEnvWithState();
   env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [

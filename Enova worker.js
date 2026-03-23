@@ -9766,12 +9766,86 @@ function resolveEnvioDocsRecommendedCtpsTarget(itens = [], checklistMatch = {}, 
   };
 }
 
+function resolveEnvioDocsPendingCtpsTarget(itens = [], checklistMatch = {}, documentClassification = {}) {
+  const detectedDocType = String(documentClassification?.detected_doc_type || "").trim().toLowerCase();
+  if (detectedDocType !== "ctps_completa") {
+    return {
+      item: null,
+      items: [],
+      source: "none"
+    };
+  }
+
+  const pendingCtpsItems = (Array.isArray(itens) ? itens : []).filter((item) => {
+    if (!isEnvioDocsConversationalPendingItem(item)) return false;
+    const tipo = String(item?.tipo || "").trim().toLowerCase();
+    return CTPS_NON_BLOCKING_DOC_TYPES.has(tipo);
+  });
+  if (!pendingCtpsItems.length) {
+    return {
+      item: null,
+      items: [],
+      source: "none"
+    };
+  }
+
+  const detectedParticipant = normalizeEnvioDocsDetectedParticipant(
+    checklistMatch?.match_signals_json?.detected_participant
+  );
+  const participantConfidence = Number(
+    checklistMatch?.match_signals_json?.participant_confidence || 0
+  );
+  const participantStrong =
+    detectedParticipant !== "desconhecido" && participantConfidence >= 0.75;
+  if (participantStrong) {
+    const scoped = pendingCtpsItems.filter(
+      (item) => normalizeEnvioDocsDetectedParticipant(item?.participante) === detectedParticipant
+    );
+    if (scoped.length >= 1) {
+      return {
+        item: scoped[0],
+        items: scoped,
+        source: "pending_ctps"
+      };
+    }
+  }
+
+  const activeParticipant = normalizeEnvioDocsDetectedParticipant(
+    resolveEnvioDocsCurrentParticipant(itens)
+  );
+  const activeScoped = pendingCtpsItems.filter(
+    (item) => normalizeEnvioDocsDetectedParticipant(item?.participante) === activeParticipant
+  );
+  if (activeScoped.length === 1) {
+    return {
+      item: activeScoped[0],
+      items: activeScoped,
+      source: "pending_ctps"
+    };
+  }
+
+  if (pendingCtpsItems.length === 1) {
+    return {
+      item: pendingCtpsItems[0],
+      items: pendingCtpsItems,
+      source: "pending_ctps"
+    };
+  }
+
+  return {
+    item: null,
+    items: [],
+    source: "none"
+  };
+}
+
 function chooseEnvioDocsFinalTarget(input = {}) {
   const itens = Array.isArray(input?.itens) ? input.itens : [];
   const checklistMatch = input?.checklistMatch || {};
   const documentClassification = input?.documentClassification || {};
   const legacySelection = input?.legacySelection || {};
   const engineResolution = input?.engineResolution || resolveEnvioDocsTargetFromDocumentEngine(itens, checklistMatch, documentClassification);
+  const pendingCtpsResolution = resolveEnvioDocsPendingCtpsTarget(itens, checklistMatch, documentClassification);
   const recommendedCtpsResolution = resolveEnvioDocsRecommendedCtpsTarget(itens, checklistMatch, documentClassification);
   const matchStatus = String(checklistMatch?.match_status || "").trim().toLowerCase();
   const fallbackAllowed = matchStatus !== "matched_safe" || !engineResolution.item;
@@ -9825,6 +9899,19 @@ function chooseEnvioDocsFinalTarget(input = {}) {
     };
   }
 
+  if (pendingCtpsResolution.item) {
+    return {
+      target: pendingCtpsResolution.item,
+      matchedItems: pendingCtpsResolution.items,
+      fallbackUsed: false,
+      finalTargetSource: "pending_ctps",
+      engineResolution,
+      pendingCtpsResolution,
+      recommendedCtpsResolution,
+      recommendedCtpsRuleEvaluated: true
+    };
+  }
+
   if (recommendedCtpsResolution.item) {
     return {
       target: recommendedCtpsResolution.item,
@@ -9832,6 +9919,7 @@ function chooseEnvioDocsFinalTarget(input = {}) {
       fallbackUsed: false,
       finalTargetSource: "recommended_ctps",
       engineResolution,
+      pendingCtpsResolution,
       recommendedCtpsResolution,
       recommendedCtpsRuleEvaluated: true
       };
@@ -9844,6 +9932,7 @@ function chooseEnvioDocsFinalTarget(input = {}) {
       fallbackUsed: false,
       finalTargetSource: "dossier_coverage",
       engineResolution,
+      pendingCtpsResolution,
       recommendedCtpsResolution,
       recommendedCtpsRuleEvaluated: true
     };
@@ -9856,6 +9945,7 @@ function chooseEnvioDocsFinalTarget(input = {}) {
       fallbackUsed: false,
       finalTargetSource: "none",
       engineResolution,
+      pendingCtpsResolution,
       recommendedCtpsResolution,
       recommendedCtpsRuleEvaluated: true
     };
@@ -9868,6 +9958,7 @@ function chooseEnvioDocsFinalTarget(input = {}) {
       fallbackUsed: true,
       finalTargetSource: "legacy_fallback",
       engineResolution,
+      pendingCtpsResolution,
       recommendedCtpsResolution,
       recommendedCtpsRuleEvaluated: true
     };
@@ -9879,6 +9970,7 @@ function chooseEnvioDocsFinalTarget(input = {}) {
     fallbackUsed: false,
     finalTargetSource: "none",
     engineResolution,
+    pendingCtpsResolution,
     recommendedCtpsResolution,
     recommendedCtpsRuleEvaluated: true
   };
@@ -12501,6 +12593,8 @@ function buildCorrespondentePrivateDocsLinksText(docs = [], st = null, options =
     rg: "RG",
     cpf: "CPF",
     identidade_cpf: "Identidade / CPF",
+    ctps_completa: "Carteira de Trabalho Completa",
+    ctps: "Carteira de Trabalho Completa",
     comprovante_residencia: "Comprovante de residência",
     comprovante_renda: "Comprovante de renda"
   };

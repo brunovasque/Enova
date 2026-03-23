@@ -414,22 +414,30 @@ function getLastStepMessagesForWa(env, waId) {
   // 11.2) CTPS 36 deve aparecer no resumo humano (sim e não) quando existir base técnica.
   {
     const canonicalComCtps = buildCanonicalFromState({
-      ctps_36: true,
+      ctps_36: "sim",
       dossie_participantes_json: [
         { id: "p1", role: "titular", regime_trabalho: "clt", renda: 5000, ctps_36: true }
       ]
     });
     const resumoComCtps = String(canonicalComCtps?.dossie_privado_canonico_json?.resumo_humano || "");
+    const consolidadoComCtps = String(canonicalComCtps?.mensagem_privada_correspondente_whatsapp || "");
     assert.equal(resumoComCtps.includes("possui 36 meses de registro em CTPS"), true);
+    assert.equal(canonicalComCtps?.payload_tecnico_correspondente_json?.formalizacao?.ctps_36, true);
+    assert.equal(canonicalComCtps?.dossie_privado_canonico_json?.titular?.ctps_36, true);
+    assert.equal(consolidadoComCtps.includes("CTPS 36 meses: sim"), true);
 
     const canonicalSemCtps = buildCanonicalFromState({
-      ctps_36: false,
+      ctps_36: "não",
       dossie_participantes_json: [
         { id: "p1", role: "titular", regime_trabalho: "clt", renda: 5000, ctps_36: false }
       ]
     });
     const resumoSemCtps = String(canonicalSemCtps?.dossie_privado_canonico_json?.resumo_humano || "");
+    const consolidadoSemCtps = String(canonicalSemCtps?.mensagem_privada_correspondente_whatsapp || "");
     assert.equal(resumoSemCtps.includes("não possui 36 meses de registro em CTPS"), true);
+    assert.equal(canonicalSemCtps?.payload_tecnico_correspondente_json?.formalizacao?.ctps_36, false);
+    assert.equal(canonicalSemCtps?.dossie_privado_canonico_json?.titular?.ctps_36, false);
+    assert.equal(consolidadoSemCtps.includes("CTPS 36 meses: não"), true);
   }
 
   // 11.3) Fonte canônica de CTPS 36 no consolidado deve refletir apenas resposta final do titular.
@@ -447,6 +455,8 @@ function getLastStepMessagesForWa(env, waId) {
     const resumo = String(canonicalTitularNaoParceiroSim?.dossie_privado_canonico_json?.resumo_humano || "");
     const consolidado = String(canonicalTitularNaoParceiroSim?.mensagem_privada_correspondente_whatsapp || "");
     assert.equal(canonicalTitularNaoParceiroSim?.payload_tecnico_correspondente_json?.formalizacao?.ctps_36, false);
+    assert.equal(canonicalTitularNaoParceiroSim?.dossie_privado_canonico_json?.titular?.ctps_36, false);
+    assert.equal(canonicalTitularNaoParceiroSim?.dossie_privado_canonico_json?.parceiro?.ctps_36_parceiro, true);
     assert.equal(resumo.includes("não possui 36 meses de registro em CTPS"), true);
     assert.equal(consolidado.includes("CTPS 36 meses: não"), true);
   }
@@ -784,6 +794,140 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(bodies.some((body) => body.includes("🔗 *Links disponíveis*")), true);
   assert.equal(bodies.some((body) => body.includes("RG (P1): https://entrada.enova.local/correspondente/doc?pre=000001")), true);
   assert.equal(bodies.some((body) => body.includes("CPF (P1): https://entrada.enova.local/correspondente/doc?pre=000001")), true);
+}
+
+// 3.8c) CTPS completa enviada via fluxo (item + histórico) deve entrar como recebida e com link operacional.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_itens_json = [
+    { tipo: "ctps_completa", participante: "p1", status: "validado_basico", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false }
+  ];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_historico_json = [
+    {
+      origem: "upload",
+      associado: { tipo: "ctps_completa", participante: "p1" },
+      media_ref: { url: "https://docs.example.com/ctps-p1.pdf" }
+    }
+  ];
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.docs.links.ctps.ok",
+              timestamp: "17731839031",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  const assumirRes = await worker.fetch(assumirReq, env, {});
+  assert.equal(assumirRes.status, 200);
+
+  const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
+    .map((p) => String(p?.text?.body || ""));
+  assert.equal(bodies.some((body) => body.includes("📄 *Documentos recebidos*")), true);
+  assert.equal(bodies.some((body) => body.includes("Carteira de Trabalho Completa (P1)")), true);
+  assert.equal(bodies.some((body) => body.includes("Carteira de Trabalho Completa (P1): https://entrada.enova.local/correspondente/doc?pre=000001")), true);
+}
+
+// 3.8d) CTPS enviada sem URL utilizável deve aparecer como recebida e com diagnóstico de link indisponível.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_itens_json = [
+    { tipo: "ctps_completa", participante: "p1", status: "validado_basico", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false }
+  ];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_historico_json = [
+    {
+      origem: "upload",
+      associado: { tipo: "ctps_completa", participante: "p1" },
+      media_ref: {}
+    }
+  ];
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.docs.links.ctps.no_url",
+              timestamp: "17731839032",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  const assumirRes = await worker.fetch(assumirReq, env, {});
+  assert.equal(assumirRes.status, 200);
+
+  const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
+    .map((p) => String(p?.text?.body || ""));
+  assert.equal(bodies.some((body) => body.includes("Carteira de Trabalho Completa (P1)")), true);
+  assert.equal(bodies.some((body) => body.includes("Carteira de Trabalho Completa (P1): link não disponível no arquivo enviado.")), true);
+}
+
+// 3.8e) Sem CTPS anexada, permanece pendente e não aparece como recebida (sem confundir com CTPS 36 lógica).
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].ctps_36 = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_itens_json = [
+    { tipo: "ctps_completa", participante: "p1", status: "pendente", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false }
+  ];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_historico_json = [];
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.docs.links.ctps.pending",
+              timestamp: "17731839033",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  const assumirRes = await worker.fetch(assumirReq, env, {});
+  assert.equal(assumirRes.status, 200);
+
+  const docsBodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
+    .map((p) => String(p?.text?.body || ""))
+    .filter((body) => body.includes("📄 *Documentos recebidos*") || body.includes("⏳ *Documentos pendentes*") || body.includes("🔗 *Links disponíveis*"));
+  const docsMessage = docsBodies.join("\n");
+  assert.equal(docsMessage.includes("Carteira de Trabalho Completa (P1)"), true);
+  assert.equal(docsMessage.includes("⏳ *Documentos pendentes*"), true);
+  assert.equal(docsMessage.includes("📄 *Documentos recebidos*\n- Carteira de Trabalho Completa (P1)"), false);
 }
 
 {

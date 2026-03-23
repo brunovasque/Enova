@@ -10705,6 +10705,145 @@ function normalizeAssumirToken(token) {
     .slice(0, 24);
 }
 
+function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCanonico }) {
+  const payload = payloadTecnico && typeof payloadTecnico === "object" ? payloadTecnico : {};
+  const dossie = dossieCanonico && typeof dossieCanonico === "object" ? dossieCanonico : {};
+  const composicao = payload?.composicao && typeof payload.composicao === "object" ? payload.composicao : {};
+  const participantes = Array.isArray(composicao?.participantes) ? composicao.participantes : [];
+  const restricao = payload?.restricao && typeof payload.restricao === "object" ? payload.restricao : {};
+  const documental = payload?.documental && typeof payload.documental === "object" ? payload.documental : {};
+  const renda = payload?.renda && typeof payload.renda === "object" ? payload.renda : {};
+  const formalizacao = payload?.formalizacao && typeof payload.formalizacao === "object" ? payload.formalizacao : {};
+
+  const moneyToLabel = (value) => `R$ ${Math.max(0, Number(value || 0)).toFixed(2)}`;
+  const isFilledText = (value) => String(value || "").trim() !== "";
+  const normalize = (value) => String(value || "").trim().toLowerCase();
+  const boolValue = (value) => {
+    if (value === true || value === false) return value;
+    if (value === null || value === undefined) return null;
+    const txt = normalize(value);
+    if (["true", "1", "sim", "yes"].includes(txt)) return true;
+    if (["false", "0", "nao", "não", "no"].includes(txt)) return false;
+    return null;
+  };
+  const normalizeRegime = (value) => {
+    const txt = normalize(value);
+    if (!txt) return null;
+    if (txt === "clt") return "CLT";
+    if (txt === "autonomo" || txt === "autônomo") return "autônomo";
+    if (txt === "pj") return "PJ";
+    return txt.toUpperCase();
+  };
+
+  const nome = String(dossie?.identificacao?.nome || payload?.identificacao?.nome || "Cliente").trim();
+  const estadoCivil = String(dossie?.composicao?.estado_civil || "").trim();
+  const solo = composicao?.solo === true;
+  const tipoProcesso = String(composicao?.tipo_processo || "").trim().toLowerCase();
+  const parceiroNome = String(dossie?.composicao?.parceiro_nome || "").trim();
+  const quemCompoe = String(dossie?.composicao?.quem_compoe_renda || "").trim().toLowerCase();
+  const p3Tipo = String(dossie?.composicao?.p3_tipo || "").trim().toLowerCase();
+  const temP3 = participantes.some((p) => normalize(p?.id) === "p3");
+
+  const sentences = [];
+  const identificationParts = [];
+  if (isFilledText(estadoCivil)) {
+    identificationParts.push(`Cliente ${nome} é ${estadoCivil.toLowerCase()}`);
+  } else {
+    identificationParts.push(`Cliente ${nome}`);
+  }
+  if (solo || tipoProcesso === "solo") {
+    identificationParts.push("seguirá em processo solo");
+  } else if (tipoProcesso === "conjunto" && parceiroNome) {
+    identificationParts.push(`seguirá em processo conjunto com ${parceiroNome}`);
+  } else if (quemCompoe.includes("familiar") || p3Tipo.includes("familiar")) {
+    identificationParts.push("fará composição de renda com familiar");
+  } else if (isFilledText(parceiroNome)) {
+    identificationParts.push(`fará composição de renda com ${parceiroNome}`);
+  } else {
+    identificationParts.push("fará composição de renda com outra pessoa do grupo familiar");
+  }
+  sentences.push(`${identificationParts.join(" ")}.`);
+
+  const participantById = (id) => participantes.find((p) => normalize(p?.id) === id) || null;
+  const humanTrabalhoFrase = (pessoa, label) => {
+    if (!pessoa) return null;
+    const regime = normalizeRegime(pessoa?.regime_trabalho);
+    const rendaValor = Number(pessoa?.renda ?? 0);
+    const hasRenda = Number.isFinite(rendaValor) && rendaValor > 0;
+    const fragments = [];
+    if (regime) fragments.push(`${label} atua como ${regime}`);
+    if (hasRenda) fragments.push(`informou renda de ${moneyToLabel(rendaValor)}`);
+    if (!fragments.length) return null;
+    return `${fragments.join(" e ")}.`;
+  };
+
+  const titular = participantById("p1");
+  const p2 = participantById("p2");
+  const p3 = participantById("p3");
+  const trabalhoTitular = humanTrabalhoFrase(titular, "O titular");
+  if (trabalhoTitular) sentences.push(trabalhoTitular);
+  const trabalhoP2 = humanTrabalhoFrase(p2, "Na composição, P2");
+  if (trabalhoP2) sentences.push(trabalhoP2);
+  const trabalhoP3 = humanTrabalhoFrase(p3, "Há participante adicional P3 que");
+  if (trabalhoP3) sentences.push(trabalhoP3);
+
+  const titularAutonomoSemIR = normalize(titular?.regime_trabalho) === "autonomo" && boolValue(titular?.ir_autonomo) === false;
+  const p2AutonomoSemIR = normalize(p2?.regime_trabalho) === "autonomo" && boolValue(p2?.ir_autonomo) === false;
+  if (titularAutonomoSemIR || p2AutonomoSemIR || boolValue(dossie?.restricoes_viabilidade?.autonomo_sem_ir_este_ano) === true) {
+    sentences.push("Há renda autônoma informada sem IR declarado até o momento.");
+  }
+  if (formalizacao?.ctps_36 === true) {
+    sentences.push("Consta participante com 36 meses de registro em CTPS.");
+  }
+  if (renda?.multi_renda === true) {
+    sentences.push("O perfil apresenta múltiplas fontes de renda.");
+  }
+
+  if (restricao?.tem_restricao === true) {
+    if (restricao?.regularizavel === true) {
+      sentences.push("Há indicação de restrição em um dos participantes, com sinalização de regularização.");
+    } else {
+      sentences.push("Há indicação de restrição em um dos participantes, com necessidade de regularização.");
+    }
+  } else if (restricao?.tem_restricao === false) {
+    sentences.push("Até o momento, não há indicação de restrição no perfil.");
+  }
+  if (boolValue(dossie?.restricoes_viabilidade?.necessidade_composicao) === true) {
+    sentences.push("O caso depende de composição para melhor viabilidade.");
+  }
+
+  const envioStatus = normalize(documental?.envio_docs_status || dossie?.documentos_pacote?.envio_docs_status);
+  const faseAtual = String(dossie?.trilho_fase_atual?.fase_conversa || dossie?.identificacao?.stage_atual || "").trim();
+  const aguardandoCorrespondente = boolValue(dossie?.trilho_fase_atual?.aguardando_retorno_correspondente) === true;
+  const statusPreAnalise = normalize(
+    dossie?.correspondente_operacional?.processo_pre_analise_status ||
+    dossie?.correspondente_operacional?.retorno_correspondente_status
+  );
+  const aprovadoParaVisita =
+    statusPreAnalise === "aprovado" ||
+    statusPreAnalise === "aprovado_condicionado" ||
+    normalize(faseAtual) === "agendamento_visita";
+
+  if (envioStatus === "completo") {
+    sentences.push("A documentação já foi enviada e o caso seguiu para análise.");
+  } else if (envioStatus === "pendente") {
+    sentences.push("O caso está em fase de coleta e organização documental.");
+  }
+  if (aguardandoCorrespondente) {
+    sentences.push("O correspondente já recebeu o pré-cadastro e o caso aguarda retorno.");
+  } else if (aprovadoParaVisita) {
+    sentences.push("O caso está em andamento para visita e apresentação.");
+  } else if (isFilledText(faseAtual)) {
+    sentences.push(`O caso está na fase ${faseAtual}.`);
+  }
+
+  const result = sentences
+    .map((line) => String(line || "").trim())
+    .filter(Boolean)
+    .join(" ");
+  return result || `Cliente ${nome} com perfil técnico consolidado para análise operacional.`;
+}
+
 function buildCorrespondentePrivateDossierFromState(st) {
   const participantes = Array.isArray(st?.dossie_participantes_json) ? st.dossie_participantes_json : [];
   const pacoteRenda = st?.pacote_renda_resumo_json && typeof st.pacote_renda_resumo_json === "object" ? st.pacote_renda_resumo_json : {};
@@ -11220,6 +11359,11 @@ function buildCorrespondentePrivateDossierFromState(st) {
       chaves_excluidas_tecnicas: excludedInternalKeys
     }
   };
+  const resumo_humano_dinamico_correspondente = buildCorrespondenteHumanSummaryFromCanonical({
+    payloadTecnico: payload_tecnico_correspondente_json,
+    dossieCanonico: dossie_privado_canonico_json
+  });
+  dossie_privado_canonico_json.resumo_humano = resumo_humano_dinamico_correspondente;
 
   const espelhoStateLines = [
     "🧾 *espelho_state_preenchido*",
@@ -11250,11 +11394,15 @@ function buildCorrespondentePrivateDossierFromState(st) {
     "",
     ...sectionLines("📝 *observacoes*", dossie_privado_canonico_json.observacoes),
     "",
+    "🗣️ *resumo_humano*",
+    resumo_humano_dinamico_correspondente || "Resumo humano não disponível.",
+    "",
     ...espelhoStateLines
   ].join("\n");
 
   return {
     resumo_humano_correspondente,
+    resumo_humano_dinamico_correspondente,
     payload_tecnico_correspondente_json,
     dossie_privado_canonico_json,
     dossie_privado_completo_correspondente

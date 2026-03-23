@@ -12463,7 +12463,11 @@ async function handleCorrespondenteDocumentAccess(request, env) {
 
   const contentType = String(upstream.headers.get("content-type") || "").trim() || "application/octet-stream";
   const fileNameRaw = String(targetDoc?.file_name || targetDoc?.tipo || "documento").trim() || "documento";
-  const fileName = fileNameRaw.replace(/[^a-z0-9._-]/gi, "_");
+  const fileName = fileNameRaw
+    .replace(/[\/\\]+/g, "_")
+    .replace(/\.\.+/g, "_")
+    .replace(/[^a-z0-9._-]/gi, "_")
+    .slice(0, 120) || "documento";
   return new Response(upstream.body, {
     status: 200,
     headers: {

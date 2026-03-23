@@ -859,7 +859,7 @@ function getLastStepMessagesForWa(env, waId) {
   const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
     .map((p) => String(p?.text?.body || ""));
   const docsMessage = bodies.find((body) => body.includes("🔗 *Links disponíveis*")) || "";
-  assert.equal(docsMessage.includes("lookaside.fbsbx.com"), false);
+  assert.equal(docsMessage.includes("https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=abc"), false);
   assert.equal(docsMessage.includes("RG (P1): https://entrada.enova.local/correspondente/doc?pre=000001"), true);
 }
 

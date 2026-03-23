@@ -14038,15 +14038,30 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
   const simCtx = getSimulationContext(env);
   // Em simulação canônica, não consultamos storage externo de documentos.
   if (simCtx?.active) return stateDocsDerived;
-  const rows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_docs", {
-    method: "GET",
-    query: {
-      wa_id: `eq.${encodeURIComponent(wa_id)}`,
-      select: "tipo,participante,url,link,document_url,download_url,media_url,status,mime_type,file_name,filename,created_at",
-      order: "created_at.asc",
-      limit: 50
-    }
-  }));
+  let rows = [];
+  try {
+    rows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_docs", {
+      method: "GET",
+      query: {
+        wa_id: `eq.${encodeURIComponent(wa_id)}`,
+        select: "*",
+        order: "created_at.asc",
+        limit: 50
+      }
+    }));
+  } catch (err) {
+    await telemetry(env, {
+      wa_id,
+      event: "corr_docs_links_fetch_failed",
+      stage: "aguardando_retorno_correspondente",
+      severity: "warning",
+      message: "Falha ao consultar enova_docs; mantendo fallback seguro via estado",
+      details: {
+        error: err?.message || String(err)
+      },
+      force: true
+    });
+  }
   const rowsWithFallback = rows.map(withHistoryFallbackUrl);
   return rowsWithFallback.length ? rowsWithFallback : stateDocsDerived;
 }

@@ -10766,6 +10766,15 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
   sentences.push(`${identificationParts.join(" ")}.`);
 
   const participantById = (id) => participantes.find((p) => normalize(p?.id) === id) || null;
+  const knownCtpsFlags = participantes
+    .map((p) => boolValue(p?.ctps_36))
+    .filter((value) => value !== null);
+  const hasCtps36 = formalizacao?.ctps_36 === true || knownCtpsFlags.includes(true);
+  const hasKnownCtpsWithout36 = !hasCtps36 && knownCtpsFlags.length > 0 && knownCtpsFlags.every((value) => value === false);
+  const dependenteTitular = boolValue(
+    participantes.find((p) => normalize(p?.id) === "p1")?.dependente ??
+    dossie?.composicao?.dependente
+  );
   const humanTrabalhoFrase = (pessoa, label) => {
     if (!pessoa) return null;
     const regime = normalizeRegime(pessoa?.regime_trabalho);
@@ -10793,8 +10802,13 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
   if (titularAutonomoSemDeclaracaoIR || p2AutonomoSemDeclaracaoIR || boolValue(dossie?.restricoes_viabilidade?.autonomo_sem_ir_este_ano) === true) {
     sentences.push("Há renda autônoma informada sem IR declarado até o momento.");
   }
-  if (formalizacao?.ctps_36 === true) {
-    sentences.push("Consta participante com 36 meses de registro em CTPS.");
+  if (hasCtps36) {
+    sentences.push("O cliente possui 36 meses de registro em CTPS.");
+  } else if (hasKnownCtpsWithout36) {
+    sentences.push("O cliente não possui 36 meses de registro em CTPS.");
+  }
+  if (dependenteTitular === true) {
+    sentences.push("O cliente possui dependente.");
   }
   if (renda?.multi_renda === true) {
     sentences.push("O perfil apresenta múltiplas fontes de renda.");
@@ -10960,6 +10974,11 @@ function buildCorrespondentePrivateWhatsAppMessage({ payloadTecnico, dossieCanon
   if (hasCorrespondenteUsefulValue(composicao?.solo)) {
     composicaoBlock.push(`Solo: ${composicao.solo === true ? "sim" : "não"}`);
   }
+  const dependenteTecnicoRaw =
+    participantes.find((p) => String(p?.id || "").trim().toLowerCase() === "p1")?.dependente ??
+    dossie?.composicao?.dependente;
+  const dependenteTecnico = boolToHuman(dependenteTecnicoRaw, "sim", "não");
+  if (dependenteTecnico) composicaoBlock.push(`Dependente: ${dependenteTecnico}`);
   pushIfUseful(composicaoBlock, "Participantes", participantes.length ? participantes.length : null);
   if (composicaoBlock.length || participantLines.length) {
     lines.push("• Composição");
@@ -12302,13 +12321,23 @@ function buildCorrespondentePrivateDocsLinksText(docs = []) {
     return "Links de documentos: nenhum link encontrado no momento.";
   }
 
+  const resolveDocumentUrl = (doc) =>
+    String(
+      doc?.url ||
+      doc?.link ||
+      doc?.document_url ||
+      doc?.download_url ||
+      doc?.media_url ||
+      ""
+    ).trim();
   const lines = docs
-    .filter((d) => d?.url)
+    .map((d) => ({ ...d, _resolved_url: resolveDocumentUrl(d) }))
+    .filter((d) => d?._resolved_url)
     .slice(0, 30)
     .map((d, idx) => {
       const tipo = d?.tipo || "documento";
       const participante = d?.participante ? ` (${String(d.participante).toUpperCase()})` : "";
-      return `${idx + 1}. ${tipo}${participante}: ${d.url}`;
+      return `${idx + 1}. ${tipo}${participante}: ${d._resolved_url}`;
     });
 
   return lines.length
@@ -13846,11 +13875,14 @@ async function listCorrespondenteAssumirCandidates(env) {
     .filter((row) => row?.processo_enviado_correspondente !== true);
 }
 
-async function getCaseDocumentLinks(env, wa_id) {
+async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
   if (!wa_id) return [];
+  const stateDocs = Array.isArray(stateFallback?.pacote_documentos_anexados_json)
+    ? stateFallback.pacote_documentos_anexados_json
+    : [];
   const simCtx = getSimulationContext(env);
   // Em simulação canônica, não consultamos storage externo de documentos.
-  if (simCtx?.active) return [];
+  if (simCtx?.active) return stateDocs;
   const rows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_docs", {
     method: "GET",
     query: {
@@ -13860,7 +13892,7 @@ async function getCaseDocumentLinks(env, wa_id) {
       limit: 50
     }
   }));
-  return rows;
+  return rows.length ? rows : stateDocs;
 }
 
 async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
@@ -14020,7 +14052,7 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   const dossierBundle = buildCorrespondenteCanonicalDossierBundleFromState(stCaso);
   const dossieCanonico = dossierBundle.canonical;
   const dossiePrivado = dossierBundle.mensagemPrivadaWhatsapp || dossierBundle.privadoCompleto;
-  const docs = await getCaseDocumentLinks(env, caso.wa_id);
+  const docs = await getCaseDocumentLinks(env, caso.wa_id, stCaso);
   const docsText = buildCorrespondentePrivateDocsLinksText(docs);
   const caseRef = buildCorrespondenteCaseRef(caso);
 
@@ -14060,13 +14092,12 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   }
 
   const entryLink = buildCorrespondenteEntryLinkForCorrespondente(env, token, correspondenteWaId, caseRef);
-  const reminder = `Lembrete de retorno:\n${buildCorrespondenteReturnFormatGuidance(caseRef)}`;
   await sendMessage(
     env,
     correspondenteWaId,
     entryLink
-      ? `Assunção confirmada. Reabertura do dossiê: ${entryLink}\n\n${reminder}`
-      : `Assunção confirmada. Caso ${token} entregue no seu privado.\n\n${reminder}`
+      ? `Assunção confirmada. Reabertura do dossiê: ${entryLink}`
+      : `Assunção confirmada. Caso ${token} entregue no seu privado.`
   );
   return { handled: true, reason: "assumir_token_success" };
 }

@@ -397,6 +397,41 @@ function getLastStepMessagesForWa(env, waId) {
     assert.equal(privado.includes("_incoming_media"), false);
   }
 
+  // 11.1) dependente deve aparecer no técnico consolidado e no resumo humano quando houver base.
+  {
+    const canonical = buildCanonicalFromState({
+      dependente: "sim",
+      dossie_participantes_json: [
+        { id: "p1", role: "titular", regime_trabalho: "clt", renda: 5200, dependente: true }
+      ]
+    });
+    const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
+    const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
+    assert.equal(resumo.includes("possui dependente"), true);
+    assert.equal(privado.includes("Dependente: sim"), true);
+  }
+
+  // 11.2) CTPS 36 deve aparecer no resumo humano (sim e não) quando existir base técnica.
+  {
+    const canonicalComCtps = buildCanonicalFromState({
+      ctps_36: true,
+      dossie_participantes_json: [
+        { id: "p1", role: "titular", regime_trabalho: "clt", renda: 5000, ctps_36: true }
+      ]
+    });
+    const resumoComCtps = String(canonicalComCtps?.dossie_privado_canonico_json?.resumo_humano || "");
+    assert.equal(resumoComCtps.includes("possui 36 meses de registro em CTPS"), true);
+
+    const canonicalSemCtps = buildCanonicalFromState({
+      ctps_36: false,
+      dossie_participantes_json: [
+        { id: "p1", role: "titular", regime_trabalho: "clt", renda: 5000, ctps_36: false }
+      ]
+    });
+    const resumoSemCtps = String(canonicalSemCtps?.dossie_privado_canonico_json?.resumo_humano || "");
+    assert.equal(resumoSemCtps.includes("não possui 36 meses de registro em CTPS"), true);
+  }
+
   // 12) prova de não vazamento de JSON bruto em render final privado.
   {
     const canonical = buildCanonicalFromState({
@@ -608,6 +643,10 @@ function getLastStepMessagesForWa(env, waId) {
     .map((p) => String(p?.text?.body || ""))
     .filter((body) => body.includes("Para me devolver o resultado, responda neste formato:"));
   assert.equal(guidanceHits.length, 1);
+  const reminderHits = sentPayloads
+    .map((p) => String(p?.text?.body || ""))
+    .filter((body) => body.includes("Lembrete de retorno:"));
+  assert.equal(reminderHits.length, 0);
 }
 
 // 3.1) Admin/master deve abrir caso assumido por outro correspondente.
@@ -626,6 +665,87 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(body.includes("bypass administrativo"), true);
   assert.equal(body.includes("Resumo executivo"), true);
   assert.equal(body.includes("Token/identificador de entrada"), false);
+}
+
+// 3.8) Links/docs: quando houver URL no state, deve renderizar; sem URL, mensagem curta e limpa.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [
+    { tipo: "rg", participante: "p1", status: "recebido", url: "https://docs.example.com/rg-p1.pdf" },
+    { tipo: "cpf", participante: "p1", status: "recebido", url: "https://docs.example.com/cpf-p1.pdf" }
+  ];
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.docs.links.ok",
+              timestamp: "1773183903",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  const assumirRes = await worker.fetch(assumirReq, env, {});
+  assert.equal(assumirRes.status, 200);
+
+  const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
+    .map((p) => String(p?.text?.body || ""));
+  assert.equal(bodies.some((body) => body.includes("🔗 *Links dos documentos do caso:*")), true);
+  assert.equal(bodies.some((body) => body.includes("https://docs.example.com/rg-p1.pdf")), true);
+  assert.equal(bodies.some((body) => body.includes("https://docs.example.com/cpf-p1.pdf")), true);
+}
+
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [
+    { tipo: "rg", participante: "p1", status: "recebido" }
+  ];
+  const assumirReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.assumir.docs.links.none",
+              timestamp: "1773183904",
+              type: "text",
+              text: { body: `ASSUMIR ${token}` }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  const assumirRes = await worker.fetch(assumirReq, env, {});
+  assert.equal(assumirRes.status, 200);
+
+  const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
+    .map((p) => String(p?.text?.body || ""));
+  assert.equal(
+    bodies.some((body) => body.includes("Links de documentos: nenhum link encontrado no momento.")),
+    true
+  );
+  assert.equal(
+    bodies.some((body) => /"tipo"\s*:|^\s*\{/.test(body)),
+    false
+  );
 }
 
 // 3.1b) Compatibilidade: link legado com token continua funcionando.

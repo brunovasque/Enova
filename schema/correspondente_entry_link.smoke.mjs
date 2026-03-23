@@ -701,9 +701,10 @@ function getLastStepMessagesForWa(env, waId) {
 
   const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
     .map((p) => String(p?.text?.body || ""));
-  assert.equal(bodies.some((body) => body.includes("🔗 *Links dos documentos do caso:*")), true);
-  assert.equal(bodies.some((body) => body.includes("https://docs.example.com/rg-p1.pdf")), true);
-  assert.equal(bodies.some((body) => body.includes("https://docs.example.com/cpf-p1.pdf")), true);
+  assert.equal(bodies.some((body) => body.includes("📄 *Documentos recebidos*")), true);
+  assert.equal(bodies.some((body) => body.includes("🔗 *Links disponíveis*")), true);
+  assert.equal(bodies.some((body) => body.includes("RG (P1): https://docs.example.com/rg-p1.pdf")), true);
+  assert.equal(bodies.some((body) => body.includes("CPF (P1): https://docs.example.com/cpf-p1.pdf")), true);
 }
 
 {
@@ -738,10 +739,8 @@ function getLastStepMessagesForWa(env, waId) {
 
   const bodies = (Array.isArray(env.__enovaSimulationCtx.sentPayloads) ? env.__enovaSimulationCtx.sentPayloads : [])
     .map((p) => String(p?.text?.body || ""));
-  assert.equal(
-    bodies.some((body) => body.includes("Links de documentos: nenhum link encontrado no momento.")),
-    true
-  );
+  assert.equal(bodies.some((body) => body.includes("🔗 *Links disponíveis*")), true);
+  assert.equal(bodies.some((body) => body.includes("RG (P1): link não disponível no arquivo enviado.")), true);
   assert.equal(
     bodies.some((body) => /"tipo"\s*:|^\s*\{/.test(body)),
     false

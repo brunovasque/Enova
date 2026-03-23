@@ -532,6 +532,66 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(wrongWaBody.includes("Este caso já foi assumido por outro correspondente."), true);
 }
 
+// 2.3) POST via link com WA sem 55 mantém lock raw, envia privado para WA outbound com 55 e registra probes.
+{
+  const env = buildEnvWithState();
+  const waSem55 = "41999997777";
+  const originalConsoleLog = console.log;
+  const capturedProbe = [];
+  console.log = (...args) => {
+    const line = args.map((part) => String(part)).join(" ");
+    if (line.includes("TELEMETRIA-SAFE:") && line.includes("corr_private_delivery_probe_")) {
+      capturedProbe.push(line);
+    }
+    return originalConsoleLog(...args);
+  };
+  const assumirReq = new Request("https://worker.local/correspondente/entrada?pre=000001", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      pre: "000001",
+      cw: waSem55
+    })
+  });
+  let assumirRes;
+  try {
+    assumirRes = await worker.fetch(assumirReq, env, {});
+  } finally {
+    console.log = originalConsoleLog;
+  }
+  assert.equal(assumirRes.status, 200);
+
+  const atualizado = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(atualizado.corr_lock_correspondente_wa_id, waSem55);
+  assert.equal(atualizado.corr_entrega_privada_status, "entregue_privado_aguardando_retorno");
+
+  const sentPayloads = Array.isArray(env.__enovaSimulationCtx.sentPayloads)
+    ? env.__enovaSimulationCtx.sentPayloads
+    : [];
+  const waOutbound = `55${waSem55}`;
+  const outboundPrivatePayloads = sentPayloads.filter(
+    (row) => String(row?.to || "") === waOutbound && String(row?.type || "") === "text"
+  );
+  assert.equal(outboundPrivatePayloads.length > 0, true);
+
+  const telemetryPrefix = "TELEMETRIA-SAFE: ";
+  const telemetryEvents = capturedProbe
+    .map((line) => {
+      const payloadStr = line.includes(telemetryPrefix)
+        ? line.slice(line.indexOf(telemetryPrefix) + telemetryPrefix.length)
+        : "";
+      if (!payloadStr) return null;
+      const payload = JSON.parse(payloadStr);
+      return payload?.event || null;
+    })
+    .filter(Boolean);
+  assert.equal(telemetryEvents.includes("corr_private_delivery_probe_assumir_enter"), true);
+  assert.equal(telemetryEvents.includes("corr_private_delivery_probe_wa_resolved"), true);
+  assert.equal(telemetryEvents.includes("corr_private_delivery_probe_send_attempt"), true);
+  assert.equal(telemetryEvents.includes("corr_private_delivery_probe_send_success"), true);
+  assert.equal(telemetryEvents.includes("corr_private_delivery_probe_status_saved"), true);
+}
+
 // 3) Assunção no fluxo externo libera link apenas para o correspondente correto.
 {
   const env = buildEnvWithState();

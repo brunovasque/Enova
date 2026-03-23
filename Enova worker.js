@@ -10716,6 +10716,17 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
 // =============================================================
 function gerarDossieCompleto(st) {
   const statusDocs = st.envio_docs_status || st.docs_status_geral || "pendente";
+  const formatCanonicalBool = (value) => value === true ? "Sim" : value === false ? "Não" : "Não informado";
+  const toCanonicalBool = (value) => {
+    if (value === true || value === false) return value;
+    if (value === null || value === undefined) return null;
+    const txt = String(value).trim().toLowerCase();
+    if (["true", "1", "sim", "yes"].includes(txt)) return true;
+    if (["false", "0", "nao", "não", "no"].includes(txt)) return false;
+    return null;
+  };
+  const ctpsTitular = toCanonicalBool(st.ctps_36);
+  const ctpsParceiro = toCanonicalBool(st.ctps_36_parceiro);
 
   return `
 📌 *Dossiê do Cliente*
@@ -10727,8 +10738,8 @@ function gerarDossieCompleto(st) {
 💰 Renda Parceiro: ${st.renda_parceiro || "não informado"}
 🧮 Soma de Renda: ${st.somar_renda ? "Sim" : "Não"}
 
-📄 CTPS Titular ≥ 36 meses: ${st.ctps_36 === true ? "Sim" : "Não"}
-📄 CTPS Parceiro ≥ 36 meses: ${st.ctps_36_parceiro === true ? "Sim" : "Não"}
+📄 CTPS Titular ≥ 36 meses: ${formatCanonicalBool(ctpsTitular)}
+📄 CTPS Parceiro ≥ 36 meses: ${formatCanonicalBool(ctpsParceiro)}
 
 👶 Dependente: ${st.dependente === true ? "Sim" : "Não"}
 
@@ -12464,9 +12475,9 @@ async function handleCorrespondenteDocumentAccess(request, env) {
   const contentType = String(upstream.headers.get("content-type") || "").trim() || "application/octet-stream";
   const fileNameRaw = String(targetDoc?.file_name || targetDoc?.tipo || "documento").trim() || "documento";
   const fileName = fileNameRaw
-    .replace(/[\/\\]+/g, "_")
-    .replace(/\.\.+/g, "_")
     .replace(/[^a-z0-9._-]/gi, "_")
+    .replace(/\.\.+/g, "_")
+    .replace(/^\.+/g, "")
     .slice(0, 120) || "documento";
   return new Response(upstream.body, {
     status: 200,
@@ -12502,8 +12513,10 @@ function buildCorrespondentePrivateDocsLinksText(docs = [], st = null, options =
     if (!rawUrl) return "";
     const controlledLink = buildCorrespondenteDocumentAccessLink(env, token, caseRef, docIndex);
     if (controlledLink) return controlledLink;
-    if (isMetaProtectedDocumentUrl(rawUrl)) return "";
-    return rawUrl;
+    if (rawUrl && env?.DEBUG_META_WEBHOOK === "1") {
+      console.warn("correspondente_docs_link_without_controlled_url", { caseRef, docIndex });
+    }
+    return "";
   };
   const resolveStatus = (doc) => String(doc?.status || "").trim().toLowerCase();
   const isReceivedDoc = (doc) => {

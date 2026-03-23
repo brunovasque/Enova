@@ -10739,6 +10739,7 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
   const estadoCivil = String(dossie?.composicao?.estado_civil || "").trim();
   const solo = composicao?.solo === true;
   const tipoProcesso = String(composicao?.tipo_processo || "").trim().toLowerCase();
+  const isSoloProcesso = solo || tipoProcesso === "solo";
   const parceiroNome = String(dossie?.composicao?.parceiro_nome || "").trim();
   const quemCompoe = String(dossie?.composicao?.quem_compoe_renda || "").trim().toLowerCase();
   const p3Tipo = String(dossie?.composicao?.p3_tipo || "").trim().toLowerCase();
@@ -10751,7 +10752,7 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
   } else {
     identificationParts.push(`Cliente ${nome}`);
   }
-  if (solo || tipoProcesso === "solo") {
+  if (isSoloProcesso) {
     identificationParts.push("seguirá em processo solo");
   } else if (tipoProcesso === "conjunto" && parceiroNome) {
     identificationParts.push(`seguirá em processo conjunto com ${parceiroNome}`);
@@ -10787,9 +10788,9 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
   const trabalhoP3 = humanTrabalhoFrase(p3, "Há participante adicional P3 que");
   if (trabalhoP3) sentences.push(trabalhoP3);
 
-  const titularAutonomoSemIR = normalize(titular?.regime_trabalho) === "autonomo" && boolValue(titular?.ir_autonomo) === false;
-  const p2AutonomoSemIR = normalize(p2?.regime_trabalho) === "autonomo" && boolValue(p2?.ir_autonomo) === false;
-  if (titularAutonomoSemIR || p2AutonomoSemIR || boolValue(dossie?.restricoes_viabilidade?.autonomo_sem_ir_este_ano) === true) {
+  const titularAutonomoSemDeclaracaoIR = normalize(titular?.regime_trabalho) === "autonomo" && boolValue(titular?.ir_autonomo) === false;
+  const p2AutonomoSemDeclaracaoIR = normalize(p2?.regime_trabalho) === "autonomo" && boolValue(p2?.ir_autonomo) === false;
+  if (titularAutonomoSemDeclaracaoIR || p2AutonomoSemDeclaracaoIR || boolValue(dossie?.restricoes_viabilidade?.autonomo_sem_ir_este_ano) === true) {
     sentences.push("Há renda autônoma informada sem IR declarado até o momento.");
   }
   if (formalizacao?.ctps_36 === true) {

@@ -10888,7 +10888,8 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
   };
 
   const participantById = (id) => participantes.find((p) => normalize(p?.id) === id) || null;
-  const titular = participantById("p1");
+  const titular = participantById("p1") || participantes[0] || null;
+  const composicaoParticipante = participantes.find((p) => normalize(p?.id) !== "p1") || null;
   const nome = String(dossie?.identificacao?.nome || payload?.identificacao?.nome || "").trim();
   const canonicalCtps36 = boolValue(formalizacao?.ctps_36);
   const dependenteTitular = boolValue(
@@ -10897,15 +10898,40 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
   );
   const restricaoTitular = boolValue(restricao?.tem_restricao);
 
-  const isSolo = composicao?.solo === true || normalize(composicao?.tipo_processo) === "solo";
+  const isSolo = composicao?.solo === true || normalize(composicao?.tipo_processo) === "solo" || participantes.length <= 1;
   const sentences = [];
-  if (nome) sentences.push(`${nome} segue em processo ${isSolo ? "solo" : "com composição de renda"}.`);
-  const regimeTitular = normalizeRegime(titular?.regime_trabalho);
-  const rendaTitular = Number(titular?.renda ?? renda?.titular ?? 0);
-  const regimeRendaParts = [];
-  if (regimeTitular) regimeRendaParts.push(`Informou trabalho ${regimeTitular}`);
-  if (Number.isFinite(rendaTitular) && rendaTitular > 0) regimeRendaParts.push(`renda de ${moneyToLabel(rendaTitular)}`);
-  if (regimeRendaParts.length) sentences.push(`${regimeRendaParts.join(" e ")}.`);
+  if (nome) {
+    sentences.push(`${nome} segue em processo ${isSolo ? "solo" : "conjunto"}.`);
+  }
+  const participantProfileSentence = (participant, subjectLabel, options = {}) => {
+    const regime = normalizeRegime(participant?.regime_trabalho);
+    const rendaValor = Number(participant?.renda ?? 0);
+    const parts = [];
+    if (regime) parts.push(`trabalho ${regime}`);
+    if (Number.isFinite(rendaValor) && rendaValor > 0) parts.push(`renda de ${moneyToLabel(rendaValor)}`);
+    const ctps36Participant = boolValue(options?.ctps36);
+    if (ctps36Participant === true) parts.push("36 meses de carteira assinada");
+    const dependenteParticipant = boolValue(options?.dependente);
+    if (dependenteParticipant === true) parts.push("dependente");
+    if (!parts.length) return "";
+    const normalizedSubject = String(subjectLabel || "").trim();
+    const prefix = normalizedSubject ? `${normalizedSubject} informou ` : "Informou ";
+    if (parts.length === 1) return `${prefix}${parts[0]}.`;
+    if (parts.length === 2) return `${prefix}${parts[0]} e ${parts[1]}.`;
+    return `${prefix}${parts.slice(0, -1).join(", ")} e ${parts[parts.length - 1]}.`;
+  };
+  const titularSentence = participantProfileSentence(titular, isSolo ? "" : "A titular", {
+    ctps36: canonicalCtps36,
+    dependente: dependenteTitular
+  }).trim();
+  if (titularSentence) sentences.push(titularSentence);
+  if (!isSolo && composicaoParticipante) {
+    const composicaoSentence = participantProfileSentence(composicaoParticipante, "A participante que compõe junto", {
+      ctps36: composicaoParticipante?.ctps_36,
+      dependente: composicaoParticipante?.dependente
+    });
+    if (composicaoSentence) sentences.push(composicaoSentence);
+  }
 
   const regimesUnicos = Array.isArray(renda?.regimes_unicos)
     ? [...new Set(renda.regimes_unicos.map(normalizeRegime).filter(Boolean))]
@@ -10918,19 +10944,21 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
     sentences.push(`Tem multi-renda, total de ${moneyToLabel(rendaTotal)}.`);
   }
 
-  if (canonicalCtps36 === true) sentences.push("Confirmou possuir 36 meses de carteira assinada.");
-  else if (canonicalCtps36 === false) sentences.push("Informou não possuir 36 meses de carteira assinada.");
-  if (dependenteTitular === true) sentences.push("Informou dependente.");
-  else if (dependenteTitular === false) sentences.push("Informou não possuir dependente.");
-
-  if (restricaoTitular === true) sentences.push("Informou restrição.");
-  else if (restricaoTitular === false) sentences.push("Não indicou restrição.");
+  const restricaoParticipantes = participantes
+    .map((p) => boolValue(p?.tem_restricao))
+    .filter((v) => v === true || v === false);
+  const restricaoAnyTrue = restricaoParticipantes.some((v) => v === true) || restricaoTitular === true;
+  const restricaoAllFalse =
+    (restricaoParticipantes.length > 0 && restricaoParticipantes.every((v) => v === false)) ||
+    (restricaoParticipantes.length === 0 && restricaoTitular === false);
+  if (restricaoAnyTrue) sentences.push("Houve indicação de restrição.");
+  else if (restricaoAllFalse) sentences.push("Não houve indicação de restrição.");
 
   const result = sentences
     .map((line) => String(line || "").trim())
     .filter(Boolean)
     .join(" ");
-  return result || (nome ? `${nome} com perfil em consolidação.` : "Perfil em consolidação.");
+  return result || (nome ? `${nome}.` : "");
 }
 
 function normalizeCorrespondenteRegime(value) {
@@ -10975,7 +11003,7 @@ function buildCorrespondentePrivateWhatsAppMessage({ payloadTecnico, dossieCanon
     "Acesse o dossiê completo pelo link oficial da Enova.",
     [
       `Retorno no grupo: Pré-cadastro #${caseRef}`,
-      "STATUS + MOTIVO (opcional) + Valor de financiamento (opcional) + Valor de subsídio federal (opcional)."
+      "STATUS + MOTIVO + Valor de financiamento + Valor de subsídio federal."
     ].join(" ")
   ].join("\n");
 }
@@ -10988,7 +11016,7 @@ function buildCorrespondentePrivateWhatsAppSafeFallback(st = {}, canonical = {})
     "Acesse o dossiê completo pelo link oficial da Enova.",
     [
       `Retorno no grupo: Pré-cadastro #${safeCaseRef}`,
-      "STATUS + MOTIVO (opcional) + Valor de financiamento (opcional) + Valor de subsídio federal (opcional)."
+      "STATUS + MOTIVO + Valor de financiamento + Valor de subsídio federal."
     ].join(" ")
   ].join("\n");
 }
@@ -11898,7 +11926,8 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
       : documentosPorParticipante[participante].pendentes;
     target.push({
       tipo: item?.tipo || "documento",
-      status: item?.status || item?.observacao_analise || (origem === "recebidos" ? "recebido" : "pendente")
+      status: item?.status || item?.observacao_analise || (origem === "recebidos" ? "recebido" : "pendente"),
+      access_link: item?.access_link || null
     });
   };
   for (const doc of asArray(documentos.recebidos)) mergeDoc(doc, "recebidos");
@@ -11929,15 +11958,48 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
       p?.restricao,
       pid === "p1" ? st?.restricao : null
     );
+    const ctps36State = pid === "p1"
+      ? st?.ctps_36
+      : pid === "p2"
+        ? st?.ctps_36_parceiro
+        : st?.p3_ctps_36;
+    const dependenteState = pid === "p1"
+      ? st?.dependente
+      : pid === "p2"
+        ? (st?.dependente_parceiro ?? st?.dependente_p2)
+        : st?.dependente_p3;
+    const irState = pid === "p1"
+      ? (st?.autonomo_ir ?? st?.ir_declarado)
+      : pid === "p2"
+        ? (st?.ir_declarado_parceiro ?? st?.ir_declarado_p2)
+        : st?.ir_declarado_p3;
+    const regimeTxt = String(regime || "").trim().toLowerCase();
+    const irAutonomo = regimeTxt === "autonomo" ? parseCanonicalBool(p?.ir_autonomo, p?.ir_declarado, irState) : null;
     return {
       id: pid,
       papel: p?.papel || p?.role || (pid === "p1" ? "titular" : pid === "p2" ? "parceiro" : "familiar"),
       regime_trabalho: regime || null,
       renda: Number(p?.renda ?? rendaState ?? 0) || 0,
-      tem_restricao: temRestricao === true
+      tem_restricao: temRestricao === true,
+      ctps_36: parseCanonicalBool(p?.ctps_36, ctps36State),
+      dependente: parseCanonicalBool(p?.dependente, dependenteState),
+      ir_autonomo: irAutonomo
     };
   });
-  const composicaoIds = [...new Set(participantesPerfil.map((p) => String(p?.id || "").trim().toUpperCase()).filter(Boolean))];
+  const composicaoRoles = [...new Set(participantesPerfil
+    .map((p) => String(p?.papel || "").trim())
+    .filter(Boolean))];
+  const regimePrincipal = participantesPerfil.find((p) => String(p?.id || "").trim().toLowerCase() === "p1")?.regime_trabalho || null;
+  const rendaPrincipal = Number(
+    participantesPerfil.find((p) => String(p?.id || "").trim().toLowerCase() === "p1")?.renda ?? renda.titular ?? st?.renda ?? 0
+  ) || 0;
+
+  const pendingItemsCanonical = asArray(documentos.pendentes).filter((item) => String(item?.status || "pendente").trim().toLowerCase() === "pendente");
+  const remanescentesCanonicos = pendingItemsCanonical.length;
+  const envioDocsStatusRaw = String(documental.envio_docs_status || "").trim().toLowerCase();
+  const envioDocsStatusCanonico = remanescentesCanonicos > 0
+    ? (envioDocsStatusRaw === "parcial" ? "parcial" : "pendente")
+    : "completo";
 
   return {
     meta: {
@@ -11953,8 +12015,8 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
     },
     resumo_executivo: {
       pronto_para_pre_analise: conclusao.pronto_para_pre_analise === true,
-      envio_docs_status: documental.envio_docs_status || null,
-      pendencias_total: Number(documental.pendencias_total) || 0,
+      envio_docs_status: envioDocsStatusCanonico,
+      pendencias_total: remanescentesCanonicos,
       renda_total: Number(renda.total) || 0,
       participantes_total: Number(identificacao.composicao_qtd) || 0
     },
@@ -11962,7 +12024,9 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
       nome: identificacao.nome || st?.nome || null,
       estado_civil: identificacao.estado_civil || st?.estado_civil || null,
       tipo_processo: composicao.tipo_processo || (participantesPerfil.length <= 1 ? "solo" : participantesPerfil.length === 2 ? "conjunto" : "composicao"),
-      composicao: composicaoIds.length ? composicaoIds.join(" / ") : null,
+      composicao: composicaoRoles.length ? composicaoRoles.join(" / ") : null,
+      regime_trabalho: regimePrincipal || null,
+      renda: rendaPrincipal > 0 ? rendaPrincipal : null,
       restricao: restricao.tem_restricao === true,
       ctps_36: parseCanonicalBool(formalizacao.ctps_36),
       dependente: parseCanonicalBool(
@@ -11977,8 +12041,8 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
     pendencias: {
       bloqueantes: Number(documental.pendencias_bloqueantes) || 0,
       nao_bloqueantes: Number(documental.pendencias_nao_bloqueantes) || 0,
-      remanescentes: Number(conclusao.pendencias_remanescentes) || 0,
-      itens: asArray(documentos.pendentes).map((item) => ({
+      remanescentes: remanescentesCanonicos,
+      itens: pendingItemsCanonical.map((item) => ({
         tipo: item?.tipo || "documento",
         participante: item?.participante || null,
         status: item?.status || "pendente"
@@ -12122,6 +12186,20 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   const docsForUi = Array.isArray(options?.docsForUi)
     ? options.docsForUi
     : [];
+  const hasUsefulValue = (value) => {
+    if (value === null || value === undefined) return false;
+    if (typeof value === "string") return String(value).trim() !== "";
+    if (typeof value === "number") return Number.isFinite(value) && value > 0;
+    if (typeof value === "boolean") return true;
+    return true;
+  };
+  const formatRoleName = (value) => {
+    const txt = String(value || "").trim().toLowerCase();
+    if (txt === "p1" || txt === "titular") return "Titular";
+    if (txt === "p2" || txt === "parceiro") return "Parceiro(a)";
+    if (txt === "p3" || txt === "familiar" || txt === "familiar_p3") return "Familiar";
+    return txt ? txt : "Participante";
+  };
   const formatMoney = (value) => {
     const num = Number(value);
     if (!Number.isFinite(num) || num <= 0) return "não informado";
@@ -12139,6 +12217,7 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   const docsRecebidosUi = docsForUi.filter((doc) => String(doc?.status || "").trim().toLowerCase() !== "pendente");
   const docsPendentesUi = docsForUi.filter((doc) => String(doc?.status || "").trim().toLowerCase() === "pendente");
   const linksOperacionaisUi = docsRecebidosUi
+    .filter((doc) => String(doc?.access_link || "").trim())
     .map((doc) => ({
       tipo: String(doc?.tipo || "documento").trim() || "documento",
       participante: String(doc?.participante || "").trim().toLowerCase(),
@@ -12219,7 +12298,7 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
       <div class="row"><span class="label">Referência:</span> ${escapeHtml(ref)}</div>
       <div class="row"><span class="label">Cliente:</span> ${escapeHtml(clienteNome)}</div>
       <div class="chips">
-        <span class="chip info">Status: ${escapeHtml(String(caso?.corr_publicacao_status || "não informado"))}</span>
+        ${hasUsefulValue(caso?.corr_publicacao_status) ? `<span class="chip info">Status: ${escapeHtml(String(caso?.corr_publicacao_status || ""))}</span>` : ""}
         <span class="chip alerta">Retorno: ${escapeHtml(String(retornoCorrespondente?.status || "sem retorno"))}</span>
       </div>
       <div class="status">${escapeHtml(statusText)}</div>
@@ -12266,7 +12345,7 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     ${dossierPayload ? `<section class="card">
       <h2 class="section-kicker">Resumo executivo</h2>
       <div class="row"><span class="label">Pronto para pré-análise:</span> ${escapeHtml(resumo?.pronto_para_pre_analise === true ? "sim" : "não")}</div>
-      <div class="row"><span class="label">Status documental:</span> ${escapeHtml(resumo?.envio_docs_status || "não informado")}</div>
+      ${hasUsefulValue(resumo?.envio_docs_status) ? `<div class="row"><span class="label">Status documental:</span> ${escapeHtml(resumo?.envio_docs_status || "")}</div>` : ""}
       <div class="row"><span class="label">Pendências totais:</span> ${escapeHtml(String(resumo?.pendencias_total ?? 0))}</div>
       <div class="row"><span class="label">Renda total:</span> ${escapeHtml(formatMoney(resumo?.renda_total))}</div>
       <div class="row"><span class="label">Participantes totais:</span> ${escapeHtml(String(resumo?.participantes_total ?? 0))}</div>
@@ -12276,12 +12355,14 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     <section class="card">
       <h2 class="section-kicker">Perfil Técnico Consolidado</h2>
       <div class="row"><span class="label">Nome:</span> ${escapeHtml(perfil?.nome || clienteNome)}</div>
-      <div class="row"><span class="label">Estado civil:</span> ${escapeHtml(perfil?.estado_civil || "não informado")}</div>
-      <div class="row"><span class="label">Tipo de processo:</span> ${escapeHtml(String(perfil?.tipo_processo || "não informado"))}</div>
-      <div class="row"><span class="label">Composição:</span> ${escapeHtml(String(perfil?.composicao || "não informado"))}</div>
-      <div class="row"><span class="label">CTPS 36 meses:</span> ${escapeHtml(boolLabel(perfil?.ctps_36))}</div>
-      <div class="row"><span class="label">Dependente:</span> ${escapeHtml(boolLabel(perfil?.dependente))}</div>
-      <div class="row"><span class="label">Restrição:</span> ${escapeHtml(boolLabel(perfil?.restricao))}</div>
+      ${hasUsefulValue(perfil?.estado_civil) ? `<div class="row"><span class="label">Estado civil:</span> ${escapeHtml(perfil?.estado_civil || "")}</div>` : ""}
+      ${hasUsefulValue(perfil?.tipo_processo) ? `<div class="row"><span class="label">Tipo de processo:</span> ${escapeHtml(String(perfil?.tipo_processo || ""))}</div>` : ""}
+      ${hasUsefulValue(perfil?.regime_trabalho) ? `<div class="row"><span class="label">Regime de trabalho:</span> ${escapeHtml(String(perfil?.regime_trabalho || ""))}</div>` : ""}
+      ${hasUsefulValue(perfil?.renda) ? `<div class="row"><span class="label">Renda:</span> ${escapeHtml(formatMoney(perfil?.renda))}</div>` : ""}
+      ${hasUsefulValue(perfil?.composicao) ? `<div class="row"><span class="label">Composição:</span> ${escapeHtml(String(perfil?.composicao || ""))}</div>` : ""}
+      ${perfil?.ctps_36 === true || perfil?.ctps_36 === false ? `<div class="row"><span class="label">CTPS 36 meses:</span> ${escapeHtml(boolLabel(perfil?.ctps_36))}</div>` : ""}
+      ${perfil?.dependente === true || perfil?.dependente === false ? `<div class="row"><span class="label">Dependente:</span> ${escapeHtml(boolLabel(perfil?.dependente))}</div>` : ""}
+      ${perfil?.restricao === true || perfil?.restricao === false ? `<div class="row"><span class="label">Restrição:</span> ${escapeHtml(boolLabel(perfil?.restricao))}</div>` : ""}
       ${(perfil?.multi_regime === true || perfil?.multi_renda === true)
         ? `<div class="row"><span class="label">Múltiplos indicadores:</span> ${escapeHtml([
           perfil?.multi_regime === true ? "multi-regime" : null,
@@ -12294,34 +12375,37 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
           ? perfil.participantes
           : []
         ).map((item) => `<article class="mini">
-          <div class="k">${escapeHtml(String(item?.id || "participante").toUpperCase())} · ${escapeHtml(participantRoleLabel(item?.papel))}</div>
-          <div class="v">Regime: ${escapeHtml(String(item?.regime_trabalho || "não informado"))}</div>
-          <div class="v">Renda: ${escapeHtml(formatMoney(item?.renda))}</div>
-          <div class="v">Restrição: ${escapeHtml(item?.tem_restricao === true ? "sim" : "não")}</div>
+          <div class="k">${escapeHtml(formatRoleName(item?.papel || item?.id))}</div>
+          ${hasUsefulValue(item?.regime_trabalho) ? `<div class="v">Regime: ${escapeHtml(String(item?.regime_trabalho || ""))}</div>` : ""}
+          ${hasUsefulValue(item?.renda) ? `<div class="v">Renda: ${escapeHtml(formatMoney(item?.renda))}</div>` : ""}
+          ${item?.ctps_36 === true || item?.ctps_36 === false ? `<div class="v">CTPS 36: ${escapeHtml(item?.ctps_36 === true ? "sim" : "não")}</div>` : ""}
+          ${item?.dependente === true || item?.dependente === false ? `<div class="v">Dependente: ${escapeHtml(item?.dependente === true ? "sim" : "não")}</div>` : ""}
+          ${item?.ir_autonomo === true || item?.ir_autonomo === false ? `<div class="v">IR autônomo: ${escapeHtml(item?.ir_autonomo === true ? "sim" : "não")}</div>` : ""}
+          ${item?.tem_restricao === true || item?.tem_restricao === false ? `<div class="v">Restrição: ${escapeHtml(item?.tem_restricao === true ? "sim" : "não")}</div>` : ""}
         </article>`).join("") || `<article class="mini"><span class="muted">Participantes não disponíveis no contrato atual.</span></article>`}
       </div>
     </section>
     <section class="card">
       <h2 class="section-kicker">Documentos Recebidos</h2>
       ${docsRecebidosUi.length
-        ? `<ul class="list">${docsRecebidosUi.map((doc) => `<li>${escapeHtml(String(doc?.tipo || "documento"))} [${escapeHtml(String(doc?.participante || "-").toUpperCase())}]</li>`).join("")}</ul>`
+        ? `<ul class="list">${docsRecebidosUi.map((doc) => `<li>${escapeHtml(String(doc?.tipo || "documento"))} — ${escapeHtml(formatRoleName(doc?.participante))}</li>`).join("")}</ul>`
         : "<div class=\"row muted\">Sem documentos recebidos mapeados.</div>"
       }
       <h2 class="section-kicker">Documentos Pendentes</h2>
       ${docsPendentesUi.length
-        ? `<ul class="list">${docsPendentesUi.map((doc) => `<li>${escapeHtml(String(doc?.tipo || "documento"))} [${escapeHtml(String(doc?.participante || "-").toUpperCase())}]</li>`).join("")}</ul>`
+        ? `<ul class="list">${docsPendentesUi.map((doc) => `<li>${escapeHtml(String(doc?.tipo || "documento"))} — ${escapeHtml(formatRoleName(doc?.participante))}</li>`).join("")}</ul>`
         : "<div class=\"row muted\">Sem pendências documentais ativas.</div>"
       }
       <h2 class="section-kicker">Links operacionais dos documentos</h2>
       ${linksOperacionaisUi.length
-        ? `<ul class="list">${linksOperacionaisUi.map((entry) => `<li>${escapeHtml(entry.tipo)} [${escapeHtml((entry.participante || "-").toUpperCase())}]: ${entry.link ? `<a href="${escapeHtml(entry.link)}" target="_blank" rel="noreferrer noopener">abrir documento</a>` : "<span class=\"muted\">link não disponível</span>"}</li>`).join("")}</ul>`
+        ? `<ul class="list">${linksOperacionaisUi.map((entry) => `<li>${escapeHtml(entry.tipo)} — ${escapeHtml(formatRoleName(entry.participante))}: <a href="${escapeHtml(entry.link)}" target="_blank" rel="noreferrer noopener">abrir documento</a></li>`).join("")}</ul>`
         : "<div class=\"row muted\">Nenhum link operacional disponível no momento.</div>"
       }
     </section>
     <section class="card">
       <h2 class="section-kicker">Instrução/estado de retorno do correspondente</h2>
-      <div class="row"><span class="label">Status:</span> ${escapeHtml(String(retornoCorrespondente?.status || "não informado"))}</div>
-      <div class="row"><span class="label">Motivo:</span> ${escapeHtml(String(retornoCorrespondente?.motivo || "não informado"))}</div>
+      ${hasUsefulValue(retornoCorrespondente?.status) ? `<div class="row"><span class="label">Status:</span> ${escapeHtml(String(retornoCorrespondente?.status || ""))}</div>` : ""}
+      ${hasUsefulValue(retornoCorrespondente?.motivo) ? `<div class="row"><span class="label">Motivo:</span> ${escapeHtml(String(retornoCorrespondente?.motivo || ""))}</div>` : ""}
       ${String(retornoCorrespondente?.valor_financiamento || "").trim()
         ? `<div class="row"><span class="label">Valor de financiamento:</span> ${escapeHtml(String(retornoCorrespondente.valor_financiamento))}</div>`
         : ""
@@ -12330,13 +12414,15 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
         ? `<div class="row"><span class="label">Valor de subsídio federal:</span> ${escapeHtml(String(retornoCorrespondente.valor_subsidio_federal))}</div>`
         : ""
       }
-      <div class="row"><span class="label">Retorno bruto:</span> ${escapeHtml(String(retornoCorrespondente?.bruto || "não informado"))}</div>
       <div class="row"><span class="label">Instrução operacional:</span></div>
       <div class="mini">${retornoGuidance ? formatMultiline(retornoGuidance) : "<span class=\"muted\">Instrução não disponível no contrato atual.</span>"}</div>
-      <h2 class="section-kicker">Pendências</h2>
-      <div class="row"><span class="label">Bloqueantes:</span> ${escapeHtml(String(pendencias?.bloqueantes ?? 0))}</div>
-      <div class="row"><span class="label">Não bloqueantes:</span> ${escapeHtml(String(pendencias?.nao_bloqueantes ?? 0))}</div>
-      <div class="row"><span class="label">Remanescentes:</span> ${escapeHtml(String(pendencias?.remanescentes ?? 0))}</div>
+      ${pendencias && (Number(pendencias?.bloqueantes ?? 0) > 0 || Number(pendencias?.nao_bloqueantes ?? 0) > 0)
+        ? `<h2 class="section-kicker">Pendências</h2>
+      ${Number(pendencias?.bloqueantes ?? 0) > 0 ? `<div class="row"><span class="label">Bloqueantes:</span> ${escapeHtml(String(pendencias?.bloqueantes ?? 0))}</div>` : ""}
+      ${Number(pendencias?.nao_bloqueantes ?? 0) > 0 ? `<div class="row"><span class="label">Não bloqueantes:</span> ${escapeHtml(String(pendencias?.nao_bloqueantes ?? 0))}</div>` : ""}
+      ${Number(pendencias?.remanescentes ?? 0) > 0 ? `<div class="row"><span class="label">Remanescentes:</span> ${escapeHtml(String(pendencias?.remanescentes ?? 0))}</div>` : ""}`
+        : ""
+      }
     </section>` : ""}
   </main>
 </body>
@@ -12536,13 +12622,20 @@ function buildCorrespondenteWebDocsModel(docs) {
   const normalizeDocUiParticipant = (value) => String(value || "").trim().toLowerCase() || "-";
   const docsMap = new Map();
   const docsList = Array.isArray(docs) ? docs : [];
-  const stableIdFromDoc = (doc, fallbackKey = "") => {
+  const stableIdFromSlot = (fallbackKey = "") => {
+    const fromKey = normalizeText(String(fallbackKey)).replace(/[^a-z0-9]+/g, "_").slice(0, 120);
+    return fromKey ? `slot_${fromKey}` : null;
+  };
+  const stableIdFromDocIntrinsic = (doc) => {
     const fromDocId = String(doc?.doc_id || doc?.id || "").trim();
     if (fromDocId) return `doc_${fromDocId}`;
     const fromMsg = String(doc?.message_id || doc?.wamid || doc?.wamid_id || "").trim();
     if (fromMsg) return `msg_${fromMsg}`;
     const fromMedia = String(doc?.media_id || doc?.mid || doc?.mediaId || "").trim();
     if (fromMedia) return `mid_${fromMedia}`;
+    return null;
+  };
+  const stableIdFromDocRawFallback = (doc, fallbackKey = "") => {
     const raw = [
       String(doc?.tipo || "").trim().toLowerCase(),
       String(doc?.participante || "").trim().toLowerCase(),
@@ -12553,14 +12646,32 @@ function buildCorrespondenteWebDocsModel(docs) {
     ].join("|");
     return `auto_${normalizeText(raw).replace(/[^a-z0-9]+/g, "_").slice(0, 120) || "doc"}`;
   };
+  const docIdentity = (doc, idx) => {
+    const intrinsic = stableIdFromDocIntrinsic(doc);
+    if (intrinsic) return intrinsic;
+    const url = resolveCorrespondenteDocumentUrl(doc);
+    if (url) {
+      return `url_${normalizeText(url).replace(/[^a-z0-9]+/g, "_").slice(0, 140) || idx}`;
+    }
+    const fileName = String(doc?.file_name || doc?.filename || "").trim().toLowerCase();
+    const tipo = normalizeDocUiType(doc?.tipo);
+    const participante = normalizeDocUiParticipant(doc?.participante);
+    const createdAt = String(doc?.created_at || "").trim();
+    const raw = `${tipo}|${participante}|${fileName}|${createdAt}|${idx}`;
+    return `slot_${normalizeText(raw).replace(/[^a-z0-9]+/g, "_").slice(0, 140) || idx}`;
+  };
   docsList.forEach((doc, idx) => {
     const tipo = normalizeDocUiType(doc?.tipo);
     const participante = normalizeDocUiParticipant(doc?.participante);
     const status = normalizeDocUiStatus(doc?.status || doc?.observacao_analise);
     const url = resolveCorrespondenteDocumentUrl(doc);
     const hasUsableUrl = Boolean(url);
-    const key = `${tipo}|${participante}`;
-    const stableDocId = stableIdFromDoc(doc, `${key}|${idx}`);
+    const key = docIdentity(doc, idx);
+    const stableDocId = (
+      stableIdFromDocIntrinsic(doc) ||
+      stableIdFromSlot(`${tipo}|${participante}|${key}`) ||
+      stableIdFromDocRawFallback(doc, `${key}|${idx}`)
+    );
     const score = (status !== "pendente" ? 100 : 0) + (hasUsableUrl ? 10 : 0) + idx / 1000;
     const current = docsMap.get(key);
     if (!current || score >= current.__score) {
@@ -12576,18 +12687,35 @@ function buildCorrespondenteWebDocsModel(docs) {
       });
     }
   });
-  const normalizedDocs = [...docsMap.values()];
-  for (const doc of normalizedDocs) {
-    if (doc.status !== "pendente" && doc.__hasUsableUrl) {
+  const normalizedDocs = [...docsMap.values()].map((doc) => {
+    const clone = { ...doc };
+    delete clone.__score;
+    delete clone.__hasUsableUrl;
+    return clone;
+  });
+  const receivedPairs = new Set(
+    normalizedDocs
+      .filter((doc) => String(doc?.status || "").trim().toLowerCase() !== "pendente")
+      .map((doc) => `${String(doc?.tipo || "").trim().toLowerCase()}|${String(doc?.participante || "").trim().toLowerCase()}`)
+  );
+  const filteredDocs = normalizedDocs.filter((doc) => {
+    const status = String(doc?.status || "").trim().toLowerCase();
+    if (status !== "pendente") return true;
+    const pair = `${String(doc?.tipo || "").trim().toLowerCase()}|${String(doc?.participante || "").trim().toLowerCase()}`;
+    return !receivedPairs.has(pair);
+  });
+  for (const doc of filteredDocs) {
+    const hasUsableUrl = Boolean(resolveCorrespondenteDocumentUrl(doc));
+    if (doc.status !== "pendente" && hasUsableUrl) {
       doc.received_access_id = String(doc?.stable_doc_id || "").trim() || null;
     } else {
       doc.received_access_id = null;
     }
   }
-  const receivedWithUrl = normalizedDocs.filter((doc) => String(doc?.received_access_id || "").trim());
+  const receivedWithUrl = filteredDocs.filter((doc) => String(doc?.received_access_id || "").trim());
   const receivedById = new Map(receivedWithUrl.map((doc) => [String(doc.received_access_id), doc]));
   return {
-    normalizedDocs,
+    normalizedDocs: filteredDocs,
     receivedWithUrl,
     receivedById
   };
@@ -12802,7 +12930,7 @@ function buildCorrespondentePrivateDeliveryMessage(caseRefInput, entryLink) {
       : "Dossiê web (fonte principal): link indisponível no momento.",
     [
       `Retorno no grupo: Pré-cadastro #${caseRef}`,
-      "STATUS + MOTIVO (opcional) + Valor de financiamento (opcional) + Valor de subsídio federal (opcional)."
+      "STATUS + MOTIVO + Valor de financiamento + Valor de subsídio federal."
     ].join(" ")
   ].join("\n");
 }
@@ -12813,9 +12941,9 @@ function buildCorrespondenteReturnFormatGuidance(caseRefInput) {
     "Para me devolver o resultado, responda neste formato:",
     `Pré-cadastro #${ref}`,
     "STATUS: APROVADO, REPROVADO ou PENDÊNCIA",
-    "MOTIVO: opcional",
-    "Valor de financiamento: opcional",
-    "Valor de subsídio federal: opcional"
+    "MOTIVO:",
+    "Valor de financiamento:",
+    "Valor de subsídio federal:"
   ].join("\n");
 }
 
@@ -14380,15 +14508,34 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
     return fallbackUrl ? { ...doc, url: fallbackUrl } : doc;
   };
   const stateDocs = stateDocsRaw.map(withHistoryFallbackUrl);
-  const stateDocsDerived = stateDocs.length
-    ? stateDocs
-    : itensEnvioDocs
-      .filter((item) => isEnvioDocsItemReceived(item))
-      .map((item) => withHistoryFallbackUrl({
-        tipo: item?.tipo || null,
-        participante: item?.participante || null,
-        status: item?.status || null
-      }));
+  const docsFromChecklist = itensEnvioDocs
+    .filter((item) => String(item?.bucket || "").trim().toLowerCase() !== "recomendado")
+    .map((item) => withHistoryFallbackUrl({
+      tipo: item?.tipo || null,
+      participante: item?.participante || null,
+      status: item?.status || null
+    }));
+  const mergedStateDocsByKey = new Map();
+  const mergeStateDoc = (doc) => {
+    const tipo = String(doc?.tipo || "").trim().toLowerCase();
+    const participante = String(doc?.participante || "").trim().toLowerCase();
+    if (!tipo || !participante) return;
+    const status = String(doc?.status || "").trim().toLowerCase();
+    const url = resolveUrl(doc);
+    const score = (status && status !== "pendente" ? 100 : 0) + (url ? 10 : 0);
+    const key = `${tipo}:${participante}`;
+    const current = mergedStateDocsByKey.get(key);
+    if (!current || score >= current.__score) {
+      mergedStateDocsByKey.set(key, { ...doc, __score: score });
+    }
+  };
+  for (const doc of stateDocs) mergeStateDoc(doc);
+  for (const doc of docsFromChecklist) mergeStateDoc(doc);
+  const stateDocsDerived = [...mergedStateDocsByKey.values()].map((doc) => {
+    const clone = { ...doc };
+    delete clone.__score;
+    return clone;
+  });
   const simCtx = getSimulationContext(env);
   // Em simulação canônica, não consultamos storage externo de documentos.
   if (simCtx?.active) return stateDocsDerived;

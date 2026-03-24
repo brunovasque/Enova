@@ -1285,6 +1285,138 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(body.includes("abrir documento"), false);
 }
 
+// 3.8k) CNH enviada deve aparecer como upload real (sem sumir por cobertura de checklist).
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.corr_lock_correspondente_wa_id = correspondenteWa;
+  st.processo_enviado_correspondente = true;
+  st.corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  st.pacote_documentos_anexados_json = [];
+  st.envio_docs_itens_json = [
+    { tipo: "identidade_cpf", participante: "p1", status: "pendente", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true }
+  ];
+  st.envio_docs_historico_json = [
+    {
+      origem: "upload",
+      associado: { tipo: "cnh", participante: "p1" },
+      media_ref: { media_id: "mid-cnh-001", url: "https://docs.example.com/cnh-p1.pdf", file_name: "cnh-p1.pdf" }
+    }
+  ];
+  const req = new Request(`https://worker.local/correspondente/entrada?pre=000001&cw=${correspondenteWa}`, { method: "GET" });
+  const res = await worker.fetch(req, env, {});
+  const body = await res.text();
+  assert.equal(res.status, 200);
+  assert.equal(body.includes("cnh — Titular"), true);
+  assert.equal(body.includes("identidade_cpf — Titular"), false);
+  const openDocMatches = body.match(/>abrir documento</g) || [];
+  assert.equal(openDocMatches.length, 1);
+}
+
+// 3.8l) CTPS enviada deve aparecer como upload real recebido e com link quando houver URL.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.corr_lock_correspondente_wa_id = correspondenteWa;
+  st.processo_enviado_correspondente = true;
+  st.corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  st.pacote_documentos_anexados_json = [];
+  st.envio_docs_itens_json = [
+    { tipo: "ctps_completa", participante: "p1", status: "pendente", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false }
+  ];
+  st.envio_docs_historico_json = [
+    {
+      origem: "upload",
+      associado: { tipo: "ctps_completa", participante: "p1" },
+      media_ref: { media_id: "mid-ctps-001", url: "https://docs.example.com/ctps-p1-real.pdf", file_name: "ctps-p1.pdf" }
+    }
+  ];
+  const req = new Request(`https://worker.local/correspondente/entrada?pre=000001&cw=${correspondenteWa}`, { method: "GET" });
+  const res = await worker.fetch(req, env, {});
+  const body = await res.text();
+  assert.equal(res.status, 200);
+  assert.equal(body.includes("ctps_completa — Titular"), true);
+  const openDocMatches = body.match(/>abrir documento</g) || [];
+  assert.equal(openDocMatches.length, 1);
+}
+
+// 3.8m) Uploads reais múltiplos do mesmo checklist (ex.: comprovante_renda) não podem ser comprimidos.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.corr_lock_correspondente_wa_id = correspondenteWa;
+  st.processo_enviado_correspondente = true;
+  st.corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  st.pacote_documentos_anexados_json = [];
+  st.envio_docs_itens_json = [
+    { tipo: "comprovante_renda", participante: "p1", status: "pendente", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true }
+  ];
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      { doc_id: "doc-renda-1", tipo: "comprovante_renda", participante: "p1", status: "recebido", url: "https://docs.example.com/renda-1.pdf" },
+      { doc_id: "doc-renda-2", tipo: "comprovante_renda", participante: "p1", status: "recebido", url: "https://docs.example.com/renda-2.pdf" }
+    ]
+  };
+  const req = new Request(`https://worker.local/correspondente/entrada?pre=000001&cw=${correspondenteWa}`, { method: "GET" });
+  const res = await worker.fetch(req, env, {});
+  const body = await res.text();
+  assert.equal(res.status, 200);
+  const rendaMatches = body.match(/comprovante_renda — Titular/g) || [];
+  assert.equal(rendaMatches.length >= 2, true);
+  const openDocMatches = body.match(/>abrir documento</g) || [];
+  assert.equal(openDocMatches.length, 2);
+}
+
+// 3.8n) Rota /correspondente/doc deve abrir exatamente o upload real correspondente ao doc_id.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.corr_lock_correspondente_wa_id = correspondenteWa;
+  st.processo_enviado_correspondente = true;
+  st.corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  st.pacote_documentos_anexados_json = [];
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      { doc_id: "doc-rg-1", tipo: "rg", participante: "p1", status: "recebido", url: "https://docs.example.com/rg-a.pdf" },
+      { doc_id: "doc-cpf-1", tipo: "cpf", participante: "p1", status: "recebido", url: "https://docs.example.com/cpf-b.pdf" }
+    ]
+  };
+  const reqRg = new Request(`https://worker.local/correspondente/doc?pre=000001&t=${token}&doc=doc_doc-rg-1`, { method: "GET" });
+  const resRg = await worker.fetch(reqRg, env, {});
+  assert.equal(resRg.status, 302);
+  assert.equal(String(resRg.headers.get("location") || ""), "https://docs.example.com/rg-a.pdf");
+  const reqCpf = new Request(`https://worker.local/correspondente/doc?pre=000001&t=${token}&doc=doc_doc-cpf-1`, { method: "GET" });
+  const resCpf = await worker.fetch(reqCpf, env, {});
+  assert.equal(resCpf.status, 302);
+  assert.equal(String(resCpf.headers.get("location") || ""), "https://docs.example.com/cpf-b.pdf");
+}
+
+// 3.8o) Upload real sem URL válida aparece como recebido, mas sem CTA quebrado; pendência coexistente permanece.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.corr_lock_correspondente_wa_id = correspondenteWa;
+  st.processo_enviado_correspondente = true;
+  st.corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  st.pacote_documentos_anexados_json = [];
+  st.envio_docs_itens_json = [
+    { tipo: "comprovante_residencia", participante: "p1", status: "pendente", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true }
+  ];
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      { doc_id: "doc-ctps-sem-url", tipo: "ctps_completa", participante: "p1", status: "recebido", url: "" }
+    ]
+  };
+  const req = new Request(`https://worker.local/correspondente/entrada?pre=000001&cw=${correspondenteWa}`, { method: "GET" });
+  const res = await worker.fetch(req, env, {});
+  const body = await res.text();
+  assert.equal(res.status, 200);
+  assert.equal(body.includes("ctps_completa — Titular"), true);
+  assert.equal(body.includes("comprovante_residencia — Titular"), true);
+  assert.equal(body.includes("Sem pendências documentais ativas."), false);
+  assert.equal(body.includes("abrir documento"), false);
+}
+
 // 3.1b) Compatibilidade: link legado com token continua funcionando.
 {
   const env = buildEnvWithState();

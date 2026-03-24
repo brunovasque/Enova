@@ -1219,6 +1219,24 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(body.includes("Restrição: sim"), true);
 }
 
+// 3.8i.2) Fonte única web: restrição final = não deve prevalecer (humano + técnico).
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.corr_lock_correspondente_wa_id = correspondenteWa;
+  st.processo_enviado_correspondente = true;
+  st.corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  st.restricao = "nao";
+  st.pacote_restricoes_json = { resumo: "restricao_critica", participantes: [{ participante: "p1", tem_restricao: true }] };
+  const req = new Request(`https://worker.local/correspondente/entrada?pre=000001&cw=${correspondenteWa}`, { method: "GET" });
+  const res = await worker.fetch(req, env, {});
+  const body = await res.text();
+  assert.equal(res.status, 200);
+  assert.equal(body.includes("Não houve indicação de restrição."), true);
+  assert.equal(body.includes("Restrição:</span> não"), true);
+  assert.equal(body.includes("Restrição: não"), true);
+}
+
 // 3.8j) Fonte única web: doc persistido em enova_docs deve vencer pendência do checklist/state.
 {
   const env = buildEnvWithState();
@@ -1243,6 +1261,28 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(body.includes("Sem pendências documentais ativas."), true);
   const openDocMatches = body.match(/>abrir documento</g) || [];
   assert.equal(openDocMatches.length, 1);
+}
+
+// 3.8j.2) Sem CTPS recebida no caso, CTPS deve permanecer pendente e sem link operacional.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.corr_lock_correspondente_wa_id = correspondenteWa;
+  st.processo_enviado_correspondente = true;
+  st.corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  st.envio_docs_itens_json = [
+    { tipo: "ctps_completa", participante: "p1", status: "pendente", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false }
+  ];
+  st.pacote_documentos_anexados_json = [];
+  env.__enovaSimulationCtx.docsByWaId = { [waCaso]: [] };
+  const req = new Request(`https://worker.local/correspondente/entrada?pre=000001&cw=${correspondenteWa}`, { method: "GET" });
+  const res = await worker.fetch(req, env, {});
+  const body = await res.text();
+  assert.equal(res.status, 200);
+  assert.equal(body.includes("ctps_completa — Titular"), true);
+  assert.equal(body.includes("Sem pendências documentais ativas."), false);
+  assert.equal(body.includes("Nenhum link operacional disponível no momento."), true);
+  assert.equal(body.includes("abrir documento"), false);
 }
 
 // 3.1b) Compatibilidade: link legado com token continua funcionando.

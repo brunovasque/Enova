@@ -11176,10 +11176,10 @@ function buildCorrespondentePrivateDossierFromState(st) {
   };
   const restricaoResumoSemIndicacao = /(^|\b)(sem_restricao|sem restricao|ok|livre)($|\b)/.test(restricaoResumo);
   const restricaoResumoComIndicacao = /restricao|restrição/.test(restricaoResumo) && !restricaoResumoSemIndicacao;
-  const temRestricao = Object.values(restricaoByState).some((v) => v === true) ||
+  let temRestricao = Object.values(restricaoByState).some((v) => v === true) ||
     restricoesParticipantes.some((p) => dossieIsYes(p?.tem_restricao)) ||
     restricaoResumoComIndicacao;
-  const restricaoRegularizavel = Object.values(regularizacaoByState).some((v) => v === true) ||
+  let restricaoRegularizavel = Object.values(regularizacaoByState).some((v) => v === true) ||
     restricoesParticipantes.some((p) => dossieIsYes(p?.restricao_regularizada)) ||
     /regulariz/.test(restricaoResumo);
 
@@ -11253,6 +11253,18 @@ function buildCorrespondentePrivateDossierFromState(st) {
       restricao_regularizada: readCanonicalBool(regularizacaoState, restricaoParticipante?.restricao_regularizada, p?.regularizacao_restricao, p?.restricao_regularizada)
     };
   });
+  const restricoesDefinidasParticipantes = participantesOrdem
+    .map((p) => p?.tem_restricao)
+    .filter((v) => v === true || v === false);
+  if (restricoesDefinidasParticipantes.length) {
+    temRestricao = restricoesDefinidasParticipantes.some((v) => v === true);
+  }
+  const regularizacaoDefinidaParticipantes = participantesOrdem
+    .map((p) => p?.restricao_regularizada)
+    .filter((v) => v === true || v === false);
+  if (regularizacaoDefinidaParticipantes.length) {
+    restricaoRegularizavel = regularizacaoDefinidaParticipantes.some((v) => v === true);
+  }
 
   const identificacaoLines = [
     "📌 *Identificação do caso*",

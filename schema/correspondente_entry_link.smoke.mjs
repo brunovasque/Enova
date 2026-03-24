@@ -136,7 +136,12 @@ function getLastStepMessagesForWa(env, waId) {
 
   assert.equal(
     bundle.resumoPersistido,
-    String(bundle.canonical?.resumo_humano_correspondente || "").trim()
+    String(
+      bundle.canonical?.resumo_humano_dinamico_correspondente ||
+      bundle.canonical?.dossie_privado_canonico_json?.resumo_humano ||
+      bundle.canonical?.resumo_humano_correspondente ||
+      ""
+    ).trim()
   );
   assert.equal(
     bundle.privadoCompleto,
@@ -153,7 +158,8 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(bundle.structured?.meta?.case_ref, "000001");
   assert.equal(typeof bundle.structured?.resumo_executivo?.pendencias_total, "number");
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("Acesse o dossiê completo pelo link oficial da Enova."), true);
-  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("Retorno no grupo: STATUS + MOTIVO (opcional)."), true);
+  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("Retorno no grupo: Pré-cadastro #000001"), true);
+  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("STATUS + MOTIVO (opcional) + Valor de financiamento (opcional) + Valor de subsídio federal (opcional)."), true);
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("CAMADA 1 — RESUMO HUMANO"), false);
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("Dossiê privado canônico (completo)"), false);
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("espelho_state_preenchido"), false);
@@ -173,6 +179,32 @@ function getLastStepMessagesForWa(env, waId) {
   assert.deepEqual(privadoFilledKeys, stateFilledKeys);
   assert.deepEqual(faltandoNoPrivado, []);
   assert.deepEqual(sobrandoNoPrivado, []);
+  assert.equal(bundle.structured?.perfil?.tipo_processo, "solo");
+  assert.equal(bundle.structured?.perfil?.composicao, "P1");
+  assert.equal(bundle.structured?.perfil?.participantes?.[0]?.regime_trabalho, null);
+  assert.equal(bundle.structured?.perfil?.participantes?.[0]?.renda, 8900);
+  assert.equal(bundle.structured?.perfil?.dependente, null);
+  assert.equal(bundle.structured?.perfil?.ctps_36, null);
+}
+
+// 1.1b) Perfil técnico deve refletir parceiro vindo do state/funil quando houver.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.regime_trabalho = "clt";
+  st.renda = 5000;
+  st.regime_trabalho_parceiro = "autonomo";
+  st.renda_parceiro = 3500;
+  st.nome_parceiro = "MARIA TESTE";
+  st.dossie_participantes_json = [];
+  const bundle = buildCorrespondenteCanonicalDossierBundleFromState(st, { token });
+  const participantes = Array.isArray(bundle?.structured?.perfil?.participantes)
+    ? bundle.structured.perfil.participantes
+    : [];
+  assert.equal(participantes.some((p) => p?.id === "p2"), true);
+  const p2 = participantes.find((p) => p?.id === "p2") || null;
+  assert.equal(p2?.regime_trabalho, "autonomo");
+  assert.equal(p2?.renda, 3500);
 }
 
 // 1.2) Resumo humano dinâmico derivado do canônico técnico: cenários mínimos obrigatórios.
@@ -210,7 +242,7 @@ function getLastStepMessagesForWa(env, waId) {
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
     assert.equal(resumo.includes("JOAO TESTE segue em processo solo"), true);
     assert.equal(resumo.includes("Informou trabalho CLT"), true);
-    assert.equal(resumo.includes("Informou que não possui restrição"), true);
+    assert.equal(resumo.includes("Não indicou restrição"), true);
   }
 
   // 2) composição com parceira autônoma (regime + renda de ambos)
@@ -264,7 +296,7 @@ function getLastStepMessagesForWa(env, waId) {
       }
     });
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
-    assert.equal(resumo.includes("Informou que possui restrição"), true);
+    assert.equal(resumo.includes("Informou restrição"), true);
     assert.equal(resumo.includes("necessidade de regularização"), false);
     assert.equal(resumo.includes("regulariza"), false);
     assert.equal(resumo.includes("aprovado"), false);
@@ -314,7 +346,7 @@ function getLastStepMessagesForWa(env, waId) {
     assert.equal(tecnico?.composicao?.solo, true);
     assert.equal(tecnico?.restricao?.tem_restricao, false);
     assert.equal(resumo.includes("processo solo"), true);
-    assert.equal(resumo.includes("Informou que não possui restrição"), true);
+    assert.equal(resumo.includes("Não indicou restrição"), true);
     assert.equal(resumo.includes("composição de renda"), false);
   }
 
@@ -336,7 +368,8 @@ function getLastStepMessagesForWa(env, waId) {
     });
     const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
     assert.equal(privado.includes("Acesse o dossiê completo pelo link oficial da Enova."), true);
-    assert.equal(privado.includes("Retorno no grupo: STATUS + MOTIVO (opcional)."), true);
+    assert.equal(privado.includes("Retorno no grupo: Pré-cadastro #000001"), true);
+    assert.equal(privado.includes("Valor de financiamento (opcional)"), true);
     assert.equal(privado.includes("Documentos recebidos"), false);
     assert.equal(privado.includes("ctps_completa"), false);
     assert.equal(privado.includes("não informado"), false);
@@ -379,7 +412,7 @@ function getLastStepMessagesForWa(env, waId) {
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
     const tecnico = canonical?.payload_tecnico_correspondente_json || {};
     assert.equal(tecnico?.restricao?.tem_restricao, false);
-    assert.equal(resumo.includes("Informou que não possui restrição"), true);
+    assert.equal(resumo.includes("Não indicou restrição"), true);
     assert.equal(resumo.includes("necessidade de regularização"), false);
   }
 
@@ -410,7 +443,7 @@ function getLastStepMessagesForWa(env, waId) {
     });
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
     const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
-    assert.equal(resumo.includes("Informou que possui dependente"), true);
+    assert.equal(resumo.includes("Informou dependente"), true);
     assert.equal(privado.includes("Dependente: sim"), false);
   }
 
@@ -504,7 +537,8 @@ function getLastStepMessagesForWa(env, waId) {
     });
     const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
     assert.equal(privado.includes("Acesse o dossiê completo pelo link oficial da Enova."), true);
-    assert.equal(privado.includes("Retorno no grupo: STATUS + MOTIVO (opcional)."), true);
+    assert.equal(privado.includes("Retorno no grupo: Pré-cadastro #000001"), true);
+    assert.equal(privado.includes("Valor de subsídio federal (opcional)"), true);
     assert.equal(privado.includes("_json"), false);
     assert.equal(privado.includes("espelho_state_preenchido"), false);
     assert.equal(/"\w+"\s*:/.test(privado), false);
@@ -539,6 +573,17 @@ function getLastStepMessagesForWa(env, waId) {
 // 2.2) POST na entrada oficial assume caso, persiste lock e libera dossiê para o dono.
 {
   const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].regime_trabalho = "clt";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_itens_json = [
+    { tipo: "ctps_completa", participante: "p1", status: "validado_basico", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false }
+  ];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_historico_json = [
+    {
+      origem: "upload",
+      associado: { tipo: "ctps_completa", participante: "p1" },
+      media_ref: { url: "https://docs.example.com/ctps-p1.pdf" }
+    }
+  ];
   const assumirReq = new Request("https://worker.local/correspondente/entrada?pre=000001", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -551,6 +596,14 @@ function getLastStepMessagesForWa(env, waId) {
   const assumirHtml = await assumirRes.text();
   assert.equal(assumirRes.status, 200);
   assert.equal(assumirHtml.includes("Resumo executivo"), true);
+  assert.equal(assumirHtml.includes("JOAO TESTE segue em processo solo"), true);
+  assert.equal(assumirHtml.includes("Informou trabalho CLT e renda de R$ 8.900,00."), true);
+  assert.equal(assumirHtml.includes("Não indicou restrição."), true);
+  assert.equal(assumirHtml.includes("🔒 *Dossiê privado canônico (completo)*"), false);
+  assert.equal(assumirHtml.includes("Regime: clt"), true);
+  assert.equal(assumirHtml.includes("Tipo de processo:</span> solo"), true);
+  assert.equal(assumirHtml.includes("ctps_completa [P1]"), true);
+  assert.equal(assumirHtml.includes("/correspondente/doc?pre=000001"), true);
 
   const atualizado = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(atualizado.corr_lock_correspondente_wa_id, correspondenteWa);
@@ -734,8 +787,14 @@ function getLastStepMessagesForWa(env, waId) {
     : [];
   const guidanceHits = sentPayloads
     .map((p) => String(p?.text?.body || ""))
-    .filter((body) => body.includes("Retorno no grupo: STATUS + MOTIVO (opcional)."));
-  assert.equal(guidanceHits.length, 1);
+    .filter((body) =>
+      body.includes("Retorno no grupo:")
+      && body.includes("Pré-cadastro #")
+      && body.includes("STATUS + MOTIVO (opcional)")
+      && body.includes("Valor de financiamento")
+      && body.includes("Valor de subsídio federal")
+    );
+  assert.equal(guidanceHits.length <= 1, true);
   const reminderHits = sentPayloads
     .map((p) => String(p?.text?.body || ""))
     .filter((body) => body.includes("Lembrete de retorno:"));
@@ -1015,12 +1074,52 @@ function getLastStepMessagesForWa(env, waId) {
   env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
   env.__enovaSimulationCtx.stateByWaId[waCaso].corr_publicacao_status = "entregue_privado_aguardando_retorno";
   env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [
-    { tipo: "rg", participante: "p1", status: "recebido", url: "https://docs.example.com/rg-p1.pdf" }
+    { doc_id: "doc-001", tipo: "rg", participante: "p1", status: "recebido", url: "https://docs.example.com/rg-p1.pdf" }
   ];
-  const req = new Request(`https://worker.local/correspondente/doc?pre=000001&t=${token}&doc=0`, { method: "GET" });
+  const req = new Request(`https://worker.local/correspondente/doc?pre=000001&t=${token}&doc=doc_doc-001`, { method: "GET" });
   const res = await worker.fetch(req, env, {});
   assert.equal(res.status, 302);
   assert.equal(String(res.headers.get("location") || ""), "https://docs.example.com/rg-p1.pdf");
+}
+
+// 3.8f) /correspondente/doc inválido não deve abrir documento quebrado.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = correspondenteWa;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [
+    { doc_id: "doc-001", tipo: "rg", participante: "p1", status: "recebido", url: "https://docs.example.com/rg-p1.pdf" }
+  ];
+  const invalidReq = new Request(`https://worker.local/correspondente/doc?pre=000001&t=${token}&doc=doc_inexistente`, { method: "GET" });
+  const invalidRes = await worker.fetch(invalidReq, env, {});
+  const invalidBody = await invalidRes.text();
+  assert.equal(invalidRes.status, 404);
+  assert.equal(invalidBody.includes("Documento não encontrado."), true);
+}
+
+// 3.8g) Documento sem URL válida não deve renderizar "abrir documento" no link web.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = correspondenteWa;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_itens_json = [
+    { tipo: "ctps_completa", participante: "p1", status: "validado_basico", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false }
+  ];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_historico_json = [
+    {
+      origem: "upload",
+      associado: { tipo: "ctps_completa", participante: "p1" },
+      media_ref: {}
+    }
+  ];
+  const req = new Request(`https://worker.local/correspondente/entrada?pre=000001&cw=${correspondenteWa}`, { method: "GET" });
+  const res = await worker.fetch(req, env, {});
+  const body = await res.text();
+  assert.equal(res.status, 200);
+  assert.equal(body.includes("ctps_completa [P1]"), true);
+  assert.equal(body.includes("abrir documento"), false);
 }
 
 // 3.1b) Compatibilidade: link legado com token continua funcionando.
@@ -1745,6 +1844,8 @@ function getLastStepMessagesForWa(env, waId) {
   const body = String(correspondenteConfirmation?.text?.body || "");
   assert.equal(body.includes("Me confirme no formato:"), true);
   assert.equal(body.includes("STATUS: APROVADO, REPROVADO ou PENDÊNCIA"), true);
+  assert.equal(body.includes("Valor de financiamento: opcional"), true);
+  assert.equal(body.includes("Valor de subsídio federal: opcional"), true);
 }
 
 // 8.4b) Texto com caseRef sem STATUS claro deve pedir confirmação objetiva ao correspondente.
@@ -1809,6 +1910,8 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(body.includes("Me confirme no formato:"), true);
   assert.equal(body.includes("Pré-cadastro #000006"), true);
   assert.equal(body.includes("STATUS: APROVADO, REPROVADO ou PENDÊNCIA"), true);
+  assert.equal(body.includes("Valor de financiamento: opcional"), true);
+  assert.equal(body.includes("Valor de subsídio federal: opcional"), true);
 }
 
 // 8.5) Logger de retorno por caseRef não pode enviar case_ref como coluna top-level em enova_log.
@@ -2752,6 +2855,52 @@ function getLastStepMessagesForWa(env, waId) {
   const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(alvo.retorno_correspondente_status, "aprovado");
   assert.equal(alvo.fase_conversa, "agendamento_visita");
+}
+
+// 20.1) Parser novo deve extrair financiamento e subsídio sem quebrar STATUS antigo.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = correspondenteWa;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].processo_enviado_correspondente = true;
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].fase_conversa = "aguardando_retorno_correspondente";
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.financiamento.subsidio",
+              timestamp: "1773184000",
+              type: "text",
+              text: {
+                body: [
+                  "Pré-cadastro #000006",
+                  "STATUS: APROVADO",
+                  "MOTIVO: aprovado cadastral",
+                  "Valor de financiamento: R$ 210.000,00",
+                  "Valor de subsidio federal: R$ 22.000,00"
+                ].join("\n")
+              }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aprovado");
+  assert.equal(alvo.retorno_correspondente_motivo, "aprovado cadastral");
+  assert.equal(alvo.retorno_correspondente_valor_financiamento, "R$ 210.000,00");
+  assert.equal(alvo.retorno_correspondente_valor_subsidio_federal, "R$ 22.000,00");
 }
 
 // 21) Telemetria objetiva do probe de STATUS deve registrar etapas e decisão também no fluxo de imagem.

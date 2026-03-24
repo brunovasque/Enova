@@ -10899,9 +10899,7 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
 
   const isSolo = composicao?.solo === true || normalize(composicao?.tipo_processo) === "solo";
   const sentences = [];
-  if (nome) {
-    sentences.push(`${nome} segue em processo ${isSolo ? "solo" : "com composição de renda"}.`);
-  }
+  if (nome) sentences.push(`${nome} segue em processo ${isSolo ? "solo" : "com composição de renda"}.`);
   const regimeTitular = normalizeRegime(titular?.regime_trabalho);
   const rendaTitular = Number(titular?.renda ?? renda?.titular ?? 0);
   const regimeRendaParts = [];
@@ -10913,35 +10911,26 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
     ? [...new Set(renda.regimes_unicos.map(normalizeRegime).filter(Boolean))]
     : [];
   if (renda?.multi_regime === true && regimesUnicos.length > 1) {
-    sentences.push(`Multi-regime identificado: ${regimesUnicos.join(", ")}.`);
+    sentences.push(`Tem multi-regime (${regimesUnicos.join(" e ")}).`);
   }
   const rendaTotal = Number(renda?.total ?? 0);
   if (renda?.multi_renda === true && Number.isFinite(rendaTotal) && rendaTotal > 0) {
-    sentences.push(`Multi-renda identificada, total informado de ${moneyToLabel(rendaTotal)}.`);
+    sentences.push(`Tem multi-renda, total de ${moneyToLabel(rendaTotal)}.`);
   }
 
-  if (canonicalCtps36 === true) {
-    sentences.push("Confirmou possuir 36 meses de carteira assinada.");
-  } else if (canonicalCtps36 === false) {
-    sentences.push("Informou não possuir 36 meses de carteira assinada.");
-  }
-  if (dependenteTitular === true) {
-    sentences.push("Informou que possui dependente.");
-  } else if (dependenteTitular === false) {
-    sentences.push("Informou que não possui dependente.");
-  }
+  if (canonicalCtps36 === true) sentences.push("Confirmou possuir 36 meses de carteira assinada.");
+  else if (canonicalCtps36 === false) sentences.push("Informou não possuir 36 meses de carteira assinada.");
+  if (dependenteTitular === true) sentences.push("Informou dependente.");
+  else if (dependenteTitular === false) sentences.push("Informou não possuir dependente.");
 
-  if (restricaoTitular === true) {
-    sentences.push("Informou que possui restrição.");
-  } else if (restricaoTitular === false) {
-    sentences.push("Informou que não possui restrição.");
-  }
+  if (restricaoTitular === true) sentences.push("Informou restrição.");
+  else if (restricaoTitular === false) sentences.push("Não indicou restrição.");
 
   const result = sentences
     .map((line) => String(line || "").trim())
     .filter(Boolean)
     .join(" ");
-  return result || (nome ? `${nome} com perfil em consolidação para análise.` : "Perfil em consolidação para análise.");
+  return result || (nome ? `${nome} com perfil em consolidação.` : "Perfil em consolidação.");
 }
 
 function normalizeCorrespondenteRegime(value) {
@@ -10984,7 +10973,10 @@ function buildCorrespondentePrivateWhatsAppMessage({ payloadTecnico, dossieCanon
     "✅ Caso assumido com exclusividade.",
     `Pré-cadastro: ${caseRef}`,
     "Acesse o dossiê completo pelo link oficial da Enova.",
-    `Retorno no grupo: Pré-cadastro #${caseRef} + STATUS + MOTIVO (opcional).`
+    [
+      `Retorno no grupo: Pré-cadastro #${caseRef}`,
+      "STATUS + MOTIVO (opcional) + Valor de financiamento (opcional) + Valor de subsídio federal (opcional)."
+    ].join(" ")
   ].join("\n");
 }
 
@@ -10994,7 +10986,10 @@ function buildCorrespondentePrivateWhatsAppSafeFallback(st = {}, canonical = {})
     "✅ Caso assumido com exclusividade.",
     `Pré-cadastro: ${safeCaseRef}`,
     "Acesse o dossiê completo pelo link oficial da Enova.",
-    `Retorno no grupo: Pré-cadastro #${safeCaseRef} + STATUS + MOTIVO (opcional).`
+    [
+      `Retorno no grupo: Pré-cadastro #${safeCaseRef}`,
+      "STATUS + MOTIVO (opcional) + Valor de financiamento (opcional) + Valor de subsídio federal (opcional)."
+    ].join(" ")
   ].join("\n");
 }
 
@@ -11053,6 +11048,28 @@ function buildCorrespondentePrivateDossierFromState(st) {
     if (txt === "pj") return "pj";
     return txt;
   };
+  const fallbackParticipantsFromState = () => {
+    const list = [{
+      id: "p1",
+      papel: "titular",
+      regime_trabalho: st?.regime_trabalho ?? null,
+      renda: Number(st?.renda) || 0
+    }];
+    const hasP2 = Boolean(
+      String(st?.nome_parceiro || "").trim() ||
+      String(st?.regime_trabalho_parceiro || st?.regime_trabalho_parceiro_familiar || "").trim() ||
+      Number(st?.renda_parceiro ?? st?.renda_parceiro_familiar ?? 0) > 0
+    );
+    if (hasP2) {
+      list.push({
+        id: "p2",
+        papel: "parceiro",
+        regime_trabalho: st?.regime_trabalho_parceiro ?? st?.regime_trabalho_parceiro_familiar ?? null,
+        renda: Number(st?.renda_parceiro ?? st?.renda_parceiro_familiar ?? 0) || 0
+      });
+    }
+    return list;
+  };
   const participantLabel = (pid, role) => {
     if (pid === "p1") return "Titular (P1)";
     if (pid === "p2") return "Composição (P2)";
@@ -11078,6 +11095,19 @@ function buildCorrespondentePrivateDossierFromState(st) {
       renda: dossieToMoney(st?.renda)
     }
   ];
+  const hasFallbackP2 = Boolean(
+    String(st?.nome_parceiro || "").trim() ||
+    String(st?.regime_trabalho_parceiro || st?.regime_trabalho_parceiro_familiar || "").trim() ||
+    Number(st?.renda_parceiro ?? st?.renda_parceiro_familiar ?? 0) > 0
+  );
+  if (hasFallbackP2) {
+    fallbackParticipantes.push({
+      id: "p2",
+      role: "parceiro",
+      regime_trabalho: st?.regime_trabalho_parceiro || st?.regime_trabalho_parceiro_familiar || null,
+      renda: dossieToMoney(st?.renda_parceiro ?? st?.renda_parceiro_familiar)
+    });
+  }
   const participantesBase = participantes.length ? participantes : fallbackParticipantes;
   const composicaoQuantidade = participantesBase.length;
   const isSolo = composicaoQuantidade <= 1;
@@ -11676,10 +11706,10 @@ function buildCorrespondenteEntryLinkForCorrespondente(env, token, correspondent
 function buildCorrespondenteDocumentAccessLink(env, token, caseRefInput, docIndex) {
   const safeToken = normalizeAssumirToken(token);
   const safeCaseRef = normalizeCorrespondenteCaseRefInput(caseRefInput);
-  const idx = Number.parseInt(String(docIndex ?? ""), 10);
+  const docId = String(docIndex ?? "").trim();
   const base = resolveCorrespondenteEntryBaseUrl(env);
-  if (!base || !safeToken || !safeCaseRef || !Number.isInteger(idx) || idx < 0) return null;
-  return `${base}/correspondente/doc?pre=${encodeURIComponent(safeCaseRef)}&t=${encodeURIComponent(safeToken)}&doc=${idx}`;
+  if (!base || !safeToken || !safeCaseRef || !docId) return null;
+  return `${base}/correspondente/doc?pre=${encodeURIComponent(safeCaseRef)}&t=${encodeURIComponent(safeToken)}&doc=${encodeURIComponent(docId)}`;
 }
 
 function buildCorrespondenteAssumirButtonPayload(token) {
@@ -11835,7 +11865,7 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
   const token = normalizeAssumirToken(options?.token || st?.corr_assumir_token || "");
   const documentosPorParticipante = {};
   const asArray = (value) => Array.isArray(value) ? value : [];
-  const parseCanonicalBool = (...values) => {
+    const parseCanonicalBool = (...values) => {
     for (const value of values) {
       if (value === true || value === false) return value;
       if (value === null || value === undefined) continue;
@@ -11845,7 +11875,7 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
     }
     return null;
   };
-  const normalizeParticipantId = (value) => String(value || "").trim().toLowerCase();
+    const normalizeParticipantId = (value) => String(value || "").trim().toLowerCase();
   const normalizeRegime = (value) => {
     const txt = String(value || "").trim().toLowerCase();
     if (!txt) return null;
@@ -11880,7 +11910,7 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
     ? participantesTecnico
     : participantesState.length
       ? participantesState
-      : [{ id: "p1", papel: "titular", regime_trabalho: st?.regime_trabalho ?? null, renda: Number(st?.renda) || 0 }];
+      : fallbackParticipantsFromState();
   const participantesPerfil = participantesBase.map((p) => {
     const pid = normalizeParticipantId(p?.id || p?.participante) || "p1";
     const regimeState = pid === "p1"
@@ -12292,6 +12322,14 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
       <h2 class="section-kicker">Instrução/estado de retorno do correspondente</h2>
       <div class="row"><span class="label">Status:</span> ${escapeHtml(String(retornoCorrespondente?.status || "não informado"))}</div>
       <div class="row"><span class="label">Motivo:</span> ${escapeHtml(String(retornoCorrespondente?.motivo || "não informado"))}</div>
+      ${String(retornoCorrespondente?.valor_financiamento || "").trim()
+        ? `<div class="row"><span class="label">Valor de financiamento:</span> ${escapeHtml(String(retornoCorrespondente.valor_financiamento))}</div>`
+        : ""
+      }
+      ${String(retornoCorrespondente?.valor_subsidio_federal || "").trim()
+        ? `<div class="row"><span class="label">Valor de subsídio federal:</span> ${escapeHtml(String(retornoCorrespondente.valor_subsidio_federal))}</div>`
+        : ""
+      }
       <div class="row"><span class="label">Retorno bruto:</span> ${escapeHtml(String(retornoCorrespondente?.bruto || "não informado"))}</div>
       <div class="row"><span class="label">Instrução operacional:</span></div>
       <div class="mini">${retornoGuidance ? formatMultiline(retornoGuidance) : "<span class=\"muted\">Instrução não disponível no contrato atual.</span>"}</div>
@@ -12440,8 +12478,8 @@ async function handleCorrespondenteEntryPage(request, env) {
     const docs = await getCaseDocumentLinks(env, casoAtual?.wa_id || caso?.wa_id, stCompleto || casoAtual || caso);
     const docsModel = buildCorrespondenteWebDocsModel(docs);
     docsForUi = docsModel.normalizedDocs.map((doc) => {
-      const accessLink = Number.isInteger(doc?.received_access_index)
-        ? (buildCorrespondenteDocumentAccessLink(env, tokenResolved, caseRefResolved, doc.received_access_index) || "")
+      const accessLink = String(doc?.received_access_id || "").trim()
+        ? (buildCorrespondenteDocumentAccessLink(env, tokenResolved, caseRefResolved, doc.received_access_id) || "")
         : "";
       return {
         tipo: doc?.tipo || null,
@@ -12465,6 +12503,8 @@ async function handleCorrespondenteEntryPage(request, env) {
     retornoCorrespondente: {
       status: stCompleto?.retorno_correspondente_status || casoAtual?.retorno_correspondente_status || null,
       motivo: stCompleto?.retorno_correspondente_motivo || null,
+      valor_financiamento: stCompleto?.retorno_correspondente_valor_financiamento || null,
+      valor_subsidio_federal: stCompleto?.retorno_correspondente_valor_subsidio_federal || null,
       bruto: stCompleto?.retorno_correspondente_bruto || null
     },
     retornoGuidance: buildCorrespondenteReturnFormatGuidance(caseRefResolved),
@@ -12496,6 +12536,23 @@ function buildCorrespondenteWebDocsModel(docs) {
   const normalizeDocUiParticipant = (value) => String(value || "").trim().toLowerCase() || "-";
   const docsMap = new Map();
   const docsList = Array.isArray(docs) ? docs : [];
+  const stableIdFromDoc = (doc, fallbackKey = "") => {
+    const fromDocId = String(doc?.doc_id || doc?.id || "").trim();
+    if (fromDocId) return `doc_${fromDocId}`;
+    const fromMsg = String(doc?.message_id || doc?.wamid || doc?.wamid_id || "").trim();
+    if (fromMsg) return `msg_${fromMsg}`;
+    const fromMedia = String(doc?.media_id || doc?.mid || doc?.mediaId || "").trim();
+    if (fromMedia) return `mid_${fromMedia}`;
+    const raw = [
+      String(doc?.tipo || "").trim().toLowerCase(),
+      String(doc?.participante || "").trim().toLowerCase(),
+      String(resolveCorrespondenteDocumentUrl(doc) || "").trim(),
+      String(doc?.file_name || doc?.filename || "").trim(),
+      String(doc?.created_at || "").trim(),
+      String(fallbackKey || "")
+    ].join("|");
+    return `auto_${normalizeText(raw).replace(/[^a-z0-9]+/g, "_").slice(0, 120) || "doc"}`;
+  };
   docsList.forEach((doc, idx) => {
     const tipo = normalizeDocUiType(doc?.tipo);
     const participante = normalizeDocUiParticipant(doc?.participante);
@@ -12503,6 +12560,7 @@ function buildCorrespondenteWebDocsModel(docs) {
     const url = resolveCorrespondenteDocumentUrl(doc);
     const hasUsableUrl = Boolean(url);
     const key = `${tipo}|${participante}`;
+    const stableDocId = stableIdFromDoc(doc, `${key}|${idx}`);
     const score = (status !== "pendente" ? 100 : 0) + (hasUsableUrl ? 10 : 0) + idx / 1000;
     const current = docsMap.get(key);
     if (!current || score >= current.__score) {
@@ -12512,25 +12570,26 @@ function buildCorrespondenteWebDocsModel(docs) {
         status,
         url,
         file_name: doc?.file_name || null,
+        stable_doc_id: stableDocId,
         __score: score,
         __hasUsableUrl: hasUsableUrl
       });
     }
   });
   const normalizedDocs = [...docsMap.values()];
-  let receivedAccessIndex = 0;
   for (const doc of normalizedDocs) {
     if (doc.status !== "pendente" && doc.__hasUsableUrl) {
-      doc.received_access_index = receivedAccessIndex;
-      receivedAccessIndex += 1;
+      doc.received_access_id = String(doc?.stable_doc_id || "").trim() || null;
     } else {
-      doc.received_access_index = null;
+      doc.received_access_id = null;
     }
   }
-  const receivedWithUrl = normalizedDocs.filter((doc) => Number.isInteger(doc?.received_access_index));
+  const receivedWithUrl = normalizedDocs.filter((doc) => String(doc?.received_access_id || "").trim());
+  const receivedById = new Map(receivedWithUrl.map((doc) => [String(doc.received_access_id), doc]));
   return {
     normalizedDocs,
-    receivedWithUrl
+    receivedWithUrl,
+    receivedById
   };
 }
 
@@ -12564,8 +12623,8 @@ async function handleCorrespondenteDocumentAccess(request, env) {
     requestUrl.searchParams.get("t") ||
     requestUrl.searchParams.get("token")
   );
-  const docIndex = Number.parseInt(String(requestUrl.searchParams.get("doc") || ""), 10);
-  if (!caseRef || !token || !Number.isInteger(docIndex) || docIndex < 0) {
+  const docId = String(requestUrl.searchParams.get("doc") || requestUrl.searchParams.get("docId") || "").trim();
+  if (!caseRef || !token || !docId) {
     return new Response("Link de documento inválido.", { status: 400 });
   }
 
@@ -12585,7 +12644,7 @@ async function handleCorrespondenteDocumentAccess(request, env) {
   const stCaso = await getState(env, caso.wa_id) || caso;
   const docs = await getCaseDocumentLinks(env, caso.wa_id, stCaso);
   const docsModel = buildCorrespondenteWebDocsModel(docs);
-  const targetDoc = docsModel.receivedWithUrl[docIndex] || null;
+  const targetDoc = docsModel.receivedById.get(docId) || null;
   const targetUrl = resolveCorrespondenteDocumentUrl(targetDoc);
   if (!targetUrl) {
     return new Response("Documento não encontrado.", { status: 404 });
@@ -12741,7 +12800,10 @@ function buildCorrespondentePrivateDeliveryMessage(caseRefInput, entryLink) {
     linkSafe
       ? `Dossiê web (fonte principal): ${linkSafe}`
       : "Dossiê web (fonte principal): link indisponível no momento.",
-    "Retorno no grupo: STATUS + MOTIVO (opcional)."
+    [
+      `Retorno no grupo: Pré-cadastro #${caseRef}`,
+      "STATUS + MOTIVO (opcional) + Valor de financiamento (opcional) + Valor de subsídio federal (opcional)."
+    ].join(" ")
   ].join("\n");
 }
 
@@ -12751,7 +12813,9 @@ function buildCorrespondenteReturnFormatGuidance(caseRefInput) {
     "Para me devolver o resultado, responda neste formato:",
     `Pré-cadastro #${ref}`,
     "STATUS: APROVADO, REPROVADO ou PENDÊNCIA",
-    "MOTIVO: opcional"
+    "MOTIVO: opcional",
+    "Valor de financiamento: opcional",
+    "Valor de subsídio federal: opcional"
   ].join("\n");
 }
 
@@ -13233,14 +13297,24 @@ function parseCorrespondenteStatusLineFromText(rawText) {
     ? String(statusLine).replace(/^.*?\bstatus\s*[:\-]\s*/i, "").trim()
     : String(inlineStatusMatch?.[1] || "").trim();
   const motivoLine = lines.find((line) => /^\s*motivo\s*[:\-]/i.test(line));
+  const financiamentoLine = lines.find((line) => /^\s*valor\s*de\s*financiamento\b/i.test(normalizeText(line)));
+  const subsidioLine = lines.find((line) => /^\s*valor\s*de\s*subsidio\s*(federal)?\b/i.test(normalizeText(line)));
   const motivo = motivoLine
     ? String(motivoLine).replace(/^\s*motivo\s*[:\-]\s*/i, "").trim()
+    : "";
+  const valorFinanciamento = financiamentoLine
+    ? String(financiamentoLine).replace(/^\s*valor\s*de\s*financiamento\s*[:\-]?\s*/i, "").trim()
+    : "";
+  const valorSubsidioFederal = subsidioLine
+    ? String(subsidioLine).replace(/^\s*valor\s*de\s*subsidio\s*(federal)?\s*[:\-]?\s*/i, "").trim()
     : "";
   return {
     statusLineFound: Boolean(statusRaw),
     statusRaw,
     statusNormalized: statusRaw ? normalizeCorrespondenteStatusFromStatusLine(statusRaw, text) : null,
-    motivo
+    motivo,
+    valorFinanciamento,
+    valorSubsidioFederal
   };
 }
 
@@ -13658,7 +13732,9 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       "Me confirme no formato:",
       `Pré-cadastro #${caseRef || "000000"}`,
       "STATUS: APROVADO, REPROVADO ou PENDÊNCIA",
-      "MOTIVO: opcional"
+      "MOTIVO: opcional",
+      "Valor de financiamento: opcional",
+      "Valor de subsídio federal: opcional"
     ].join("\n");
     await sendMessage(env, correspondenteWaId, confirmationPrompt);
     await telemetry(env, {
@@ -13734,7 +13810,9 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       status_raw: statusProbe.statusRaw || null,
       status_normalized: statusProbe.statusNormalized || null,
       motivo_found: statusProbe.motivo ? "sim" : "nao",
-      motivo_preview: String(statusProbe.motivo || "").slice(0, 80) || null
+      motivo_preview: String(statusProbe.motivo || "").slice(0, 80) || null,
+      valor_financiamento_found: statusProbe.valorFinanciamento ? "sim" : "nao",
+      valor_subsidio_federal_found: statusProbe.valorSubsidioFederal ? "sim" : "nao"
     }
   });
   const emitStatusDecisionProbe = async ({ statusClassificado, handled, fallbackCommonFlow, decisionReason, nextStage = null }) => {
@@ -14038,6 +14116,8 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     extracted_evidence: sanitizeCorrespondentePendencias(aiClassification?.extracted_evidence),
     classifier: aiClassification?.classifier || null
   };
+  const valorFinanciamento = String(statusProbe?.valorFinanciamento || "").trim() || null;
+  const valorSubsidioFederal = String(statusProbe?.valorSubsidioFederal || "").trim() || null;
 
   const dispatchTarget =
     statusCanonico === "aprovado" || statusCanonico === "aprovado_condicionado"
@@ -14089,6 +14169,8 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       : String(signals.messageText || userText || "").trim(),
     retorno_correspondente_status: statusCanonico,
     retorno_correspondente_motivo: motivo,
+    retorno_correspondente_valor_financiamento: valorFinanciamento,
+    retorno_correspondente_valor_subsidio_federal: valorSubsidioFederal,
     ...operationalFollowPatch
   });
   await logger(env, {
@@ -14111,7 +14193,9 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       "Me confirme no formato:",
       `Pré-cadastro #${caseRef || "000000"}`,
       "STATUS: APROVADO, REPROVADO ou PENDÊNCIA",
-      "MOTIVO: opcional"
+      "MOTIVO: opcional",
+      "Valor de financiamento: opcional",
+      "Valor de subsídio federal: opcional"
     ].join("\n"));
     await telemetry(env, {
       wa_id: correspondenteWaId,

@@ -10897,14 +10897,13 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
   );
   const restricaoTitular = boolValue(restricao?.tem_restricao);
 
-  const isSolo = composicao?.solo === true || normalize(composicao?.tipo_processo) === "solo";
   const sentences = [];
-  if (nome) sentences.push(`${nome} segue em processo ${isSolo ? "solo" : "com composição de renda"}.`);
+  if (nome) sentences.push(`${nome}.`);
   const regimeTitular = normalizeRegime(titular?.regime_trabalho);
   const rendaTitular = Number(titular?.renda ?? renda?.titular ?? 0);
   const regimeRendaParts = [];
-  if (regimeTitular) regimeRendaParts.push(`Informou trabalho ${regimeTitular}`);
-  if (Number.isFinite(rendaTitular) && rendaTitular > 0) regimeRendaParts.push(`renda de ${moneyToLabel(rendaTitular)}`);
+  if (regimeTitular) regimeRendaParts.push(`Regime de trabalho ${regimeTitular}`);
+  if (Number.isFinite(rendaTitular) && rendaTitular > 0) regimeRendaParts.push(`renda ${moneyToLabel(rendaTitular)}`);
   if (regimeRendaParts.length) sentences.push(`${regimeRendaParts.join(" e ")}.`);
 
   const regimesUnicos = Array.isArray(renda?.regimes_unicos)
@@ -10930,7 +10929,7 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
     .map((line) => String(line || "").trim())
     .filter(Boolean)
     .join(" ");
-  return result || (nome ? `${nome} com perfil em consolidação.` : "Perfil em consolidação.");
+  return result || "";
 }
 
 function normalizeCorrespondenteRegime(value) {
@@ -10975,7 +10974,7 @@ function buildCorrespondentePrivateWhatsAppMessage({ payloadTecnico, dossieCanon
     "Acesse o dossiê completo pelo link oficial da Enova.",
     [
       `Retorno no grupo: Pré-cadastro #${caseRef}`,
-      "STATUS + MOTIVO (opcional) + Valor de financiamento (opcional) + Valor de subsídio federal (opcional)."
+      "STATUS + MOTIVO + Valor de financiamento + Valor de subsídio federal."
     ].join(" ")
   ].join("\n");
 }
@@ -10988,7 +10987,7 @@ function buildCorrespondentePrivateWhatsAppSafeFallback(st = {}, canonical = {})
     "Acesse o dossiê completo pelo link oficial da Enova.",
     [
       `Retorno no grupo: Pré-cadastro #${safeCaseRef}`,
-      "STATUS + MOTIVO (opcional) + Valor de financiamento (opcional) + Valor de subsídio federal (opcional)."
+      "STATUS + MOTIVO + Valor de financiamento + Valor de subsídio federal."
     ].join(" ")
   ].join("\n");
 }
@@ -11898,7 +11897,8 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
       : documentosPorParticipante[participante].pendentes;
     target.push({
       tipo: item?.tipo || "documento",
-      status: item?.status || item?.observacao_analise || (origem === "recebidos" ? "recebido" : "pendente")
+      status: item?.status || item?.observacao_analise || (origem === "recebidos" ? "recebido" : "pendente"),
+      access_link: item?.access_link || null
     });
   };
   for (const doc of asArray(documentos.recebidos)) mergeDoc(doc, "recebidos");
@@ -11937,7 +11937,13 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
       tem_restricao: temRestricao === true
     };
   });
-  const composicaoIds = [...new Set(participantesPerfil.map((p) => String(p?.id || "").trim().toUpperCase()).filter(Boolean))];
+  const composicaoRoles = [...new Set(participantesPerfil
+    .map((p) => String(p?.papel || "").trim())
+    .filter(Boolean))];
+  const regimePrincipal = participantesPerfil.find((p) => String(p?.id || "").trim().toLowerCase() === "p1")?.regime_trabalho || null;
+  const rendaPrincipal = Number(
+    participantesPerfil.find((p) => String(p?.id || "").trim().toLowerCase() === "p1")?.renda ?? renda.titular ?? st?.renda ?? 0
+  ) || 0;
 
   return {
     meta: {
@@ -11962,7 +11968,9 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
       nome: identificacao.nome || st?.nome || null,
       estado_civil: identificacao.estado_civil || st?.estado_civil || null,
       tipo_processo: composicao.tipo_processo || (participantesPerfil.length <= 1 ? "solo" : participantesPerfil.length === 2 ? "conjunto" : "composicao"),
-      composicao: composicaoIds.length ? composicaoIds.join(" / ") : null,
+      composicao: composicaoRoles.length ? composicaoRoles.join(" / ") : null,
+      regime_trabalho: regimePrincipal || null,
+      renda: rendaPrincipal > 0 ? rendaPrincipal : null,
       restricao: restricao.tem_restricao === true,
       ctps_36: parseCanonicalBool(formalizacao.ctps_36),
       dependente: parseCanonicalBool(
@@ -12122,6 +12130,20 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   const docsForUi = Array.isArray(options?.docsForUi)
     ? options.docsForUi
     : [];
+  const hasUsefulValue = (value) => {
+    if (value === null || value === undefined) return false;
+    if (typeof value === "string") return String(value).trim() !== "";
+    if (typeof value === "number") return Number.isFinite(value) && value > 0;
+    if (typeof value === "boolean") return true;
+    return true;
+  };
+  const formatRoleName = (value) => {
+    const txt = String(value || "").trim().toLowerCase();
+    if (txt === "p1" || txt === "titular") return "Titular";
+    if (txt === "p2" || txt === "parceiro") return "Parceiro(a)";
+    if (txt === "p3" || txt === "familiar" || txt === "familiar_p3") return "Familiar";
+    return txt ? txt : "Participante";
+  };
   const formatMoney = (value) => {
     const num = Number(value);
     if (!Number.isFinite(num) || num <= 0) return "não informado";
@@ -12139,6 +12161,7 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   const docsRecebidosUi = docsForUi.filter((doc) => String(doc?.status || "").trim().toLowerCase() !== "pendente");
   const docsPendentesUi = docsForUi.filter((doc) => String(doc?.status || "").trim().toLowerCase() === "pendente");
   const linksOperacionaisUi = docsRecebidosUi
+    .filter((doc) => String(doc?.access_link || "").trim())
     .map((doc) => ({
       tipo: String(doc?.tipo || "documento").trim() || "documento",
       participante: String(doc?.participante || "").trim().toLowerCase(),
@@ -12219,7 +12242,7 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
       <div class="row"><span class="label">Referência:</span> ${escapeHtml(ref)}</div>
       <div class="row"><span class="label">Cliente:</span> ${escapeHtml(clienteNome)}</div>
       <div class="chips">
-        <span class="chip info">Status: ${escapeHtml(String(caso?.corr_publicacao_status || "não informado"))}</span>
+        ${hasUsefulValue(caso?.corr_publicacao_status) ? `<span class="chip info">Status: ${escapeHtml(String(caso?.corr_publicacao_status || ""))}</span>` : ""}
         <span class="chip alerta">Retorno: ${escapeHtml(String(retornoCorrespondente?.status || "sem retorno"))}</span>
       </div>
       <div class="status">${escapeHtml(statusText)}</div>
@@ -12266,7 +12289,7 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     ${dossierPayload ? `<section class="card">
       <h2 class="section-kicker">Resumo executivo</h2>
       <div class="row"><span class="label">Pronto para pré-análise:</span> ${escapeHtml(resumo?.pronto_para_pre_analise === true ? "sim" : "não")}</div>
-      <div class="row"><span class="label">Status documental:</span> ${escapeHtml(resumo?.envio_docs_status || "não informado")}</div>
+      ${hasUsefulValue(resumo?.envio_docs_status) ? `<div class="row"><span class="label">Status documental:</span> ${escapeHtml(resumo?.envio_docs_status || "")}</div>` : ""}
       <div class="row"><span class="label">Pendências totais:</span> ${escapeHtml(String(resumo?.pendencias_total ?? 0))}</div>
       <div class="row"><span class="label">Renda total:</span> ${escapeHtml(formatMoney(resumo?.renda_total))}</div>
       <div class="row"><span class="label">Participantes totais:</span> ${escapeHtml(String(resumo?.participantes_total ?? 0))}</div>
@@ -12276,12 +12299,14 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     <section class="card">
       <h2 class="section-kicker">Perfil Técnico Consolidado</h2>
       <div class="row"><span class="label">Nome:</span> ${escapeHtml(perfil?.nome || clienteNome)}</div>
-      <div class="row"><span class="label">Estado civil:</span> ${escapeHtml(perfil?.estado_civil || "não informado")}</div>
-      <div class="row"><span class="label">Tipo de processo:</span> ${escapeHtml(String(perfil?.tipo_processo || "não informado"))}</div>
-      <div class="row"><span class="label">Composição:</span> ${escapeHtml(String(perfil?.composicao || "não informado"))}</div>
-      <div class="row"><span class="label">CTPS 36 meses:</span> ${escapeHtml(boolLabel(perfil?.ctps_36))}</div>
-      <div class="row"><span class="label">Dependente:</span> ${escapeHtml(boolLabel(perfil?.dependente))}</div>
-      <div class="row"><span class="label">Restrição:</span> ${escapeHtml(boolLabel(perfil?.restricao))}</div>
+      ${hasUsefulValue(perfil?.estado_civil) ? `<div class="row"><span class="label">Estado civil:</span> ${escapeHtml(perfil?.estado_civil || "")}</div>` : ""}
+      ${hasUsefulValue(perfil?.tipo_processo) ? `<div class="row"><span class="label">Tipo de processo:</span> ${escapeHtml(String(perfil?.tipo_processo || ""))}</div>` : ""}
+      ${hasUsefulValue(perfil?.regime_trabalho) ? `<div class="row"><span class="label">Regime de trabalho:</span> ${escapeHtml(String(perfil?.regime_trabalho || ""))}</div>` : ""}
+      ${hasUsefulValue(perfil?.renda) ? `<div class="row"><span class="label">Renda:</span> ${escapeHtml(formatMoney(perfil?.renda))}</div>` : ""}
+      ${hasUsefulValue(perfil?.composicao) ? `<div class="row"><span class="label">Composição:</span> ${escapeHtml(String(perfil?.composicao || ""))}</div>` : ""}
+      ${perfil?.ctps_36 === true || perfil?.ctps_36 === false ? `<div class="row"><span class="label">CTPS 36 meses:</span> ${escapeHtml(boolLabel(perfil?.ctps_36))}</div>` : ""}
+      ${perfil?.dependente === true || perfil?.dependente === false ? `<div class="row"><span class="label">Dependente:</span> ${escapeHtml(boolLabel(perfil?.dependente))}</div>` : ""}
+      ${perfil?.restricao === true || perfil?.restricao === false ? `<div class="row"><span class="label">Restrição:</span> ${escapeHtml(boolLabel(perfil?.restricao))}</div>` : ""}
       ${(perfil?.multi_regime === true || perfil?.multi_renda === true)
         ? `<div class="row"><span class="label">Múltiplos indicadores:</span> ${escapeHtml([
           perfil?.multi_regime === true ? "multi-regime" : null,
@@ -12294,34 +12319,34 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
           ? perfil.participantes
           : []
         ).map((item) => `<article class="mini">
-          <div class="k">${escapeHtml(String(item?.id || "participante").toUpperCase())} · ${escapeHtml(participantRoleLabel(item?.papel))}</div>
-          <div class="v">Regime: ${escapeHtml(String(item?.regime_trabalho || "não informado"))}</div>
-          <div class="v">Renda: ${escapeHtml(formatMoney(item?.renda))}</div>
-          <div class="v">Restrição: ${escapeHtml(item?.tem_restricao === true ? "sim" : "não")}</div>
+          <div class="k">${escapeHtml(formatRoleName(item?.papel || item?.id))}</div>
+          ${hasUsefulValue(item?.regime_trabalho) ? `<div class="v">Regime: ${escapeHtml(String(item?.regime_trabalho || ""))}</div>` : ""}
+          ${hasUsefulValue(item?.renda) ? `<div class="v">Renda: ${escapeHtml(formatMoney(item?.renda))}</div>` : ""}
+          ${item?.tem_restricao === true || item?.tem_restricao === false ? `<div class="v">Restrição: ${escapeHtml(item?.tem_restricao === true ? "sim" : "não")}</div>` : ""}
         </article>`).join("") || `<article class="mini"><span class="muted">Participantes não disponíveis no contrato atual.</span></article>`}
       </div>
     </section>
     <section class="card">
       <h2 class="section-kicker">Documentos Recebidos</h2>
       ${docsRecebidosUi.length
-        ? `<ul class="list">${docsRecebidosUi.map((doc) => `<li>${escapeHtml(String(doc?.tipo || "documento"))} [${escapeHtml(String(doc?.participante || "-").toUpperCase())}]</li>`).join("")}</ul>`
+        ? `<ul class="list">${docsRecebidosUi.map((doc) => `<li>${escapeHtml(String(doc?.tipo || "documento"))} — ${escapeHtml(formatRoleName(doc?.participante))}</li>`).join("")}</ul>`
         : "<div class=\"row muted\">Sem documentos recebidos mapeados.</div>"
       }
       <h2 class="section-kicker">Documentos Pendentes</h2>
       ${docsPendentesUi.length
-        ? `<ul class="list">${docsPendentesUi.map((doc) => `<li>${escapeHtml(String(doc?.tipo || "documento"))} [${escapeHtml(String(doc?.participante || "-").toUpperCase())}]</li>`).join("")}</ul>`
+        ? `<ul class="list">${docsPendentesUi.map((doc) => `<li>${escapeHtml(String(doc?.tipo || "documento"))} — ${escapeHtml(formatRoleName(doc?.participante))}</li>`).join("")}</ul>`
         : "<div class=\"row muted\">Sem pendências documentais ativas.</div>"
       }
       <h2 class="section-kicker">Links operacionais dos documentos</h2>
       ${linksOperacionaisUi.length
-        ? `<ul class="list">${linksOperacionaisUi.map((entry) => `<li>${escapeHtml(entry.tipo)} [${escapeHtml((entry.participante || "-").toUpperCase())}]: ${entry.link ? `<a href="${escapeHtml(entry.link)}" target="_blank" rel="noreferrer noopener">abrir documento</a>` : "<span class=\"muted\">link não disponível</span>"}</li>`).join("")}</ul>`
+        ? `<ul class="list">${linksOperacionaisUi.map((entry) => `<li>${escapeHtml(entry.tipo)} — ${escapeHtml(formatRoleName(entry.participante))}: <a href="${escapeHtml(entry.link)}" target="_blank" rel="noreferrer noopener">abrir documento</a></li>`).join("")}</ul>`
         : "<div class=\"row muted\">Nenhum link operacional disponível no momento.</div>"
       }
     </section>
     <section class="card">
       <h2 class="section-kicker">Instrução/estado de retorno do correspondente</h2>
-      <div class="row"><span class="label">Status:</span> ${escapeHtml(String(retornoCorrespondente?.status || "não informado"))}</div>
-      <div class="row"><span class="label">Motivo:</span> ${escapeHtml(String(retornoCorrespondente?.motivo || "não informado"))}</div>
+      ${hasUsefulValue(retornoCorrespondente?.status) ? `<div class="row"><span class="label">Status:</span> ${escapeHtml(String(retornoCorrespondente?.status || ""))}</div>` : ""}
+      ${hasUsefulValue(retornoCorrespondente?.motivo) ? `<div class="row"><span class="label">Motivo:</span> ${escapeHtml(String(retornoCorrespondente?.motivo || ""))}</div>` : ""}
       ${String(retornoCorrespondente?.valor_financiamento || "").trim()
         ? `<div class="row"><span class="label">Valor de financiamento:</span> ${escapeHtml(String(retornoCorrespondente.valor_financiamento))}</div>`
         : ""
@@ -12330,13 +12355,15 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
         ? `<div class="row"><span class="label">Valor de subsídio federal:</span> ${escapeHtml(String(retornoCorrespondente.valor_subsidio_federal))}</div>`
         : ""
       }
-      <div class="row"><span class="label">Retorno bruto:</span> ${escapeHtml(String(retornoCorrespondente?.bruto || "não informado"))}</div>
       <div class="row"><span class="label">Instrução operacional:</span></div>
       <div class="mini">${retornoGuidance ? formatMultiline(retornoGuidance) : "<span class=\"muted\">Instrução não disponível no contrato atual.</span>"}</div>
-      <h2 class="section-kicker">Pendências</h2>
-      <div class="row"><span class="label">Bloqueantes:</span> ${escapeHtml(String(pendencias?.bloqueantes ?? 0))}</div>
-      <div class="row"><span class="label">Não bloqueantes:</span> ${escapeHtml(String(pendencias?.nao_bloqueantes ?? 0))}</div>
-      <div class="row"><span class="label">Remanescentes:</span> ${escapeHtml(String(pendencias?.remanescentes ?? 0))}</div>
+      ${pendencias && (Number(pendencias?.bloqueantes ?? 0) > 0 || Number(pendencias?.nao_bloqueantes ?? 0) > 0)
+        ? `<h2 class="section-kicker">Pendências</h2>
+      ${Number(pendencias?.bloqueantes ?? 0) > 0 ? `<div class="row"><span class="label">Bloqueantes:</span> ${escapeHtml(String(pendencias?.bloqueantes ?? 0))}</div>` : ""}
+      ${Number(pendencias?.nao_bloqueantes ?? 0) > 0 ? `<div class="row"><span class="label">Não bloqueantes:</span> ${escapeHtml(String(pendencias?.nao_bloqueantes ?? 0))}</div>` : ""}
+      ${Number(pendencias?.remanescentes ?? 0) > 0 ? `<div class="row"><span class="label">Remanescentes:</span> ${escapeHtml(String(pendencias?.remanescentes ?? 0))}</div>` : ""}`
+        : ""
+      }
     </section>` : ""}
   </main>
 </body>
@@ -12802,7 +12829,7 @@ function buildCorrespondentePrivateDeliveryMessage(caseRefInput, entryLink) {
       : "Dossiê web (fonte principal): link indisponível no momento.",
     [
       `Retorno no grupo: Pré-cadastro #${caseRef}`,
-      "STATUS + MOTIVO (opcional) + Valor de financiamento (opcional) + Valor de subsídio federal (opcional)."
+      "STATUS + MOTIVO + Valor de financiamento + Valor de subsídio federal."
     ].join(" ")
   ].join("\n");
 }
@@ -12813,9 +12840,9 @@ function buildCorrespondenteReturnFormatGuidance(caseRefInput) {
     "Para me devolver o resultado, responda neste formato:",
     `Pré-cadastro #${ref}`,
     "STATUS: APROVADO, REPROVADO ou PENDÊNCIA",
-    "MOTIVO: opcional",
-    "Valor de financiamento: opcional",
-    "Valor de subsídio federal: opcional"
+    "MOTIVO:",
+    "Valor de financiamento:",
+    "Valor de subsídio federal:"
   ].join("\n");
 }
 

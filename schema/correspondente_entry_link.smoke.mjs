@@ -159,7 +159,7 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(typeof bundle.structured?.resumo_executivo?.pendencias_total, "number");
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("Acesse o dossiê completo pelo link oficial da Enova."), true);
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("Retorno no grupo: Pré-cadastro #000001"), true);
-  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("STATUS + MOTIVO (opcional) + Valor de financiamento (opcional) + Valor de subsídio federal (opcional)."), true);
+  assert.equal(bundle.mensagemPrivadaWhatsapp.includes("STATUS + MOTIVO + Valor de financiamento + Valor de subsídio federal."), true);
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("CAMADA 1 — RESUMO HUMANO"), false);
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("Dossiê privado canônico (completo)"), false);
   assert.equal(bundle.mensagemPrivadaWhatsapp.includes("espelho_state_preenchido"), false);
@@ -180,7 +180,7 @@ function getLastStepMessagesForWa(env, waId) {
   assert.deepEqual(faltandoNoPrivado, []);
   assert.deepEqual(sobrandoNoPrivado, []);
   assert.equal(bundle.structured?.perfil?.tipo_processo, "solo");
-  assert.equal(bundle.structured?.perfil?.composicao, "P1");
+  assert.equal(bundle.structured?.perfil?.composicao, "titular");
   assert.equal(bundle.structured?.perfil?.participantes?.[0]?.regime_trabalho, null);
   assert.equal(bundle.structured?.perfil?.participantes?.[0]?.renda, 8900);
   assert.equal(bundle.structured?.perfil?.dependente, null);
@@ -240,8 +240,8 @@ function getLastStepMessagesForWa(env, waId) {
   {
     const canonical = buildCanonicalFromState();
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
-    assert.equal(resumo.includes("JOAO TESTE segue em processo solo"), true);
-    assert.equal(resumo.includes("Informou trabalho CLT"), true);
+    assert.equal(resumo.includes("JOAO TESTE."), true);
+    assert.equal(resumo.includes("Regime de trabalho CLT"), true);
     assert.equal(resumo.includes("Não indicou restrição"), true);
   }
 
@@ -260,9 +260,9 @@ function getLastStepMessagesForWa(env, waId) {
       ir_declarado_parceiro: true
     });
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
-    assert.equal(resumo.includes("JOAO TESTE segue em processo com composição de renda"), true);
-    assert.equal(resumo.includes("Informou trabalho CLT"), true);
-    assert.equal(resumo.includes("renda de R$ 4.200,00"), true);
+    assert.equal(resumo.includes("JOAO TESTE."), true);
+    assert.equal(resumo.includes("Regime de trabalho CLT"), true);
+    assert.equal(resumo.includes("renda R$ 4.200,00"), true);
     assert.equal(resumo.includes("MARIA TESTE"), false);
     assert.equal(resumo.includes("autônomo"), true);
   }
@@ -282,7 +282,7 @@ function getLastStepMessagesForWa(env, waId) {
       autonomo_sem_ir_este_ano: true
     });
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
-    assert.equal(resumo.includes("Informou trabalho autônomo"), true);
+    assert.equal(resumo.includes("Regime de trabalho autônomo"), true);
     assert.equal(resumo.includes("sem IR declarado até o momento"), false);
     assert.equal(resumo.includes("IR"), false);
   }
@@ -345,7 +345,7 @@ function getLastStepMessagesForWa(env, waId) {
     const tecnico = canonical?.payload_tecnico_correspondente_json || {};
     assert.equal(tecnico?.composicao?.solo, true);
     assert.equal(tecnico?.restricao?.tem_restricao, false);
-    assert.equal(resumo.includes("processo solo"), true);
+    assert.equal(resumo.includes("JOAO TESTE."), true);
     assert.equal(resumo.includes("Não indicou restrição"), true);
     assert.equal(resumo.includes("composição de renda"), false);
   }
@@ -369,7 +369,7 @@ function getLastStepMessagesForWa(env, waId) {
     const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
     assert.equal(privado.includes("Acesse o dossiê completo pelo link oficial da Enova."), true);
     assert.equal(privado.includes("Retorno no grupo: Pré-cadastro #000001"), true);
-    assert.equal(privado.includes("Valor de financiamento (opcional)"), true);
+    assert.equal(privado.includes("Valor de financiamento"), true);
     assert.equal(privado.includes("Documentos recebidos"), false);
     assert.equal(privado.includes("ctps_completa"), false);
     assert.equal(privado.includes("não informado"), false);
@@ -400,8 +400,8 @@ function getLastStepMessagesForWa(env, waId) {
       (tecnico?.composicao?.participantes || []).map((p) => p?.id),
       ["p1", "p2"]
     );
-    assert.equal(resumo.includes("processo solo"), false);
-    assert.equal(resumo.includes("processo com composição"), true);
+    assert.equal(resumo.includes("JOAO TESTE."), true);
+    assert.equal(resumo.includes("não informado"), false);
   }
 
   // 10) sem restrição: humano e técnico coerentes.
@@ -538,7 +538,7 @@ function getLastStepMessagesForWa(env, waId) {
     const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
     assert.equal(privado.includes("Acesse o dossiê completo pelo link oficial da Enova."), true);
     assert.equal(privado.includes("Retorno no grupo: Pré-cadastro #000001"), true);
-    assert.equal(privado.includes("Valor de subsídio federal (opcional)"), true);
+    assert.equal(privado.includes("Valor de subsídio federal"), true);
     assert.equal(privado.includes("_json"), false);
     assert.equal(privado.includes("espelho_state_preenchido"), false);
     assert.equal(/"\w+"\s*:/.test(privado), false);
@@ -596,13 +596,13 @@ function getLastStepMessagesForWa(env, waId) {
   const assumirHtml = await assumirRes.text();
   assert.equal(assumirRes.status, 200);
   assert.equal(assumirHtml.includes("Resumo executivo"), true);
-  assert.equal(assumirHtml.includes("JOAO TESTE segue em processo solo"), true);
-  assert.equal(assumirHtml.includes("Informou trabalho CLT e renda de R$ 8.900,00."), true);
+  assert.equal(assumirHtml.includes("JOAO TESTE."), true);
+  assert.equal(assumirHtml.includes("Regime de trabalho CLT e renda R$ 8.900,00."), true);
   assert.equal(assumirHtml.includes("Não indicou restrição."), true);
   assert.equal(assumirHtml.includes("🔒 *Dossiê privado canônico (completo)*"), false);
-  assert.equal(assumirHtml.includes("Regime: clt"), true);
+  assert.equal(assumirHtml.includes("Regime de trabalho:</span> clt"), true);
   assert.equal(assumirHtml.includes("Tipo de processo:</span> solo"), true);
-  assert.equal(assumirHtml.includes("ctps_completa [P1]"), true);
+  assert.equal(assumirHtml.includes("ctps_completa — Titular"), true);
   assert.equal(assumirHtml.includes("/correspondente/doc?pre=000001"), true);
 
   const atualizado = env.__enovaSimulationCtx.stateByWaId[waCaso];
@@ -790,7 +790,7 @@ function getLastStepMessagesForWa(env, waId) {
     .filter((body) =>
       body.includes("Retorno no grupo:")
       && body.includes("Pré-cadastro #")
-      && body.includes("STATUS + MOTIVO (opcional)")
+      && body.includes("STATUS + MOTIVO + Valor de financiamento + Valor de subsídio federal.")
       && body.includes("Valor de financiamento")
       && body.includes("Valor de subsídio federal")
     );
@@ -1118,7 +1118,7 @@ function getLastStepMessagesForWa(env, waId) {
   const res = await worker.fetch(req, env, {});
   const body = await res.text();
   assert.equal(res.status, 200);
-  assert.equal(body.includes("ctps_completa [P1]"), true);
+  assert.equal(body.includes("ctps_completa — Titular"), true);
   assert.equal(body.includes("abrir documento"), false);
 }
 
@@ -1844,8 +1844,8 @@ function getLastStepMessagesForWa(env, waId) {
   const body = String(correspondenteConfirmation?.text?.body || "");
   assert.equal(body.includes("Me confirme no formato:"), true);
   assert.equal(body.includes("STATUS: APROVADO, REPROVADO ou PENDÊNCIA"), true);
-  assert.equal(body.includes("Valor de financiamento: opcional"), true);
-  assert.equal(body.includes("Valor de subsídio federal: opcional"), true);
+  assert.equal(body.includes("Valor de financiamento:"), true);
+  assert.equal(body.includes("Valor de subsídio federal:"), true);
 }
 
 // 8.4b) Texto com caseRef sem STATUS claro deve pedir confirmação objetiva ao correspondente.
@@ -1910,8 +1910,8 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(body.includes("Me confirme no formato:"), true);
   assert.equal(body.includes("Pré-cadastro #000006"), true);
   assert.equal(body.includes("STATUS: APROVADO, REPROVADO ou PENDÊNCIA"), true);
-  assert.equal(body.includes("Valor de financiamento: opcional"), true);
-  assert.equal(body.includes("Valor de subsídio federal: opcional"), true);
+  assert.equal(body.includes("Valor de financiamento:"), true);
+  assert.equal(body.includes("Valor de subsídio federal:"), true);
 }
 
 // 8.5) Logger de retorno por caseRef não pode enviar case_ref como coluna top-level em enova_log.

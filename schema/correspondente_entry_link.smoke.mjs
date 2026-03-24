@@ -2541,6 +2541,122 @@ function getLastStepMessagesForWa(env, waId) {
   }
 }
 
+// 9.1) /correspondente/doc no caminho real (sem simCtx): pre correto abre doc e pre errado continua bloqueado.
+{
+  const originalFetch = globalThis.fetch;
+  const tokenDb = "AA11BB22CC33DD44EE55FF66";
+  const caseRefDb = "000026";
+  const waIdDb = "5541997777666";
+  const expectedDocId = "doc_doc-rg-db-1";
+  let capturedDocSelect = "";
+  let capturedTokenSelect = "";
+  globalThis.fetch = async (input, init) => {
+    const rawUrl = typeof input === "string" ? input : input.url;
+    const parsed = new URL(rawUrl);
+    if (parsed.pathname !== "/api/supabase-proxy") {
+      return originalFetch(input, init);
+    }
+    const path = parsed.searchParams.get("path") || "";
+    if (path === "/rest/v1/enova_state") {
+      const tokenFilter = parsed.searchParams.get("corr_assumir_token") || "";
+      const preFilter = parsed.searchParams.get("pre_cadastro_numero") || "";
+      const select = parsed.searchParams.get("select") || "";
+      if (tokenFilter) capturedTokenSelect = select;
+      const tokenMatch = tokenFilter === `eq.${tokenDb}`;
+      const preMatch = preFilter === `eq.${caseRefDb}`;
+      const rows = (tokenMatch || preMatch)
+        ? [{
+            wa_id: waIdDb,
+            nome: "CASO DOC DB",
+            fase_conversa: "aguardando_retorno_correspondente",
+            pre_cadastro_numero: caseRefDb,
+            corr_assumir_token: tokenDb,
+            corr_publicacao_status: "entregue_privado_aguardando_retorno",
+            corr_lock_correspondente_wa_id: "5511999999999",
+            processo_enviado_correspondente: true,
+            updated_at: "2026-03-20T10:00:00.000Z"
+          }]
+        : [];
+      return new Response(JSON.stringify({ data: rows }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    if (path === "/rest/v1/enova_docs") {
+      capturedDocSelect = parsed.searchParams.get("select") || "";
+      const waFilter = parsed.searchParams.get("wa_id") || "";
+      const rows = waFilter === `eq.${waIdDb}`
+        ? [{
+            wa_id: waIdDb,
+            doc_id: "doc-rg-db-1",
+            tipo: "rg",
+            participante: "p1",
+            status: "recebido",
+            url: "https://docs.example.com/rg-db.pdf",
+            created_at: "2026-03-20T10:10:00.000Z"
+          }]
+        : [];
+      return new Response(JSON.stringify({ data: rows }), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+    return new Response(JSON.stringify({ data: [] }), {
+      status: 200,
+      headers: { "content-type": "application/json" }
+    });
+  };
+
+  try {
+    const env = {
+      ENV_MODE: "test",
+      ENOVA_ADMIN_KEY: "adm-key",
+      VERCEL_PROXY_URL: "https://proxy.example.com",
+      SUPABASE_SERVICE_ROLE: "service-role",
+      META_API_VERSION: "v20.0",
+      PHONE_NUMBER_ID: "123456",
+      WHATS_TOKEN: "token",
+      META_VERIFY_TOKEN: "verify",
+      CORRESPONDENTE_ENTRY_BASE_URL: "https://entrada.enova.local"
+    };
+
+    const entryReq = new Request(`https://worker.local/correspondente/entrada?pre=${caseRefDb}&cw=5511999999999`, { method: "GET" });
+    const entryRes = await worker.fetch(entryReq, env, {});
+    const entryHtml = await entryRes.text();
+    assert.equal(entryRes.status, 200);
+    const linkMatch = entryHtml.match(/href="([^"]*\/correspondente\/doc\?[^"]+)"/i);
+    assert.equal(Boolean(linkMatch?.[1]), true);
+    const hrefRaw = String(linkMatch?.[1] || "").replace(/&amp;/g, "&");
+    const linkUrl = new URL(hrefRaw, "https://worker.local");
+    assert.equal(linkUrl.searchParams.get("pre"), caseRefDb);
+    assert.equal(linkUrl.searchParams.get("doc"), expectedDocId);
+    assert.equal(linkUrl.searchParams.get("t"), tokenDb);
+
+    const validReq = new Request(linkUrl.toString(), { method: "GET" });
+    const validRes = await worker.fetch(validReq, env, {});
+    assert.equal(validRes.status, 302);
+    assert.equal(String(validRes.headers.get("location") || ""), "https://docs.example.com/rg-db.pdf");
+
+    const wrongPreReq = new Request(`https://worker.local/correspondente/doc?pre=000999&t=${tokenDb}&doc=${expectedDocId}`, { method: "GET" });
+    const wrongPreRes = await worker.fetch(wrongPreReq, env, {});
+    const wrongPreBody = await wrongPreRes.text();
+    assert.equal(wrongPreRes.status, 403);
+    assert.equal(wrongPreBody.includes("Link de documento inválido."), true);
+
+    const missingDocReq = new Request(`https://worker.local/correspondente/doc?pre=${caseRefDb}&t=${tokenDb}&doc=doc_inexistente`, { method: "GET" });
+    const missingDocRes = await worker.fetch(missingDocReq, env, {});
+    const missingDocBody = await missingDocRes.text();
+    assert.equal(missingDocRes.status, 404);
+    assert.equal(missingDocBody.includes("Documento não encontrado."), true);
+    assert.equal(missingDocBody.includes("Link de documento inválido."), false);
+
+    assert.equal(capturedTokenSelect.includes("pre_cadastro_numero"), true);
+    assert.equal(capturedDocSelect.includes("*"), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 // 10) Retorno textual simples "000006 aprovado" deve funcionar com âncora numérica mínima.
 {
   const env = buildEnvWithState();

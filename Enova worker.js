@@ -10888,7 +10888,8 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
   };
 
   const participantById = (id) => participantes.find((p) => normalize(p?.id) === id) || null;
-  const titular = participantById("p1");
+  const titular = participantById("p1") || participantes[0] || null;
+  const composicaoParticipante = participantes.find((p) => normalize(p?.id) !== "p1") || null;
   const nome = String(dossie?.identificacao?.nome || payload?.identificacao?.nome || "").trim();
   const canonicalCtps36 = boolValue(formalizacao?.ctps_36);
   const dependenteTitular = boolValue(
@@ -10897,15 +10898,40 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
   );
   const restricaoTitular = boolValue(restricao?.tem_restricao);
 
-  const isSolo = composicao?.solo === true || normalize(composicao?.tipo_processo) === "solo";
+  const isSolo = composicao?.solo === true || normalize(composicao?.tipo_processo) === "solo" || participantes.length <= 1;
   const sentences = [];
-  if (nome) sentences.push(`${nome} segue em processo ${isSolo ? "solo" : "com composição de renda"}.`);
-  const regimeTitular = normalizeRegime(titular?.regime_trabalho);
-  const rendaTitular = Number(titular?.renda ?? renda?.titular ?? 0);
-  const regimeRendaParts = [];
-  if (regimeTitular) regimeRendaParts.push(`trabalho ${regimeTitular}`);
-  if (Number.isFinite(rendaTitular) && rendaTitular > 0) regimeRendaParts.push(`renda de ${moneyToLabel(rendaTitular)}`);
-  if (regimeRendaParts.length) sentences.push(`Informou ${regimeRendaParts.join(" e ")}.`);
+  if (nome) {
+    sentences.push(`${nome} segue em processo ${isSolo ? "solo" : "conjunto"}.`);
+  }
+  const participantProfileSentence = (participant, subjectLabel, options = {}) => {
+    const regime = normalizeRegime(participant?.regime_trabalho);
+    const rendaValor = Number(participant?.renda ?? 0);
+    const parts = [];
+    if (regime) parts.push(`trabalho ${regime}`);
+    if (Number.isFinite(rendaValor) && rendaValor > 0) parts.push(`renda de ${moneyToLabel(rendaValor)}`);
+    const ctps36Participant = boolValue(options?.ctps36);
+    if (ctps36Participant === true) parts.push("36 meses de carteira assinada");
+    const dependenteParticipant = boolValue(options?.dependente);
+    if (dependenteParticipant === true) parts.push("dependente");
+    if (!parts.length) return "";
+    const normalizedSubject = String(subjectLabel || "").trim();
+    const prefix = normalizedSubject ? `${normalizedSubject} informou ` : "Informou ";
+    if (parts.length === 1) return `${prefix}${parts[0]}.`;
+    if (parts.length === 2) return `${prefix}${parts[0]} e ${parts[1]}.`;
+    return `${prefix}${parts.slice(0, -1).join(", ")} e ${parts[parts.length - 1]}.`;
+  };
+  const titularSentence = participantProfileSentence(titular, isSolo ? "" : "A titular", {
+    ctps36: canonicalCtps36,
+    dependente: dependenteTitular
+  }).trim();
+  if (titularSentence) sentences.push(titularSentence);
+  if (!isSolo && composicaoParticipante) {
+    const composicaoSentence = participantProfileSentence(composicaoParticipante, "A participante que compõe junto", {
+      ctps36: composicaoParticipante?.ctps_36,
+      dependente: composicaoParticipante?.dependente
+    });
+    if (composicaoSentence) sentences.push(composicaoSentence);
+  }
 
   const regimesUnicos = Array.isArray(renda?.regimes_unicos)
     ? [...new Set(renda.regimes_unicos.map(normalizeRegime).filter(Boolean))]
@@ -10918,13 +10944,15 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
     sentences.push(`Tem multi-renda, total de ${moneyToLabel(rendaTotal)}.`);
   }
 
-  if (canonicalCtps36 === true) sentences.push("Confirmou possuir 36 meses de carteira assinada.");
-  else if (canonicalCtps36 === false) sentences.push("Informou não possuir 36 meses de carteira assinada.");
-  if (dependenteTitular === true) sentences.push("Informou dependente.");
-  else if (dependenteTitular === false) sentences.push("Informou não possuir dependente.");
-
-  if (restricaoTitular === true) sentences.push("Informou restrição.");
-  else if (restricaoTitular === false) sentences.push("Não indicou restrição.");
+  const restricaoParticipantes = participantes
+    .map((p) => boolValue(p?.tem_restricao))
+    .filter((v) => v === true || v === false);
+  const restricaoAnyTrue = restricaoParticipantes.some((v) => v === true) || restricaoTitular === true;
+  const restricaoAllFalse =
+    (restricaoParticipantes.length > 0 && restricaoParticipantes.every((v) => v === false)) ||
+    (restricaoParticipantes.length === 0 && restricaoTitular === false);
+  if (restricaoAnyTrue) sentences.push("Houve indicação de restrição.");
+  else if (restricaoAllFalse) sentences.push("Não houve indicação de restrição.");
 
   const result = sentences
     .map((line) => String(line || "").trim())
@@ -11930,12 +11958,32 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
       p?.restricao,
       pid === "p1" ? st?.restricao : null
     );
+    const ctps36State = pid === "p1"
+      ? st?.ctps_36
+      : pid === "p2"
+        ? st?.ctps_36_parceiro
+        : st?.p3_ctps_36;
+    const dependenteState = pid === "p1"
+      ? st?.dependente
+      : pid === "p2"
+        ? (st?.dependente_parceiro ?? st?.dependente_p2)
+        : st?.dependente_p3;
+    const irState = pid === "p1"
+      ? (st?.autonomo_ir ?? st?.ir_declarado)
+      : pid === "p2"
+        ? (st?.ir_declarado_parceiro ?? st?.ir_declarado_p2)
+        : st?.ir_declarado_p3;
+    const regimeTxt = String(regime || "").trim().toLowerCase();
+    const irAutonomo = regimeTxt === "autonomo" ? parseCanonicalBool(p?.ir_autonomo, p?.ir_declarado, irState) : null;
     return {
       id: pid,
       papel: p?.papel || p?.role || (pid === "p1" ? "titular" : pid === "p2" ? "parceiro" : "familiar"),
       regime_trabalho: regime || null,
       renda: Number(p?.renda ?? rendaState ?? 0) || 0,
-      tem_restricao: temRestricao === true
+      tem_restricao: temRestricao === true,
+      ctps_36: parseCanonicalBool(p?.ctps_36, ctps36State),
+      dependente: parseCanonicalBool(p?.dependente, dependenteState),
+      ir_autonomo: irAutonomo
     };
   });
   const composicaoRoles = [...new Set(participantesPerfil
@@ -11945,6 +11993,13 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
   const rendaPrincipal = Number(
     participantesPerfil.find((p) => String(p?.id || "").trim().toLowerCase() === "p1")?.renda ?? renda.titular ?? st?.renda ?? 0
   ) || 0;
+
+  const pendingItemsCanonical = asArray(documentos.pendentes).filter((item) => String(item?.status || "pendente").trim().toLowerCase() === "pendente");
+  const remanescentesCanonicos = pendingItemsCanonical.length;
+  const envioDocsStatusRaw = String(documental.envio_docs_status || "").trim().toLowerCase();
+  const envioDocsStatusCanonico = remanescentesCanonicos > 0
+    ? (envioDocsStatusRaw === "parcial" ? "parcial" : "pendente")
+    : "completo";
 
   return {
     meta: {
@@ -11960,8 +12015,8 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
     },
     resumo_executivo: {
       pronto_para_pre_analise: conclusao.pronto_para_pre_analise === true,
-      envio_docs_status: documental.envio_docs_status || null,
-      pendencias_total: Number(documental.pendencias_total) || 0,
+      envio_docs_status: envioDocsStatusCanonico,
+      pendencias_total: remanescentesCanonicos,
       renda_total: Number(renda.total) || 0,
       participantes_total: Number(identificacao.composicao_qtd) || 0
     },
@@ -11986,8 +12041,8 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
     pendencias: {
       bloqueantes: Number(documental.pendencias_bloqueantes) || 0,
       nao_bloqueantes: Number(documental.pendencias_nao_bloqueantes) || 0,
-      remanescentes: Number(conclusao.pendencias_remanescentes) || 0,
-      itens: asArray(documentos.pendentes).map((item) => ({
+      remanescentes: remanescentesCanonicos,
+      itens: pendingItemsCanonical.map((item) => ({
         tipo: item?.tipo || "documento",
         participante: item?.participante || null,
         status: item?.status || "pendente"
@@ -12323,6 +12378,9 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
           <div class="k">${escapeHtml(formatRoleName(item?.papel || item?.id))}</div>
           ${hasUsefulValue(item?.regime_trabalho) ? `<div class="v">Regime: ${escapeHtml(String(item?.regime_trabalho || ""))}</div>` : ""}
           ${hasUsefulValue(item?.renda) ? `<div class="v">Renda: ${escapeHtml(formatMoney(item?.renda))}</div>` : ""}
+          ${item?.ctps_36 === true || item?.ctps_36 === false ? `<div class="v">CTPS 36: ${escapeHtml(item?.ctps_36 === true ? "sim" : "não")}</div>` : ""}
+          ${item?.dependente === true || item?.dependente === false ? `<div class="v">Dependente: ${escapeHtml(item?.dependente === true ? "sim" : "não")}</div>` : ""}
+          ${item?.ir_autonomo === true || item?.ir_autonomo === false ? `<div class="v">IR autônomo: ${escapeHtml(item?.ir_autonomo === true ? "sim" : "não")}</div>` : ""}
           ${item?.tem_restricao === true || item?.tem_restricao === false ? `<div class="v">Restrição: ${escapeHtml(item?.tem_restricao === true ? "sim" : "não")}</div>` : ""}
         </article>`).join("") || `<article class="mini"><span class="muted">Participantes não disponíveis no contrato atual.</span></article>`}
       </div>
@@ -12588,17 +12646,30 @@ function buildCorrespondenteWebDocsModel(docs) {
     ].join("|");
     return `auto_${normalizeText(raw).replace(/[^a-z0-9]+/g, "_").slice(0, 120) || "doc"}`;
   };
+  const docIdentity = (doc, idx) => {
+    const intrinsic = stableIdFromDocIntrinsic(doc);
+    if (intrinsic) return intrinsic;
+    const url = resolveCorrespondenteDocumentUrl(doc);
+    if (url) {
+      return `url_${normalizeText(url).replace(/[^a-z0-9]+/g, "_").slice(0, 140) || idx}`;
+    }
+    const fileName = String(doc?.file_name || doc?.filename || "").trim().toLowerCase();
+    const tipo = normalizeDocUiType(doc?.tipo);
+    const participante = normalizeDocUiParticipant(doc?.participante);
+    const createdAt = String(doc?.created_at || "").trim();
+    const raw = `${tipo}|${participante}|${fileName}|${createdAt}|${idx}`;
+    return `slot_${normalizeText(raw).replace(/[^a-z0-9]+/g, "_").slice(0, 140) || idx}`;
+  };
   docsList.forEach((doc, idx) => {
     const tipo = normalizeDocUiType(doc?.tipo);
     const participante = normalizeDocUiParticipant(doc?.participante);
     const status = normalizeDocUiStatus(doc?.status || doc?.observacao_analise);
     const url = resolveCorrespondenteDocumentUrl(doc);
     const hasUsableUrl = Boolean(url);
-    const key = `${tipo}|${participante}`;
+    const key = docIdentity(doc, idx);
     const stableDocId = (
       stableIdFromDocIntrinsic(doc) ||
-      stableIdFromSlot(key) ||
-      stableIdFromSlot(`${key}|${idx}`) ||
+      stableIdFromSlot(`${tipo}|${participante}|${key}`) ||
       stableIdFromDocRawFallback(doc, `${key}|${idx}`)
     );
     const score = (status !== "pendente" ? 100 : 0) + (hasUsableUrl ? 10 : 0) + idx / 1000;
@@ -12616,18 +12687,35 @@ function buildCorrespondenteWebDocsModel(docs) {
       });
     }
   });
-  const normalizedDocs = [...docsMap.values()];
-  for (const doc of normalizedDocs) {
-    if (doc.status !== "pendente" && doc.__hasUsableUrl) {
+  const normalizedDocs = [...docsMap.values()].map((doc) => {
+    const clone = { ...doc };
+    delete clone.__score;
+    delete clone.__hasUsableUrl;
+    return clone;
+  });
+  const receivedPairs = new Set(
+    normalizedDocs
+      .filter((doc) => String(doc?.status || "").trim().toLowerCase() !== "pendente")
+      .map((doc) => `${String(doc?.tipo || "").trim().toLowerCase()}|${String(doc?.participante || "").trim().toLowerCase()}`)
+  );
+  const filteredDocs = normalizedDocs.filter((doc) => {
+    const status = String(doc?.status || "").trim().toLowerCase();
+    if (status !== "pendente") return true;
+    const pair = `${String(doc?.tipo || "").trim().toLowerCase()}|${String(doc?.participante || "").trim().toLowerCase()}`;
+    return !receivedPairs.has(pair);
+  });
+  for (const doc of filteredDocs) {
+    const hasUsableUrl = Boolean(resolveCorrespondenteDocumentUrl(doc));
+    if (doc.status !== "pendente" && hasUsableUrl) {
       doc.received_access_id = String(doc?.stable_doc_id || "").trim() || null;
     } else {
       doc.received_access_id = null;
     }
   }
-  const receivedWithUrl = normalizedDocs.filter((doc) => String(doc?.received_access_id || "").trim());
+  const receivedWithUrl = filteredDocs.filter((doc) => String(doc?.received_access_id || "").trim());
   const receivedById = new Map(receivedWithUrl.map((doc) => [String(doc.received_access_id), doc]));
   return {
-    normalizedDocs,
+    normalizedDocs: filteredDocs,
     receivedWithUrl,
     receivedById
   };
@@ -14420,8 +14508,8 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
     return fallbackUrl ? { ...doc, url: fallbackUrl } : doc;
   };
   const stateDocs = stateDocsRaw.map(withHistoryFallbackUrl);
-  const receivedFromChecklist = itensEnvioDocs
-    .filter((item) => isEnvioDocsItemReceived(item))
+  const docsFromChecklist = itensEnvioDocs
+    .filter((item) => String(item?.bucket || "").trim().toLowerCase() !== "recomendado")
     .map((item) => withHistoryFallbackUrl({
       tipo: item?.tipo || null,
       participante: item?.participante || null,
@@ -14442,7 +14530,7 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
     }
   };
   for (const doc of stateDocs) mergeStateDoc(doc);
-  for (const doc of receivedFromChecklist) mergeStateDoc(doc);
+  for (const doc of docsFromChecklist) mergeStateDoc(doc);
   const stateDocsDerived = [...mergedStateDocsByKey.values()].map((doc) => {
     const clone = { ...doc };
     delete clone.__score;

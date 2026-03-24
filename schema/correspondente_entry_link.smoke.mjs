@@ -242,7 +242,7 @@ function getLastStepMessagesForWa(env, waId) {
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
     assert.equal(resumo.includes("JOAO TESTE segue em processo solo."), true);
     assert.equal(resumo.includes("Informou trabalho CLT"), true);
-    assert.equal(resumo.includes("Não indicou restrição"), true);
+    assert.equal(resumo.includes("Não houve indicação de restrição"), true);
   }
 
   // 2) composição com parceira autônoma (regime + renda de ambos)
@@ -260,11 +260,10 @@ function getLastStepMessagesForWa(env, waId) {
       ir_declarado_parceiro: true
     });
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
-    assert.equal(resumo.includes("JOAO TESTE segue em processo com composição de renda."), true);
-    assert.equal(resumo.includes("Informou trabalho CLT"), true);
-    assert.equal(resumo.includes("renda de R$ 4.200,00"), true);
-    assert.equal(resumo.includes("MARIA TESTE"), false);
-    assert.equal(resumo.includes("autônomo"), true);
+    assert.equal(resumo.includes("JOAO TESTE segue em processo conjunto."), true);
+    assert.equal(resumo.includes("A titular informou trabalho CLT e renda de R$ 4.200,00."), true);
+    assert.equal(resumo.includes("A participante que compõe junto informou trabalho autônomo e renda de R$ 3.100,00."), true);
+    assert.equal(resumo.includes("Não houve indicação de restrição."), true);
   }
 
   // 3) autônomo sem IR
@@ -296,7 +295,7 @@ function getLastStepMessagesForWa(env, waId) {
       }
     });
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
-    assert.equal(resumo.includes("Informou restrição"), true);
+    assert.equal(resumo.includes("Houve indicação de restrição"), true);
     assert.equal(resumo.includes("necessidade de regularização"), false);
     assert.equal(resumo.includes("regulariza"), false);
     assert.equal(resumo.includes("aprovado"), false);
@@ -346,7 +345,7 @@ function getLastStepMessagesForWa(env, waId) {
     assert.equal(tecnico?.composicao?.solo, true);
     assert.equal(tecnico?.restricao?.tem_restricao, false);
     assert.equal(resumo.includes("JOAO TESTE segue em processo"), true);
-    assert.equal(resumo.includes("Não indicou restrição"), true);
+    assert.equal(resumo.includes("Não houve indicação de restrição"), true);
     assert.equal(resumo.includes("composição de renda"), false);
   }
 
@@ -412,7 +411,7 @@ function getLastStepMessagesForWa(env, waId) {
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
     const tecnico = canonical?.payload_tecnico_correspondente_json || {};
     assert.equal(tecnico?.restricao?.tem_restricao, false);
-    assert.equal(resumo.includes("Não indicou restrição"), true);
+    assert.equal(resumo.includes("Não houve indicação de restrição"), true);
     assert.equal(resumo.includes("necessidade de regularização"), false);
   }
 
@@ -443,7 +442,7 @@ function getLastStepMessagesForWa(env, waId) {
     });
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
     const privado = String(canonical?.mensagem_privada_correspondente_whatsapp || "");
-    assert.equal(resumo.includes("Informou dependente"), true);
+    assert.equal(resumo.includes("dependente"), true);
     assert.equal(privado.includes("Dependente: sim"), false);
   }
 
@@ -457,7 +456,7 @@ function getLastStepMessagesForWa(env, waId) {
     });
     const resumoComCtps = String(canonicalComCtps?.dossie_privado_canonico_json?.resumo_humano || "");
     const consolidadoComCtps = String(canonicalComCtps?.mensagem_privada_correspondente_whatsapp || "");
-    assert.equal(resumoComCtps.includes("Confirmou possuir 36 meses de carteira assinada"), true);
+    assert.equal(resumoComCtps.includes("36 meses de carteira assinada"), true);
     assert.equal(canonicalComCtps?.payload_tecnico_correspondente_json?.formalizacao?.ctps_36, true);
     assert.equal(canonicalComCtps?.dossie_privado_canonico_json?.titular?.ctps_36, true);
     assert.equal(consolidadoComCtps.includes("CTPS 36 meses: sim"), false);
@@ -470,7 +469,7 @@ function getLastStepMessagesForWa(env, waId) {
     });
     const resumoSemCtps = String(canonicalSemCtps?.dossie_privado_canonico_json?.resumo_humano || "");
     const consolidadoSemCtps = String(canonicalSemCtps?.mensagem_privada_correspondente_whatsapp || "");
-    assert.equal(resumoSemCtps.includes("Informou não possuir 36 meses de carteira assinada"), true);
+    assert.equal(resumoSemCtps.includes("36 meses de carteira assinada"), false);
     assert.equal(canonicalSemCtps?.payload_tecnico_correspondente_json?.formalizacao?.ctps_36, false);
     assert.equal(canonicalSemCtps?.dossie_privado_canonico_json?.titular?.ctps_36, false);
     assert.equal(consolidadoSemCtps.includes("CTPS 36 meses: não"), false);
@@ -493,7 +492,7 @@ function getLastStepMessagesForWa(env, waId) {
     assert.equal(canonicalTitularNaoParceiroSim?.payload_tecnico_correspondente_json?.formalizacao?.ctps_36, false);
     assert.equal(canonicalTitularNaoParceiroSim?.dossie_privado_canonico_json?.titular?.ctps_36, false);
     assert.equal(canonicalTitularNaoParceiroSim?.dossie_privado_canonico_json?.parceiro?.ctps_36_parceiro, true);
-    assert.equal(resumo.includes("Informou não possuir 36 meses de carteira assinada"), true);
+    assert.equal(resumo.includes("A titular informou"), true);
     assert.equal(consolidado.includes("CTPS 36 meses: não"), false);
   }
 
@@ -598,12 +597,15 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(assumirHtml.includes("Resumo executivo"), true);
   assert.equal(assumirHtml.includes("JOAO TESTE segue em processo solo."), true);
   assert.equal(assumirHtml.includes("Informou trabalho CLT e renda de R$ 8.900,00."), true);
-  assert.equal(assumirHtml.includes("Não indicou restrição."), true);
+  assert.equal(assumirHtml.includes("Não houve indicação de restrição."), true);
   assert.equal(assumirHtml.includes("🔒 *Dossiê privado canônico (completo)*"), false);
   assert.equal(assumirHtml.includes("Regime de trabalho:</span> clt"), true);
   assert.equal(assumirHtml.includes("Tipo de processo:</span> solo"), true);
   assert.equal(assumirHtml.includes("ctps_completa — Titular"), true);
   assert.equal(assumirHtml.includes("/correspondente/doc?pre=000001"), true);
+  assert.equal(assumirHtml.includes("Pendências totais:</span> 0"), true);
+  assert.equal(assumirHtml.includes("Status documental:</span> completo"), true);
+  assert.equal(assumirHtml.includes("Sem pendências documentais ativas."), true);
 
   const atualizado = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(atualizado.corr_lock_correspondente_wa_id, correspondenteWa);
@@ -1128,6 +1130,75 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(res.status, 200);
   assert.equal(body.includes("ctps_completa — Titular"), true);
   assert.equal(body.includes("abrir documento"), false);
+}
+
+// 3.8h) Caso conjunto no link web: resumo humano natural dos 2 perfis + técnico enriquecido + docs completos/sem contradição.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.corr_lock_correspondente_wa_id = correspondenteWa;
+  st.processo_enviado_correspondente = true;
+  st.corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  st.nome = "BRUNERA VASQUES";
+  st.nome_parceiro = "MARIA TESTE";
+  st.regime_trabalho = "clt";
+  st.renda = 3900;
+  st.ctps_36 = true;
+  st.dependente = true;
+  st.regime_trabalho_parceiro = "autonomo";
+  st.renda_parceiro = 1500;
+  st.ctps_36_parceiro = false;
+  st.dependente_parceiro = true;
+  st.ir_declarado_parceiro = true;
+  st.pacote_restricoes_json = { resumo: "sem_restricao", participantes: [
+    { participante: "p1", tem_restricao: false },
+    { participante: "p2", tem_restricao: false }
+  ] };
+  st.dossie_participantes_json = [
+    { id: "p1", role: "titular", regime_trabalho: "clt", renda: 3900, ctps_36: true, dependente: true, tem_restricao: false },
+    { id: "p2", role: "parceiro", regime_trabalho: "autonomo", renda: 1500, ctps_36: false, dependente: true, ir_autonomo: true, tem_restricao: false }
+  ];
+  st.pacote_renda_resumo_json = {
+    total_geral: 5400,
+    por_participante: { p1: { total_geral: 3900 }, p2: { total_geral: 1500 } }
+  };
+  st.pacote_documentos_anexados_json = [
+    { doc_id: "doc-rg-p1", tipo: "rg", participante: "p1", status: "recebido", url: "https://docs.example.com/rg-p1.pdf" },
+    { doc_id: "doc-rg-p2", tipo: "rg", participante: "p2", status: "recebido", url: "https://docs.example.com/rg-p2.pdf" }
+  ];
+  st.envio_docs_itens_json = [
+    { tipo: "rg", participante: "p1", status: "validado_basico", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true },
+    { tipo: "rg", participante: "p2", status: "validado_basico", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true },
+    { tipo: "ctps_completa", participante: "p1", status: "validado_basico", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false },
+    { tipo: "comprovante_residencia", participante: "p1", status: "pendente", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true }
+  ];
+  st.envio_docs_historico_json = [
+    { origem: "upload", associado: { tipo: "ctps_completa", participante: "p1" }, media_ref: { url: "https://docs.example.com/ctps-p1.pdf" } }
+  ];
+
+  const req = new Request(`https://worker.local/correspondente/entrada?pre=000001&cw=${correspondenteWa}`, { method: "GET" });
+  const res = await worker.fetch(req, env, {});
+  const body = await res.text();
+  assert.equal(res.status, 200);
+  assert.equal(body.includes("BRUNERA VASQUES segue em processo conjunto."), true);
+  assert.equal(body.includes("A titular informou trabalho CLT"), true);
+  assert.equal(body.includes("renda de R$ 3.900,00"), true);
+  assert.equal(body.includes("A participante que compõe junto informou trabalho autônomo"), true);
+  assert.equal(body.includes("renda de R$ 1.500,00"), true);
+  assert.equal(body.includes("Não houve indicação de restrição."), true);
+  assert.equal(body.includes("Regime: autonomo"), true);
+  assert.equal(body.includes("CTPS 36: não"), true);
+  assert.equal(body.includes("Dependente: sim"), true);
+  assert.equal(body.includes("IR autônomo: sim"), true);
+  assert.equal(body.includes("Pendências totais:</span> 1"), true);
+  assert.equal(body.includes("Status documental:</span> pendente"), true);
+  assert.equal(body.includes("Sem pendências documentais ativas."), false);
+  assert.equal(body.includes("comprovante_residencia — Titular"), true);
+  assert.equal(body.includes("rg — Titular"), true);
+  assert.equal(body.includes("rg — Parceiro(a)"), true);
+  assert.equal(body.includes("ctps_completa — Titular"), true);
+  const openDocMatches = body.match(/>abrir documento</g) || [];
+  assert.equal(openDocMatches.length, 3);
 }
 
 // 3.1b) Compatibilidade: link legado com token continua funcionando.

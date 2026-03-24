@@ -12698,7 +12698,13 @@ function buildCorrespondenteWebDocsModel(docs) {
     const tipo = normalizeDocUiType(doc?.tipo);
     const participante = normalizeDocUiParticipant(doc?.participante);
     const createdAt = String(doc?.created_at || "").trim();
-    const raw = `${tipo}|${participante}|${fileName}|${createdAt}`;
+    const fallbackSignature = [
+      String(doc?.status || "").trim().toLowerCase(),
+      fileName,
+      createdAt,
+      String(doc?.mime_type || doc?.mimetype || "").trim().toLowerCase()
+    ].join("|");
+    const raw = `${tipo}|${participante}|${fallbackSignature}`;
     return `slot_${normalizeText(raw).replace(/[^a-z0-9]+/g, "_").slice(0, 140) || idx}`;
   };
   docsList.forEach((doc, idx) => {
@@ -14577,13 +14583,7 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
     delete clone.__score;
     return clone;
   });
-  const simCtx = getSimulationContext(env);
-  // Em simulação canônica, permitimos injetar docs persistidos para reproduzir runtime real.
-  if (simCtx?.active) {
-    const simulatedPersistedDocs = Array.isArray(simCtx?.docsByWaId?.[wa_id])
-      ? simCtx.docsByWaId[wa_id]
-      : [];
-    if (!simulatedPersistedDocs.length) return stateDocsDerived;
+  const mergeDocsPreferBestByPair = (primaryDocs = [], secondaryDocs = []) => {
     const mergedDocs = new Map();
     const scoreDoc = (doc, idx = 0) => {
       const status = String(doc?.status || "").trim().toLowerCase();
@@ -14603,13 +14603,25 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
         mergedDocs.set(key, { ...doc, __score: score });
       }
     };
-    simulatedPersistedDocs.map(withHistoryFallbackUrl).forEach((doc, idx) => mergeDoc(doc, idx));
-    stateDocsDerived.forEach((doc, idx) => mergeDoc(doc, simulatedPersistedDocs.length + idx));
+    primaryDocs.forEach((doc, idx) => mergeDoc(doc, idx));
+    secondaryDocs.forEach((doc, idx) => mergeDoc(doc, primaryDocs.length + idx));
     return [...mergedDocs.values()].map((doc) => {
       const clone = { ...doc };
       delete clone.__score;
       return clone;
     });
+  };
+  const simCtx = getSimulationContext(env);
+  // Em simulação canônica, permitimos injetar docs persistidos para reproduzir runtime real.
+  if (simCtx?.active) {
+    const simulatedPersistedDocs = Array.isArray(simCtx?.docsByWaId?.[wa_id])
+      ? simCtx.docsByWaId[wa_id]
+      : [];
+    if (!simulatedPersistedDocs.length) return stateDocsDerived;
+    return mergeDocsPreferBestByPair(
+      simulatedPersistedDocs.map(withHistoryFallbackUrl),
+      stateDocsDerived
+    );
   }
   let rows = [];
   try {
@@ -14636,32 +14648,7 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
     });
   }
   const rowsWithFallback = rows.map(withHistoryFallbackUrl);
-  const mergedDocs = new Map();
-  const scoreDoc = (doc, idx = 0) => {
-    const status = String(doc?.status || "").trim().toLowerCase();
-    const hasUsableUrl = Boolean(resolveUrl(doc));
-    const base = status && status !== "pendente" ? 100 : 0;
-    const withLink = hasUsableUrl ? 10 : 0;
-    return base + withLink + idx / 10000;
-  };
-  const mergeDoc = (doc, idx) => {
-    const tipo = String(doc?.tipo || "").trim().toLowerCase();
-    const participante = String(doc?.participante || "").trim().toLowerCase();
-    if (!tipo || !participante) return;
-    const key = `${tipo}:${participante}`;
-    const score = scoreDoc(doc, idx);
-    const current = mergedDocs.get(key);
-    if (!current || score >= current.__score) {
-      mergedDocs.set(key, { ...doc, __score: score });
-    }
-  };
-  rowsWithFallback.forEach((doc, idx) => mergeDoc(doc, idx));
-  stateDocsDerived.forEach((doc, idx) => mergeDoc(doc, rowsWithFallback.length + idx));
-  return [...mergedDocs.values()].map((doc) => {
-    const clone = { ...doc };
-    delete clone.__score;
-    return clone;
-  });
+  return mergeDocsPreferBestByPair(rowsWithFallback, stateDocsDerived);
 }
 
 async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {

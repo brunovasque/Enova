@@ -12662,9 +12662,8 @@ function buildCorrespondenteWebDocsModel(docs) {
     if (!txt) return "recebido";
     return txt === "pendente" ? "pendente" : "recebido";
   };
-  const normalizeDocUiType = (value) => normalizeEnvioDocsTipoForChecklist(value) || String(value || "").trim().toLowerCase() || "documento";
+  const normalizeDocUiType = (value) => String(value || "").trim().toLowerCase() || "documento";
   const normalizeDocUiParticipant = (value) => String(value || "").trim().toLowerCase() || "-";
-  const docsMap = new Map();
   const docsList = Array.isArray(docs) ? docs : [];
   const stableIdFromSlot = (fallbackKey = "") => {
     const fromKey = normalizeText(String(fallbackKey)).replace(/[^a-z0-9]+/g, "_").slice(0, 120);
@@ -12690,7 +12689,7 @@ function buildCorrespondenteWebDocsModel(docs) {
     ].join("|");
     return `auto_${normalizeText(raw).replace(/[^a-z0-9]+/g, "_").slice(0, 120) || "doc"}`;
   };
-  const docIdentity = (doc, idx) => {
+  const docStableIdentity = (doc, idx) => {
     const intrinsic = stableIdFromDocIntrinsic(doc);
     if (intrinsic) return intrinsic;
     const url = resolveCorrespondenteDocumentUrl(doc);
@@ -12719,51 +12718,38 @@ function buildCorrespondenteWebDocsModel(docs) {
     const raw = `${tipo}|${participante}|${fallbackSignature}`;
     return `slot_${normalizeText(raw).replace(/[^a-z0-9]+/g, "_").slice(0, 140) || idx}`;
   };
+
+  const receivedDocs = [];
+  const pendingByPair = new Map();
   docsList.forEach((doc, idx) => {
     const tipo = normalizeDocUiType(doc?.tipo);
     const participante = normalizeDocUiParticipant(doc?.participante);
     const status = normalizeDocUiStatus(doc?.status || doc?.observacao_analise);
     const url = resolveCorrespondenteDocumentUrl(doc);
-    const hasUsableUrl = Boolean(url);
-    const key = docIdentity(doc, idx);
+    const stableIdentity = docStableIdentity(doc, idx);
     const stableDocId = (
       stableIdFromDocIntrinsic(doc) ||
-      stableIdFromSlot(`${tipo}|${participante}|${key}`) ||
-      stableIdFromDocRawFallback(doc, `${key}|${idx}`)
+      stableIdFromSlot(`${tipo}|${participante}|${stableIdentity}`) ||
+      stableIdFromDocRawFallback(doc, stableIdentity)
     );
-    const score = (status !== "pendente" ? 100 : 0) + (hasUsableUrl ? 10 : 0) + idx / 1000;
-    const current = docsMap.get(key);
-    if (!current || score >= current.__score) {
-      docsMap.set(key, {
-        tipo,
-        participante,
-        status,
-        url,
-        file_name: doc?.file_name || null,
-        stable_doc_id: stableDocId,
-        __score: score,
-        __hasUsableUrl: hasUsableUrl
-      });
+    const normalized = {
+      tipo,
+      participante,
+      status,
+      url,
+      file_name: doc?.file_name || null,
+      stable_doc_id: stableDocId
+    };
+    if (status === "pendente") {
+      const key = `${tipo}|${participante}`;
+      if (!pendingByPair.has(key)) pendingByPair.set(key, normalized);
+      return;
     }
+    receivedDocs.push(normalized);
   });
-  const normalizedDocs = [...docsMap.values()].map((doc) => {
-    const clone = { ...doc };
-    delete clone.__score;
-    delete clone.__hasUsableUrl;
-    return clone;
-  });
-  const receivedPairs = new Set(
-    normalizedDocs
-      .filter((doc) => String(doc?.status || "").trim().toLowerCase() !== "pendente")
-      .map((doc) => `${String(doc?.tipo || "").trim().toLowerCase()}|${String(doc?.participante || "").trim().toLowerCase()}`)
-  );
-  const filteredDocs = normalizedDocs.filter((doc) => {
-    const status = String(doc?.status || "").trim().toLowerCase();
-    if (status !== "pendente") return true;
-    const pair = `${String(doc?.tipo || "").trim().toLowerCase()}|${String(doc?.participante || "").trim().toLowerCase()}`;
-    return !receivedPairs.has(pair);
-  });
-  for (const doc of filteredDocs) {
+
+  const normalizedDocs = [...receivedDocs, ...pendingByPair.values()];
+  for (const doc of normalizedDocs) {
     const hasUsableUrl = Boolean(resolveCorrespondenteDocumentUrl(doc));
     if (doc.status !== "pendente" && hasUsableUrl) {
       doc.received_access_id = String(doc?.stable_doc_id || "").trim() || null;
@@ -12771,10 +12757,10 @@ function buildCorrespondenteWebDocsModel(docs) {
       doc.received_access_id = null;
     }
   }
-  const receivedWithUrl = filteredDocs.filter((doc) => String(doc?.received_access_id || "").trim());
+  const receivedWithUrl = normalizedDocs.filter((doc) => String(doc?.received_access_id || "").trim());
   const receivedById = new Map(receivedWithUrl.map((doc) => [String(doc.received_access_id), doc]));
   return {
-    normalizedDocs: filteredDocs,
+    normalizedDocs,
     receivedWithUrl,
     receivedById
   };
@@ -14545,6 +14531,92 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
     ? stateFallback.envio_docs_historico_json
     : [];
   const resolveUrl = (doc) => resolveCorrespondenteDocumentUrl(doc);
+  const toLower = (value) => String(value || "").trim().toLowerCase();
+  const pickDocId = (...values) => {
+    for (const value of values) {
+      const id = String(value || "").trim();
+      if (id) return id;
+    }
+    return "";
+  };
+  const buildUploadFingerprintId = (doc = {}, prefix = "doc") => {
+    const intrinsicId = pickDocId(
+      doc?.doc_id,
+      doc?.id,
+      doc?.message_id,
+      doc?.wamid,
+      doc?.wamid_id,
+      doc?.media_id,
+      doc?.mid,
+      doc?.mediaId
+    );
+    if (intrinsicId) return intrinsicId;
+    const fingerprint = [
+      toLower(doc?.tipo),
+      toLower(doc?.participante),
+      String(resolveUrl(doc) || "").trim(),
+      String(doc?.file_name || doc?.filename || "").trim(),
+      String(doc?.created_at || doc?.at || "").trim(),
+      String(doc?.mime_type || doc?.mimetype || "").trim()
+    ].join("|");
+    const normalized = normalizeText(fingerprint).replace(/[^a-z0-9]+/g, "_").slice(0, 180);
+    if (normalized) return `${prefix}_${normalized}`;
+    return `${prefix}_${crypto.randomUUID()}`;
+  };
+  const normalizeRealUploadDoc = (rawDoc, prefix = "doc") => {
+    const doc = rawDoc && typeof rawDoc === "object" ? rawDoc : {};
+    const tipo = toLower(doc?.tipo) || "documento";
+    const participante = toLower(doc?.participante) || "desconhecido";
+    const statusRaw = toLower(doc?.status);
+    const status = statusRaw && statusRaw !== "pendente" ? statusRaw : "recebido";
+    const url = resolveUrl(doc);
+    const normalizedDoc = {
+      ...doc,
+      doc_id: buildUploadFingerprintId(doc, prefix),
+      tipo,
+      participante,
+      status,
+      __is_real_upload: true
+    };
+    if (url) normalizedDoc.url = url;
+    return normalizedDoc;
+  };
+  const mergeReceivedUploadsByDocId = (rows = []) => {
+    const merged = new Map();
+    for (const raw of Array.isArray(rows) ? rows : []) {
+      const doc = raw && typeof raw === "object" ? raw : {};
+      const key = String(doc?.doc_id || "").trim();
+      if (!key) continue;
+      const current = merged.get(key);
+      if (!current) {
+        merged.set(key, doc);
+        continue;
+      }
+      const currentUrl = resolveUrl(current);
+      const nextUrl = resolveUrl(doc);
+      const pickNext =
+        (!currentUrl && nextUrl) ||
+        (toLower(current?.status) === "pendente" && toLower(doc?.status) !== "pendente");
+      if (pickNext) merged.set(key, { ...current, ...doc });
+    }
+    return [...merged.values()];
+  };
+  const filterPendingNotCoveredByReceived = (pendingDocs = [], receivedDocs = []) => {
+    const receivedList = Array.isArray(receivedDocs) ? receivedDocs : [];
+    return (Array.isArray(pendingDocs) ? pendingDocs : []).filter((pending) => {
+      const pendingTipo = String(pending?.tipo || "").trim().toLowerCase();
+      const pendingParticipante = String(pending?.participante || "").trim().toLowerCase();
+      if (!pendingTipo || !pendingParticipante) return true;
+      const covered = receivedList.some((received) => {
+        const participanteReceived = String(received?.participante || "").trim().toLowerCase();
+        if (participanteReceived !== pendingParticipante) return false;
+        const tipoReceived = String(received?.tipo || "").trim().toLowerCase();
+        if (!tipoReceived) return false;
+        return envioDocsHintTipoMatchesItemTipo(tipoReceived, pendingTipo);
+      });
+      return !covered;
+    });
+  };
   const latestUploadByKey = new Map();
   for (let idx = historicoUploads.length - 1; idx >= 0; idx -= 1) {
     const row = historicoUploads[idx];
@@ -14566,74 +14638,62 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
     const fallbackUrl = resolveUrl(mediaRef);
     return fallbackUrl ? { ...doc, url: fallbackUrl } : doc;
   };
-  const stateDocs = stateDocsRaw.map(withHistoryFallbackUrl);
-  const docsFromChecklist = itensEnvioDocs
-    .filter((item) => String(item?.bucket || "").trim().toLowerCase() !== "recomendado")
-    .map((item) => withHistoryFallbackUrl({
+  const stateReceivedDocs = stateDocsRaw
+    .map(withHistoryFallbackUrl)
+    .map((doc) => normalizeRealUploadDoc(doc, "state"));
+  const historyReceivedDocs = historicoUploads
+    .map((row) => {
+      if (toLower(row?.origem) !== "upload") return null;
+      const mediaRef = row?.media_ref && typeof row.media_ref === "object" ? row.media_ref : {};
+      const tipo = toLower(row?.associado?.tipo || row?.matched_checklist_item?.tipo || row?.detected_doc_type || "") || "documento";
+      const participante = toLower(row?.associado?.participante || row?.matched_checklist_item?.participante || "") || "desconhecido";
+      return normalizeRealUploadDoc({
+        doc_id: pickDocId(row?.upload_id, row?.doc_id, mediaRef?.media_id, row?.message_id),
+        tipo,
+        participante,
+        status: "recebido",
+        media_id: mediaRef?.media_id || null,
+        mime_type: mediaRef?.mime_type || null,
+        file_name: mediaRef?.file_name || null,
+        url: String(
+          mediaRef?.url ||
+          mediaRef?.link ||
+          mediaRef?.document_url ||
+          mediaRef?.download_url ||
+          mediaRef?.media_url ||
+          ""
+        ).trim() || null,
+        created_at: row?.at || null
+      }, "hist");
+    })
+    .filter(Boolean);
+  const pendingDocsFromChecklist = itensEnvioDocs
+    .filter((item) => toLower(item?.bucket) !== "recomendado")
+    .filter((item) => !isEnvioDocsItemReceived(item))
+    .map((item) => ({
       tipo: item?.tipo || null,
       participante: item?.participante || null,
-      status: item?.status || null
+      status: "pendente",
+      bucket: item?.bucket || null,
+      obrigatorio: item?.obrigatorio === true,
+      bloqueante_operacional: item?.bloqueante_operacional === true
     }));
-  const mergedStateDocsByKey = new Map();
-  const mergeStateDoc = (doc) => {
-    const tipo = String(doc?.tipo || "").trim().toLowerCase();
-    const participante = String(doc?.participante || "").trim().toLowerCase();
-    if (!tipo || !participante) return;
-    const status = String(doc?.status || "").trim().toLowerCase();
-    const url = resolveUrl(doc);
-    const score = (status && status !== "pendente" ? 100 : 0) + (url ? 10 : 0);
-    const key = `${tipo}:${participante}`;
-    const current = mergedStateDocsByKey.get(key);
-    if (!current || score >= current.__score) {
-      mergedStateDocsByKey.set(key, { ...doc, __score: score });
-    }
-  };
-  for (const doc of stateDocs) mergeStateDoc(doc);
-  for (const doc of docsFromChecklist) mergeStateDoc(doc);
-  const stateDocsDerived = [...mergedStateDocsByKey.values()].map((doc) => {
-    const clone = { ...doc };
-    delete clone.__score;
-    return clone;
-  });
-  const mergeDocsPreferBestByPair = (primaryDocs = [], secondaryDocs = []) => {
-    const mergedDocs = new Map();
-    const scoreDoc = (doc, idx = 0) => {
-      const status = String(doc?.status || "").trim().toLowerCase();
-      const hasUsableUrl = Boolean(resolveUrl(doc));
-      const base = status && status !== "pendente" ? 100 : 0;
-      const withLink = hasUsableUrl ? 10 : 0;
-      return base + withLink + idx / 10000;
-    };
-    const mergeDoc = (doc, idx) => {
-      const tipo = String(doc?.tipo || "").trim().toLowerCase();
-      const participante = String(doc?.participante || "").trim().toLowerCase();
-      if (!tipo || !participante) return;
-      const key = `${tipo}:${participante}`;
-      const score = scoreDoc(doc, idx);
-      const current = mergedDocs.get(key);
-      if (!current || score >= current.__score) {
-        mergedDocs.set(key, { ...doc, __score: score });
-      }
-    };
-    primaryDocs.forEach((doc, idx) => mergeDoc(doc, idx));
-    secondaryDocs.forEach((doc, idx) => mergeDoc(doc, primaryDocs.length + idx));
-    return [...mergedDocs.values()].map((doc) => {
-      const clone = { ...doc };
-      delete clone.__score;
-      return clone;
-    });
-  };
   const simCtx = getSimulationContext(env);
   // Em simulação canônica, permitimos injetar docs persistidos para reproduzir runtime real.
   if (simCtx?.active) {
     const simulatedPersistedDocs = Array.isArray(simCtx?.docsByWaId?.[wa_id])
       ? simCtx.docsByWaId[wa_id]
       : [];
-    if (!simulatedPersistedDocs.length) return stateDocsDerived;
-    return mergeDocsPreferBestByPair(
-      simulatedPersistedDocs.map(withHistoryFallbackUrl),
-      stateDocsDerived
-    );
+    const simulatedReceivedDocs = simulatedPersistedDocs
+      .map(withHistoryFallbackUrl)
+      .map((doc) => normalizeRealUploadDoc(doc, "sim"));
+    const mergedReceived = mergeReceivedUploadsByDocId([
+      ...simulatedReceivedDocs,
+      ...stateReceivedDocs,
+      ...historyReceivedDocs
+    ]);
+    const pendingNotCovered = filterPendingNotCoveredByReceived(pendingDocsFromChecklist, mergedReceived);
+    return [...mergedReceived, ...pendingNotCovered];
   }
   let rows = [];
   try {
@@ -14659,8 +14719,16 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
       force: true
     });
   }
-  const rowsWithFallback = rows.map(withHistoryFallbackUrl);
-  return mergeDocsPreferBestByPair(rowsWithFallback, stateDocsDerived);
+  const persistedReceivedDocs = rows
+    .map(withHistoryFallbackUrl)
+    .map((doc) => normalizeRealUploadDoc(doc, "persisted"));
+  const mergedReceived = mergeReceivedUploadsByDocId([
+    ...persistedReceivedDocs,
+    ...stateReceivedDocs,
+    ...historyReceivedDocs
+  ]);
+  const pendingNotCovered = filterPendingNotCoveredByReceived(pendingDocsFromChecklist, mergedReceived);
+  return [...mergedReceived, ...pendingNotCovered];
 }
 
 async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {

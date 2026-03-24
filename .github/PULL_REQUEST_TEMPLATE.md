@@ -42,3 +42,4 @@ Explique como reverter esta PR, se necessário.
 - [ ] Smoke tests executados
 - [ ] Risco descrito
 - [ ] Rollback descrito
+- [ ] Limitações descritas

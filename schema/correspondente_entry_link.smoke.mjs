@@ -240,8 +240,10 @@ function getLastStepMessagesForWa(env, waId) {
   {
     const canonical = buildCanonicalFromState();
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
-    assert.equal(resumo.includes("JOAO TESTE segue em processo solo."), true);
-    assert.equal(resumo.includes("Informou trabalho CLT"), true);
+    assert.equal(resumo.includes("Cliente JOAO TESTE segue em processo sozinho."), true);
+    assert.equal(resumo.includes("Informou renda de R$ 5.000,00"), true);
+    assert.equal(resumo.includes("informou não ter 36 meses de registro em CTPS"), true);
+    assert.equal(resumo.includes("informou não ter dependente"), true);
     assert.equal(resumo.includes("Não houve indicação de restrição"), true);
   }
 
@@ -260,9 +262,9 @@ function getLastStepMessagesForWa(env, waId) {
       ir_declarado_parceiro: true
     });
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
-    assert.equal(resumo.includes("JOAO TESTE segue em processo conjunto."), true);
-    assert.equal(resumo.includes("A titular informou trabalho CLT e renda de R$ 4.200,00."), true);
-    assert.equal(resumo.includes("A participante que compõe junto informou trabalho autônomo e renda de R$ 3.100,00."), true);
+    assert.equal(resumo.includes("Cliente JOAO TESTE segue em processo conjunto."), true);
+    assert.equal(resumo.includes("A titular informou renda de R$ 4.200,00"), true);
+    assert.equal(resumo.includes("A participante que compõe junto informou renda de R$ 3.100,00"), true);
     assert.equal(resumo.includes("Não houve indicação de restrição."), true);
   }
 
@@ -281,7 +283,7 @@ function getLastStepMessagesForWa(env, waId) {
       autonomo_sem_ir_este_ano: true
     });
     const resumo = String(canonical?.dossie_privado_canonico_json?.resumo_humano || "");
-    assert.equal(resumo.includes("Informou trabalho autônomo"), true);
+    assert.equal(resumo.includes("Informou renda de R$ 6.800,00"), true);
     assert.equal(resumo.includes("sem IR declarado até o momento"), false);
     assert.equal(resumo.includes("IR"), false);
   }
@@ -456,7 +458,7 @@ function getLastStepMessagesForWa(env, waId) {
     });
     const resumoComCtps = String(canonicalComCtps?.dossie_privado_canonico_json?.resumo_humano || "");
     const consolidadoComCtps = String(canonicalComCtps?.mensagem_privada_correspondente_whatsapp || "");
-    assert.equal(resumoComCtps.includes("36 meses de carteira assinada"), true);
+    assert.equal(resumoComCtps.includes("informou ter 36 meses de registro em CTPS"), true);
     assert.equal(canonicalComCtps?.payload_tecnico_correspondente_json?.formalizacao?.ctps_36, true);
     assert.equal(canonicalComCtps?.dossie_privado_canonico_json?.titular?.ctps_36, true);
     assert.equal(consolidadoComCtps.includes("CTPS 36 meses: sim"), false);
@@ -469,7 +471,7 @@ function getLastStepMessagesForWa(env, waId) {
     });
     const resumoSemCtps = String(canonicalSemCtps?.dossie_privado_canonico_json?.resumo_humano || "");
     const consolidadoSemCtps = String(canonicalSemCtps?.mensagem_privada_correspondente_whatsapp || "");
-    assert.equal(resumoSemCtps.includes("36 meses de carteira assinada"), false);
+    assert.equal(resumoSemCtps.includes("informou não ter 36 meses de registro em CTPS"), true);
     assert.equal(canonicalSemCtps?.payload_tecnico_correspondente_json?.formalizacao?.ctps_36, false);
     assert.equal(canonicalSemCtps?.dossie_privado_canonico_json?.titular?.ctps_36, false);
     assert.equal(consolidadoSemCtps.includes("CTPS 36 meses: não"), false);
@@ -493,7 +495,32 @@ function getLastStepMessagesForWa(env, waId) {
     assert.equal(canonicalTitularNaoParceiroSim?.dossie_privado_canonico_json?.titular?.ctps_36, false);
     assert.equal(canonicalTitularNaoParceiroSim?.dossie_privado_canonico_json?.parceiro?.ctps_36_parceiro, true);
     assert.equal(resumo.includes("A titular informou"), true);
+    assert.equal(resumo.includes("informou não ter 36 meses de registro em CTPS"), true);
     assert.equal(consolidado.includes("CTPS 36 meses: não"), false);
+  }
+
+  // 11.4) renda total no resumo executivo: renda única e múltiplas rendas.
+  {
+    const structuredRendaUnica = buildCorrespondenteDossierPayloadFromState({
+      nome: "JOAO TESTE",
+      renda: 3490,
+      pacote_renda_resumo_json: null,
+      dossie_participantes_json: [
+        { id: "p1", role: "titular", regime_trabalho: "clt", renda: 3490 }
+      ]
+    });
+    assert.equal(structuredRendaUnica?.resumo_executivo?.renda_total, 3490);
+
+    const structuredMultiRenda = buildCorrespondenteDossierPayloadFromState({
+      nome: "JOAO TESTE",
+      renda: 4200,
+      pacote_renda_resumo_json: null,
+      dossie_participantes_json: [
+        { id: "p1", role: "titular", regime_trabalho: "clt", renda: 4200 },
+        { id: "p2", role: "parceiro", regime_trabalho: "autonomo", renda: 3100 }
+      ]
+    });
+    assert.equal(structuredMultiRenda?.resumo_executivo?.renda_total, 7300);
   }
 
   // 12) prova de não vazamento de JSON bruto em render final privado.
@@ -595,16 +622,21 @@ function getLastStepMessagesForWa(env, waId) {
   const assumirHtml = await assumirRes.text();
   assert.equal(assumirRes.status, 200);
   assert.equal(assumirHtml.includes("Resumo executivo"), true);
-  assert.equal(assumirHtml.includes("JOAO TESTE segue em processo solo."), true);
-  assert.equal(assumirHtml.includes("Informou trabalho CLT e renda de R$ 8.900,00."), true);
+  assert.equal(assumirHtml.includes("Cliente JOAO TESTE segue em processo sozinho."), true);
+  assert.equal(assumirHtml.includes("Informou renda de R$ 8.900,00"), true);
+  assert.equal(assumirHtml.includes("informou não ter 36 meses de registro em CTPS"), true);
+  assert.equal(assumirHtml.includes("informou não ter dependente"), true);
   assert.equal(assumirHtml.includes("Não houve indicação de restrição."), true);
   assert.equal(assumirHtml.includes("🔒 *Dossiê privado canônico (completo)*"), false);
-  assert.equal(assumirHtml.includes("Regime de trabalho:</span> clt"), true);
+  assert.equal(assumirHtml.includes("Regime de trabalho:</span> clt"), false);
   assert.equal(assumirHtml.includes("Tipo de processo:</span> solo"), true);
+  assert.equal(assumirHtml.includes("Resumo humano"), false);
+  assert.equal(assumirHtml.includes("<h2 class=\"section-kicker\">Resumo</h2>"), true);
   assert.equal(assumirHtml.includes("ctps_completa — Titular"), true);
   assert.equal(assumirHtml.includes("/correspondente/doc?pre=000001"), true);
   assert.equal(assumirHtml.includes("Pendências totais:</span> 0"), true);
   assert.equal(assumirHtml.includes("Status documental:</span> completo"), true);
+  assert.equal(assumirHtml.includes("Renda total:</span> R$ 8900.00"), true);
   assert.equal(assumirHtml.includes("Sem pendências documentais ativas."), true);
 
   const atualizado = env.__enovaSimulationCtx.stateByWaId[waCaso];
@@ -1180,10 +1212,10 @@ function getLastStepMessagesForWa(env, waId) {
   const res = await worker.fetch(req, env, {});
   const body = await res.text();
   assert.equal(res.status, 200);
-  assert.equal(body.includes("BRUNERA VASQUES segue em processo conjunto."), true);
-  assert.equal(body.includes("A titular informou trabalho CLT"), true);
+  assert.equal(body.includes("Cliente BRUNERA VASQUES segue em processo conjunto."), true);
+  assert.equal(body.includes("A titular informou renda de R$ 3.900,00"), true);
   assert.equal(body.includes("renda de R$ 3.900,00"), true);
-  assert.equal(body.includes("A participante que compõe junto informou trabalho autônomo"), true);
+  assert.equal(body.includes("A participante que compõe junto informou renda de R$ 1.500,00"), true);
   assert.equal(body.includes("renda de R$ 1.500,00"), true);
   assert.equal(body.includes("Não houve indicação de restrição."), true);
   assert.equal(body.includes("Regime: autonomo"), true);
@@ -1216,7 +1248,7 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(res.status, 200);
   assert.equal(body.includes("Houve indicação de restrição."), true);
   assert.equal(body.includes("Restrição:</span> sim"), true);
-  assert.equal(body.includes("Restrição: sim"), true);
+  assert.equal(body.includes("Restrição: sim"), false);
 }
 
 // 3.8i.2) Fonte única web: restrição final = não deve prevalecer (humano + técnico).
@@ -1234,7 +1266,7 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(res.status, 200);
   assert.equal(body.includes("Não houve indicação de restrição."), true);
   assert.equal(body.includes("Restrição:</span> não"), true);
-  assert.equal(body.includes("Restrição: não"), true);
+  assert.equal(body.includes("Restrição: não"), false);
 }
 
 // 3.8j) Fonte única web: doc persistido em enova_docs deve vencer pendência do checklist/state.

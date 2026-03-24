@@ -10897,14 +10897,15 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
   );
   const restricaoTitular = boolValue(restricao?.tem_restricao);
 
+  const isSolo = composicao?.solo === true || normalize(composicao?.tipo_processo) === "solo";
   const sentences = [];
-  if (nome) sentences.push(`${nome}.`);
+  if (nome) sentences.push(`${nome} segue em processo ${isSolo ? "solo" : "com composição de renda"}.`);
   const regimeTitular = normalizeRegime(titular?.regime_trabalho);
   const rendaTitular = Number(titular?.renda ?? renda?.titular ?? 0);
   const regimeRendaParts = [];
-  if (regimeTitular) regimeRendaParts.push(`Regime de trabalho ${regimeTitular}`);
-  if (Number.isFinite(rendaTitular) && rendaTitular > 0) regimeRendaParts.push(`renda ${moneyToLabel(rendaTitular)}`);
-  if (regimeRendaParts.length) sentences.push(`${regimeRendaParts.join(" e ")}.`);
+  if (regimeTitular) regimeRendaParts.push(`trabalho ${regimeTitular}`);
+  if (Number.isFinite(rendaTitular) && rendaTitular > 0) regimeRendaParts.push(`renda de ${moneyToLabel(rendaTitular)}`);
+  if (regimeRendaParts.length) sentences.push(`Informou ${regimeRendaParts.join(" e ")}.`);
 
   const regimesUnicos = Array.isArray(renda?.regimes_unicos)
     ? [...new Set(renda.regimes_unicos.map(normalizeRegime).filter(Boolean))]
@@ -10929,7 +10930,7 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
     .map((line) => String(line || "").trim())
     .filter(Boolean)
     .join(" ");
-  return result || "";
+  return result || (nome ? `${nome}.` : "");
 }
 
 function normalizeCorrespondenteRegime(value) {
@@ -12563,13 +12564,20 @@ function buildCorrespondenteWebDocsModel(docs) {
   const normalizeDocUiParticipant = (value) => String(value || "").trim().toLowerCase() || "-";
   const docsMap = new Map();
   const docsList = Array.isArray(docs) ? docs : [];
-  const stableIdFromDoc = (doc, fallbackKey = "") => {
+  const stableIdFromSlot = (fallbackKey = "") => {
+    const fromKey = normalizeText(String(fallbackKey)).replace(/[^a-z0-9]+/g, "_").slice(0, 120);
+    return fromKey ? `slot_${fromKey}` : null;
+  };
+  const stableIdFromDocIntrinsic = (doc) => {
     const fromDocId = String(doc?.doc_id || doc?.id || "").trim();
     if (fromDocId) return `doc_${fromDocId}`;
     const fromMsg = String(doc?.message_id || doc?.wamid || doc?.wamid_id || "").trim();
     if (fromMsg) return `msg_${fromMsg}`;
     const fromMedia = String(doc?.media_id || doc?.mid || doc?.mediaId || "").trim();
     if (fromMedia) return `mid_${fromMedia}`;
+    return null;
+  };
+  const stableIdFromDocRawFallback = (doc, fallbackKey = "") => {
     const raw = [
       String(doc?.tipo || "").trim().toLowerCase(),
       String(doc?.participante || "").trim().toLowerCase(),
@@ -12587,7 +12595,12 @@ function buildCorrespondenteWebDocsModel(docs) {
     const url = resolveCorrespondenteDocumentUrl(doc);
     const hasUsableUrl = Boolean(url);
     const key = `${tipo}|${participante}`;
-    const stableDocId = stableIdFromDoc(doc, `${key}|${idx}`);
+    const stableDocId = (
+      stableIdFromDocIntrinsic(doc) ||
+      stableIdFromSlot(key) ||
+      stableIdFromSlot(`${key}|${idx}`) ||
+      stableIdFromDocRawFallback(doc, `${key}|${idx}`)
+    );
     const score = (status !== "pendente" ? 100 : 0) + (hasUsableUrl ? 10 : 0) + idx / 1000;
     const current = docsMap.get(key);
     if (!current || score >= current.__score) {
@@ -14407,15 +14420,34 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
     return fallbackUrl ? { ...doc, url: fallbackUrl } : doc;
   };
   const stateDocs = stateDocsRaw.map(withHistoryFallbackUrl);
-  const stateDocsDerived = stateDocs.length
-    ? stateDocs
-    : itensEnvioDocs
-      .filter((item) => isEnvioDocsItemReceived(item))
-      .map((item) => withHistoryFallbackUrl({
-        tipo: item?.tipo || null,
-        participante: item?.participante || null,
-        status: item?.status || null
-      }));
+  const receivedFromChecklist = itensEnvioDocs
+    .filter((item) => isEnvioDocsItemReceived(item))
+    .map((item) => withHistoryFallbackUrl({
+      tipo: item?.tipo || null,
+      participante: item?.participante || null,
+      status: item?.status || null
+    }));
+  const mergedStateDocsByKey = new Map();
+  const mergeStateDoc = (doc) => {
+    const tipo = String(doc?.tipo || "").trim().toLowerCase();
+    const participante = String(doc?.participante || "").trim().toLowerCase();
+    if (!tipo || !participante) return;
+    const status = String(doc?.status || "").trim().toLowerCase();
+    const url = resolveUrl(doc);
+    const score = (status && status !== "pendente" ? 100 : 0) + (url ? 10 : 0);
+    const key = `${tipo}:${participante}`;
+    const current = mergedStateDocsByKey.get(key);
+    if (!current || score >= current.__score) {
+      mergedStateDocsByKey.set(key, { ...doc, __score: score });
+    }
+  };
+  for (const doc of stateDocs) mergeStateDoc(doc);
+  for (const doc of receivedFromChecklist) mergeStateDoc(doc);
+  const stateDocsDerived = [...mergedStateDocsByKey.values()].map((doc) => {
+    const clone = { ...doc };
+    delete clone.__score;
+    return clone;
+  });
   const simCtx = getSimulationContext(env);
   // Em simulação canônica, não consultamos storage externo de documentos.
   if (simCtx?.active) return stateDocsDerived;

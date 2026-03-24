@@ -11164,10 +11164,24 @@ function buildCorrespondentePrivateDossierFromState(st) {
 
   const restricaoResumo = String(pacoteRestricoes?.resumo || st?.dossie_restricao_resumo || "sem_restricao").toLowerCase();
   const restricoesParticipantes = Array.isArray(pacoteRestricoes?.participantes) ? pacoteRestricoes.participantes : [];
+  const restricaoByState = {
+    p1: readCanonicalBool(st?.restricao),
+    p2: readCanonicalBool(st?.restricao_parceiro),
+    p3: readCanonicalBool(st?.restricao_parceiro_p3)
+  };
+  const regularizacaoByState = {
+    p1: readCanonicalBool(st?.regularizacao_restricao),
+    p2: readCanonicalBool(st?.regularizacao_restricao_parceiro),
+    p3: readCanonicalBool(st?.regularizacao_restricao_p3)
+  };
   const restricaoResumoSemIndicacao = /(^|\b)(sem_restricao|sem restricao|ok|livre)($|\b)/.test(restricaoResumo);
   const restricaoResumoComIndicacao = /restricao|restrição/.test(restricaoResumo) && !restricaoResumoSemIndicacao;
-  const temRestricao = restricoesParticipantes.some((p) => dossieIsYes(p?.tem_restricao)) || restricaoResumoComIndicacao;
-  const restricaoRegularizavel = restricoesParticipantes.some((p) => dossieIsYes(p?.restricao_regularizada)) || /regulariz/.test(restricaoResumo);
+  const temRestricao = Object.values(restricaoByState).some((v) => v === true) ||
+    restricoesParticipantes.some((p) => dossieIsYes(p?.tem_restricao)) ||
+    restricaoResumoComIndicacao;
+  const restricaoRegularizavel = Object.values(regularizacaoByState).some((v) => v === true) ||
+    restricoesParticipantes.some((p) => dossieIsYes(p?.restricao_regularizada)) ||
+    /regulariz/.test(restricaoResumo);
 
   const docFlagsFromResumo = docsAnexados.reduce((acc, d) => {
     const obs = String(d?.observacao_analise || "").toLowerCase();
@@ -11224,6 +11238,8 @@ function buildCorrespondentePrivateDossierFromState(st) {
       : pid === "p2"
         ? readCanonicalBool(st?.ctps_36_parceiro)
         : readCanonicalBool(st?.p3_ctps_36);
+    const restricaoState = restricaoByState[pid];
+    const regularizacaoState = regularizacaoByState[pid];
     return {
       id: pid,
       role: p?.role || p?.papel || null,
@@ -11233,8 +11249,8 @@ function buildCorrespondentePrivateDossierFromState(st) {
       ir_declarado: irDeclarado,
       ctps_36: ctps36Participante,
       dependente: pid === "p1" ? readCanonicalBool(st?.dependente) : null,
-      tem_restricao: readCanonicalBool(restricaoParticipante?.tem_restricao, p?.restricao),
-      restricao_regularizada: readCanonicalBool(restricaoParticipante?.restricao_regularizada, p?.regularizacao_restricao, p?.restricao_regularizada)
+      tem_restricao: readCanonicalBool(restricaoState, restricaoParticipante?.tem_restricao, p?.restricao),
+      restricao_regularizada: readCanonicalBool(regularizacaoState, restricaoParticipante?.restricao_regularizada, p?.regularizacao_restricao, p?.restricao_regularizada)
     };
   });
 
@@ -12554,14 +12570,36 @@ async function handleCorrespondenteEntryPage(request, env) {
     );
   }
 
-  const stCompleto = casoAtual?.wa_id ? (await getState(env, casoAtual.wa_id)) || casoAtual : casoAtual;
-  const dossierBundle = buildCorrespondenteCanonicalDossierBundleFromState(stCompleto || caso, { token });
-  const dossierPayload = dossierBundle.structured;
-  const caseRefResolved = buildCorrespondenteCaseRef(casoAtual || caso);
-  const tokenResolved = normalizeAssumirToken(token || stCompleto?.corr_assumir_token || "");
+  const webDossierSource = await buildCorrespondenteWebDossierSourceOfTruth(env, casoAtual || caso, { token });
+  return new Response(buildCorrespondenteEntryCoverHtml(casoAtual, {
+    lockWaId: lockFinalRaw,
+    isAdminOverride: adminOverride,
+    dossierPayload: webDossierSource?.dossierPayload || null,
+    resumoHumano: webDossierSource?.resumoHumano || "",
+    retornoCorrespondente: webDossierSource?.retornoCorrespondente || null,
+    retornoGuidance: webDossierSource?.retornoGuidance || "",
+    docsForUi: Array.isArray(webDossierSource?.docsForUi) ? webDossierSource.docsForUi : []
+  }), {
+    status: 200,
+    headers: { "content-type": "text/html; charset=utf-8", "X-Enova-Build": buildHeaderValue }
+  });
+}
+
+async function buildCorrespondenteWebDossierSourceOfTruth(env, caso, options = {}) {
+  const baseCase = caso && typeof caso === "object" ? caso : {};
+  const stFinal = baseCase?.wa_id ? (await getState(env, baseCase.wa_id)) || baseCase : baseCase;
+  const tokenResolved = normalizeAssumirToken(options?.token || stFinal?.corr_assumir_token || "");
+  const caseRefResolved = buildCorrespondenteCaseRef(stFinal || baseCase);
+  const dossierBundle = buildCorrespondenteCanonicalDossierBundleFromState(stFinal, { token: tokenResolved });
+  const resumoHumano = String(
+    dossierBundle?.canonical?.dossie_privado_canonico_json?.resumo_humano ||
+    dossierBundle?.canonical?.resumo_humano_dinamico_correspondente ||
+    ""
+  ).trim();
+
   let docsForUi = [];
   try {
-    const docs = await getCaseDocumentLinks(env, casoAtual?.wa_id || caso?.wa_id, stCompleto || casoAtual || caso);
+    const docs = await getCaseDocumentLinks(env, stFinal?.wa_id || baseCase?.wa_id, stFinal);
     const docsModel = buildCorrespondenteWebDocsModel(docs);
     docsForUi = docsModel.normalizedDocs.map((doc) => {
       const accessLink = String(doc?.received_access_id || "").trim()
@@ -12577,28 +12615,22 @@ async function handleCorrespondenteEntryPage(request, env) {
   } catch {
     docsForUi = [];
   }
-  return new Response(buildCorrespondenteEntryCoverHtml(casoAtual, {
-    lockWaId: lockFinalRaw,
-    isAdminOverride: adminOverride,
-    dossierPayload,
-    resumoHumano:
-      dossierBundle?.canonical?.resumo_humano_dinamico_correspondente ||
-      dossierBundle?.canonical?.dossie_privado_canonico_json?.resumo_humano ||
-      dossierBundle?.resumoPersistido ||
-      "",
+
+  return {
+    stFinal,
+    dossierBundle,
+    dossierPayload: dossierBundle?.structured || null,
+    resumoHumano,
     retornoCorrespondente: {
-      status: stCompleto?.retorno_correspondente_status || casoAtual?.retorno_correspondente_status || null,
-      motivo: stCompleto?.retorno_correspondente_motivo || null,
-      valor_financiamento: stCompleto?.retorno_correspondente_valor_financiamento || null,
-      valor_subsidio_federal: stCompleto?.retorno_correspondente_valor_subsidio_federal || null,
-      bruto: stCompleto?.retorno_correspondente_bruto || null
+      status: stFinal?.retorno_correspondente_status || null,
+      motivo: stFinal?.retorno_correspondente_motivo || null,
+      valor_financiamento: stFinal?.retorno_correspondente_valor_financiamento || null,
+      valor_subsidio_federal: stFinal?.retorno_correspondente_valor_subsidio_federal || null,
+      bruto: stFinal?.retorno_correspondente_bruto || null
     },
     retornoGuidance: buildCorrespondenteReturnFormatGuidance(caseRefResolved),
     docsForUi
-  }), {
-    status: 200,
-    headers: { "content-type": "text/html; charset=utf-8", "X-Enova-Build": buildHeaderValue }
-  });
+  };
 }
 
 function resolveCorrespondenteDocumentUrl(doc) {
@@ -12651,13 +12683,22 @@ function buildCorrespondenteWebDocsModel(docs) {
     if (intrinsic) return intrinsic;
     const url = resolveCorrespondenteDocumentUrl(doc);
     if (url) {
-      return `url_${normalizeText(url).replace(/[^a-z0-9]+/g, "_").slice(0, 140) || idx}`;
+      let canonicalUrl = "";
+      try {
+        const parsed = new URL(url);
+        canonicalUrl = `${parsed.origin}${parsed.pathname}`;
+      } catch {
+        canonicalUrl = String(url || "").split("?")[0].split("#")[0];
+      }
+      if (canonicalUrl) {
+        return `url_${normalizeText(canonicalUrl).replace(/[^a-z0-9]+/g, "_").slice(0, 140) || idx}`;
+      }
     }
     const fileName = String(doc?.file_name || doc?.filename || "").trim().toLowerCase();
     const tipo = normalizeDocUiType(doc?.tipo);
     const participante = normalizeDocUiParticipant(doc?.participante);
     const createdAt = String(doc?.created_at || "").trim();
-    const raw = `${tipo}|${participante}|${fileName}|${createdAt}|${idx}`;
+    const raw = `${tipo}|${participante}|${fileName}|${createdAt}`;
     return `slot_${normalizeText(raw).replace(/[^a-z0-9]+/g, "_").slice(0, 140) || idx}`;
   };
   docsList.forEach((doc, idx) => {
@@ -14537,8 +14578,39 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
     return clone;
   });
   const simCtx = getSimulationContext(env);
-  // Em simulação canônica, não consultamos storage externo de documentos.
-  if (simCtx?.active) return stateDocsDerived;
+  // Em simulação canônica, permitimos injetar docs persistidos para reproduzir runtime real.
+  if (simCtx?.active) {
+    const simulatedPersistedDocs = Array.isArray(simCtx?.docsByWaId?.[wa_id])
+      ? simCtx.docsByWaId[wa_id]
+      : [];
+    if (!simulatedPersistedDocs.length) return stateDocsDerived;
+    const mergedDocs = new Map();
+    const scoreDoc = (doc, idx = 0) => {
+      const status = String(doc?.status || "").trim().toLowerCase();
+      const hasUsableUrl = Boolean(resolveUrl(doc));
+      const base = status && status !== "pendente" ? 100 : 0;
+      const withLink = hasUsableUrl ? 10 : 0;
+      return base + withLink + idx / 10000;
+    };
+    const mergeDoc = (doc, idx) => {
+      const tipo = String(doc?.tipo || "").trim().toLowerCase();
+      const participante = String(doc?.participante || "").trim().toLowerCase();
+      if (!tipo || !participante) return;
+      const key = `${tipo}:${participante}`;
+      const score = scoreDoc(doc, idx);
+      const current = mergedDocs.get(key);
+      if (!current || score >= current.__score) {
+        mergedDocs.set(key, { ...doc, __score: score });
+      }
+    };
+    simulatedPersistedDocs.map(withHistoryFallbackUrl).forEach((doc, idx) => mergeDoc(doc, idx));
+    stateDocsDerived.forEach((doc, idx) => mergeDoc(doc, simulatedPersistedDocs.length + idx));
+    return [...mergedDocs.values()].map((doc) => {
+      const clone = { ...doc };
+      delete clone.__score;
+      return clone;
+    });
+  }
   let rows = [];
   try {
     rows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_docs", {
@@ -14564,7 +14636,32 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
     });
   }
   const rowsWithFallback = rows.map(withHistoryFallbackUrl);
-  return rowsWithFallback.length ? rowsWithFallback : stateDocsDerived;
+  const mergedDocs = new Map();
+  const scoreDoc = (doc, idx = 0) => {
+    const status = String(doc?.status || "").trim().toLowerCase();
+    const hasUsableUrl = Boolean(resolveUrl(doc));
+    const base = status && status !== "pendente" ? 100 : 0;
+    const withLink = hasUsableUrl ? 10 : 0;
+    return base + withLink + idx / 10000;
+  };
+  const mergeDoc = (doc, idx) => {
+    const tipo = String(doc?.tipo || "").trim().toLowerCase();
+    const participante = String(doc?.participante || "").trim().toLowerCase();
+    if (!tipo || !participante) return;
+    const key = `${tipo}:${participante}`;
+    const score = scoreDoc(doc, idx);
+    const current = mergedDocs.get(key);
+    if (!current || score >= current.__score) {
+      mergedDocs.set(key, { ...doc, __score: score });
+    }
+  };
+  rowsWithFallback.forEach((doc, idx) => mergeDoc(doc, idx));
+  stateDocsDerived.forEach((doc, idx) => mergeDoc(doc, rowsWithFallback.length + idx));
+  return [...mergedDocs.values()].map((doc) => {
+    const clone = { ...doc };
+    delete clone.__score;
+    return clone;
+  });
 }
 
 async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {

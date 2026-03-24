@@ -24511,32 +24511,6 @@ case "finalizacao_processo": {
         "finalizacao_processo"
       );
     }
-
-    const itemResult = respostaUpload?.itemResult || {};
-    const matchedItems = Array.isArray(itemResult?.matchedItems) ? itemResult.matchedItems : [];
-    const validation = itemResult?.validation && typeof itemResult.validation === "object" ? itemResult.validation : {};
-    const linhas = ["Recebi seu arquivo e já registrei na sua pasta ✅"];
-    if (matchedItems.length) {
-      const statusMensagens = {
-        recebido_pendente_validacao: "recebido pendente de validação",
-        validado_basico: "validado básico",
-        ilegivel: "ilegível",
-        invalido: "inválido",
-        reenvio_solicitado: "reenvio solicitado"
-      };
-      const vinculados = [...new Set(
-        matchedItems.map((matched) =>
-          `**${prettyDocLabel(matched?.tipo)}** (${envioDocsParticipanteLabel(matched?.participante)})`
-        )
-      )];
-      const statusTexto = statusMensagens[validation?.status] || validation?.status || "recebido";
-      linhas.push(`Vinculei como ${vinculados.join(", ")}, com status *${statusTexto}*.`);
-    } else {
-      linhas.push("Registrei o recebimento e sigo com sua pasta; a validação detalhada acontece na próxima etapa interna.");
-    }
-    linhas.push("Seu caso continua em andamento e o dossiê web já considera este upload.");
-
-    return step(env, st, linhas, "finalizacao_processo");
   }
 
   const pacoteReady = isCorrespondentePacoteReady(st);

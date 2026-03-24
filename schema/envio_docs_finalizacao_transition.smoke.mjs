@@ -275,7 +275,73 @@ function buildDocumentWebhook(from, msgId, { caption = "", mimeType = "applicati
   assert.equal(st.fase_conversa, "envio_docs");
 }
 
-// 3.1) Mesmo em finalizacao_processo, upload real tardio deve ser incorporado sem descartar o documento.
+// 3.1) Cenário real: comprovante de renda chega antes, sistema pede CTPS, CTPS tardia destrava e conclui publicação normal.
+{
+  const env = buildEnv();
+  env.__enovaSimulationCtx.stateByWaId[waId] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waId],
+    fase_conversa: "envio_docs",
+    envio_docs_status: "parcial",
+    pacote_status: "nao_montado",
+    analise_docs_status: null,
+    processo_enviado_correspondente: null,
+    corr_assumir_token: null,
+    corr_publicacao_status: null,
+    envio_docs_itens_json: [
+      { tipo: "identidade_cpf", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "holerites", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+      { tipo: "ctps_completa", participante: "p1", bucket: "obrigatorio", status: "pendente" }
+    ],
+    pacote_participantes_json: null,
+    pacote_documentos_anexados_json: null,
+    pacote_renda_resumo_json: null,
+    pacote_restricoes_json: null
+  };
+
+  const reqRenda = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(buildDocumentWebhook(waId, "wamid.docs.real-flow.renda.1", {
+      caption: "holerite titular",
+      filename: "holerite-titular.pdf"
+    }))
+  });
+  const resRenda = await worker.fetch(reqRenda, env, {});
+  assert.equal(resRenda.status, 200);
+  const msgAfterRenda = getLastMessageForWa(env, waId);
+  const textAfterRenda = (msgAfterRenda?.messages || []).join("\n").toLowerCase();
+  assert.equal(textAfterRenda.includes("ctps"), true);
+
+  const stAfterRenda = env.__enovaSimulationCtx.stateByWaId[waId];
+  assert.equal(stAfterRenda.fase_conversa, "finalizacao_processo");
+
+  const reqCtps = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(buildDocumentWebhook(waId, "wamid.docs.real-flow.ctps.1", {
+      caption: "ctps titular completa",
+      filename: "ctps-titular-completa.pdf"
+    }))
+  });
+  const resCtps = await worker.fetch(reqCtps, env, {});
+  assert.equal(resCtps.status, 200);
+
+  const stFinal = env.__enovaSimulationCtx.stateByWaId[waId];
+  assert.equal(
+    Array.isArray(stFinal.envio_docs_itens_json) &&
+      stFinal.envio_docs_itens_json.some(
+        (item) => item.tipo === "ctps_completa" && item.participante === "p1" && item.status !== "pendente"
+      ),
+    true
+  );
+  assert.equal(typeof stFinal.corr_assumir_token, "string");
+  assert.equal(stFinal.corr_assumir_token.length > 0, true);
+  assert.equal(stFinal.corr_publicacao_status, "publicado_grupo_pendente_assumir");
+  assert.equal(stFinal.processo_enviado_correspondente, false);
+}
+
+// 3.2) Mesmo em finalizacao_processo, upload real tardio deve incorporar CTPS e concluir publicação normal ao correspondente.
 {
   const env = buildEnv();
   env.__enovaSimulationCtx.stateByWaId[waId] = {
@@ -288,7 +354,7 @@ function buildDocumentWebhook(from, msgId, { caption = "", mimeType = "applicati
       { tipo: "identidade_cpf", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
       { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
       { tipo: "holerites", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
-      { tipo: "ctps_completa", participante: "p1", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false, status: "pendente" }
+      { tipo: "ctps_completa", participante: "p1", bucket: "obrigatorio", status: "pendente" }
     ]
   };
   const req = new Request("https://worker.local/webhook/meta", {
@@ -309,6 +375,51 @@ function buildDocumentWebhook(from, msgId, { caption = "", mimeType = "applicati
         (item) => item.tipo === "ctps_completa" && item.participante === "p1" && item.status !== "pendente"
       ),
     true
+  );
+  assert.equal(typeof st.corr_assumir_token, "string");
+  assert.equal(st.corr_assumir_token.length > 0, true);
+  assert.equal(st.corr_publicacao_status, "publicado_grupo_pendente_assumir");
+  assert.equal(st.processo_enviado_correspondente, false);
+  assert.equal(st.pre_cadastro_numero, "000001");
+}
+
+// 3.3) Após publicação concluída, nova mensagem não deve duplicar envio ao correspondente.
+{
+  const env = buildEnv();
+  env.__enovaSimulationCtx.stateByWaId[waId] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waId],
+    fase_conversa: "finalizacao_processo",
+    envio_docs_status: "completo",
+    pacote_status: "pronto",
+    analise_docs_status: "validada",
+    processo_enviado_correspondente: false,
+    corr_publicacao_status: "publicado_grupo_pendente_assumir",
+    corr_assumir_token: "AB12CD34EF56GH78IJ90KL12",
+    pre_cadastro_numero: "000001",
+    envio_docs_itens_json: [
+      { tipo: "identidade_cpf", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "holerites", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "ctps_completa", participante: "p1", bucket: "obrigatorio", status: "validado_basico" }
+    ]
+  };
+
+  const capture = captureConsoleLogs();
+  try {
+    const req = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(buildTextWebhook(waId, "ok", "wamid.docs.finalizacao.no-dup.1"))
+    });
+    const res = await worker.fetch(req, env, {});
+    assert.equal(res.status, 200);
+  } finally {
+    capture.restore();
+  }
+
+  assert.equal(
+    capture.logs.some((line) => line.includes("\"event\":\"corr_dispatch_enter\"")),
+    false
   );
 }
 

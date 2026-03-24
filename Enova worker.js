@@ -9447,7 +9447,7 @@ function classifyEnvioDocsBasicValidation({ mediaObject, normalizedMsg, target, 
 
 function selectEnvioDocsItemForUpload(st, selectionContext = {}) {
   const itens = Array.isArray(st.envio_docs_itens_json) ? st.envio_docs_itens_json : [];
-  const pendentes = itens.filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item));
+  const pendentes = itens.filter((item) => isEnvioDocsConversationalPendingItem(item));
   if (!pendentes.length) {
     return {
       item: null,
@@ -24493,6 +24493,51 @@ case "finalizacao_processo": {
       processo_enviado_correspondente: st.processo_enviado_correspondente ?? null
     }
   });
+
+  if (st._incoming_media) {
+    const midia = st._incoming_media;
+    await upsertState(env, st.wa_id, { _incoming_media: null });
+    const respostaUpload = await handleDocumentUpload(env, st, midia, { silent: true });
+    if (!respostaUpload?.ok) {
+      return step(
+        env,
+        st,
+        Array.isArray(respostaUpload?.message) && respostaUpload.message.length
+          ? respostaUpload.message
+          : [
+              "Não consegui identificar o arquivo 😕",
+              "Pode tentar enviar novamente?"
+            ],
+        "finalizacao_processo"
+      );
+    }
+
+    const itemResult = respostaUpload?.itemResult || {};
+    const matchedItems = Array.isArray(itemResult?.matchedItems) ? itemResult.matchedItems : [];
+    const validation = itemResult?.validation && typeof itemResult.validation === "object" ? itemResult.validation : {};
+    const linhas = ["Recebi seu arquivo e já registrei na sua pasta ✅"];
+    if (matchedItems.length) {
+      const statusMensagens = {
+        recebido_pendente_validacao: "recebido pendente de validação",
+        validado_basico: "validado básico",
+        ilegivel: "ilegível",
+        invalido: "inválido",
+        reenvio_solicitado: "reenvio solicitado"
+      };
+      const vinculados = [...new Set(
+        matchedItems.map((matched) =>
+          `**${prettyDocLabel(matched?.tipo)}** (${envioDocsParticipanteLabel(matched?.participante)})`
+        )
+      )];
+      const statusTexto = statusMensagens[validation?.status] || validation?.status || "recebido";
+      linhas.push(`Vinculei como ${vinculados.join(", ")}, com status *${statusTexto}*.`);
+    } else {
+      linhas.push("Registrei o recebimento e sigo com sua pasta; a validação detalhada acontece na próxima etapa interna.");
+    }
+    linhas.push("Seu caso continua em andamento e o dossiê web já considera este upload.");
+
+    return step(env, st, linhas, "finalizacao_processo");
+  }
 
   const pacoteReady = isCorrespondentePacoteReady(st);
   if (!pacoteReady) {

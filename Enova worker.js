@@ -14561,7 +14561,13 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
     ].join("|");
     const normalized = normalizeText(fingerprint).replace(/[^a-z0-9]+/g, "_").slice(0, 180);
     if (normalized) return `${prefix}_${normalized}`;
-    return `${prefix}_${crypto.randomUUID()}`;
+    const deterministicFallback = [
+      prefix,
+      toLower(doc?.tipo) || "na",
+      toLower(doc?.participante) || "na",
+      String(doc?.created_at || doc?.at || doc?.__source_idx || "0").trim() || "0"
+    ].join("_").replace(/[^a-z0-9_]+/g, "_");
+    return deterministicFallback || `${prefix}_fallback_0`;
   };
   const normalizeRealUploadDoc = (rawDoc, prefix = "doc") => {
     const doc = rawDoc && typeof rawDoc === "object" ? rawDoc : {};
@@ -14583,6 +14589,14 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
   };
   const mergeReceivedUploadsByDocId = (rows = []) => {
     const merged = new Map();
+    const mergePreferDefined = (baseDoc = {}, nextDoc = {}) => {
+      const out = { ...baseDoc };
+      for (const [key, value] of Object.entries(nextDoc || {})) {
+        if (value === undefined || value === null || value === "") continue;
+        out[key] = value;
+      }
+      return out;
+    };
     for (const raw of Array.isArray(rows) ? rows : []) {
       const doc = raw && typeof raw === "object" ? raw : {};
       const key = String(doc?.doc_id || "").trim();
@@ -14597,7 +14611,7 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
       const pickNext =
         (!currentUrl && nextUrl) ||
         (toLower(current?.status) === "pendente" && toLower(doc?.status) !== "pendente");
-      if (pickNext) merged.set(key, { ...current, ...doc });
+      if (pickNext) merged.set(key, mergePreferDefined(current, doc));
     }
     return [...merged.values()];
   };
@@ -14640,9 +14654,9 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
   };
   const stateReceivedDocs = stateDocsRaw
     .map(withHistoryFallbackUrl)
-    .map((doc) => normalizeRealUploadDoc(doc, "state"));
+    .map((doc, idx) => normalizeRealUploadDoc({ ...doc, __source_idx: idx }, "state"));
   const historyReceivedDocs = historicoUploads
-    .map((row) => {
+    .map((row, idx) => {
       if (toLower(row?.origem) !== "upload") return null;
       const mediaRef = row?.media_ref && typeof row.media_ref === "object" ? row.media_ref : {};
       const tipo = toLower(row?.associado?.tipo || row?.matched_checklist_item?.tipo || row?.detected_doc_type || "") || "documento";
@@ -14663,7 +14677,8 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
           mediaRef?.media_url ||
           ""
         ).trim() || null,
-        created_at: row?.at || null
+        created_at: row?.at || null,
+        __source_idx: idx
       }, "hist");
     })
     .filter(Boolean);
@@ -14686,7 +14701,7 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
       : [];
     const simulatedReceivedDocs = simulatedPersistedDocs
       .map(withHistoryFallbackUrl)
-      .map((doc) => normalizeRealUploadDoc(doc, "sim"));
+      .map((doc, idx) => normalizeRealUploadDoc({ ...doc, __source_idx: idx }, "sim"));
     const mergedReceived = mergeReceivedUploadsByDocId([
       ...simulatedReceivedDocs,
       ...stateReceivedDocs,
@@ -14721,7 +14736,7 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
   }
   const persistedReceivedDocs = rows
     .map(withHistoryFallbackUrl)
-    .map((doc) => normalizeRealUploadDoc(doc, "persisted"));
+    .map((doc, idx) => normalizeRealUploadDoc({ ...doc, __source_idx: idx }, "persisted"));
   const mergedReceived = mergeReceivedUploadsByDocId([
     ...persistedReceivedDocs,
     ...stateReceivedDocs,

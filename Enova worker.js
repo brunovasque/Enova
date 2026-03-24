@@ -10901,28 +10901,30 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
   const isSolo = composicao?.solo === true || normalize(composicao?.tipo_processo) === "solo" || participantes.length <= 1;
   const sentences = [];
   if (nome) {
-    sentences.push(`${nome} segue em processo ${isSolo ? "solo" : "conjunto"}.`);
+    sentences.push(`Cliente ${nome} segue em processo ${isSolo ? "sozinho" : "conjunto"}.`);
   }
   const participantProfileSentence = (participant, subjectLabel, options = {}) => {
-    const regime = normalizeRegime(participant?.regime_trabalho);
     const rendaValor = Number(participant?.renda ?? 0);
     const parts = [];
-    if (regime) parts.push(`trabalho ${regime}`);
     if (Number.isFinite(rendaValor) && rendaValor > 0) parts.push(`renda de ${moneyToLabel(rendaValor)}`);
     const ctps36Participant = boolValue(options?.ctps36);
-    if (ctps36Participant === true) parts.push("36 meses de carteira assinada");
+    if (ctps36Participant === true) parts.push("ter 36 meses de registro em CTPS");
+    if (ctps36Participant === false) parts.push("não ter 36 meses de registro em CTPS");
     const dependenteParticipant = boolValue(options?.dependente);
-    if (dependenteParticipant === true) parts.push("dependente");
+    if (dependenteParticipant === true) parts.push("ter dependente");
+    if (dependenteParticipant === false) parts.push("não ter dependente");
     if (!parts.length) return "";
     const normalizedSubject = String(subjectLabel || "").trim();
     const prefix = normalizedSubject ? `${normalizedSubject} informou ` : "Informou ";
     if (parts.length === 1) return `${prefix}${parts[0]}.`;
-    if (parts.length === 2) return `${prefix}${parts[0]} e ${parts[1]}.`;
-    return `${prefix}${parts.slice(0, -1).join(", ")} e ${parts[parts.length - 1]}.`;
+    if (parts.length === 2) return `${prefix}${parts[0]} e informou ${parts[1]}.`;
+    return `${prefix}${parts[0]}, informou ${parts.slice(1, -1).join(", informou ")} e informou ${parts[parts.length - 1]}.`;
   };
+  const ctps36Resumo = canonicalCtps36 === null ? false : canonicalCtps36;
+  const dependenteResumo = dependenteTitular === null ? false : dependenteTitular;
   const titularSentence = participantProfileSentence(titular, isSolo ? "" : "A titular", {
-    ctps36: canonicalCtps36,
-    dependente: dependenteTitular
+    ctps36: ctps36Resumo,
+    dependente: dependenteResumo
   }).trim();
   if (titularSentence) sentences.push(titularSentence);
   if (!isSolo && composicaoParticipante) {
@@ -10948,11 +10950,7 @@ function buildCorrespondenteHumanSummaryFromCanonical({ payloadTecnico, dossieCa
     .map((p) => boolValue(p?.tem_restricao))
     .filter((v) => v === true || v === false);
   const restricaoAnyTrue = restricaoParticipantes.some((v) => v === true) || restricaoTitular === true;
-  const restricaoAllFalse =
-    (restricaoParticipantes.length > 0 && restricaoParticipantes.every((v) => v === false)) ||
-    (restricaoParticipantes.length === 0 && restricaoTitular === false);
-  if (restricaoAnyTrue) sentences.push("Houve indicação de restrição.");
-  else if (restricaoAllFalse) sentences.push("Não houve indicação de restrição.");
+  sentences.push(restricaoAnyTrue ? "Houve indicação de restrição." : "Não houve indicação de restrição.");
 
   const result = sentences
     .map((line) => String(line || "").trim())
@@ -12021,6 +12019,16 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
   const rendaPrincipal = Number(
     participantesPerfil.find((p) => String(p?.id || "").trim().toLowerCase() === "p1")?.renda ?? renda.titular ?? st?.renda ?? 0
   ) || 0;
+  const rendaParticipantes = participantesPerfil
+    .map((p) => Number(p?.renda ?? 0))
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const rendaTotalParticipantes = rendaParticipantes.reduce((sum, value) => sum + value, 0);
+  const rendaTotalExecutivo = Number(renda.total);
+  const rendaTotalFallback = rendaTotalParticipantes > 0
+    ? rendaTotalParticipantes
+    : Number.isFinite(rendaTotalExecutivo) && rendaTotalExecutivo > 0
+      ? rendaTotalExecutivo
+      : 0;
 
   const pendingItemsCanonical = asArray(documentos.pendentes).filter((item) => String(item?.status || "pendente").trim().toLowerCase() === "pendente");
   const remanescentesCanonicos = pendingItemsCanonical.length;
@@ -12045,7 +12053,7 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
       pronto_para_pre_analise: conclusao.pronto_para_pre_analise === true,
       envio_docs_status: envioDocsStatusCanonico,
       pendencias_total: remanescentesCanonicos,
-      renda_total: Number(renda.total) || 0,
+      renda_total: rendaTotalFallback,
       participantes_total: Number(identificacao.composicao_qtd) || 0
     },
     perfil: {
@@ -12377,7 +12385,7 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
       <div class="row"><span class="label">Pendências totais:</span> ${escapeHtml(String(resumo?.pendencias_total ?? 0))}</div>
       <div class="row"><span class="label">Renda total:</span> ${escapeHtml(formatMoney(resumo?.renda_total))}</div>
       <div class="row"><span class="label">Participantes totais:</span> ${escapeHtml(String(resumo?.participantes_total ?? 0))}</div>
-      <h2 class="section-kicker">Resumo humano</h2>
+      <h2 class="section-kicker">Resumo</h2>
       <div class="mini">${resumoHumano ? formatMultiline(resumoHumano) : "<span class=\"muted\">Resumo humano não disponível no contrato atual.</span>"}</div>
     </section>
     <section class="card">
@@ -12385,12 +12393,11 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
       <div class="row"><span class="label">Nome:</span> ${escapeHtml(perfil?.nome || clienteNome)}</div>
       ${hasUsefulValue(perfil?.estado_civil) ? `<div class="row"><span class="label">Estado civil:</span> ${escapeHtml(perfil?.estado_civil || "")}</div>` : ""}
       ${hasUsefulValue(perfil?.tipo_processo) ? `<div class="row"><span class="label">Tipo de processo:</span> ${escapeHtml(String(perfil?.tipo_processo || ""))}</div>` : ""}
-      ${hasUsefulValue(perfil?.regime_trabalho) ? `<div class="row"><span class="label">Regime de trabalho:</span> ${escapeHtml(String(perfil?.regime_trabalho || ""))}</div>` : ""}
       ${hasUsefulValue(perfil?.renda) ? `<div class="row"><span class="label">Renda:</span> ${escapeHtml(formatMoney(perfil?.renda))}</div>` : ""}
       ${hasUsefulValue(perfil?.composicao) ? `<div class="row"><span class="label">Composição:</span> ${escapeHtml(String(perfil?.composicao || ""))}</div>` : ""}
-      ${perfil?.ctps_36 === true || perfil?.ctps_36 === false ? `<div class="row"><span class="label">CTPS 36 meses:</span> ${escapeHtml(boolLabel(perfil?.ctps_36))}</div>` : ""}
-      ${perfil?.dependente === true || perfil?.dependente === false ? `<div class="row"><span class="label">Dependente:</span> ${escapeHtml(boolLabel(perfil?.dependente))}</div>` : ""}
-      ${perfil?.restricao === true || perfil?.restricao === false ? `<div class="row"><span class="label">Restrição:</span> ${escapeHtml(boolLabel(perfil?.restricao))}</div>` : ""}
+      <div class="row"><span class="label">CTPS 36 meses:</span> ${escapeHtml(boolLabel(perfil?.ctps_36))}</div>
+      <div class="row"><span class="label">Dependente:</span> ${escapeHtml(boolLabel(perfil?.dependente))}</div>
+      <div class="row"><span class="label">Restrição:</span> ${escapeHtml(boolLabel(perfil?.restricao))}</div>
       ${(perfil?.multi_regime === true || perfil?.multi_renda === true)
         ? `<div class="row"><span class="label">Múltiplos indicadores:</span> ${escapeHtml([
           perfil?.multi_regime === true ? "multi-regime" : null,
@@ -12398,20 +12405,20 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
         ].filter(Boolean).join(" / "))}</div>`
         : ""
       }
-      <div class="grid2">
-        ${(Array.isArray(perfil?.participantes) && perfil.participantes.length
-          ? perfil.participantes
-          : []
-        ).map((item) => `<article class="mini">
-          <div class="k">${escapeHtml(formatRoleName(item?.papel || item?.id))}</div>
-          ${hasUsefulValue(item?.regime_trabalho) ? `<div class="v">Regime: ${escapeHtml(String(item?.regime_trabalho || ""))}</div>` : ""}
-          ${hasUsefulValue(item?.renda) ? `<div class="v">Renda: ${escapeHtml(formatMoney(item?.renda))}</div>` : ""}
-          ${item?.ctps_36 === true || item?.ctps_36 === false ? `<div class="v">CTPS 36: ${escapeHtml(item?.ctps_36 === true ? "sim" : "não")}</div>` : ""}
-          ${item?.dependente === true || item?.dependente === false ? `<div class="v">Dependente: ${escapeHtml(item?.dependente === true ? "sim" : "não")}</div>` : ""}
-          ${item?.ir_autonomo === true || item?.ir_autonomo === false ? `<div class="v">IR autônomo: ${escapeHtml(item?.ir_autonomo === true ? "sim" : "não")}</div>` : ""}
-          ${item?.tem_restricao === true || item?.tem_restricao === false ? `<div class="v">Restrição: ${escapeHtml(item?.tem_restricao === true ? "sim" : "não")}</div>` : ""}
-        </article>`).join("") || `<article class="mini"><span class="muted">Participantes não disponíveis no contrato atual.</span></article>`}
-      </div>
+      ${Array.isArray(perfil?.participantes) && perfil.participantes.length > 1
+        ? `<div class="grid2">
+            ${perfil.participantes.map((item) => `<article class="mini">
+              <div class="k">${escapeHtml(formatRoleName(item?.papel || item?.id))}</div>
+              ${hasUsefulValue(item?.regime_trabalho) ? `<div class="v">Regime: ${escapeHtml(String(item?.regime_trabalho || ""))}</div>` : ""}
+              ${hasUsefulValue(item?.renda) ? `<div class="v">Renda: ${escapeHtml(formatMoney(item?.renda))}</div>` : ""}
+              ${item?.ctps_36 === true || item?.ctps_36 === false ? `<div class="v">CTPS 36: ${escapeHtml(item?.ctps_36 === true ? "sim" : "não")}</div>` : ""}
+              ${item?.dependente === true || item?.dependente === false ? `<div class="v">Dependente: ${escapeHtml(item?.dependente === true ? "sim" : "não")}</div>` : ""}
+              ${item?.ir_autonomo === true || item?.ir_autonomo === false ? `<div class="v">IR autônomo: ${escapeHtml(item?.ir_autonomo === true ? "sim" : "não")}</div>` : ""}
+              ${item?.tem_restricao === true || item?.tem_restricao === false ? `<div class="v">Restrição: ${escapeHtml(item?.tem_restricao === true ? "sim" : "não")}</div>` : ""}
+            </article>`).join("")}
+          </div>`
+        : ""
+      }
     </section>
     <section class="card">
       <h2 class="section-kicker">Documentos Recebidos</h2>

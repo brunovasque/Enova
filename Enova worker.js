@@ -13064,7 +13064,7 @@ async function getCorrespondenteCaseByToken(env, token) {
     method: "GET",
     query: {
       corr_assumir_token: `eq.${encodeURIComponent(safeToken)}`,
-      select: "wa_id,nome,fase_conversa,corr_assumir_token,corr_publicacao_status,corr_publicado_grupo_em,corr_lock_correspondente_wa_id,corr_lock_assumido_em,corr_entrega_privada_status,processo_enviado_correspondente,dossie_resumo",
+      select: "wa_id,nome,fase_conversa,pre_cadastro_numero,corr_assumir_token,corr_publicacao_status,corr_publicado_grupo_em,corr_lock_correspondente_wa_id,corr_lock_assumido_em,corr_entrega_privada_status,processo_enviado_correspondente,dossie_resumo",
       order: "updated_at.desc",
       limit: 1
     }

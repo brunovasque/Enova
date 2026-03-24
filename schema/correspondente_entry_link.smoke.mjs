@@ -1340,6 +1340,62 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(openDocMatches.length, 1);
 }
 
+// 3.8l.2) Uploads tardios (CTPS após publicação) devem aparecer no dossiê web ao recarregar.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.corr_lock_correspondente_wa_id = correspondenteWa;
+  st.processo_enviado_correspondente = true;
+  st.corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  st.fase_conversa = "finalizacao_processo";
+  st.pacote_documentos_anexados_json = [
+    { tipo: "comprovante_renda", participante: "p1", status: "recebido", url: "https://docs.example.com/renda-p1.pdf" }
+  ];
+  st.envio_docs_itens_json = [
+    { tipo: "comprovante_renda", participante: "p1", status: "validado_basico", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true },
+    { tipo: "ctps_completa", participante: "p1", status: "pendente", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false }
+  ];
+  st.envio_docs_historico_json = [
+    {
+      origem: "upload",
+      associado: { tipo: "comprovante_renda", participante: "p1" },
+      media_ref: { media_id: "mid-renda-001", url: "https://docs.example.com/renda-p1.pdf", file_name: "renda-p1.pdf" }
+    }
+  ];
+
+  const reqBefore = new Request(`https://worker.local/correspondente/entrada?pre=000001&cw=${correspondenteWa}`, { method: "GET" });
+  const resBefore = await worker.fetch(reqBefore, env, {});
+  const bodyBefore = await resBefore.text();
+  const lateCtpsDocId = "doc=doc_mid-ctps-late-001";
+  assert.equal(resBefore.status, 200);
+  assert.equal(bodyBefore.includes("comprovante_renda — Titular"), true);
+  assert.equal(bodyBefore.includes("ctps_completa — Titular"), true);
+  assert.equal(bodyBefore.includes("Sem pendências documentais ativas."), false);
+  assert.equal(bodyBefore.includes(lateCtpsDocId), false, "CTPS tardia ainda não deve existir antes do novo upload");
+  const openDocBefore = bodyBefore.match(/>abrir documento</g) || [];
+  assert.equal(openDocBefore.length >= 1, true);
+
+  st.envio_docs_historico_json = [
+    ...st.envio_docs_historico_json,
+    {
+      origem: "upload",
+      associado: { tipo: "ctps_completa", participante: "p1" },
+      media_ref: { media_id: "mid-ctps-late-001", url: "https://docs.example.com/ctps-late.pdf", file_name: "ctps-late.pdf" }
+    }
+  ];
+
+  const reqAfter = new Request(`https://worker.local/correspondente/entrada?pre=000001&cw=${correspondenteWa}`, { method: "GET" });
+  const resAfter = await worker.fetch(reqAfter, env, {});
+  const bodyAfter = await resAfter.text();
+  assert.equal(resAfter.status, 200);
+  assert.equal(bodyAfter.includes("comprovante_renda — Titular"), true);
+  assert.equal(bodyAfter.includes("ctps_completa — Titular"), true);
+  assert.equal(bodyAfter.includes("Sem pendências documentais ativas."), true);
+  assert.equal(bodyAfter.includes(lateCtpsDocId), true);
+  const openDocAfter = bodyAfter.match(/>abrir documento</g) || [];
+  assert.equal(openDocAfter.length, openDocBefore.length + 1);
+}
+
 // 3.8m) Uploads reais múltiplos do mesmo checklist (ex.: comprovante_renda) não podem ser comprimidos.
 {
   const env = buildEnvWithState();

@@ -116,6 +116,38 @@ function buildTextWebhook(from, text, msgId) {
   };
 }
 
+function buildDocumentWebhook(from, msgId, { caption = "", mimeType = "application/pdf", filename = "ctps.pdf" } = {}) {
+  return {
+    object: "whatsapp_business_account",
+    entry: [
+      {
+        changes: [
+          {
+            value: {
+              messages: [
+                {
+                  from,
+                  id: msgId,
+                  timestamp: "1773183900",
+                  type: "document",
+                  document: {
+                    id: "media-doc-smoke-1",
+                    mime_type: mimeType,
+                    filename,
+                    caption
+                  }
+                }
+              ],
+              contacts: [{ wa_id: from }],
+              metadata: { phone_number_id: "test" }
+            }
+          }
+        ]
+      }
+    ]
+  };
+}
+
 // 1) Com docs completos/pacote pronto, texto de upload avança para finalizacao_processo.
 {
   const env = buildEnv();
@@ -241,6 +273,43 @@ function buildTextWebhook(from, text, msgId) {
   assert.equal(res.status, 200);
   const st = env.__enovaSimulationCtx.stateByWaId[waId];
   assert.equal(st.fase_conversa, "envio_docs");
+}
+
+// 3.1) Mesmo em finalizacao_processo, upload real tardio deve ser incorporado sem descartar o documento.
+{
+  const env = buildEnv();
+  env.__enovaSimulationCtx.stateByWaId[waId] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waId],
+    fase_conversa: "finalizacao_processo",
+    envio_docs_status: "completo",
+    pacote_status: "pronto",
+    analise_docs_status: "validada",
+    envio_docs_itens_json: [
+      { tipo: "identidade_cpf", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "holerites", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "ctps_completa", participante: "p1", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false, status: "pendente" }
+    ]
+  };
+  const req = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(buildDocumentWebhook(waId, "wamid.docs.finalizacao.ctps.1", {
+      caption: "ctps titular completa",
+      filename: "ctps-titular.pdf"
+    }))
+  });
+  const res = await worker.fetch(req, env, {});
+  assert.equal(res.status, 200);
+  const st = env.__enovaSimulationCtx.stateByWaId[waId];
+  assert.equal(st.fase_conversa, "finalizacao_processo");
+  assert.equal(
+    Array.isArray(st.envio_docs_itens_json) &&
+      st.envio_docs_itens_json.some(
+        (item) => item.tipo === "ctps_completa" && item.participante === "p1" && item.status !== "pendente"
+      ),
+    true
+  );
 }
 
 // 4) Em falha de envio, cliente não recebe confirmação de publicação e log registra falha.

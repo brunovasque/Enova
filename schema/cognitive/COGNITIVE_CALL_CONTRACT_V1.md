@@ -14,6 +14,7 @@ Definir o input e o output mínimos do **Enova Cognitive Engine**, deixando expl
 - a resposta é devolvida ao **Enova Orchestrator**
 - a validação final acontece fora do cognitivo
 - `should_advance_stage=false` é a regra inicial
+- a configuração de modelo do cognitivo isolado deve permanecer separada da IA offtrack existente (`COGNITIVE_AI_MODEL`)
 
 ## Input canônico
 

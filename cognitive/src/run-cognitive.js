@@ -146,7 +146,7 @@ function detectFamiliar(text) {
 
 function detectP3(text) {
   if (/\bseremos tres\b|\bseremos 3\b|\bp3\b|\bterceira pessoa\b|\bmais uma pessoa\b/.test(text)) return "sim";
-  const familyCount = (text.match(/\bm[aã]e\b|\bpai\b|\birm[aã]o\b|\bav[oó]\b|\btio\b|\btia\b|\bprima\b|\bprimo\b/g) || []).length;
+  const familyCount = (text.match(/\bm[aã]e\b|\bpai\b|\birm[aã]o\b|\birm[aã]\b|\bav[oó]\b|\btio\b|\btia\b|\bprima\b|\bprimo\b/g) || []).length;
   if (familyCount >= 2) return "sim";
   return null;
 }
@@ -326,7 +326,7 @@ export function runReadOnlyCognitiveEngine(rawInput = {}) {
   const shouldRequestConfirmation =
     conflicts.length > 0 ||
     slotsDetectedCount > 3 ||
-    Object.keys(analysis.slots_detected).some((slot) => CONFIRMATION_SLOT_KEYS.has(slot) && pendingSlots.includes(slot));
+    Object.keys(analysis.slots_detected).some((slot) => CONFIRMATION_SLOT_KEYS.has(slot));
 
   const consultiveNotes = [...analysis.consultive_notes];
   if (slotsDetectedCount > 2) {

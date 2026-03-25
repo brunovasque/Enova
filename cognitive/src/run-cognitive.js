@@ -487,7 +487,7 @@ function buildOpenAIUserPrompt(request, analysis, normativeContext) {
 
 async function callOpenAIReadOnly(runtimeConfig, prompt) {
   if (!runtimeConfig?.openaiApiKey || !runtimeConfig?.fetchImpl) {
-    return { ok: false, reason: "missing_openai_config", parsed: null };
+    return { ok: false, reason: "missing_openai_config", raw: null, parsed: null };
   }
 
   let response;
@@ -509,33 +509,34 @@ async function callOpenAIReadOnly(runtimeConfig, prompt) {
       })
     });
   } catch {
-    return { ok: false, reason: "openai_fetch_failed", parsed: null };
+    return { ok: false, reason: "openai_fetch_failed", raw: null, parsed: null };
   }
 
   if (!response?.ok) {
-    return { ok: false, reason: `openai_http_${response?.status || "error"}`, parsed: null };
+    return { ok: false, reason: `openai_http_${response?.status || "error"}`, raw: null, parsed: null };
   }
 
   let data = null;
   try {
     data = await response.json();
   } catch {
-    return { ok: false, reason: "openai_invalid_json", parsed: null };
+    return { ok: false, reason: "openai_invalid_json", raw: null, parsed: null };
   }
 
   const content = data?.choices?.[0]?.message?.content;
   if (typeof content !== "string" || !content.trim()) {
-    return { ok: false, reason: "openai_empty_content", parsed: null };
+    return { ok: false, reason: "openai_empty_content", raw: content ?? null, parsed: null };
   }
 
   try {
     return {
       ok: true,
       reason: null,
+      raw: content,
       parsed: JSON.parse(content)
     };
   } catch {
-    return { ok: false, reason: "openai_parse_failed", parsed: null };
+    return { ok: false, reason: "openai_parse_failed", raw: content, parsed: null };
   }
 }
 
@@ -770,6 +771,8 @@ export async function runReadOnlyCognitiveEngine(rawInput = {}, options = {}) {
     mode: "read_only_test",
     request,
     response,
+    llm_raw_response: llmResult.raw ?? null,
+    llm_parsed_response: llmResult.parsed ?? null,
     validation,
     engine: {
       llm_attempted: llmAttempted,

@@ -107,9 +107,9 @@ function getLastStepMessagesForWa(env, waId) {
   const mensagem = buildCorrespondenteGroupAlert(env.__enovaSimulationCtx.stateByWaId[waCaso], token, env);
   assert.equal(mensagem.includes("Pré-cadastro: 000001"), true);
   assert.equal(mensagem.includes("Cliente: JOAO TESTE"), true);
-  assert.equal(mensagem.includes("CTA principal"), true);
-  assert.equal(mensagem.includes("link de entrada da Enova"), true);
-  assert.equal(mensagem.includes("Fallback de compatibilidade: *ASSUMIR 000001* ou *ASSUMIR TOKEN*."), true);
+  assert.equal(mensagem.includes("CTA principal"), false);
+  assert.equal(mensagem.includes("link de entrada da Enova"), false);
+  assert.equal(mensagem.includes("Fallback de compatibilidade: *ASSUMIR 000001* ou *ASSUMIR TOKEN*."), false);
   assert.equal(mensagem.includes("Token de entrada"), false);
   assert.equal(
     mensagem.includes("https://entrada.enova.local/correspondente/entrada?pre=000001"),
@@ -579,10 +579,10 @@ function getLastStepMessagesForWa(env, waId) {
   const res = await worker.fetch(req, env, {});
   const html = await res.text();
   assert.equal(res.status, 200);
-  assert.equal(html.includes("Capa do caso"), true);
+  assert.equal(html.includes("Capa do pré-cadastro"), true);
   assert.equal(html.includes("Referência:"), true);
   assert.equal(html.includes("000001"), true);
-  assert.equal(html.includes("Assumir caso"), true);
+  assert.equal(html.includes("Assumir pré-cadastro"), true);
   assert.equal(html.includes("porta oficial de assunção"), true);
 }
 
@@ -649,7 +649,7 @@ function getLastStepMessagesForWa(env, waId) {
   const wrongWaRes = await worker.fetch(wrongWaReq, env, {});
   const wrongWaBody = await wrongWaRes.text();
   assert.equal(wrongWaRes.status, 403);
-  assert.equal(wrongWaBody.includes("Este caso já foi assumido por outro correspondente."), true);
+  assert.equal(wrongWaBody.includes("Este pré-cadastro já foi assumido por outro correspondente."), true);
 }
 
 // 2.3) POST via link com WA sem 55 mantém lock raw, envia privado para WA outbound com 55 e registra probes.
@@ -758,7 +758,7 @@ function getLastStepMessagesForWa(env, waId) {
   const wrongWaRes = await worker.fetch(wrongWaReq, env, {});
   const wrongWaBody = await wrongWaRes.text();
   assert.equal(wrongWaRes.status, 403);
-  assert.equal(wrongWaBody.includes("Este caso já foi assumido por outro correspondente."), true);
+  assert.equal(wrongWaBody.includes("Este pré-cadastro já foi assumido por outro correspondente."), true);
   assert.equal(wrongWaBody.includes("Resumo executivo"), false);
 
   const sameOwnerPreCadastroReq = new Request("https://worker.local/webhook/meta", {

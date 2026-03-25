@@ -24,9 +24,9 @@ const STAGE_DEFAULT_PENDING_SLOTS = Object.freeze({
 const BRL_CURRENCY_PATTERN = /(?<!\d)(?:r\$\s*)?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{2})?(?!\d)/i;
 const OFFTRACK_HINTS = /\b(valor|entrada|parcela|imovel|imóvel|casa|apartamento|bairro|regiao|região|metros)\b/i;
 const AMBIGUOUS_HINTS = /\b(acho|talvez|mais ou menos|nao sei|não sei|meio|duvida|dúvida)\b/i;
-const DEFER_ACTION_HINTS = /\b(depois eu vejo|depois vejo|vejo depois|depois eu mando|depois mando|te mando depois|depois eu vejo isso|depois vejo isso|depois te falo)\b/i;
-const NO_TIME_HINTS = /\b(nao tenho tempo|não tenho tempo|agora nao tenho tempo|agora não tenho tempo|agora nao consigo|agora não consigo|to sem tempo|tô sem tempo|corrido agora)\b/i;
-const REMOTE_REFUSAL_HINTS =
+const DEFER_ACTION_PATTERN = /\b(depois eu vejo|depois vejo|vejo depois|depois eu mando|depois mando|te mando depois|depois eu vejo isso|depois vejo isso|depois te falo)\b/i;
+const NO_TIME_PATTERN = /\b(nao tenho tempo|não tenho tempo|agora nao tenho tempo|agora não tenho tempo|agora nao consigo|agora não consigo|to sem tempo|tô sem tempo|corrido agora)\b/i;
+const REMOTE_REFUSAL_PATTERN =
   /\b(nao quero atendimento online|não quero atendimento online|nao quero atendimento remoto|não quero atendimento remoto|nao quero seguir online|não quero seguir online|nao quero continuar online|não quero continuar online|nao quero no whatsapp|não quero no whatsapp|prefiro presencial|quero atendimento presencial|quero ir presencial|sem whatsapp)\b/i;
 const FAMILY_MEMBER_PATTERN = /\bm[aã]e\b|\bpai\b|\birm[aã](?:o)?\b|\bav[oó]\b|\btio\b|\btia\b|\bprima\b|\bprimo\b/g;
 const CONFIRMATION_SLOT_KEYS = new Set(["p3"]);
@@ -52,6 +52,39 @@ const COGNITIVE_SLOT_DEPENDENCIES = Object.freeze({
   restricao: ["docs"],
   docs: ["correspondente"],
   correspondente: ["visita"]
+});
+const REPLY_TEXT_REPLACEMENTS = Object.freeze([
+  [/\brunner read-only\b/gi, "atendimento"],
+  [/\bmotor cognitivo de teste\b/gi, "atendimento"],
+  [/\bcognitivo de teste\b/gi, "atendimento"],
+  [/\bmodo read-only\b/gi, ""],
+  [/\bneste teste isolado\b/gi, ""],
+  [/\bleitura estruturada do cognitivo\b/gi, "leitura do seu caso"],
+  [/\bleitura cognitiva\b/gi, "leitura do seu caso"]
+]);
+const SLOT_LABELS = Object.freeze({
+  estado_civil: "estado civil",
+  composicao: "composição de renda",
+  familiar: "familiar que vai compor renda",
+  p3: "terceira pessoa na composição",
+  regime_trabalho: "tipo de trabalho",
+  renda: "renda mensal",
+  ir_declarado: "Imposto de Renda",
+  docs: "documentos",
+  correspondente: "documentos pendentes",
+  visita: "visita no plantão"
+});
+const SLOT_ACTION_PROMPTS = Object.freeze({
+  estado_civil: "Me confirma seu estado civil hoje: solteiro, casado no civil ou união estável?",
+  composicao: "Me confirma se você vai seguir sozinho, com parceiro ou com familiar?",
+  familiar: "Me diz com qual familiar você pretende compor renda?",
+  p3: "Me confirma se terá uma terceira pessoa compondo renda?",
+  regime_trabalho: "Me confirma se hoje você é CLT, autônomo, servidor ou aposentado?",
+  renda: "Me informa sua renda média mensal?",
+  ir_declarado: "Me confirma se você declara Imposto de Renda?",
+  docs: "Se quiser, já me manda os documentos básicos agora que eu adianto sua análise.",
+  correspondente: "Se quiser, já me manda os documentos pendentes agora que eu adianto sua análise.",
+  visita: "Quer que eu já veja um horário de visita no plantão para você?"
 });
 const COGNITIVE_SLOT_CONTRACT = Object.freeze([
   {
@@ -243,15 +276,10 @@ function clampConfidence(value, fallback = 0.5) {
 }
 
 function sanitizeReplyText(value) {
-  return String(value || "")
-    .replace(/\u0000/g, "")
-    .replace(/\brunner read-only\b/gi, "atendimento")
-    .replace(/\bmotor cognitivo de teste\b/gi, "atendimento")
-    .replace(/\bcognitivo de teste\b/gi, "atendimento")
-    .replace(/\bmodo read-only\b/gi, "")
-    .replace(/\bneste teste isolado\b/gi, "")
-    .replace(/\bleitura estruturada do cognitivo\b/gi, "leitura do seu caso")
-    .replace(/\bleitura cognitiva\b/gi, "leitura do seu caso")
+  return REPLY_TEXT_REPLACEMENTS.reduce(
+    (text, [pattern, replacement]) => text.replace(pattern, replacement),
+    String(value || "").replace(/\u0000/g, "")
+  )
     .replace(/\s+/g, " ")
     .replace(/\s+([,.!?;:])/g, "$1")
     .trim();
@@ -260,39 +288,12 @@ function sanitizeReplyText(value) {
 function humanizeSlotName(slot) {
   const safe = String(slot || "").trim();
   if (!safe) return "informação pendente";
-
-  const labels = {
-    estado_civil: "estado civil",
-    composicao: "composição de renda",
-    familiar: "familiar que vai compor renda",
-    p3: "terceira pessoa na composição",
-    regime_trabalho: "tipo de trabalho",
-    renda: "renda mensal",
-    ir_declarado: "Imposto de Renda",
-    docs: "documentos",
-    correspondente: "documentos pendentes",
-    visita: "visita no plantão"
-  };
-
-  return labels[safe] || safe.replace(/_/g, " ");
+  return SLOT_LABELS[safe] || safe.replace(/_/g, " ");
 }
 
 function buildSlotActionPrompt(slot) {
   const safe = String(slot || "").trim();
-  const prompts = {
-    estado_civil: "Me confirma seu estado civil hoje: solteiro, casado no civil ou união estável?",
-    composicao: "Me confirma se você vai seguir sozinho, com parceiro ou com familiar?",
-    familiar: "Me diz com qual familiar você pretende compor renda?",
-    p3: "Me confirma se terá uma terceira pessoa compondo renda?",
-    regime_trabalho: "Me confirma se hoje você é CLT, autônomo, servidor ou aposentado?",
-    renda: "Me informa sua renda média mensal?",
-    ir_declarado: "Me confirma se você declara Imposto de Renda?",
-    docs: "Se quiser, já me manda os documentos básicos agora que eu adianto sua análise.",
-    correspondente: "Se quiser, já me manda os documentos pendentes agora que eu adianto sua análise.",
-    visita: "Quer que eu já veja um horário de visita no plantão para você?"
-  };
-
-  return prompts[safe] || `Me confirma primeiro a informação de ${humanizeSlotName(safe)}?`;
+  return SLOT_ACTION_PROMPTS[safe] || `Me confirma primeiro a informação de ${humanizeSlotName(safe)}?`;
 }
 
 function shouldDriveToDocuments(request, suggestedNextSlot, pendingSlots) {
@@ -317,18 +318,18 @@ function buildNextActionPrompt({ request, suggestedNextSlot, pendingSlots }) {
   const normalizedMessage = normalizeText(request?.message_text);
   const nextSlot = suggestedNextSlot || pendingSlots[0] || null;
 
-  if (REMOTE_REFUSAL_HINTS.test(normalizedMessage)) {
+  if (REMOTE_REFUSAL_PATTERN.test(normalizedMessage)) {
     return "No plantão você consegue entender melhor as opções e ver o que faz sentido para o seu perfil. Quer que eu já veja um horário de visita para você?";
   }
 
-  if (DEFER_ACTION_HINTS.test(normalizedMessage)) {
+  if (DEFER_ACTION_PATTERN.test(normalizedMessage)) {
     if (shouldDriveToDocuments(request, suggestedNextSlot, pendingSlots)) {
       return "Quanto antes você me enviar os documentos, mais rápido eu consigo te orientar com precisão. Se quiser, já me manda agora que eu adianto sua análise.";
     }
     return `Quanto antes você me confirmar isso, mais rápido eu consigo te orientar com precisão no seu caso. ${buildSlotActionPrompt(nextSlot)}`;
   }
 
-  if (NO_TIME_HINTS.test(normalizedMessage)) {
+  if (NO_TIME_PATTERN.test(normalizedMessage)) {
     if (shouldDriveToDocuments(request, suggestedNextSlot, pendingSlots)) {
       return "É rapidinho e já adianta bastante sua análise. Se quiser, me manda o básico agora e depois a gente complementa.";
     }
@@ -812,9 +813,9 @@ function normalizeModelResponse({
     analysis.offtrack ||
     conflicts.length > 0 ||
     Object.keys(slotsDetected).length === 0 ||
-    DEFER_ACTION_HINTS.test(normalizedMessage) ||
-    NO_TIME_HINTS.test(normalizedMessage) ||
-    REMOTE_REFUSAL_HINTS.test(normalizedMessage);
+    DEFER_ACTION_PATTERN.test(normalizedMessage) ||
+    NO_TIME_PATTERN.test(normalizedMessage) ||
+    REMOTE_REFUSAL_PATTERN.test(normalizedMessage);
   const replyText = preferHeuristicReply ? heuristicResponse.reply_text : rawReplyText;
   const shouldRequestConfirmation =
     typeof modelResponse.should_request_confirmation === "boolean"

@@ -3945,6 +3945,15 @@ if (isAdminProdPath) {
         });
       }
 
+      if (envMode !== "test") {
+        return adminJson(403, {
+          ok: false,
+          error: "forbidden_test_only",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
       let payload;
       try {
         payload = await request.json();

@@ -92,7 +92,7 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
       current_stage: "somar_renda_solteiro",
       message_text: "Sou solteiro, ganho 1.900, minha mãe vai compor comigo.",
       known_slots: {},
-      pending_slots: ["composicao", "familiar", "renda"],
+      pending_slots: ["estado_civil", "composicao", "familiar", "renda"],
       recent_messages: []
     },
     expected: {

@@ -21,7 +21,7 @@ const STAGE_DEFAULT_PENDING_SLOTS = Object.freeze({
   renda: ["renda", "ir_declarado"]
 });
 
-const BRL_CURRENCY_REGEX = /(?:r\$\s*)?\d{1,3}(?:\.\d{3})*(?:,\d{2})?|(?:r\$\s*)?\d+(?:,\d{2})?/gi;
+const BRL_CURRENCY_PATTERN = /(?:r\$\s*)?\d{1,3}(?:\.\d{3})*(?:,\d{2})?|(?:r\$\s*)?\d+(?:,\d{2})?/i;
 const OFFTRACK_HINTS = /\b(valor|entrada|parcela|imovel|imóvel|casa|apartamento|bairro|regiao|região|metros)\b/i;
 const AMBIGUOUS_HINTS = /\b(acho|talvez|mais ou menos|nao sei|não sei|meio|duvida|dúvida)\b/i;
 const FAMILY_MEMBER_PATTERN = /\bm[aã]e\b|\bpai\b|\birm[aã](?:o)?\b|\bav[oó]\b|\btio\b|\btia\b|\bprima\b|\bprimo\b/g;
@@ -91,7 +91,7 @@ function pickDetectedValue(text, pairs) {
 }
 
 function detectMoney(text) {
-  const matches = String(text || "").match(BRL_CURRENCY_REGEX);
+  const matches = String(text || "").match(new RegExp(BRL_CURRENCY_PATTERN.source, "gi"));
   if (!matches || !matches.length) return null;
   const parsedValues = matches
     .map((match) => {

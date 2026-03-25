@@ -3643,7 +3643,7 @@ function getLastStepMessagesForWa(env, waId) {
 }
 
 // 24) lock mismatch em case_ref explícito deve bloquear tratamento operacional.
-// 24) Matriz canônica: Pré-cadastro #000029 + STATUS: REPROVADO deve manter fase fora de visita.
+// 24) Matriz canônica: Pré-cadastro #000029 + STATUS: REPROVADO deve manter fase final em aguardando_retorno_correspondente.
 {
   const env = buildEnvWithState();
   env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000029";
@@ -3713,7 +3713,7 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(alvo.fase_conversa, "aguardando_retorno_correspondente");
 }
 
-// 25) Matriz canônica: Pré-cadastro #000030 + STATUS: PENDÊNCIA deve manter fase fora de visita.
+// 25) Matriz canônica: Pré-cadastro #000030 + STATUS: PENDÊNCIA deve manter fase final em aguardando_retorno_correspondente.
 {
   const env = buildEnvWithState();
   env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000030";

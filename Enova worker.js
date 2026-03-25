@@ -1,3 +1,9 @@
+import {
+  getReadOnlyCognitiveFixtureById,
+  listReadOnlyCognitiveFixtures,
+  runReadOnlyCognitiveEngine
+} from "./cognitive/src/run-cognitive.js";
+
 console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
 
 const ENOVA_BUILD = "enova-meta-debug-stamp-2026-03-11-visit-suite-publish";
@@ -3917,6 +3923,105 @@ if (isAdminProdPath) {
         build: ENOVA_BUILD,
         ts: new Date().toISOString()
       });
+    }
+
+    if (request.method === "POST" && pathname === "/__admin__/cognitive-test") {
+      if (!isAdminAuthorized()) {
+        return adminJson(401, {
+          ok: false,
+          error: "unauthorized",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_json",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      if (payload?.list_fixtures === true) {
+        return adminJson(200, {
+          ok: true,
+          mode: "read_only_test",
+          fixtures: listReadOnlyCognitiveFixtures(),
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const fixture = payload?.fixture_id
+        ? getReadOnlyCognitiveFixtureById(String(payload.fixture_id))
+        : null;
+
+      if (payload?.fixture_id && !fixture) {
+        return adminJson(404, {
+          ok: false,
+          error: "fixture_not_found",
+          fixture_id: String(payload.fixture_id),
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const rawRequest =
+        fixture?.input ||
+        (payload?.request && typeof payload.request === "object" ? payload.request : null) ||
+        (payload?.message_text || payload?.message || payload?.context || payload?.current_stage
+          ? payload
+          : null);
+
+      if (!rawRequest) {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_payload",
+          details: "Envie fixture_id, request ou payload cognitivo direto.",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const previousCtx = env.__enovaSimulationCtx;
+      const auditCtx = {
+        active: true,
+        dryRun: true,
+        stateByWaId: {},
+        messageLog: [],
+        writeLog: [],
+        writesByWaId: {},
+        suppressExternalSend: true,
+        wouldSend: false,
+        sendPreview: null
+      };
+      env.__enovaSimulationCtx = auditCtx;
+
+      try {
+        const result = runReadOnlyCognitiveEngine(rawRequest);
+        const status = result?.validation?.valid ? 200 : 400;
+
+        return adminJson(status, {
+          ...result,
+          fixture_id: fixture?.id || null,
+          fixture_title: fixture?.title || null,
+          side_effect_audit: {
+            official_write_count: auditCtx.writeLog.length,
+            would_send_meta: auditCtx.wouldSend === true,
+            send_preview: auditCtx.sendPreview || null,
+            message_log_count: auditCtx.messageLog.length
+          },
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      } finally {
+        env.__enovaSimulationCtx = previousCtx;
+      }
     }
 
     if (request.method === "POST" && pathname === "/__admin__/replay-webhook") {

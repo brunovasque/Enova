@@ -26,9 +26,25 @@ O módulo cognitivo **ainda não está plugado em produção**.
 Os arquivos em `cognitive/src/` são apenas esqueleto inicial:
 
 - sem side effects
-- sem deploy behavior
-- sem rotas
+- com runner read-only isolado para teste local/mock
+- com rota admin/test isolada no Worker apenas em `ENV_MODE=test`
 - sem integração ativa
+
+## Fase 2 — modo read-only de teste
+
+Esta fase adiciona somente superfícies de teste controlado:
+
+- `cognitive/src/run-cognitive.js` → runner seguro em JS, sem build TS
+- `cognitive/fixtures/read-only-cases.js` → fixtures/replay mínimos
+- `POST /__admin__/cognitive-test` → rota admin/test isolada
+
+Garantias:
+
+- não substitui `cognitiveAssistV1`
+- não entra no fluxo real do cliente
+- não envia Meta real
+- não grava estado oficial
+- não altera gate, `nextStage` ou fase
 
 ## Relação canônica entre camadas
 

@@ -21,7 +21,8 @@ export const createPlaceholderResponse = (
 
   return {
     ...emptyCognitiveResponse(),
-    humanResponse: "",
+    humanResponse:
+      "Placeholder do Enova Cognitive Engine: retorno consultivo ainda não integrado em produção.",
     knownSlots: request.knownSlots,
     pendingSlots,
     suggestedNextSlot,

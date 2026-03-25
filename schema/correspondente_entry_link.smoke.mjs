@@ -4889,4 +4889,174 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(lastClientMsgs.includes("pré-aprovação do financiamento"), true);
 }
 
+// 44) Falha no ACK ao correspondente deve ficar explicitamente telemetrizada sem quebrar roteamento aprovado.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000031";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = "5511999999999";
+  env.__enovaSimulationCtx.suppressExternalSend = false;
+  const originalFetch = globalThis.fetch;
+  const originalConsoleLog = console.log;
+  const capturedProbe = [];
+
+  globalThis.fetch = async (input, init) => {
+    const rawUrl = typeof input === "string" ? input : input.url;
+    if (String(rawUrl).includes("graph.facebook.com")) {
+      const payload = init?.body ? JSON.parse(init.body) : {};
+      const to = String(payload?.to || "").trim();
+      if (to === "5511999999999") {
+        return new Response(JSON.stringify({ error: { message: "ack fail" } }), { status: 503, headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ messages: [{ id: "wamid.client.ok" }] }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return originalFetch(input, init);
+  };
+  console.log = (...args) => {
+    const line = args.map((part) => String(part)).join(" ");
+    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_ack_send_result") || line.includes("corr_client_send_result") || line.includes("corr_route_probe_case_ref_attempt"))) {
+      capturedProbe.push(line);
+    }
+    return originalConsoleLog(...args);
+  };
+
+  try {
+    const retornoReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: "5511999999999",
+                id: "wamid.retorno.case.ref.req.ack.failure.000031",
+                timestamp: "1773183975",
+                type: "text",
+                text: { body: "Pré-cadastro #000031\nSTATUS: APROVADO" }
+              }],
+              contacts: [{ wa_id: "5511999999999" }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(retornoReq, env, {});
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.log = originalConsoleLog;
+  }
+
+  const telemetryPrefix = "TELEMETRIA-SAFE: ";
+  const parsedEvents = capturedProbe
+    .map((line) => {
+      const payloadStr = line.includes(telemetryPrefix)
+        ? line.slice(line.indexOf(telemetryPrefix) + telemetryPrefix.length)
+        : "";
+      if (!payloadStr) return null;
+      const payload = JSON.parse(payloadStr);
+      return {
+        event: payload?.event || null,
+        details: payload?.details ? JSON.parse(payload.details) : null
+      };
+    })
+    .filter(Boolean);
+  const lastByEvent = Object.fromEntries(parsedEvents.map((item) => [item.event, item.details]));
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.fase_conversa, "agendamento_visita");
+  assert.equal(lastByEvent.corr_route_probe_case_ref_attempt?.status_classificado, "aprovado");
+  assert.equal(lastByEvent.corr_ack_send_result?.ack_attempted, "sim");
+  assert.equal(lastByEvent.corr_ack_send_result?.ack_send_ok, "nao");
+  assert.equal(lastByEvent.corr_client_send_result?.send_failed_count, 0);
+}
+
+// 45) Falha no envio ao cliente pós-aprovado deve ficar explicitamente telemetrizada.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000031";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = "5511999999999";
+  env.__enovaSimulationCtx.suppressExternalSend = false;
+  const originalFetch = globalThis.fetch;
+  const originalConsoleLog = console.log;
+  const capturedProbe = [];
+
+  globalThis.fetch = async (input, init) => {
+    const rawUrl = typeof input === "string" ? input : input.url;
+    if (String(rawUrl).includes("graph.facebook.com")) {
+      const payload = init?.body ? JSON.parse(init.body) : {};
+      const to = String(payload?.to || "").trim();
+      if (to === "5541999998888") {
+        return new Response(JSON.stringify({ error: { message: "client send fail" } }), { status: 503, headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ messages: [{ id: "wamid.ack.ok" }] }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return originalFetch(input, init);
+  };
+  console.log = (...args) => {
+    const line = args.map((part) => String(part)).join(" ");
+    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_ack_send_result") || line.includes("corr_client_send_result") || line.includes("step_send_failure"))) {
+      capturedProbe.push(line);
+    }
+    return originalConsoleLog(...args);
+  };
+
+  try {
+    const retornoReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: "5511999999999",
+                id: "wamid.retorno.case.ref.req.client.failure.000031",
+                timestamp: "1773183976",
+                type: "text",
+                text: { body: "Pré-cadastro #000031\nSTATUS: APROVADO" }
+              }],
+              contacts: [{ wa_id: "5511999999999" }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(retornoReq, env, {});
+  } finally {
+    globalThis.fetch = originalFetch;
+    console.log = originalConsoleLog;
+  }
+
+  const telemetryPrefix = "TELEMETRIA-SAFE: ";
+  const parsedEvents = capturedProbe
+    .map((line) => {
+      const payloadStr = line.includes(telemetryPrefix)
+        ? line.slice(line.indexOf(telemetryPrefix) + telemetryPrefix.length)
+        : "";
+      if (!payloadStr) return null;
+      const payload = JSON.parse(payloadStr);
+      return {
+        event: payload?.event || null,
+        details: payload?.details ? JSON.parse(payload.details) : null
+      };
+    })
+    .filter(Boolean);
+  const groupedByEvent = parsedEvents.reduce((acc, item) => {
+    if (!acc[item.event]) acc[item.event] = [];
+    acc[item.event].push(item.details);
+    return acc;
+  }, {});
+  const lastByEvent = Object.fromEntries(
+    Object.entries(groupedByEvent).map(([event, details]) => [event, details[details.length - 1]])
+  );
+  const stepFailures = groupedByEvent.step_send_failure || [];
+  assert.equal(lastByEvent.corr_ack_send_result?.ack_send_ok, "sim");
+  assert.equal(Number(lastByEvent.corr_client_send_result?.send_failed_count || 0) > 0, true);
+  assert.equal(stepFailures.length > 0, true);
+  assert.equal(stepFailures.some((item) => Number(item?.meta_status || 0) === 503), true);
+}
+
 console.log("correspondente_entry_link.smoke: ok");

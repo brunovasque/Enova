@@ -43,10 +43,15 @@ console.log("DEBUG-INIT-2: Passou da seção A1 e o Worker continua carregando")
 // =============================================================
 // 🧱 A6 — STEP com TELEMETRIA TOTAL (blindagem máxima)
 // =============================================================
-async function step(env, st, messages, nextStage) {
+async function step(env, st, messages, nextStage, options = {}) {
 
   const simCtx = getSimulationContext(env);
   const isSim = Boolean(simCtx?.active);
+  const shouldAttemptExternalSend = !isSim || simCtx?.suppressExternalSend === false;
+  const returnDeliveryReport = options?.returnDeliveryReport === true;
+  let sendAttemptCount = 0;
+  let sendSuccessCount = 0;
+  let sendFailedCount = 0;
 
   // Converte sempre para array
     const rawArr = Array.isArray(messages) ? messages : [messages];
@@ -153,8 +158,32 @@ async function step(env, st, messages, nextStage) {
         }
       });
 
-      if (!isSim) {
-        await sendMessage(env, st.wa_id, msg);
+      if (shouldAttemptExternalSend) {
+        sendAttemptCount += 1;
+        const sendResult = await sendMessage(env, st.wa_id, msg, { returnMeta: true });
+        const sendOk = sendResult?.ok === true;
+        if (sendOk) {
+          sendSuccessCount += 1;
+        } else {
+          sendFailedCount += 1;
+          await telemetry(env, {
+            wa_id: st.wa_id,
+            event: "step_send_failure",
+            stage: st.fase_conversa || "inicio",
+            next_stage: nextStage || null,
+            severity: "warning",
+            force: true,
+            message: "Falha no envio de mensagem dentro do step()",
+            details: {
+              msg,
+              meta_status: sendResult?.meta_status ?? null,
+              message_id: sendResult?.message_id || null,
+              send_attempt_count: sendAttemptCount,
+              send_success_count: sendSuccessCount,
+              send_failed_count: sendFailedCount
+            }
+          });
+        }
       }
 
       // Telemetria por mensagem enviada (modo verbose)
@@ -172,6 +201,18 @@ async function step(env, st, messages, nextStage) {
       await new Promise((r) =>
         setTimeout(r, Number(env.ENOVA_DELAY_MS) || 1200)
       );
+    }
+
+    if (returnDeliveryReport) {
+      return {
+        ok: true,
+        simulated: isSim,
+        stage_after: nextStage || st.fase_conversa || null,
+        messages: msgs,
+        send_attempt_count: sendAttemptCount,
+        send_success_count: sendSuccessCount,
+        send_failed_count: sendFailedCount
+      };
     }
 
     if (isSim) {
@@ -208,6 +249,19 @@ async function step(env, st, messages, nextStage) {
     // ============================================================
     // 🔥 FAILSAFE ABSOLUTO — Funil nunca morre
     // ============================================================
+    if (returnDeliveryReport) {
+      return {
+        ok: false,
+        simulated: isSim,
+        stage_after: nextStage || st.fase_conversa || null,
+        messages: arr,
+        send_attempt_count: sendAttemptCount,
+        send_success_count: sendSuccessCount,
+        send_failed_count: sendFailedCount,
+        error: err?.message || String(err)
+      };
+    }
+
     return new Response(
       JSON.stringify({
         messages: [
@@ -14415,14 +14469,61 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       stopped_before_common_flow: true
     }
   });
-  await sendMessage(env, correspondenteWaId, CORRESPONDENTE_RETORNO_ACK_MESSAGE);
+  const ackSendResult = await sendMessage(env, correspondenteWaId, CORRESPONDENTE_RETORNO_ACK_MESSAGE, { returnMeta: true });
+  await telemetry(env, {
+    wa_id: correspondenteWaId,
+    event: "corr_ack_send_result",
+    stage: "aguardando_retorno_correspondente",
+    severity: ackSendResult?.ok === true ? "info" : "warning",
+    force: true,
+    message: ackSendResult?.ok === true
+      ? "ACK ao correspondente enviado com sucesso"
+      : "Falha ao enviar ACK ao correspondente",
+    details: {
+      case_ref: caseRef || null,
+      ack_attempted: "sim",
+      ack_send_ok: ackSendResult?.ok === true ? "sim" : "nao",
+      meta_status: ackSendResult?.meta_status ?? null,
+      message_id: ackSendResult?.message_id || null
+    }
+  });
 
   const stAtualizado = await getState(env, waCliente) || stCaso;
   if (statusCanonico === "aprovado") {
-    await step(env, stAtualizado, [
+    const stepResult = await step(env, stAtualizado, [
       "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.",
       "Agora o próximo passo é **agendar sua visita no plantão** com opções oficiais de data e horário."
-    ], "agendamento_visita");
+    ], "agendamento_visita", { returnDeliveryReport: true });
+    const clientSendFailedCount = Number(stepResult?.send_failed_count || 0);
+    const clientSendAttemptCount = Number(stepResult?.send_attempt_count || 0);
+    const clientSendSuccessCount = Number(stepResult?.send_success_count || 0);
+    const clientSendFailed = clientSendFailedCount > 0 || stepResult?.ok === false;
+    await telemetry(env, {
+      wa_id: waCliente,
+      event: "corr_client_send_result",
+      stage: "agendamento_visita",
+      severity: clientSendFailed ? "warning" : "info",
+      force: true,
+      message: clientSendFailed
+        ? "Falha no envio ao cliente após retorno APROVADO do correspondente"
+        : "Envio ao cliente concluído após retorno APROVADO do correspondente",
+      details: {
+        case_ref: caseRef || null,
+        send_attempt_count: clientSendAttemptCount,
+        send_success_count: clientSendSuccessCount,
+        send_failed_count: clientSendFailedCount,
+        step_ok: stepResult?.ok === true ? "sim" : "nao"
+      }
+    });
+    if (ackSendResult?.ok !== true && clientSendFailed) {
+      return { handled: true, reason: "corr_return_case_ref_aprovado_ack_and_client_send_failed", case_ref: caseRef || null, status: statusCanonico };
+    }
+    if (ackSendResult?.ok !== true) {
+      return { handled: true, reason: "corr_return_case_ref_aprovado_ack_failed", case_ref: caseRef || null, status: statusCanonico };
+    }
+    if (clientSendFailed) {
+      return { handled: true, reason: "corr_return_case_ref_aprovado_client_send_failed", case_ref: caseRef || null, status: statusCanonico };
+    }
     return { handled: true, reason: "corr_return_case_ref_aprovado", case_ref: caseRef || null, status: statusCanonico };
   }
   if (statusCanonico === "aprovado_condicionado") {

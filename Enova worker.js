@@ -43,10 +43,11 @@ console.log("DEBUG-INIT-2: Passou da seção A1 e o Worker continua carregando")
 // =============================================================
 // 🧱 A6 — STEP com TELEMETRIA TOTAL (blindagem máxima)
 // =============================================================
-async function step(env, st, messages, nextStage) {
+async function step(env, st, messages, nextStage, options = {}) {
 
   const simCtx = getSimulationContext(env);
   const isSim = Boolean(simCtx?.active);
+  const requireSendSuccess = options?.requireSendSuccess === true;
 
   // Converte sempre para array
     const rawArr = Array.isArray(messages) ? messages : [messages];
@@ -154,7 +155,14 @@ async function step(env, st, messages, nextStage) {
       });
 
       if (!isSim) {
-        await sendMessage(env, st.wa_id, msg);
+        const sent = await sendMessage(env, st.wa_id, msg);
+        if (requireSendSuccess && sent !== true) {
+          const sendErr = new Error("step_send_failed");
+          sendErr.code = "step_send_failed";
+          sendErr.wa_id = st?.wa_id || null;
+          sendErr.next_stage = nextStage || null;
+          throw sendErr;
+        }
       }
 
       // Telemetria por mensagem enviada (modo verbose)
@@ -204,6 +212,10 @@ async function step(env, st, messages, nextStage) {
     });
 
     console.error("Erro no step():", err);
+
+    if (requireSendSuccess) {
+      throw err;
+    }
 
     // ============================================================
     // 🔥 FAILSAFE ABSOLUTO — Funil nunca morre
@@ -14415,14 +14427,36 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       stopped_before_common_flow: true
     }
   });
-  await sendMessage(env, correspondenteWaId, CORRESPONDENTE_RETORNO_ACK_MESSAGE);
+  const ackSent = await sendMessage(env, correspondenteWaId, CORRESPONDENTE_RETORNO_ACK_MESSAGE);
+  if (ackSent !== true) {
+    await funnelTelemetry(env, {
+      wa_id: waCliente,
+      event: "corr_return_case_ref_ack_send_failed",
+      stage: "aguardando_retorno_correspondente",
+      severity: "critical",
+      message: "Falha ao enviar ACK funcional ao correspondente no retorno por caseRef",
+      details: {
+        case_ref: caseRef,
+        correspondente_wa_id: correspondenteWaId,
+        status: statusCanonico
+      },
+      force: true
+    });
+    const ackError = new Error("corr_return_case_ref_ack_send_failed");
+    ackError.code = "corr_return_case_ref_ack_send_failed";
+    ackError.case_ref = caseRef || null;
+    ackError.status = statusCanonico || null;
+    ackError.wa_cliente = waCliente || null;
+    ackError.wa_correspondente = correspondenteWaId || null;
+    throw ackError;
+  }
 
   const stAtualizado = await getState(env, waCliente) || stCaso;
   if (statusCanonico === "aprovado") {
     await step(env, stAtualizado, [
       "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.",
       "Agora o próximo passo é **agendar sua visita no plantão** com opções oficiais de data e horário."
-    ], "agendamento_visita");
+    ], "agendamento_visita", { requireSendSuccess: true });
     return { handled: true, reason: "corr_return_case_ref_aprovado", case_ref: caseRef || null, status: statusCanonico };
   }
   if (statusCanonico === "aprovado_condicionado") {
@@ -14432,7 +14466,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       "Seu crédito está **aprovado com condicionantes**.",
       detalhe,
       "Agora o próximo passo é **agendar sua visita no plantão** com opções oficiais de data e horário."
-    ], "agendamento_visita");
+    ], "agendamento_visita", { requireSendSuccess: true });
     return { handled: true, reason: "corr_return_case_ref_aprovado_condicionado", case_ref: caseRef || null, status: statusCanonico };
   }
   if (statusCanonico === "reprovado") {

@@ -13575,6 +13575,9 @@ function isUsefulCorrespondenteReturnStatus(status) {
   ]).has(String(status || "").trim().toLowerCase());
 }
 
+const CORRESPONDENTE_OPERATIONAL_STATUS_FALLBACK_CODE_MAX_LEN = 12;
+const CORRESPONDENTE_OPERATIONAL_STATUS_LABEL_MAX_LEN = 30;
+
 function buildCorrespondenteOperationalStatusCode(status) {
   const normalizedStatus = String(status || "").trim().toLowerCase();
   const knownCodes = {
@@ -13593,7 +13596,7 @@ function buildCorrespondenteOperationalStatusCode(status) {
   const fallbackCode = normalizedStatus
     .replace(/[^a-z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "")
-    .slice(0, 12);
+    .slice(0, CORRESPONDENTE_OPERATIONAL_STATUS_FALLBACK_CODE_MAX_LEN);
   return fallbackCode || "indef";
 }
 
@@ -13604,7 +13607,7 @@ function buildCorrespondenteOperationalStatusLabel(status, prazoHoras) {
   const compactCode = buildCorrespondenteOperationalStatusCode(status);
   const baseLabel = `ret_util:${compactCode}`;
   const fullLabel = safePrazoHoras ? `${baseLabel}:${safePrazoHoras}h` : baseLabel;
-  return fullLabel.slice(0, 30);
+  return fullLabel.slice(0, CORRESPONDENTE_OPERATIONAL_STATUS_LABEL_MAX_LEN);
 }
 
 function buildCorrespondenteOperationalFollowPatch(status, rawText, nowIso = new Date().toISOString()) {

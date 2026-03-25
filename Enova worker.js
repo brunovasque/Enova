@@ -14706,6 +14706,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   return { handled: true, reason: "corr_return_case_ref_aprovado", case_ref: caseRef || null, status: statusCanonico };
 }
   if (statusCanonico === "aprovado_condicionado") {
+  const detalhe = motivo ? `Detalhe informado: *${String(motivo).replace(/[*_`~]/g, "").trim()}*.` : "O correspondente sinalizou uma pré-aprovação condicionada, e vamos seguir com a visita para avançar no processo.";
   await step(env, stAtualizado, [
     "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.",
     detalhe,
@@ -24743,6 +24744,28 @@ case "agendamento_visita": {
       "2) Prefiro ver depois"
     ],
     "agendamento_visita"
+  );
+}
+
+case "visita_confirmada": {
+  const ENDERECO_PLANTAO = "Av. Paraná, 2474 – Boa Vista (em frente ao terminal)";
+  const visitaResumo = st.visita_dia_hora || `${st.visita_data_escolhida || ""} ${st.visita_slot_escolhido || ""}`.trim() || "data a confirmar";
+  await funnelTelemetry(env, {
+    wa_id: st.wa_id,
+    event: "exit_stage",
+    stage,
+    next_stage: "visita_confirmada",
+    severity: "info",
+    message: "Cliente interagiu após visita confirmada"
+  });
+
+  return step(env, st,
+    [
+      `Sua visita já está confirmada para *${visitaResumo}*. ✅`,
+      `📍 Endereço do plantão: *${ENDERECO_PLANTAO}*`,
+      "Se precisar, posso te relembrar os detalhes por aqui."
+    ],
+    "visita_confirmada"
   );
 }
 

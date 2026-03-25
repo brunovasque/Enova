@@ -20,34 +20,34 @@ export interface CognitiveConflict {
 
 export interface CognitiveRequest {
   version: "V1";
-  conversationId: string;
+  conversation_id: string;
   channel: "meta_whatsapp";
-  currentStage: string;
-  messageText: string;
-  knownSlots: Record<string, CognitiveSlotValue>;
-  pendingSlots: string[];
+  current_stage: string;
+  message_text: string;
+  known_slots: Record<string, CognitiveSlotValue>;
+  pending_slots: string[];
 }
 
 export interface CognitiveResponse {
   version: "V1";
-  humanResponse: string;
-  knownSlots: Record<string, CognitiveSlotValue>;
-  pendingSlots: string[];
+  human_response: string;
+  known_slots: Record<string, CognitiveSlotValue>;
+  pending_slots: string[];
   conflicts: CognitiveConflict[];
-  suggestedNextSlot: string | null;
-  consultiveNotes: string[];
-  shouldRequestConfirmation: boolean;
-  shouldAdvanceStage: false;
+  suggested_next_slot: string | null;
+  consultive_notes: string[];
+  should_request_confirmation: boolean;
+  should_advance_stage: false;
 }
 
 export const emptyCognitiveResponse = (): CognitiveResponse => ({
   version: "V1",
-  humanResponse: "",
-  knownSlots: {},
-  pendingSlots: [],
+  human_response: "",
+  known_slots: {},
+  pending_slots: [],
   conflicts: [],
-  suggestedNextSlot: null,
-  consultiveNotes: [],
-  shouldRequestConfirmation: false,
-  shouldAdvanceStage: false
+  suggested_next_slot: null,
+  consultive_notes: [],
+  should_request_confirmation: false,
+  should_advance_stage: false
 });

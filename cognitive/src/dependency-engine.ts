@@ -1,8 +1,4 @@
-const dependencyMap: Record<string, string[]> = {
-  composicao: ["parceiro_p2", "familiar", "p3"],
-  docs: ["correspondente"],
-  correspondente: ["visita"]
-};
+export const COGNITIVE_DEPENDENCIES_SCHEMA_PATH =
+  "schema/cognitive/DEPENDENCIES_V1.json";
 
-export const getDependentSlots = (slotName: string): string[] =>
-  dependencyMap[slotName] ?? [];
+export const getDependentSlots = (_slotName: string): string[] => [];

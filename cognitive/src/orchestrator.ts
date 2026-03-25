@@ -21,11 +21,11 @@ export const createPlaceholderResponse = (
 
   return {
     ...emptyCognitiveResponse(),
-    humanResponse:
+    human_response:
       "Placeholder do Enova Cognitive Engine: retorno consultivo ainda não integrado em produção.",
-    knownSlots: request.knownSlots,
-    pendingSlots,
-    suggestedNextSlot,
-    consultiveNotes
+    known_slots: request.known_slots,
+    pending_slots: pendingSlots,
+    suggested_next_slot: suggestedNextSlot,
+    consultive_notes: consultiveNotes
   };
 };

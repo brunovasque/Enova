@@ -14351,19 +14351,19 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   });
 
   const operationalFollowPatch = buildCorrespondenteOperationalFollowPatch(
-    statusCanonico,
-    [String(signals.messageText || ""), String(signals.caption || ""), String(docExtraction?.extracted_text || "")].filter(Boolean).join("\n")
-  );
-  await upsertState(env, waCliente, {
-    retorno_correspondente_bruto: manualReviewRequired
-      ? JSON.stringify(rawPayload)
-      : String(signals.messageText || userText || "").trim(),
-    retorno_correspondente_status: statusCanonico,
-    retorno_correspondente_motivo: motivo,
-    retorno_correspondente_valor_financiamento: valorFinanciamento,
-    retorno_correspondente_valor_subsidio_federal: valorSubsidioFederal,
-    ...operationalFollowPatch
-  });
+  statusCanonico,
+  [String(signals.messageText || ""), String(signals.caption || ""), String(docExtraction?.extracted_text || "")].filter(Boolean).join("\n")
+);
+
+await upsertState(env, waCliente, {
+  retorno_correspondente_bruto: manualReviewRequired
+    ? JSON.stringify(rawPayload)
+    : String(signals.messageText || userText || "").trim(),
+  retorno_correspondente_status: statusCanonico,
+  retorno_correspondente_motivo: motivo,
+  retorno_correspondente_valor_financiamento: valorFinanciamento,
+  retorno_correspondente_valor_subsidio_federal: valorSubsidioFederal
+});
   await logger(env, {
     tipo: "retorno_correspondente_case_ref_processado",
     wa_id: waCliente,
@@ -14459,22 +14459,30 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
 
   const stAtualizado = await getState(env, waCliente) || stCaso;
   if (statusCanonico === "aprovado") {
-    await step(env, stAtualizado, [
-      "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.",
-      "Agora o próximo passo é **agendar sua visita no plantão** com opções oficiais de data e horário."
-    ], "agendamento_visita", { requireSendSuccess: true });
-    return { handled: true, reason: "corr_return_case_ref_aprovado", case_ref: caseRef || null, status: statusCanonico };
-  }
+  await step(env, stAtualizado, [
+    "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.",
+    "Agora o próximo passo é **agendar sua visita no plantão** com opções pré definidas de data e horário."
+  ], "agendamento_visita", { requireSendSuccess: true });
+
+  await upsertState(env, waCliente, {
+    ...operationalFollowPatch
+  });
+
+  return { handled: true, reason: "corr_return_case_ref_aprovado", case_ref: caseRef || null, status: statusCanonico };
+}
   if (statusCanonico === "aprovado_condicionado") {
-    const detalhe = motivo ? `Condição informada: *${String(motivo).replace(/[*_`~]/g, "").trim()}*.` : "Há condicionantes a observar no atendimento.";
-    await step(env, stAtualizado, [
-      "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.",
-      "Seu crédito está **aprovado com condicionantes**.",
-      detalhe,
-      "Agora o próximo passo é **agendar sua visita no plantão** com opções oficiais de data e horário."
-    ], "agendamento_visita", { requireSendSuccess: true });
-    return { handled: true, reason: "corr_return_case_ref_aprovado_condicionado", case_ref: caseRef || null, status: statusCanonico };
-  }
+  await step(env, stAtualizado, [
+    "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.",
+    detalhe,
+    "Agora o próximo passo é **agendar sua visita no plantão** com opções pré definidas de data e horário."
+  ], "agendamento_visita", { requireSendSuccess: true });
+
+  await upsertState(env, waCliente, {
+    ...operationalFollowPatch
+  });
+
+  return { handled: true, reason: "corr_return_case_ref_aprovado_condicionado", case_ref: caseRef || null, status: statusCanonico };
+}
   if (statusCanonico === "reprovado") {
     await step(env, stAtualizado, [
       "Recebi o retorno do correspondente… 😕",

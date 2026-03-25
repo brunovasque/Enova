@@ -157,5 +157,7 @@ const finalClientStep = env.__enovaSimulationCtx.messageLog.find((entry) => entr
 assert.equal(finalClientStep?.stage_after, "agendamento_visita");
 assert.equal(finalClientStep?.messages?.[0], "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.");
 assert.equal(env.__enovaSimulationCtx.sendPreview?.text?.body?.includes("Perfeito, obrigado pelo retorno."), true);
+assert.equal(env.__enovaSimulationCtx.stateByWaId[waCaso].processo_pre_analise_status, "ret_util:aprovado");
+assert.equal(String(env.__enovaSimulationCtx.stateByWaId[waCaso].processo_pre_analise_status || "").length <= 30, true);
 
 console.log("correspondente_return_state_fallback.smoke: ok");

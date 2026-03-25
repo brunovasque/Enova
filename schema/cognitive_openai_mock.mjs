@@ -9,7 +9,7 @@ function normalizeText(value) {
 
 function buildReply(text, slotsDetected, conflicts, suggestedNextSlot) {
   const normalized = normalizeText(text);
-  if (/\b(valor|entrada|parcela|imovel|imovel)\b/.test(normalized)) {
+  if (/\b(valor|entrada|parcela|imovel)\b/.test(normalized)) {
     return "Posso te orientar de forma consultiva, mas neste teste isolado eu não avanço o fluxo real. Para seguir com segurança, vou retomar a coleta do dado pendente.";
   }
   if (conflicts.length) {

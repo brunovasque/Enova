@@ -21,7 +21,7 @@ const STAGE_DEFAULT_PENDING_SLOTS = Object.freeze({
   renda: ["renda", "ir_declarado"]
 });
 
-const BRL_CURRENCY_PATTERN = /(?:r\$\s*)?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{2})?/i;
+const BRL_CURRENCY_PATTERN = /(?<!\d)(?:r\$\s*)?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{2})?(?!\d)/i;
 const OFFTRACK_HINTS = /\b(valor|entrada|parcela|imovel|imóvel|casa|apartamento|bairro|regiao|região|metros)\b/i;
 const AMBIGUOUS_HINTS = /\b(acho|talvez|mais ou menos|nao sei|não sei|meio|duvida|dúvida)\b/i;
 const FAMILY_MEMBER_PATTERN = /\bm[aã]e\b|\bpai\b|\birm[aã](?:o)?\b|\bav[oó]\b|\btio\b|\btia\b|\bprima\b|\bprimo\b/g;
@@ -397,7 +397,9 @@ function resolveRuntimeConfig(options = {}) {
 }
 
 function buildNormativeContext(request, runtimeConfig) {
-  const rawContext = Array.isArray(runtimeConfig?.normativeContext) && runtimeConfig.normativeContext.length
+  const hasRuntimeNormativeContext =
+    Array.isArray(runtimeConfig?.normativeContext) && runtimeConfig.normativeContext.length > 0;
+  const rawContext = hasRuntimeNormativeContext
     ? runtimeConfig.normativeContext
     : request.normative_context;
 

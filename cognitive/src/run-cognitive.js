@@ -752,6 +752,9 @@ export async function runReadOnlyCognitiveEngine(rawInput = {}, options = {}) {
     user: buildOpenAIUserPrompt(request, analysis, normativeContext)
   };
   const llmResult = await callOpenAIReadOnly(runtimeConfig, prompt);
+  const llmAttempted = llmResult.ok || llmResult.reason !== "missing_openai_config";
+  const llmError = llmAttempted && !llmResult.ok ? llmResult.reason : null;
+  const fallbackUsed = !llmResult.ok;
   const response = normalizeModelResponse({
     request,
     analysis,
@@ -769,8 +772,11 @@ export async function runReadOnlyCognitiveEngine(rawInput = {}, options = {}) {
     response,
     validation,
     engine: {
+      llm_attempted: llmAttempted,
       llm_requested: Boolean(runtimeConfig.openaiApiKey),
       llm_used: llmResult.ok,
+      llm_error: llmError,
+      fallback_used: fallbackUsed,
       provider: llmResult.ok ? "openai" : "heuristic_fallback",
       model: runtimeConfig.openaiApiKey ? runtimeConfig.model : null,
       fallback_reason: llmResult.ok ? null : llmResult.reason

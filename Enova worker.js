@@ -11777,17 +11777,10 @@ function buildCorrespondenteGroupAlert(st, token, env) {
   const clienteNome = String(st?.nome || "Cliente").trim() || "Cliente";
   const entryLink = buildCorrespondenteEntryLink(env, token, caseRef);
   return [
-    "🚨 *Novo caso para correspondente*",
+    "🚨 *Novo pré-cadastro para correspondente*",
     `Pré-cadastro: ${caseRef}`,
     `Cliente: ${clienteNome}`,
     "",
-    "✅ CTA principal: abra o *link de entrada da Enova* para assumir este caso.",
-    "⚠️ O dossiê completo só é liberado no privado após assunção válida.",
-    `Fallback de compatibilidade: *ASSUMIR ${caseRef}* ou *ASSUMIR TOKEN*.`,
-    "",
-    entryLink
-      ? "Link oficial de entrada/assunção:"
-      : "Link oficial de entrada indisponível no momento.",
     entryLink || "Link permanente indisponível no momento.",
     "",
     "⚠️ Este grupo é apenas distribuição (sem dados sensíveis)."
@@ -12265,22 +12258,22 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   const assumirAction = String(options?.assumirAction || "").trim() || "/correspondente/entrada";
   const assumirCaseRef = normalizeCorrespondenteCaseRefInput(options?.assumirCaseRef || ref) || ref;
   const assumirToken = normalizeAssumirToken(options?.assumirToken || "") || "";
-  const requesterWaId = String(options?.requesterWaId || "").trim();
+  const requesterWaId = (() => { const v = String(options?.requesterWaId ?? "").trim(); return (v === "null" || v === "undefined") ? "" : v; })();
 
   const statusText = showBlocked
-    ? blockedMessage || "Este caso já foi assumido por outro correspondente."
+    ? blockedMessage || "Este pré-cadastro já foi assumido por outro correspondente."
     : isAdminOverride
       ? "Acesso liberado com privilégio administrativo (master/admin)."
       : allowAssumir
-        ? "Caso disponível para assunção. Esta entrada é a porta oficial de assunção."
-        : "Caso assumido. Dossiê liberado para o correspondente responsável.";
+        ? "Pré-cadastro disponível para assunção. Esta entrada é a porta oficial de assunção."
+        : "Pré-cadastro assumido. Dossiê liberado para o correspondente responsável.";
 
   return `<!doctype html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Entrada do caso ${escapeHtml(ref)}</title>
+  <title>Entrada do pré-cadastro ${escapeHtml(ref)}</title>
   <style>
     :root{color-scheme:dark}
     body{font-family:Inter,Arial,sans-serif;background:#08101e;color:#e8f0ff;margin:0;padding:28px 16px}
@@ -12330,7 +12323,7 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
       </div>
     </header>
     <section class="card">
-      <h2 class="section-title">Capa do caso</h2>
+      <h2 class="section-title">Capa do pré-cadastro</h2>
       <div class="row"><span class="label">Referência:</span> ${escapeHtml(ref)}</div>
       <div class="row"><span class="label">Cliente:</span> ${escapeHtml(clienteNome)}</div>
       <div class="chips">
@@ -12357,21 +12350,21 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
         </div>
       </div>
     ${isAdminOverride ? `<div class="warn">
-      Você está visualizando este caso com bypass administrativo (master/admin).<br />
-      O lock atual do caso permanece em: <strong>${escapeHtml(lockAtual || "sem correspondente definido")}</strong>.
+      Você está visualizando este pré-cadastro com bypass administrativo (master/admin).<br />
+      O lock atual do pré-cadastro permanece em: <strong>${escapeHtml(lockAtual || "sem correspondente definido")}</strong>.
     </div>` : ""}
     ${showBlocked ? `<div class="err">
-      <strong>${escapeHtml(blockedMessage || "Este caso já foi assumido por outro correspondente.")}</strong><br />
+      <strong>${escapeHtml(blockedMessage || "Este pré-cadastro já foi assumido por outro correspondente.")}</strong><br />
       Se você acredita que isso é um erro, fale com o administrador.
     </div>` : ""}
     ${allowAssumir ? `<section class="assumir">
-      <h2>Assumir caso</h2>
-      <p>Confirme seu WhatsApp para registrar a assunção oficial deste caso.</p>
+      <h2>Assumir pré-cadastro</h2>
+      <p>Confirme seu WhatsApp para registrar a assunção oficial deste pré-cadastro.</p>
       <form method="POST" action="${escapeHtml(assumirAction)}">
         <input type="hidden" name="pre" value="${escapeHtml(assumirCaseRef)}" />
         ${assumirToken ? `<input type="hidden" name="t" value="${escapeHtml(assumirToken)}" />` : ""}
-        <label for="cw">WhatsApp do correspondente (com DDD):</label>
-        <input id="cw" name="cw" type="text" inputmode="numeric" autocomplete="tel" placeholder="5511999999999" value="${escapeHtml(requesterWaId)}" />
+        <label for="cw">WhatsApp do correspondente (DDD + número):</label>
+        <input id="cw" name="cw" type="text" inputmode="numeric" autocomplete="tel" placeholder="11999999999" value="${escapeHtml(requesterWaId)}" />
         <button type="submit">Assumir este caso</button>
       </form>
       ${assumirError ? `<div class="err"><strong>${escapeHtml(assumirError)}</strong></div>` : ""}
@@ -12583,7 +12576,7 @@ async function handleCorrespondenteEntryPage(request, env) {
         requesterWaId: requesterWaIdRaw,
         lockWaId: lockFinalRaw,
         showBlocked: true,
-        blockedMessage: "Este caso já foi assumido por outro correspondente."
+        blockedMessage: "Este pré-cadastro já foi assumido por outro correspondente."
       }),
       { status: 403, headers: { "content-type": "text/html; charset=utf-8", "X-Enova-Build": buildHeaderValue } }
     );

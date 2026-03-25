@@ -25,6 +25,18 @@ const MONEY_REGEX = /(?:r\$\s*)?\d{1,3}(?:\.\d{3})*(?:,\d{2})?|(?:r\$\s*)?\d+(?:
 const OFFTRACK_HINTS = /\b(valor|entrada|parcela|imovel|imóvel|casa|apartamento|bairro|regiao|região|metros)\b/i;
 const AMBIGUOUS_HINTS = /\b(acho|talvez|mais ou menos|nao sei|não sei|meio|duvida|dúvida)\b/i;
 const CONFIRMATION_SLOT_KEYS = new Set(["p3"]);
+const ESTADO_CIVIL_CONFIDENCE = Object.freeze({
+  default: 0.88,
+  ambiguous: 0.41
+});
+const CONFIDENCE_RULES = Object.freeze({
+  detectedBase: 0.58,
+  detectedIncrement: 0.1,
+  noSlotBase: 0.32,
+  conflictPenalty: 0.22,
+  offtrackPenalty: 0.08,
+  offtrackBase: 0.58
+});
 
 function cloneJson(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -175,7 +187,11 @@ function detectSlotsFromConversation(request) {
   const ambiguous = AMBIGUOUS_HINTS.test(normalized);
 
   if (estadoCivil) {
-    slotsDetected.estado_civil = buildSlot(estadoCivil, ambiguous ? 0.41 : 0.88, request.message_text);
+    slotsDetected.estado_civil = buildSlot(
+      estadoCivil,
+      ambiguous ? ESTADO_CIVIL_CONFIDENCE.ambiguous : ESTADO_CIVIL_CONFIDENCE.default,
+      request.message_text
+    );
   }
   if (regimeTrabalho) {
     slotsDetected.regime_trabalho = buildSlot(regimeTrabalho, 0.87, request.message_text);
@@ -338,9 +354,11 @@ export function runReadOnlyCognitiveEngine(rawInput = {}) {
   consultiveNotes.push("Runner isolado: sem write oficial, sem Meta real e sem alteração de stage.");
 
   const confidenceBase = slotsDetectedCount
-    ? 0.58 + Math.min(slotsDetectedCount, 4) * 0.1
-    : (analysis.offtrack ? 0.58 : 0.32);
-  const confidencePenalty = conflicts.length * 0.22 + (analysis.offtrack ? 0.08 : 0);
+    ? CONFIDENCE_RULES.detectedBase + Math.min(slotsDetectedCount, 4) * CONFIDENCE_RULES.detectedIncrement
+    : (analysis.offtrack ? CONFIDENCE_RULES.offtrackBase : CONFIDENCE_RULES.noSlotBase);
+  const confidencePenalty =
+    conflicts.length * CONFIDENCE_RULES.conflictPenalty +
+    (analysis.offtrack ? CONFIDENCE_RULES.offtrackPenalty : 0);
   const confidence = Math.max(0.05, Math.min(0.99, Number((confidenceBase - confidencePenalty).toFixed(2))));
 
   const response = {

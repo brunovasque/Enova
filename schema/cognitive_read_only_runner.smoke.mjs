@@ -13,6 +13,13 @@ const {
 const { READ_ONLY_COGNITIVE_FIXTURES } = fixturesModule;
 const { createMockOpenAIFetch } = openaiMockModule;
 
+function normalizeForMatch(value) {
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
 const llmRuntime = {
   openaiApiKey: "test-openai-key",
   model: "gpt-4.1-mini",
@@ -120,6 +127,80 @@ for (const scenarioId of scenarioIds) {
   assert.equal(llmErrorResult?.response?.should_advance_stage, false);
   assert.equal(llmErrorResult?.llm_raw_response, null);
   assert.equal(llmErrorResult?.llm_parsed_response, null);
+}
+
+{
+  const conversionScenarios = [
+    {
+      id: "cliente_evasivo",
+      input: {
+        conversation_id: "conv-cta-001",
+        current_stage: "renda",
+        message_text: "depois eu vejo isso",
+        pending_slots: ["renda"]
+      },
+      mustInclude: ["quanto antes", "renda média mensal"],
+      mustMatch: /(me informa|me confirma|me manda|quer que eu)/i
+    },
+    {
+      id: "cliente_sem_tempo",
+      input: {
+        conversation_id: "conv-cta-002",
+        current_stage: "renda",
+        message_text: "não tenho tempo agora",
+        pending_slots: ["renda"]
+      },
+      mustInclude: ["é rapidinho", "renda média mensal"],
+      mustMatch: /(me informa|me confirma|me manda|quer que eu)/i
+    },
+    {
+      id: "cliente_recusa_online",
+      input: {
+        conversation_id: "conv-cta-003",
+        current_stage: "finalizacao_processo",
+        message_text: "não quero atendimento online",
+        pending_slots: ["visita"]
+      },
+      mustInclude: ["plantão", "horário de visita"],
+      mustMatch: /(me informa|me confirma|me manda|quer que eu)/i
+    },
+    {
+      id: "cliente_com_duvida",
+      input: {
+        conversation_id: "conv-cta-004",
+        current_stage: "renda",
+        message_text: "antes disso, qual valor de entrada e parcela de um imóvel?",
+        pending_slots: ["renda"]
+      },
+      mustInclude: ["preciso fechar esta etapa", "renda média mensal"],
+      mustMatch: /(me informa|me confirma|me manda|quer que eu)/i
+    },
+    {
+      id: "cliente_pronto_para_avancar",
+      input: {
+        conversation_id: "conv-cta-005",
+        current_stage: "envio_docs",
+        message_text: "já estou pronto para avançar",
+        pending_slots: ["docs"]
+      },
+      mustInclude: ["documentos básicos", "adianto sua análise"],
+      mustMatch: /(me informa|me confirma|me manda|quer que eu)/i
+    }
+  ];
+
+  for (const scenario of conversionScenarios) {
+    const result = await runReadOnlyCognitiveEngine(scenario.input, llmRuntime);
+    const replyText = String(result?.response?.reply_text || "");
+
+    assert.equal(result?.response?.should_advance_stage, false, `${scenario.id} must stay read-only`);
+    assert.notEqual(replyText.trim(), "", `${scenario.id} reply_text must not be empty`);
+
+    for (const expectedSnippet of scenario.mustInclude) {
+      assert.match(normalizeForMatch(replyText), new RegExp(normalizeForMatch(expectedSnippet).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${scenario.id} must include ${expectedSnippet}`);
+    }
+
+    assert.match(replyText, scenario.mustMatch, `${scenario.id} must keep clear next action`);
+  }
 }
 
 assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "multiplos_slots"), true);

@@ -24748,8 +24748,155 @@ case "agendamento_visita": {
 }
 
 case "visita_confirmada": {
+  const t = String(userText || "").trim();
+  const normalize = (txt) => String(txt || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const tNorm = normalize(t);
   const ENDERECO_PLANTAO = "Av. Paraná, 2474 – Boa Vista (em frente ao terminal)";
   const visitaResumo = st.visita_dia_hora || `${st.visita_data_escolhida || ""} ${st.visita_slot_escolhido || ""}`.trim() || "data a confirmar";
+  const pediuResultadoRealizada = /\b(realizada|realizado|ja fui|fiz a visita|fui na visita|visita concluida)\b/.test(tNorm);
+  const pediuResultadoNoShow = /\b(no show|noshow|nao fui|faltei|nao consegui ir)\b/.test(tNorm);
+  const pediuReagendamento = /\b(reagendar|remarcar|trocar|mudar)\b/.test(tNorm) || /\b(outro dia|outro horario)\b/.test(tNorm);
+  const pediuCancelamento = /\b(cancelar|desistir|desistencia|desistência|desmarcar)\b/.test(tNorm) || /\b(nao quero mais|não quero mais)\b/.test(tNorm);
+  const pediuEndereco = /\b(endereco|endereco|localizacao|localizacao|onde fica|mapa|como chegar)\b/.test(tNorm);
+  const pediuDetalhes = /\b(detalhe|detalhes|relembrar|relembrar|confirmada|qual dia|que dia|qual horario|que horario|quando)\b/.test(tNorm);
+
+  if (pediuResultadoRealizada) {
+    await upsertState(env, st.wa_id, {
+      visita_resultado_status: "realizada",
+      visita_agendamento_status: "realizada"
+    });
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "visita_confirmada",
+      severity: "success",
+      message: "Resultado da visita registrado como realizada"
+    });
+    return step(env, st,
+      [
+        "Perfeito, registrei sua visita como *realizada*. ✅",
+        "Seguimos para as próximas tratativas e te aviso por aqui."
+      ],
+      "visita_confirmada"
+    );
+  }
+
+  if (pediuResultadoNoShow) {
+    await upsertState(env, st.wa_id, {
+      visita_resultado_status: "no_show",
+      visita_agendamento_status: "no_show"
+    });
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "visita_confirmada",
+      severity: "info",
+      message: "Resultado da visita registrado como no_show"
+    });
+    return step(env, st,
+      [
+        "Entendi, registrei como *não comparecimento (no-show)*.",
+        "Se quiser, posso te ajudar a reagendar agora."
+      ],
+      "visita_confirmada"
+    );
+  }
+
+  if (pediuReagendamento) {
+    await upsertState(env, st.wa_id, {
+      visita_agendamento_status: "convite",
+      visita_convite_status: "pendente",
+      visita_confirmada: false,
+      visita_confirmada_em: null,
+      visita_data_escolhida: null,
+      visita_slot_escolhido: null,
+      visita_dia_hora: null,
+      visita_resultado_status: null
+    });
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "agendamento_visita",
+      severity: "info",
+      message: "Cliente pediu reagendamento após visita confirmada"
+    });
+    return step(env, st,
+      [
+        "Perfeito, vamos reagendar sua visita.",
+        "Posso te mostrar agora as próximas datas e horários oficiais?",
+        "1) Sim, quero agendar agora",
+        "2) Prefiro ver depois"
+      ],
+      "agendamento_visita"
+    );
+  }
+
+  if (pediuCancelamento) {
+    await upsertState(env, st.wa_id, {
+      visita_resultado_status: "cancelada",
+      visita_agendamento_status: "cancelada",
+      visita_confirmada: false,
+      visita_confirmada_em: null,
+      visita_data_escolhida: null,
+      visita_slot_escolhido: null,
+      visita_dia_hora: null
+    });
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "visita_confirmada",
+      severity: "info",
+      message: "Cliente cancelou visita confirmada"
+    });
+    return step(env, st,
+      [
+        "Tudo certo, sua visita foi *cancelada*.",
+        "Se quiser reagendar depois, é só me pedir por aqui."
+      ],
+      "visita_confirmada"
+    );
+  }
+
+  if (pediuEndereco) {
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "visita_confirmada",
+      severity: "info",
+      message: "Cliente pediu endereço/localização da visita"
+    });
+    return step(env, st,
+      [
+        `📍 Endereço do plantão: *${ENDERECO_PLANTAO}*`,
+        `Sua visita está confirmada para *${visitaResumo}*.`
+      ],
+      "visita_confirmada"
+    );
+  }
+
+  if (pediuDetalhes) {
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "visita_confirmada",
+      severity: "info",
+      message: "Cliente pediu relembrar detalhes da visita confirmada"
+    });
+    return step(env, st,
+      [
+        `Sua visita está confirmada para *${visitaResumo}*. ✅`,
+        `📍 Endereço do plantão: *${ENDERECO_PLANTAO}*`
+      ],
+      "visita_confirmada"
+    );
+  }
+
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
@@ -24762,8 +24909,11 @@ case "visita_confirmada": {
   return step(env, st,
     [
       `Sua visita já está confirmada para *${visitaResumo}*. ✅`,
-      `📍 Endereço do plantão: *${ENDERECO_PLANTAO}*`,
-      "Se precisar, posso te relembrar os detalhes por aqui."
+      "Posso te ajudar com uma destas opções agora:",
+      "- Reagendar visita",
+      "- Cancelar visita",
+      "- Enviar endereço/localização",
+      "- Relembrar detalhes da visita"
     ],
     "visita_confirmada"
   );

@@ -199,7 +199,117 @@ async function simulateFromState(env, stage, text, stOverrides) {
   });
   assert.equal(data.stage_after, "visita_confirmada");
   assert.match(data.reply_text, /sua visita já está confirmada/i);
-  assert.match(data.reply_text, /se precisar, posso te relembrar os detalhes por aqui/i);
+  assert.match(data.reply_text, /posso te ajudar com uma destas opções agora/i);
+}
+
+// 7) Visita confirmada -> pedido de reagendamento volta para agendamento_visita.
+{
+  const env = buildEnvWithState();
+  const data = await simulateFromState(env, "visita_confirmada", "quero remarcar", {
+    processo_enviado_correspondente: true,
+    retorno_correspondente_status: "aprovado",
+    visita_origem: "aprovado",
+    visita_agendamento_status: "confirmada",
+    visita_confirmada: true,
+    visita_dia_hora: "sábado, 14/03 às 14:30",
+    visita_slot_escolhido: "14:30",
+    visita_data_escolhida: "2026-03-14"
+  });
+  assert.equal(data.stage_after, "agendamento_visita");
+  assert.equal(data.writes.visita_agendamento_status, "convite");
+  assert.equal(data.writes.visita_confirmada, false);
+  assert.match(data.reply_text, /vamos reagendar sua visita/i);
+}
+
+// 8) Visita confirmada -> cancelamento registra resultado mínimo.
+{
+  const env = buildEnvWithState();
+  const data = await simulateFromState(env, "visita_confirmada", "quero cancelar", {
+    processo_enviado_correspondente: true,
+    retorno_correspondente_status: "aprovado",
+    visita_origem: "aprovado",
+    visita_agendamento_status: "confirmada",
+    visita_confirmada: true,
+    visita_dia_hora: "sábado, 14/03 às 14:30",
+    visita_slot_escolhido: "14:30",
+    visita_data_escolhida: "2026-03-14"
+  });
+  assert.equal(data.stage_after, "visita_confirmada");
+  assert.equal(data.writes.visita_resultado_status, "cancelada");
+  assert.equal(data.writes.visita_agendamento_status, "cancelada");
+  assert.match(data.reply_text, /visita foi \*cancelada\*/i);
+}
+
+// 9) Visita confirmada -> pedido de endereço/localização.
+{
+  const env = buildEnvWithState();
+  const data = await simulateFromState(env, "visita_confirmada", "qual o endereço?", {
+    processo_enviado_correspondente: true,
+    retorno_correspondente_status: "aprovado",
+    visita_origem: "aprovado",
+    visita_agendamento_status: "confirmada",
+    visita_confirmada: true,
+    visita_dia_hora: "sábado, 14/03 às 14:30",
+    visita_slot_escolhido: "14:30",
+    visita_data_escolhida: "2026-03-14"
+  });
+  assert.equal(data.stage_after, "visita_confirmada");
+  assert.match(data.reply_text, /endereço do plantão/i);
+  assert.match(data.reply_text, /av\. paraná, 2474/i);
+}
+
+// 10) Visita confirmada -> resultado realizada.
+{
+  const env = buildEnvWithState();
+  const data = await simulateFromState(env, "visita_confirmada", "visita realizada", {
+    processo_enviado_correspondente: true,
+    retorno_correspondente_status: "aprovado",
+    visita_origem: "aprovado",
+    visita_agendamento_status: "confirmada",
+    visita_confirmada: true,
+    visita_dia_hora: "sábado, 14/03 às 14:30",
+    visita_slot_escolhido: "14:30",
+    visita_data_escolhida: "2026-03-14"
+  });
+  assert.equal(data.stage_after, "visita_confirmada");
+  assert.equal(data.writes.visita_resultado_status, "realizada");
+  assert.match(data.reply_text, /registrei sua visita como \*realizada\*/i);
+}
+
+// 11) Visita confirmada -> resultado no_show.
+{
+  const env = buildEnvWithState();
+  const data = await simulateFromState(env, "visita_confirmada", "não fui", {
+    processo_enviado_correspondente: true,
+    retorno_correspondente_status: "aprovado",
+    visita_origem: "aprovado",
+    visita_agendamento_status: "confirmada",
+    visita_confirmada: true,
+    visita_dia_hora: "sábado, 14/03 às 14:30",
+    visita_slot_escolhido: "14:30",
+    visita_data_escolhida: "2026-03-14"
+  });
+  assert.equal(data.stage_after, "visita_confirmada");
+  assert.equal(data.writes.visita_resultado_status, "no_show");
+  assert.match(data.reply_text, /não comparecimento \(no-show\)/i);
+}
+
+// 12) Visita confirmada -> fora do trilho recebe fallback profissional útil.
+{
+  const env = buildEnvWithState();
+  const data = await simulateFromState(env, "visita_confirmada", "quero saber do financiamento", {
+    processo_enviado_correspondente: true,
+    retorno_correspondente_status: "aprovado",
+    visita_origem: "aprovado",
+    visita_agendamento_status: "confirmada",
+    visita_confirmada: true,
+    visita_dia_hora: "sábado, 14/03 às 14:30",
+    visita_slot_escolhido: "14:30",
+    visita_data_escolhida: "2026-03-14"
+  });
+  assert.equal(data.stage_after, "visita_confirmada");
+  assert.match(data.reply_text, /posso te ajudar com uma destas opções agora/i);
+  assert.match(data.reply_text, /reagendar visita/i);
 }
 
 console.log("visita.smoke: ok");

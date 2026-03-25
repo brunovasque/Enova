@@ -9,6 +9,10 @@ const MIN_CORRESPONDENTE_WA_ID_LENGTH = 10;
 const VISITA_DEFAULT_FIRST_SLOT_OFFSET_MS = 24 * 60 * 60 * 1000;
 const CORRESPONDENTE_RETORNO_ACK_MESSAGE = "Perfeito, obrigado pelo retorno. Já vou seguir com o cliente por aqui e, assim que surgir um novo caso, o Vasques envia lá no grupo.";
 const CORRESPONDENTE_ANALISE_ATIVA_SEM_CARTINHA_MSG = "Identificamos que existe um processo de análise ativo em seu nome. Para seguirmos com uma nova avaliação atualizada, o despachante bancário precisa primeiro verificar essa análise ativa. Assim que ele me confirmar o próximo passo, eu sigo com você por aqui.";
+const CORRESPONDENTE_OPTIONAL_RETORNO_STATE_FIELDS = new Set([
+  "retorno_correspondente_valor_financiamento",
+  "retorno_correspondente_valor_subsidio_federal"
+]);
 const CORRESPONDENTE_ANALISE_ATIVA_COM_CARTINHA_MSG = [
   "Identificamos que existe um processo de análise ativo em seu nome. Para seguirmos com uma nova avaliação atualizada, o despachante bancário precisa primeiro cancelar essa análise ativa.",
   "Para isso, me envie em um papel escrito à mão, por favor:",
@@ -641,6 +645,19 @@ async function upsertState(env, wa_id, payload) {
     );
     throw err;
   }
+}
+
+function extractMissingEnovaStateColumnFromSupabaseError(err) {
+  const status = Number(err?.status || 0);
+  const data = err?.data;
+  if (status !== 400 || !data || typeof data !== "object") return null;
+  const combinedErrorText = [
+    data?.message,
+    data?.details,
+    data?.hint
+  ].filter(Boolean).join(" ");
+  const match = combinedErrorText.match(/Could not find the '([^']+)' column of 'enova_state' in the schema cache/i);
+  return match?.[1] || null;
 }
 
 // =============================================================
@@ -14355,7 +14372,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   [String(signals.messageText || ""), String(signals.caption || ""), String(docExtraction?.extracted_text || "")].filter(Boolean).join("\n")
 );
 
-await upsertState(env, waCliente, {
+  const retornoCorrespondenteStatePatch = {
   retorno_correspondente_bruto: manualReviewRequired
     ? JSON.stringify(rawPayload)
     : String(signals.messageText || userText || "").trim(),
@@ -14363,7 +14380,34 @@ await upsertState(env, waCliente, {
   retorno_correspondente_motivo: motivo,
   retorno_correspondente_valor_financiamento: valorFinanciamento,
   retorno_correspondente_valor_subsidio_federal: valorSubsidioFederal
-});
+ };
+  try {
+    await upsertState(env, waCliente, retornoCorrespondenteStatePatch);
+  } catch (err) {
+    const missingColumn = extractMissingEnovaStateColumnFromSupabaseError(err);
+    if (!CORRESPONDENTE_OPTIONAL_RETORNO_STATE_FIELDS.has(missingColumn)) {
+      throw err;
+    }
+    const {
+      retorno_correspondente_valor_financiamento: _valorFinanciamento,
+      retorno_correspondente_valor_subsidio_federal: _valorSubsidioFederal,
+      ...retryPatch
+    } = retornoCorrespondenteStatePatch;
+    await telemetry(env, {
+      wa_id: waCliente,
+      event: "corr_return_case_ref_state_optional_fields_skipped",
+      stage: "aguardando_retorno_correspondente",
+      severity: "warning",
+      force: true,
+      message: "Persist do retorno do correspondente refeito sem colunas opcionais ausentes no schema",
+      details: {
+        case_ref: caseRef || null,
+        missing_column: missingColumn,
+        skipped_fields: [...CORRESPONDENTE_OPTIONAL_RETORNO_STATE_FIELDS]
+      }
+    });
+    await upsertState(env, waCliente, retryPatch);
+  }
   await logger(env, {
     tipo: "retorno_correspondente_case_ref_processado",
     wa_id: waCliente,

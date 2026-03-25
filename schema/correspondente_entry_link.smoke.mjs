@@ -4852,4 +4852,41 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(lastClientMsgs.includes("me envie novamente a cartinha de forma mais legível"), true);
 }
 
+// 43) Pré-cadastro #000031 + STATUS: APROVADO inline em frase longa deve transitar para agendamento_visita.
+//     Regresso: textFastPathClassification ativo mas hasExplicitStatusField=false, structuredPath=null, fastPath=null
+//     causava manualReviewRequired=true e silêncio no envio ao cliente.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000031";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = "whatsapp:+55 (11) 99999-9999@s.whatsapp.net";
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: "5511999999999",
+              id: "wamid.retorno.case.ref.req.canonical.000031.aprovado.inline",
+              timestamp: "1773183950",
+              type: "text",
+              text: { body: "Este é o retorno para o processo do Pré-cadastro #000031 com o seguinte resultado: STATUS: APROVADO" }
+            }],
+            contacts: [{ wa_id: "5511999999999" }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  await worker.fetch(retornoReq, env, {});
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.equal(alvo.retorno_correspondente_status, "aprovado");
+  assert.equal(alvo.fase_conversa, "agendamento_visita");
+  const lastClientMsgs = getLastStepMessagesForWa(env, waCaso).join("\n");
+  assert.equal(lastClientMsgs.includes("pré-aprovação do financiamento"), true);
+}
+
 console.log("correspondente_entry_link.smoke: ok");

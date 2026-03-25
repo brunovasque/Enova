@@ -14265,7 +14265,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     aiClassification?.manual_review_required === true ||
     !aiClassification?.case_ref ||
     statusCanonico === "nao_identificado" ||
-    (!hasExplicitStatusField && !structuredPath && !fastPath) ||
+    (!hasExplicitStatusField && !structuredPath && !fastPath && !textFastPathClassification) ||
     confidence < CORRESPONDENTE_RETURN_MIN_CONFIDENCE_AUTO;
   const sourceDetected = docExtraction?.ocr_used
     ? (signals.sourceType === "image" ? "image" : "pdf")

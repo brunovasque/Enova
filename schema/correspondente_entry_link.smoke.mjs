@@ -3565,10 +3565,10 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(byEvent.corr_flow_probe_common_fallback?.fallback_common_flow, undefined);
 }
 
-// 23) lock mismatch em case_ref explícito deve bloquear tratamento operacional.
+// 23) Caso canônico: Pré-cadastro #000028 + STATUS: APROVADO deve transitar para agendamento_visita.
 {
   const env = buildEnvWithState();
-  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000028";
   env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = "whatsapp:+55 (11) 99999-9999@s.whatsapp.net";
   const originalConsoleLog = console.log;
   const capturedProbe = [];
@@ -3591,10 +3591,10 @@ function getLastStepMessagesForWa(env, waId) {
             value: {
               messages: [{
                 from: "5511999999999",
-                id: "wamid.retorno.case.ref.req.hotfix.lock.normalized.match",
+                id: "wamid.retorno.case.ref.req.canonical.000028.aprovado",
                 timestamp: "1773183949",
                 type: "text",
-                text: { body: "Pré-cadastro #000006\nSTATUS: APROVADO" }
+                text: { body: "Pré-cadastro #000028\nSTATUS: APROVADO" }
               }],
               contacts: [{ wa_id: "5511999999999" }],
               metadata: { phone_number_id: "test" }
@@ -3625,7 +3625,7 @@ function getLastStepMessagesForWa(env, waId) {
   const byEvent = Object.fromEntries(parsedEvents.map((item) => [item.event, item.details]));
   const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
 
-  assert.equal(byEvent.corr_sender_gate_probe?.case_ref, "000006");
+  assert.equal(byEvent.corr_sender_gate_probe?.case_ref, "000028");
   assert.equal(byEvent.corr_sender_gate_probe?.from_wa_id_raw, "5511999999999");
   assert.equal(byEvent.corr_sender_gate_probe?.from_wa_id_cmp, "11999999999");
   assert.equal(byEvent.corr_sender_gate_probe?.from_wa_id_normalized, "11999999999");
@@ -3636,6 +3636,7 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(byEvent.corr_sender_gate_probe?.decision_reason, "case_lock_match");
   assert.equal(byEvent.corr_status_probe_decision?.handled, "sim");
   assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "nao");
+  assert.equal(byEvent.corr_flow_probe_common_fallback?.fallback_common_flow, undefined);
   assert.equal(alvo.retorno_correspondente_status, "aprovado");
   assert.equal(alvo.fase_conversa, "agendamento_visita");
   assert.equal(alvo.corr_lock_correspondente_wa_id, "whatsapp:+55 (11) 99999-9999@s.whatsapp.net");

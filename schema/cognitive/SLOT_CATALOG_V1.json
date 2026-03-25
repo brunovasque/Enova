@@ -1,0 +1,62 @@
+{
+  "version": "V1",
+  "name": "Enova Cognitive Engine Slot Catalog",
+  "slots": [
+    {
+      "key": "titular",
+      "label": "Titular",
+      "description": "Slot principal de identificação e contexto do titular.",
+      "states": ["unknown", "inferred", "pending_confirmation", "confirmed", "conflicted", "blocked", "not_applicable"],
+      "depends_on": []
+    },
+    {
+      "key": "composicao",
+      "label": "Composição",
+      "description": "Slot que descreve a composição do caso e quais participantes existem.",
+      "states": ["unknown", "inferred", "pending_confirmation", "confirmed", "conflicted", "blocked", "not_applicable"],
+      "depends_on": ["titular"]
+    },
+    {
+      "key": "parceiro_p2",
+      "label": "Parceiro/P2",
+      "description": "Slot do parceiro ou segundo participante quando aplicável.",
+      "states": ["unknown", "inferred", "pending_confirmation", "confirmed", "conflicted", "blocked", "not_applicable"],
+      "depends_on": ["composicao"]
+    },
+    {
+      "key": "familiar",
+      "label": "Familiar",
+      "description": "Slot do familiar adicional quando o caso exigir esse participante.",
+      "states": ["unknown", "inferred", "pending_confirmation", "confirmed", "conflicted", "blocked", "not_applicable"],
+      "depends_on": ["composicao"]
+    },
+    {
+      "key": "p3",
+      "label": "P3",
+      "description": "Slot do terceiro participante quando aplicável.",
+      "states": ["unknown", "inferred", "pending_confirmation", "confirmed", "conflicted", "blocked", "not_applicable"],
+      "depends_on": ["composicao"]
+    },
+    {
+      "key": "docs",
+      "label": "Docs",
+      "description": "Slot agregador das pendências e necessidades documentais do caso.",
+      "states": ["unknown", "inferred", "pending_confirmation", "confirmed", "conflicted", "blocked", "not_applicable"],
+      "depends_on": ["composicao", "parceiro_p2", "familiar", "p3"]
+    },
+    {
+      "key": "correspondente",
+      "label": "Correspondente",
+      "description": "Slot consultivo para encaminhamento ao correspondente sem integração ativa nesta fase.",
+      "states": ["unknown", "inferred", "pending_confirmation", "confirmed", "conflicted", "blocked", "not_applicable"],
+      "depends_on": ["docs"]
+    },
+    {
+      "key": "visita",
+      "label": "Visita",
+      "description": "Slot consultivo para contexto de visita, dependente da validação mecânica.",
+      "states": ["unknown", "inferred", "pending_confirmation", "confirmed", "conflicted", "blocked", "not_applicable"],
+      "depends_on": ["correspondente"]
+    }
+  ]
+}

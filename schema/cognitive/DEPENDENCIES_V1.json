@@ -1,0 +1,60 @@
+{
+  "version": "V1",
+  "name": "Enova Cognitive Engine Dependencies",
+  "dependencies": [
+    {
+      "from": "estado_civil",
+      "to": "composicao",
+      "type": "influences",
+      "reason": "Estado civil ajuda a interpretar a composição inicial do caso."
+    },
+    {
+      "from": "composicao",
+      "to": "parceiro_p2",
+      "type": "enables_or_skips",
+      "reason": "A composição define se parceiro/P2 é aplicável."
+    },
+    {
+      "from": "composicao",
+      "to": "familiar",
+      "type": "enables_or_skips",
+      "reason": "A composição define se existe familiar adicional relevante."
+    },
+    {
+      "from": "composicao",
+      "to": "p3",
+      "type": "enables_or_skips",
+      "reason": "A composição define se há terceiro participante aplicável."
+    },
+    {
+      "from": "autonomo_ir",
+      "to": "docs",
+      "type": "changes_document_needs",
+      "reason": "Situação de autônomo/IR pode alterar a leitura consultiva das pendências documentais."
+    },
+    {
+      "from": "ctps",
+      "to": "docs",
+      "type": "changes_document_needs",
+      "reason": "A presença ou ausência de CTPS influencia documentos e interpretação de trilha."
+    },
+    {
+      "from": "restricao",
+      "to": "docs",
+      "type": "qualifies_review",
+      "reason": "Restrição pode exigir atenção consultiva adicional antes de consolidar docs."
+    },
+    {
+      "from": "docs",
+      "to": "correspondente",
+      "type": "prerequisite",
+      "reason": "A visão consultiva do correspondente depende da leitura documental consolidada."
+    },
+    {
+      "from": "correspondente",
+      "to": "visita",
+      "type": "prerequisite",
+      "reason": "A visão consultiva da visita depende do enquadramento anterior do caso."
+    }
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "version": "V1",
+  "name": "Enova Cognitive Engine Confirmation Rules",
+  "rules": [
+    {
+      "slot": "titular",
+      "when": "Quando houver ambiguidade de identidade, nome ou vínculo do titular.",
+      "required": true,
+      "reason": "Evita consolidar identidade errada no contexto oficial."
+    },
+    {
+      "slot": "composicao",
+      "when": "Quando a composição impactar quais participantes, documentos ou trilhas serão considerados.",
+      "required": true,
+      "reason": "A composição altera dependências centrais do caso."
+    },
+    {
+      "slot": "parceiro_p2",
+      "when": "Quando existir inferência incompleta, contraditória ou sem menção explícita do parceiro/P2.",
+      "required": true,
+      "reason": "Parceiro/P2 afeta leitura documental e composição."
+    },
+    {
+      "slot": "familiar",
+      "when": "Quando o papel do familiar alterar pendências, cobertura ou interpretação do caso.",
+      "required": true,
+      "reason": "Evita classificar participante indevido."
+    },
+    {
+      "slot": "p3",
+      "when": "Quando houver indicação de terceiro participante sem confirmação explícita.",
+      "required": true,
+      "reason": "P3 é sensível à composição e deve ser confirmado."
+    },
+    {
+      "slot": "docs",
+      "when": "Quando a leitura documental depender de inferência normativa, ambiguidade textual ou conflito com contexto conhecido.",
+      "required": true,
+      "reason": "Pendências documentais têm impacto operacional."
+    },
+    {
+      "slot": "correspondente",
+      "when": "Quando a recomendação consultiva puder sugerir encaminhamento sem base consolidada.",
+      "required": true,
+      "reason": "Encaminhamento exige validação antes de qualquer uso mecânico."
+    },
+    {
+      "slot": "visita",
+      "when": "Quando a recomendação de visita depender de retorno anterior ainda não validado pelo orquestrador.",
+      "required": true,
+      "reason": "Visita não pode ser tratada como confirmada por inferência isolada."
+    }
+  ]
+}

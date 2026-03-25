@@ -4861,13 +4861,6 @@ function getLastStepMessagesForWa(env, waId) {
   env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = "whatsapp:+55 (11) 99999-9999@s.whatsapp.net";
   const originalConsoleLog = console.log;
   const capturedProbe = [];
-  console.log = (...args) => {
-    const line = args.map((part) => String(part)).join(" ");
-    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe") || line.includes("corr_route_probe_case_ref_attempt"))) {
-      capturedProbe.push(line);
-    }
-    return originalConsoleLog(...args);
-  };
   const retornoReq = new Request("https://worker.local/webhook/meta", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -4891,6 +4884,13 @@ function getLastStepMessagesForWa(env, waId) {
     })
   });
   try {
+    console.log = (...args) => {
+      const line = args.map((part) => String(part)).join(" ");
+      if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe") || line.includes("corr_route_probe_case_ref_attempt"))) {
+        capturedProbe.push(line);
+      }
+      return originalConsoleLog(...args);
+    };
     await worker.fetch(retornoReq, env, {});
   } finally {
     console.log = originalConsoleLog;
@@ -4933,7 +4933,17 @@ function getLastStepMessagesForWa(env, waId) {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     const asString = String(url || "");
-    if (asString.includes("graph.facebook.com") && asString.includes("/messages")) {
+    let pathname = "";
+    let hostname = "";
+    try {
+      const parsed = new URL(asString);
+      pathname = parsed.pathname || "";
+      hostname = parsed.hostname || "";
+    } catch {
+      pathname = "";
+      hostname = "";
+    }
+    if (hostname === "graph.facebook.com" && pathname.endsWith("/messages")) {
       return new Response("forced_ack_fail", { status: 503 });
     }
     return originalFetch(url, init);

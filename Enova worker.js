@@ -156,11 +156,13 @@ async function step(env, st, messages, nextStage, options = {}) {
 
       if (!isSim) {
         const sent = await sendMessage(env, st.wa_id, msg);
-        if (requireSendSuccess && sent !== true) {
-          const sendErr = new Error("step_send_failed");
+        if (requireSendSuccess && !isSendMessageSuccessful(sent)) {
+          const msgPreview = String(msg || "").trim().slice(0, 120);
+          const sendErr = new Error(`step_send_failed:${st?.wa_id || "unknown"}:${nextStage || ""}:${msgPreview}`);
           sendErr.code = "step_send_failed";
           sendErr.wa_id = st?.wa_id || null;
           sendErr.next_stage = nextStage || null;
+          sendErr.message_preview = msgPreview || null;
           throw sendErr;
         }
       }
@@ -423,6 +425,10 @@ async function sendMessage(env, wa_id, text, options = {}) {
   }
 
   return true;
+}
+
+function isSendMessageSuccessful(result) {
+  return result === true || (result && result.ok === true);
 }
 
 // =============================================================
@@ -14428,7 +14434,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     }
   });
   const ackSent = await sendMessage(env, correspondenteWaId, CORRESPONDENTE_RETORNO_ACK_MESSAGE);
-  if (ackSent !== true) {
+  if (!isSendMessageSuccessful(ackSent)) {
     await funnelTelemetry(env, {
       wa_id: waCliente,
       event: "corr_return_case_ref_ack_send_failed",

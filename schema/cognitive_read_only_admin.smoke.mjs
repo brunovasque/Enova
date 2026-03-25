@@ -50,6 +50,9 @@ for (const fixtureId of fixtureIds) {
   assert.equal(data?.engine?.llm_used, true, `admin route must exercise openai path for ${fixtureId}`);
   assert.equal(data?.engine?.llm_error, null, `admin route must not expose llm error for ${fixtureId}`);
   assert.equal(data?.engine?.fallback_used, false, `admin route must not fallback for ${fixtureId}`);
+  assert.equal(typeof data?.llm_raw_response, "string", `admin route must expose llm_raw_response for ${fixtureId}`);
+  assert.ok(data?.llm_raw_response?.trim(), `admin route llm_raw_response must not be empty for ${fixtureId}`);
+  assert.ok(data?.llm_parsed_response && typeof data?.llm_parsed_response === "object", `admin route must expose llm_parsed_response for ${fixtureId}`);
   assert.equal(data?.response?.should_advance_stage, false);
   assert.notEqual(String(data?.response?.reply_text || "").trim(), "", `${fixtureId} reply_text must not be empty`);
   if (fixtureId !== "fora_fluxo_duvida" && fixtureId !== "resposta_ambigua") {
@@ -87,6 +90,9 @@ for (const fixtureId of fixtureIds) {
   assert.equal(data?.engine?.llm_used, true);
   assert.equal(data?.engine?.llm_error, null);
   assert.equal(data?.engine?.fallback_used, false);
+  assert.equal(typeof data?.llm_raw_response, "string");
+  assert.ok(data?.llm_raw_response?.trim());
+  assert.ok(data?.llm_parsed_response && typeof data?.llm_parsed_response === "object");
   assert.equal(data?.response?.slots_detected?.estado_civil?.value, "solteiro");
   assert.equal(data?.response?.slots_detected?.regime_trabalho?.value, "autonomo");
   assert.equal(data?.response?.slots_detected?.renda?.value, 3200);

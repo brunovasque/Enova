@@ -41,6 +41,9 @@ for (const scenarioId of scenarioIds) {
   assert.equal(result?.engine?.llm_error, null, `${scenarioId} should not include llm error`);
   assert.equal(result?.engine?.fallback_used, false, `${scenarioId} should not fallback`);
   assert.equal(result?.engine?.model, "gpt-4.1-mini");
+  assert.equal(typeof result?.llm_raw_response, "string", `${scenarioId} llm_raw_response must be string`);
+  assert.ok(result?.llm_raw_response?.trim(), `${scenarioId} llm_raw_response must not be empty`);
+  assert.ok(result?.llm_parsed_response && typeof result?.llm_parsed_response === "object", `${scenarioId} llm_parsed_response must be object`);
 
   const validation = validateReadOnlyCognitiveResponse(result?.response);
   assert.equal(validation.valid, true, `${scenarioId} invalid response: ${validation.errors.join(", ")}`);
@@ -88,6 +91,8 @@ for (const scenarioId of scenarioIds) {
   assert.equal(fallbackResult?.engine?.fallback_used, true);
   assert.ok(fallbackResult?.engine?.fallback_reason);
   assert.equal(fallbackResult?.response?.should_advance_stage, false);
+  assert.equal(fallbackResult?.llm_raw_response, null);
+  assert.equal(fallbackResult?.llm_parsed_response, null);
 }
 
 {
@@ -113,6 +118,8 @@ for (const scenarioId of scenarioIds) {
   assert.equal(llmErrorResult?.engine?.fallback_used, true);
   assert.ok(llmErrorResult?.engine?.fallback_reason);
   assert.equal(llmErrorResult?.response?.should_advance_stage, false);
+  assert.equal(llmErrorResult?.llm_raw_response, null);
+  assert.equal(llmErrorResult?.llm_parsed_response, null);
 }
 
 assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "multiplos_slots"), true);

@@ -3643,6 +3643,147 @@ function getLastStepMessagesForWa(env, waId) {
 }
 
 // 24) lock mismatch em case_ref explícito deve bloquear tratamento operacional.
+// 24) Matriz canônica: Pré-cadastro #000029 + STATUS: REPROVADO deve manter fase fora de visita.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000029";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = "whatsapp:+55 (11) 99999-9999@s.whatsapp.net";
+  const originalConsoleLog = console.log;
+  const capturedProbe = [];
+  console.log = (...args) => {
+    const line = args.map((part) => String(part)).join(" ");
+    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe") || line.includes("corr_flow_probe_"))) {
+      capturedProbe.push(line);
+    }
+    return originalConsoleLog(...args);
+  };
+
+  try {
+    const retornoReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: "5511999999999",
+                id: "wamid.retorno.case.ref.req.canonical.000029.reprovado",
+                timestamp: "1773183949",
+                type: "text",
+                text: { body: "Pré-cadastro #000029\nSTATUS: REPROVADO\nMOTIVO: restrição externa" }
+              }],
+              contacts: [{ wa_id: "5511999999999" }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(retornoReq, env, {});
+  } finally {
+    console.log = originalConsoleLog;
+  }
+
+  const telemetryPrefix = "TELEMETRIA-SAFE: ";
+  const parsedEvents = capturedProbe
+    .map((line) => {
+      const payloadStr = line.includes(telemetryPrefix)
+        ? line.slice(line.indexOf(telemetryPrefix) + telemetryPrefix.length)
+        : "";
+      if (!payloadStr) return null;
+      const payload = JSON.parse(payloadStr);
+      return {
+        event: payload?.event || null,
+        details: payload?.details ? JSON.parse(payload.details) : null
+      };
+    })
+    .filter(Boolean);
+  const byEvent = Object.fromEntries(parsedEvents.map((item) => [item.event, item.details]));
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+
+  assert.equal(byEvent.corr_sender_gate_probe?.case_ref, "000029");
+  assert.equal(byEvent.corr_sender_gate_probe?.decision_reason, "case_lock_match");
+  assert.equal(byEvent.corr_status_probe_status_parse?.status_normalized, "reprovado");
+  assert.equal(byEvent.corr_status_probe_decision?.handled, "sim");
+  assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "nao");
+  assert.equal(byEvent.corr_flow_probe_common_fallback?.fallback_common_flow, undefined);
+  assert.equal(alvo.retorno_correspondente_status, "reprovado");
+  assert.equal(alvo.fase_conversa, "aguardando_retorno_correspondente");
+}
+
+// 25) Matriz canônica: Pré-cadastro #000030 + STATUS: PENDÊNCIA deve manter fase fora de visita.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000030";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = "whatsapp:+55 (11) 99999-9999@s.whatsapp.net";
+  const originalConsoleLog = console.log;
+  const capturedProbe = [];
+  console.log = (...args) => {
+    const line = args.map((part) => String(part)).join(" ");
+    if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe") || line.includes("corr_flow_probe_"))) {
+      capturedProbe.push(line);
+    }
+    return originalConsoleLog(...args);
+  };
+
+  try {
+    const retornoReq = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        object: "whatsapp_business_account",
+        entry: [{
+          changes: [{
+            value: {
+              messages: [{
+                from: "5511999999999",
+                id: "wamid.retorno.case.ref.req.canonical.000030.pendencia",
+                timestamp: "1773183949",
+                type: "text",
+                text: { body: "Pré-cadastro #000030\nSTATUS: PENDÊNCIA\nMOTIVO: comprovante de renda" }
+              }],
+              contacts: [{ wa_id: "5511999999999" }],
+              metadata: { phone_number_id: "test" }
+            }
+          }]
+        }]
+      })
+    });
+    await worker.fetch(retornoReq, env, {});
+  } finally {
+    console.log = originalConsoleLog;
+  }
+
+  const telemetryPrefix = "TELEMETRIA-SAFE: ";
+  const parsedEvents = capturedProbe
+    .map((line) => {
+      const payloadStr = line.includes(telemetryPrefix)
+        ? line.slice(line.indexOf(telemetryPrefix) + telemetryPrefix.length)
+        : "";
+      if (!payloadStr) return null;
+      const payload = JSON.parse(payloadStr);
+      return {
+        event: payload?.event || null,
+        details: payload?.details ? JSON.parse(payload.details) : null
+      };
+    })
+    .filter(Boolean);
+  const byEvent = Object.fromEntries(parsedEvents.map((item) => [item.event, item.details]));
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+
+  assert.equal(byEvent.corr_sender_gate_probe?.case_ref, "000030");
+  assert.equal(byEvent.corr_sender_gate_probe?.decision_reason, "case_lock_match");
+  assert.equal(byEvent.corr_status_probe_status_parse?.status_normalized, "pendencia_documental");
+  assert.equal(byEvent.corr_status_probe_decision?.handled, "sim");
+  assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "nao");
+  assert.equal(byEvent.corr_flow_probe_common_fallback?.fallback_common_flow, undefined);
+  assert.equal(alvo.retorno_correspondente_status, "pendencia_documental");
+  assert.equal(alvo.fase_conversa, "aguardando_retorno_correspondente");
+}
+
+// 26) lock mismatch em case_ref explícito deve bloquear tratamento operacional.
 {
   const env = buildEnvWithState();
   env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
@@ -3719,7 +3860,7 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(byEvent.corr_flow_probe_confirm_exit?.stopped_before_common_flow, true);
 }
 
-// 25) sem lock salvo + remetente com 1 caso ativo compatível deve passar no fallback seguro.
+// 27) sem lock salvo + remetente com 1 caso ativo compatível deve passar no fallback seguro.
 {
   const env = buildEnvWithState();
   env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";
@@ -3787,7 +3928,7 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "nao");
 }
 
-// 26) ambiguidade real de mais de um caso ativo para o remetente deve bloquear.
+// 28) ambiguidade real de mais de um caso ativo para o remetente deve bloquear.
 {
   const env = buildEnvWithState();
   env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000006";

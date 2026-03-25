@@ -55,6 +55,7 @@ const env = buildEnv();
 const originalFetch = globalThis.fetch;
 const proxyCalls = [];
 let rejectedOptionalColumnsOnce = false;
+const EXPECTED_MIN_ENOVA_STATE_PATCHES = 3;
 
 globalThis.fetch = async (input, init = {}) => {
   const url = new URL(typeof input === "string" ? input : input.url);
@@ -138,7 +139,7 @@ try {
 
 const enovaStatePatches = proxyCalls.filter((call) => call.path === "/rest/v1/enova_state" && call.method === "PATCH");
 assert.equal(rejectedOptionalColumnsOnce, true);
-assert.equal(enovaStatePatches.length >= 3, true);
+assert.equal(enovaStatePatches.length >= EXPECTED_MIN_ENOVA_STATE_PATCHES, true);
 
 const firstRetornoPatch = enovaStatePatches.find((call) => call.body?.retorno_correspondente_status === "aprovado");
 assert.equal(String(firstRetornoPatch?.body?.retorno_correspondente_valor_financiamento || "").includes("210.000,00"), true);

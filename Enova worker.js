@@ -651,12 +651,12 @@ function extractMissingEnovaStateColumnFromSupabaseError(err) {
   const status = Number(err?.status || 0);
   const data = err?.data;
   if (status !== 400 || !data || typeof data !== "object") return null;
-  const haystack = [
+  const combinedErrorText = [
     data?.message,
     data?.details,
     data?.hint
   ].filter(Boolean).join(" ");
-  const match = haystack.match(/Could not find the '([^']+)' column of 'enova_state' in the schema cache/i);
+  const match = combinedErrorText.match(/Could not find the '([^']+)' column of 'enova_state' in the schema cache/i);
   return match?.[1] || null;
 }
 
@@ -14388,12 +14388,11 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     if (!CORRESPONDENTE_OPTIONAL_RETORNO_STATE_FIELDS.has(missingColumn)) {
       throw err;
     }
-    const retryPatch = {
-      ...retornoCorrespondenteStatePatch
-    };
-    for (const field of CORRESPONDENTE_OPTIONAL_RETORNO_STATE_FIELDS) {
-      delete retryPatch[field];
-    }
+    const {
+      retorno_correspondente_valor_financiamento: _valorFinanciamento,
+      retorno_correspondente_valor_subsidio_federal: _valorSubsidioFederal,
+      ...retryPatch
+    } = retornoCorrespondenteStatePatch;
     await telemetry(env, {
       wa_id: waCliente,
       event: "corr_return_case_ref_state_optional_fields_skipped",

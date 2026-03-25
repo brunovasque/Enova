@@ -13575,11 +13575,45 @@ function isUsefulCorrespondenteReturnStatus(status) {
   ]).has(String(status || "").trim().toLowerCase());
 }
 
+const CORRESPONDENTE_OPERATIONAL_STATUS_FALLBACK_CODE_MAX_LEN = 12;
+const CORRESPONDENTE_OPERATIONAL_STATUS_LABEL_MAX_LEN = 30;
+
+function buildCorrespondenteOperationalStatusCode(status) {
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+  const knownCodes = {
+    analise_ativa_existente: "an_ativa",
+    aguardando_cartinha_cancelamento: "ag_cartinha",
+    aguardando_autorizacao: "ag_aut",
+    em_analise_com_prazo: "em_an_prazo",
+    aprovado: "aprovado",
+    aprovado_condicionado: "aprov_cond",
+    reprovado: "reprovado",
+    pendencia_documental: "pend_doc",
+    pendencia_risco: "pend_risco",
+    em_analise: "em_analise"
+  };
+  if (knownCodes[normalizedStatus]) return knownCodes[normalizedStatus];
+  const fallbackCode = normalizedStatus
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, CORRESPONDENTE_OPERATIONAL_STATUS_FALLBACK_CODE_MAX_LEN);
+  return fallbackCode || "indef";
+}
+
+function buildCorrespondenteOperationalStatusLabel(status, prazoHoras) {
+  const safePrazoHoras = Number.isFinite(Number(prazoHoras)) && Number(prazoHoras) > 0
+    ? Math.min(Number(prazoHoras), 240)
+    : null;
+  const compactCode = buildCorrespondenteOperationalStatusCode(status);
+  const baseLabel = `ret_util:${compactCode}`;
+  const fullLabel = safePrazoHoras ? `${baseLabel}:${safePrazoHoras}h` : baseLabel;
+  return fullLabel.slice(0, CORRESPONDENTE_OPERATIONAL_STATUS_LABEL_MAX_LEN);
+}
+
 function buildCorrespondenteOperationalFollowPatch(status, rawText, nowIso = new Date().toISOString()) {
   const normalizedStatus = String(status || "").trim().toLowerCase();
   const prazoHoras = extractOperationalHoursDeadline(rawText);
   const isUseful = isUsefulCorrespondenteReturnStatus(normalizedStatus);
-  const prazoLabel = prazoHoras ? `${prazoHoras}h` : "sem_prazo_explicito";
   const nowTs = Date.parse(String(nowIso || "")) || Date.now();
   const prazoNextIso = prazoHoras
     ? new Date(nowTs + (Math.min(prazoHoras, 240) * 60 * 60 * 1000)).toISOString()
@@ -13587,7 +13621,7 @@ function buildCorrespondenteOperationalFollowPatch(status, rawText, nowIso = new
   return {
     processo_pre_analise: isUseful,
     processo_pre_analise_status: isUseful
-      ? `retorno_util:${normalizedStatus || "indefinido"}:${prazoLabel}`
+      ? buildCorrespondenteOperationalStatusLabel(normalizedStatus, prazoHoras)
       : "sem_retorno_util",
     ...(isUseful && prazoHoras ? { corr_follow_base_at: nowIso, corr_follow_next_at: prazoNextIso } : {})
   };
@@ -14366,6 +14400,35 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       dispatch_target: dispatchTarget
     }
   });
+
+  const currentStoredStatus = String(stCaso?.retorno_correspondente_status || "").trim().toLowerCase();
+  const currentCaseStage = String(stCaso?.fase_conversa || "").trim().toLowerCase();
+  const expectedHandledStage = String(nextStagePreview || "").trim().toLowerCase();
+  const duplicateHandledReturn =
+    !manualReviewRequired &&
+    dispatchTarget !== "none" &&
+    currentStoredStatus === String(statusCanonico || "").trim().toLowerCase() &&
+    Boolean(expectedHandledStage) &&
+    currentCaseStage === expectedHandledStage;
+  if (duplicateHandledReturn) {
+    await funnelTelemetry(env, {
+      wa_id: waCliente,
+      event: "corr_return_case_ref_duplicate_ignored",
+      stage: "aguardando_retorno_correspondente",
+      severity: "info",
+      message: "Retorno duplicado do correspondente ignorado por idempotência",
+      details: {
+        case_ref: caseRef,
+        status: statusCanonico,
+        current_stage: currentCaseStage || null,
+        expected_stage: expectedHandledStage || null,
+        dispatch_target: dispatchTarget,
+        correspondente_wa_id: correspondenteWaId
+      },
+      force: true
+    });
+    return { handled: true, reason: "corr_return_case_ref_duplicate_ignored", case_ref: caseRef || null, status: statusCanonico };
+  }
 
   const operationalFollowPatch = buildCorrespondenteOperationalFollowPatch(
   statusCanonico,

@@ -3562,7 +3562,7 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(byEvent.corr_status_probe_decision?.handled, "sim");
   assert.equal(byEvent.corr_status_probe_decision?.fallback_common_flow, "nao");
   assert.equal(byEvent.corr_flow_probe_enter?.entered_correspondente_handler, true);
-  assert.equal(byEvent.corr_flow_probe_common_fallback?.fallback_common_flow, "sim");
+  assert.equal(byEvent.corr_flow_probe_common_fallback?.fallback_common_flow, undefined);
 }
 
 // 23) lock mismatch em case_ref explícito deve bloquear tratamento operacional.

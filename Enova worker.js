@@ -14218,7 +14218,7 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
         await askCaseConfirmation("corr_return_case_ref_sender_confirmation_needed");
         return { handled: true, reason: "corr_return_case_ref_sender_confirmation_needed", case_ref: caseRef || null, status: null };
       }
-      return { handled: false, case_ref: caseRef || null, status: null };
+      return { handled: true, reason: "corr_return_case_ref_sender_not_unique_no_confirmation", case_ref: caseRef || null, status: null };
     }
   }
 

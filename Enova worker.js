@@ -45,6 +45,16 @@ function getRuntimeGitCommitHint(env) {
   ).trim() || null;
 }
 
+function extractReadOnlyCognitiveRequestFromPayload(payload, fixture) {
+  return (
+    fixture?.input ||
+    (payload?.request && typeof payload.request === "object" ? payload.request : null) ||
+    (payload?.message_text || payload?.message || payload?.context || payload?.current_stage
+      ? payload
+      : null)
+  );
+}
+
 // =============================================================
 // 🧱 A1 — step() + sendMessage() + logger()
 // =============================================================
@@ -3971,12 +3981,7 @@ if (isAdminProdPath) {
         });
       }
 
-      const rawRequest =
-        fixture?.input ||
-        (payload?.request && typeof payload.request === "object" ? payload.request : null) ||
-        (payload?.message_text || payload?.message || payload?.context || payload?.current_stage
-          ? payload
-          : null);
+      const rawRequest = extractReadOnlyCognitiveRequestFromPayload(payload, fixture);
 
       if (!rawRequest) {
         return adminJson(400, {

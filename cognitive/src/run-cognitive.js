@@ -21,9 +21,10 @@ const STAGE_DEFAULT_PENDING_SLOTS = Object.freeze({
   renda: ["renda", "ir_declarado"]
 });
 
-const MONEY_REGEX = /(?:r\$\s*)?\d{1,3}(?:\.\d{3})*(?:,\d{2})?|(?:r\$\s*)?\d+(?:,\d{2})?/gi;
+const BRL_CURRENCY_REGEX = /(?:r\$\s*)?\d{1,3}(?:\.\d{3})*(?:,\d{2})?|(?:r\$\s*)?\d+(?:,\d{2})?/gi;
 const OFFTRACK_HINTS = /\b(valor|entrada|parcela|imovel|imóvel|casa|apartamento|bairro|regiao|região|metros)\b/i;
 const AMBIGUOUS_HINTS = /\b(acho|talvez|mais ou menos|nao sei|não sei|meio|duvida|dúvida)\b/i;
+const FAMILY_MEMBER_PATTERN = /\bm[aã]e\b|\bpai\b|\birm[aã]o\b|\birm[aã]\b|\bav[oó]\b|\btio\b|\btia\b|\bprima\b|\bprimo\b/g;
 const CONFIRMATION_SLOT_KEYS = new Set(["p3"]);
 const ESTADO_CIVIL_CONFIDENCE = Object.freeze({
   default: 0.88,
@@ -90,7 +91,7 @@ function pickDetectedValue(text, pairs) {
 }
 
 function detectMoney(text) {
-  const matches = String(text || "").match(MONEY_REGEX);
+  const matches = String(text || "").match(BRL_CURRENCY_REGEX);
   if (!matches || !matches.length) return null;
   const parsedValues = matches
     .map((match) => {
@@ -158,7 +159,7 @@ function detectFamiliar(text) {
 
 function detectP3(text) {
   if (/\bseremos tres\b|\bseremos 3\b|\bp3\b|\bterceira pessoa\b|\bmais uma pessoa\b/.test(text)) return "sim";
-  const familyCount = (text.match(/\bm[aã]e\b|\bpai\b|\birm[aã]o\b|\birm[aã]\b|\bav[oó]\b|\btio\b|\btia\b|\bprima\b|\bprimo\b/g) || []).length;
+  const familyCount = (text.match(FAMILY_MEMBER_PATTERN) || []).length;
   if (familyCount >= 2) return "sim";
   return null;
 }

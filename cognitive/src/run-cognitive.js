@@ -24,11 +24,7 @@ const STAGE_DEFAULT_PENDING_SLOTS = Object.freeze({
 const BRL_CURRENCY_REGEX = /(?:r\$\s*)?\d{1,3}(?:\.\d{3})*(?:,\d{2})?|(?:r\$\s*)?\d+(?:,\d{2})?/gi;
 const OFFTRACK_HINTS = /\b(valor|entrada|parcela|imovel|imóvel|casa|apartamento|bairro|regiao|região|metros)\b/i;
 const AMBIGUOUS_HINTS = /\b(acho|talvez|mais ou menos|nao sei|não sei|meio|duvida|dúvida)\b/i;
-const SIBLING_PATTERN = /\birm[aã](?:o)?\b/g;
-const FAMILY_MEMBER_PATTERN = new RegExp(
-  `${String.raw`\bm[aã]e\b|\bpai\b|`}${SIBLING_PATTERN.source}${String.raw`|\bav[oó]\b|\btio\b|\btia\b|\bprima\b|\bprimo\b`}`,
-  "g"
-);
+const FAMILY_MEMBER_PATTERN = /\bm[aã]e\b|\bpai\b|\birm[aã](?:o)?\b|\bav[oó]\b|\btio\b|\btia\b|\bprima\b|\bprimo\b/g;
 const CONFIRMATION_SLOT_KEYS = new Set(["p3"]);
 const ESTADO_CIVIL_CONFIDENCE = Object.freeze({
   default: 0.88,
@@ -150,8 +146,8 @@ function detectFamiliar(text) {
   return pickDetectedValue(text, [
     { regex: /\bm[aã]e\b/, value: "mae" },
     { regex: /\bpai\b/, value: "pai" },
-    { regex: /\birm[aã]\b/, value: "irma" },
-    { regex: /\birm[aã]o\b/, value: "irmao" },
+    { regex: /\birma\b|\birmã\b/, value: "irma" },
+    { regex: /\birmao\b|\birmão\b/, value: "irmao" },
     { regex: /\bav[oó]\b/, value: "avo" },
     { regex: /\btio\b/, value: "tio" },
     { regex: /\btia\b/, value: "tia" },

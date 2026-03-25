@@ -4859,6 +4859,8 @@ function getLastStepMessagesForWa(env, waId) {
   const env = buildEnvWithState();
   env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000031";
   env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = "whatsapp:+55 (11) 99999-9999@s.whatsapp.net";
+  const originalConsoleLog = console.log;
+  const capturedProbe = [];
   const retornoReq = new Request("https://worker.local/webhook/meta", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -4881,12 +4883,104 @@ function getLastStepMessagesForWa(env, waId) {
       }]
     })
   });
-  await worker.fetch(retornoReq, env, {});
+  try {
+    console.log = (...args) => {
+      const line = args.map((part) => String(part)).join(" ");
+      if (line.includes("TELEMETRIA-SAFE:") && (line.includes("corr_status_probe_") || line.includes("corr_sender_gate_probe") || line.includes("corr_route_probe_case_ref_attempt"))) {
+        capturedProbe.push(line);
+      }
+      return originalConsoleLog(...args);
+    };
+    await worker.fetch(retornoReq, env, {});
+  } finally {
+    console.log = originalConsoleLog;
+  }
+  const telemetryPrefix = "TELEMETRIA-SAFE: ";
+  const parsedEvents = capturedProbe
+    .map((line) => {
+      const payloadStr = line.includes(telemetryPrefix)
+        ? line.slice(line.indexOf(telemetryPrefix) + telemetryPrefix.length)
+        : "";
+      if (!payloadStr) return null;
+      const payload = JSON.parse(payloadStr);
+      return {
+        event: payload?.event || null,
+        details: payload?.details ? JSON.parse(payload.details) : null
+      };
+    })
+    .filter(Boolean);
+  const byEvent = Object.fromEntries(parsedEvents.map((item) => [item.event, item.details]));
   const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(alvo.retorno_correspondente_status, "aprovado");
   assert.equal(alvo.fase_conversa, "agendamento_visita");
+  const correspondenteAck = env.__enovaSimulationCtx.sendPreview || null;
+  assert.equal(Boolean(correspondenteAck), true);
+  assert.equal(correspondenteAck?.to, correspondenteWa);
+  assert.equal(String(correspondenteAck?.text?.body || "").includes(CORRESPONDENTE_RETORNO_ACK_PREFIX), true);
   const lastClientMsgs = getLastStepMessagesForWa(env, waCaso).join("\n");
   assert.equal(lastClientMsgs.includes("pré-aprovação do financiamento"), true);
+  assert.equal(byEvent.corr_route_probe_case_ref_attempt?.handled, true);
+  assert.equal(byEvent.corr_status_probe_decision?.status_classificado, "aprovado");
+  assert.equal(byEvent.corr_status_probe_decision?.handled, "sim");
+}
+
+// 44) Falha de envio do ACK ao correspondente não pode parecer sucesso silencioso no retorno por case_ref.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pre_cadastro_numero = "000031";
+  env.__enovaSimulationCtx.stateByWaId[waCaso].corr_lock_correspondente_wa_id = correspondenteWa;
+  env.__enovaSimulationCtx.suppressExternalSend = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => {
+    const asString = String(url || "");
+    let pathname = "";
+    let hostname = "";
+    try {
+      const parsed = new URL(asString);
+      pathname = parsed.pathname || "";
+      hostname = parsed.hostname || "";
+    } catch {
+      pathname = "";
+      hostname = "";
+    }
+    if (hostname === "graph.facebook.com" && pathname.endsWith("/messages")) {
+      return new Response("forced_ack_fail", { status: 503 });
+    }
+    return originalFetch(url, init);
+  };
+  const retornoReq = new Request("https://worker.local/webhook/meta", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      object: "whatsapp_business_account",
+      entry: [{
+        changes: [{
+          value: {
+            messages: [{
+              from: correspondenteWa,
+              id: "wamid.retorno.case.ref.req.canonical.000031.aprovado.ack.fail",
+              timestamp: "1773183951",
+              type: "text",
+              text: { body: "Pré-cadastro #000031\nSTATUS: APROVADO" }
+            }],
+            contacts: [{ wa_id: correspondenteWa }],
+            metadata: { phone_number_id: "test" }
+          }
+        }]
+      }]
+    })
+  });
+  try {
+    await assert.rejects(
+      worker.fetch(retornoReq, env, {}),
+      /corr_return_case_ref_ack_send_failed/
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  const alvo = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  assert.notEqual(alvo.fase_conversa, "agendamento_visita");
+  assert.equal(env.__enovaSimulationCtx.sendPreview, null);
 }
 
 console.log("correspondente_entry_link.smoke: ok");

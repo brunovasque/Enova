@@ -36,7 +36,10 @@ for (const scenarioId of scenarioIds) {
   const result = await runReadOnlyCognitiveEngine(fixture.input, llmRuntime);
   assert.equal(result?.mode, "read_only_test");
   assert.equal(result?.request?.message_text, fixture.input.message_text);
+  assert.equal(result?.engine?.llm_attempted, true, `${scenarioId} must attempt openai path`);
   assert.equal(result?.engine?.llm_used, true, `${scenarioId} must exercise openai path`);
+  assert.equal(result?.engine?.llm_error, null, `${scenarioId} should not include llm error`);
+  assert.equal(result?.engine?.fallback_used, false, `${scenarioId} should not fallback`);
   assert.equal(result?.engine?.model, "gpt-4.1-mini");
 
   const validation = validateReadOnlyCognitiveResponse(result?.response);
@@ -79,9 +82,37 @@ for (const scenarioId of scenarioIds) {
     pending_slots: ["renda"]
   });
 
+  assert.equal(fallbackResult?.engine?.llm_attempted, false);
   assert.equal(fallbackResult?.engine?.llm_used, false);
+  assert.equal(fallbackResult?.engine?.llm_error, null);
+  assert.equal(fallbackResult?.engine?.fallback_used, true);
   assert.ok(fallbackResult?.engine?.fallback_reason);
   assert.equal(fallbackResult?.response?.should_advance_stage, false);
+}
+
+{
+  const llmErrorResult = await runReadOnlyCognitiveEngine(
+    {
+      conversation_id: "fallback-llm-error-001",
+      current_stage: "renda",
+      message_text: "Sou autônomo e tenho renda de 2000.",
+      pending_slots: ["regime_trabalho", "renda"]
+    },
+    {
+      openaiApiKey: "test-openai-key",
+      model: "gpt-4.1-mini",
+      fetchImpl: async () => {
+        throw new Error("boom");
+      }
+    }
+  );
+
+  assert.equal(llmErrorResult?.engine?.llm_attempted, true);
+  assert.equal(llmErrorResult?.engine?.llm_used, false);
+  assert.equal(llmErrorResult?.engine?.llm_error, "openai_fetch_failed");
+  assert.equal(llmErrorResult?.engine?.fallback_used, true);
+  assert.ok(llmErrorResult?.engine?.fallback_reason);
+  assert.equal(llmErrorResult?.response?.should_advance_stage, false);
 }
 
 assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "multiplos_slots"), true);

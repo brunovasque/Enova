@@ -46,6 +46,27 @@ Garantias:
 - não grava estado oficial
 - não altera gate, `nextStage` ou fase
 
+## Fase 3 — OpenAI real ainda isolado
+
+Nesta fase, o runner read-only e a rota `POST /__admin__/cognitive-test` podem usar um modelo real da OpenAI **sem ativar produção**.
+
+Configuração:
+
+- `OPENAI_API_KEY_PROD` → chave reutilizada apenas para o motor cognitivo isolado nesta fase
+- `COGNITIVE_AI_MODEL` → modelo dedicado do novo cognitivo isolado
+
+Valor inicial sugerido:
+
+- `gpt-4.1-mini`
+
+Garantias adicionais:
+
+- continua sem substituir `cognitiveAssistV1`
+- continua sem write oficial no Supabase
+- continua sem envio real para Meta
+- continua restrito ao runner/mock e ao endpoint admin/test
+- continua com `should_advance_stage=false`
+
 ## Relação canônica entre camadas
 
 - **Enova Orchestrator**: continua sendo o motor mecânico/orquestrador oficial

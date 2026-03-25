@@ -21,7 +21,7 @@ const STAGE_DEFAULT_PENDING_SLOTS = Object.freeze({
   renda: ["renda", "ir_declarado"]
 });
 
-const BRL_CURRENCY_PATTERN = /(?:r\$\s*)?\d{1,3}(?:\.\d{3})*(?:,\d{2})?|(?:r\$\s*)?\d+(?:,\d{2})?/i;
+const BRL_CURRENCY_PATTERN = /(?<!\d)(?:r\$\s*)?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{2})?(?!\d)/i;
 const OFFTRACK_HINTS = /\b(valor|entrada|parcela|imovel|imóvel|casa|apartamento|bairro|regiao|região|metros)\b/i;
 const AMBIGUOUS_HINTS = /\b(acho|talvez|mais ou menos|nao sei|não sei|meio|duvida|dúvida)\b/i;
 const FAMILY_MEMBER_PATTERN = /\bm[aã]e\b|\bpai\b|\birm[aã](?:o)?\b|\bav[oó]\b|\btio\b|\btia\b|\bprima\b|\bprimo\b/g;
@@ -38,6 +38,54 @@ const CONFIDENCE_RULES = Object.freeze({
   offtrackPenalty: 0.08,
   offtrackBase: 0.58
 });
+const DEFAULT_COGNITIVE_AI_MODEL = "gpt-4.1-mini";
+const COGNITIVE_SLOT_DEPENDENCIES = Object.freeze({
+  estado_civil: ["composicao"],
+  composicao: ["parceiro_p2", "familiar", "p3"],
+  regime_trabalho: ["renda", "ir_declarado"],
+  autonomo_ir: ["docs"],
+  ctps: ["docs"],
+  restricao: ["docs"],
+  docs: ["correspondente"],
+  correspondente: ["visita"]
+});
+const COGNITIVE_SLOT_CONTRACT = Object.freeze([
+  {
+    key: "estado_civil",
+    description: "Leitura consultiva de solteiro/casado civil/união estável.",
+    depends_on: []
+  },
+  {
+    key: "composicao",
+    description: "Indica se o caso segue sozinho, com parceiro ou com familiar.",
+    depends_on: ["estado_civil"]
+  },
+  {
+    key: "familiar",
+    description: "Familiar específico quando a composição envolver familiar.",
+    depends_on: ["composicao"]
+  },
+  {
+    key: "p3",
+    description: "Terceiro participante quando aplicável.",
+    depends_on: ["composicao"]
+  },
+  {
+    key: "regime_trabalho",
+    description: "Regime como CLT, autônomo, servidor ou aposentado.",
+    depends_on: []
+  },
+  {
+    key: "renda",
+    description: "Faixa/valor de renda informado pelo cliente.",
+    depends_on: ["regime_trabalho"]
+  },
+  {
+    key: "ir_declarado",
+    description: "Se o cliente declara imposto de renda.",
+    depends_on: ["regime_trabalho", "renda"]
+  }
+]);
 
 function cloneJson(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
@@ -58,6 +106,7 @@ function normalizeRequest(input = {}) {
   const knownSlotsRaw = input?.known_slots ?? context?.known_slots;
   const pendingSlotsRaw = input?.pending_slots ?? context?.pending_slots;
   const recentMessagesRaw = input?.recent_messages ?? context?.recent_messages;
+  const normativeContextRaw = input?.normative_context ?? context?.normative_context;
   const normalized = {
     version: String(input?.version || "read_only_test_v1"),
     channel: String(input?.channel || "meta_whatsapp"),
@@ -77,6 +126,21 @@ function normalizeRequest(input = {}) {
             text: String(entry?.text || "")
           };
         })
+      : [],
+    normative_context: Array.isArray(normativeContextRaw)
+      ? normativeContextRaw
+          .map((entry) => {
+            if (!entry || typeof entry !== "object") return null;
+            const title = String(entry?.title || "").trim();
+            const content = String(entry?.content || "").trim();
+            if (!title && !content) return null;
+            return {
+              title: title || "Normative context",
+              content,
+              source: String(entry?.source || "").trim() || null
+            };
+          })
+          .filter(Boolean)
       : []
   };
 
@@ -168,6 +232,77 @@ function buildSlot(value, confidence, evidence, source = "message_text") {
   return { value, confidence, evidence, source };
 }
 
+function clampConfidence(value, fallback = 0.5) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  return Math.max(0, Math.min(1, Number(numeric.toFixed(2))));
+}
+
+function sanitizeReplyText(value) {
+  return String(value || "")
+    .replace(/\u0000/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function uniqueStringArray(values, fallback = []) {
+  const normalized = Array.isArray(values) ? values : fallback;
+  return [...new Set(normalized.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+function normalizeConflictList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const slot = String(entry.slot || "").trim();
+      const reason = String(entry.reason || "").trim();
+      if (!slot || !reason) return null;
+      return { slot, reason };
+    })
+    .filter(Boolean);
+}
+
+function normalizeSlotObject(rawSlots, fallbackSlots = {}) {
+  const normalized = {};
+  if (!rawSlots || typeof rawSlots !== "object" || Array.isArray(rawSlots)) {
+    return { ...fallbackSlots };
+  }
+
+  for (const [slotName, rawValue] of Object.entries(rawSlots)) {
+    const fallback = fallbackSlots[slotName];
+    if (rawValue == null) {
+      if (fallback) normalized[slotName] = fallback;
+      continue;
+    }
+
+    if (typeof rawValue === "object" && !Array.isArray(rawValue)) {
+      const hasValue = Object.prototype.hasOwnProperty.call(rawValue, "value");
+      const slotValue = hasValue ? rawValue.value : fallback?.value;
+      if (slotValue == null) continue;
+      normalized[slotName] = {
+        value: slotValue,
+        confidence: clampConfidence(rawValue.confidence, fallback?.confidence ?? 0.72),
+        evidence: String(rawValue.evidence || fallback?.evidence || "").trim() || null,
+        source: String(rawValue.source || fallback?.source || "openai_cognitive")
+      };
+      continue;
+    }
+
+    normalized[slotName] = {
+      value: rawValue,
+      confidence: fallback?.confidence ?? 0.72,
+      evidence: fallback?.evidence || null,
+      source: fallback?.source || "openai_cognitive"
+    };
+  }
+
+  return {
+    ...fallbackSlots,
+    ...normalized
+  };
+}
+
 function detectSlotsFromConversation(request) {
   const combinedText = [request.message_text, ...request.recent_messages.map((entry) => entry.text)]
     .filter(Boolean)
@@ -235,6 +370,175 @@ function detectSlotsFromConversation(request) {
   };
 }
 
+function resolveRuntimeConfig(options = {}) {
+  const processEnv =
+    typeof process !== "undefined" && process?.env && typeof process.env === "object" ? process.env : {};
+  const fetchImpl =
+    typeof options.fetchImpl === "function"
+      ? options.fetchImpl
+      : typeof globalThis?.fetch === "function"
+        ? globalThis.fetch.bind(globalThis)
+        : null;
+  const openaiApiKey =
+    typeof options.openaiApiKey === "string" && options.openaiApiKey.trim()
+      ? options.openaiApiKey.trim()
+      : String(processEnv.OPENAI_API_KEY_PROD || "").trim() || null;
+  const model =
+    typeof options.model === "string" && options.model.trim()
+      ? options.model.trim()
+      : String(processEnv.COGNITIVE_AI_MODEL || DEFAULT_COGNITIVE_AI_MODEL).trim();
+
+  return {
+    fetchImpl,
+    openaiApiKey,
+    model,
+    normativeContext: Array.isArray(options.normativeContext) ? options.normativeContext : null
+  };
+}
+
+function buildNormativeContext(request, runtimeConfig) {
+  const hasRuntimeNormativeContext =
+    Array.isArray(runtimeConfig?.normativeContext) && runtimeConfig.normativeContext.length > 0;
+  const rawContext = hasRuntimeNormativeContext
+    ? runtimeConfig.normativeContext
+    : request.normative_context;
+
+  return Array.isArray(rawContext)
+    ? rawContext
+        .map((entry) => {
+          if (!entry || typeof entry !== "object") return null;
+          const title = String(entry.title || "").trim();
+          const content = String(entry.content || "").trim();
+          if (!title && !content) return null;
+          return {
+            title: title || "Normative context",
+            content,
+            source: String(entry.source || "").trim() || null
+          };
+        })
+        .filter(Boolean)
+    : [];
+}
+
+function buildOpenAISystemPrompt() {
+  return [
+    "Você é o Enova Cognitive Engine read-only da fase 3, especialista consultivo em MCMV/CEF da Enova.",
+    "Converse em português do Brasil de forma humana, natural, consultiva e objetiva.",
+    "Interprete respostas abertas, extraia slots úteis, sugira a próxima melhor pergunta e aponte ambiguidades.",
+    "Você NÃO pode aprovar financiamento, NÃO pode alterar o stage oficial, NÃO pode inventar regra fora do contrato ou do contexto normativo recebido.",
+    "Você NÃO pode acionar produção, Meta, Supabase oficial ou qualquer side effect.",
+    "Responda APENAS JSON válido compatível com este contrato:",
+    JSON.stringify({
+      reply_text: "string",
+      slots_detected: {
+        slot_name: {
+          value: "unknown",
+          confidence: 0.0,
+          evidence: "string|null",
+          source: "openai_cognitive"
+        }
+      },
+      pending_slots: ["string"],
+      conflicts: [{ slot: "string", reason: "string" }],
+      suggested_next_slot: "string|null",
+      consultive_notes: ["string"],
+      should_request_confirmation: false,
+      should_advance_stage: false,
+      confidence: 0.0
+    }),
+    "Se faltar sinal suficiente, mantenha slots_detected vazio e use reply_text consultivo.",
+    "Sempre preserve should_advance_stage=false."
+  ].join(" ");
+}
+
+function buildOpenAIUserPrompt(request, analysis, normativeContext) {
+  return JSON.stringify({
+    task: "enova_cognitive_phase_3_read_only",
+    request: {
+      version: request.version,
+      channel: request.channel,
+      conversation_id: request.conversation_id,
+      current_stage: request.current_stage,
+      message_text: request.message_text,
+      history: request.recent_messages,
+      known_slots: request.known_slots,
+      pending_slots: request.pending_slots
+    },
+    slot_contract: COGNITIVE_SLOT_CONTRACT,
+    slot_dependencies: COGNITIVE_SLOT_DEPENDENCIES,
+    normative_context: normativeContext,
+    safety_contract: {
+      should_advance_stage: false,
+      official_write_count: 0,
+      would_send_meta: false,
+      production_activation: false
+    },
+    analysis_seed: {
+      slots_detected: analysis.slots_detected,
+      pending_slots: buildPendingSlots(request, analysis.slots_detected),
+      conflicts: analysis.conflicts,
+      suggested_next_slot: buildSuggestedNextSlot(buildPendingSlots(request, analysis.slots_detected), analysis.conflicts),
+      consultive_notes: analysis.consultive_notes,
+      offtrack: analysis.offtrack,
+      ambiguous: analysis.ambiguous
+    }
+  });
+}
+
+async function callOpenAIReadOnly(runtimeConfig, prompt) {
+  if (!runtimeConfig?.openaiApiKey || !runtimeConfig?.fetchImpl) {
+    return { ok: false, reason: "missing_openai_config", parsed: null };
+  }
+
+  let response;
+  try {
+    response = await runtimeConfig.fetchImpl("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${runtimeConfig.openaiApiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: runtimeConfig.model || DEFAULT_COGNITIVE_AI_MODEL,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: prompt.system },
+          { role: "user", content: prompt.user }
+        ]
+      })
+    });
+  } catch {
+    return { ok: false, reason: "openai_fetch_failed", parsed: null };
+  }
+
+  if (!response?.ok) {
+    return { ok: false, reason: `openai_http_${response?.status || "error"}`, parsed: null };
+  }
+
+  let data = null;
+  try {
+    data = await response.json();
+  } catch {
+    return { ok: false, reason: "openai_invalid_json", parsed: null };
+  }
+
+  const content = data?.choices?.[0]?.message?.content;
+  if (typeof content !== "string" || !content.trim()) {
+    return { ok: false, reason: "openai_empty_content", parsed: null };
+  }
+
+  try {
+    return {
+      ok: true,
+      reason: null,
+      parsed: JSON.parse(content)
+    };
+  } catch {
+    return { ok: false, reason: "openai_parse_failed", parsed: null };
+  }
+}
+
 function detectKnownSlotConflicts(knownSlots, detectedSlots) {
   const conflicts = [];
   for (const [slot, detected] of Object.entries(detectedSlots)) {
@@ -286,6 +590,109 @@ function buildReplyText({ request, detectedSlots, pendingSlots, suggestedNextSlo
   return "Perfeito — capturei o sinal principal da sua mensagem em modo read-only e devolvi a leitura estruturada do cognitivo para validação.";
 }
 
+function buildHeuristicResponse(request, analysis, conflictList) {
+  const pendingSlots = buildPendingSlots(request, analysis.slots_detected);
+  const suggestedNextSlot = buildSuggestedNextSlot(pendingSlots, conflictList);
+  const slotsDetectedCount = Object.keys(analysis.slots_detected).length;
+  const shouldRequestConfirmation =
+    conflictList.length > 0 ||
+    slotsDetectedCount > 3 ||
+    Object.keys(analysis.slots_detected).some((slot) => CONFIRMATION_SLOT_KEYS.has(slot));
+
+  const consultiveNotes = [...analysis.consultive_notes];
+  if (slotsDetectedCount > 2) {
+    consultiveNotes.push("A resposta concentrou múltiplos slots; revisar a ordem canônica apenas fora do fluxo real.");
+  }
+  if (suggestedNextSlot) {
+    consultiveNotes.push(`Próximo slot sugerido em modo read-only: ${suggestedNextSlot}.`);
+  }
+  consultiveNotes.push("Runner isolado: sem write oficial, sem Meta real e sem alteração de stage.");
+
+  const confidenceBase = slotsDetectedCount
+    ? CONFIDENCE_RULES.detectedBase + Math.min(slotsDetectedCount, 4) * CONFIDENCE_RULES.detectedIncrement
+    : analysis.offtrack ? CONFIDENCE_RULES.offtrackBase : CONFIDENCE_RULES.noSlotBase;
+  const confidencePenalty =
+    conflictList.length * CONFIDENCE_RULES.conflictPenalty +
+    (analysis.offtrack ? CONFIDENCE_RULES.offtrackPenalty : 0);
+  const confidence = Math.max(0.05, Math.min(0.99, Number((confidenceBase - confidencePenalty).toFixed(2))));
+
+  return {
+    reply_text: buildReplyText({
+      request,
+      detectedSlots: analysis.slots_detected,
+      pendingSlots,
+      suggestedNextSlot,
+      conflicts: conflictList,
+      offtrack: analysis.offtrack
+    }),
+    slots_detected: analysis.slots_detected,
+    pending_slots: pendingSlots,
+    conflicts: conflictList,
+    suggested_next_slot: suggestedNextSlot,
+    consultive_notes: consultiveNotes,
+    should_request_confirmation: shouldRequestConfirmation,
+    should_advance_stage: false,
+    confidence
+  };
+}
+
+function normalizeModelResponse({
+  request,
+  analysis,
+  heuristicResponse,
+  modelResponse,
+  llmUsed
+}) {
+  if (!modelResponse || typeof modelResponse !== "object") {
+    return heuristicResponse;
+  }
+
+  const slotsDetected = normalizeSlotObject(modelResponse.slots_detected, heuristicResponse.slots_detected);
+  const conflicts = [
+    ...heuristicResponse.conflicts,
+    ...normalizeConflictList(modelResponse.conflicts)
+  ].filter(
+    (entry, index, array) =>
+      array.findIndex((candidate) => candidate.slot === entry.slot && candidate.reason === entry.reason) === index
+  );
+  const pendingSlots = uniqueStringArray(
+    modelResponse.pending_slots,
+    buildPendingSlots(request, slotsDetected)
+  );
+  const suggestedNextSlot =
+    typeof modelResponse.suggested_next_slot === "string" && modelResponse.suggested_next_slot.trim()
+      ? modelResponse.suggested_next_slot.trim()
+      : buildSuggestedNextSlot(pendingSlots, conflicts);
+  const consultiveNotes = uniqueStringArray([
+    ...heuristicResponse.consultive_notes,
+    ...(Array.isArray(modelResponse.consultive_notes) ? modelResponse.consultive_notes : []),
+    llmUsed ? `Modelo cognitivo read-only utilizado: ${request.current_stage}.` : null
+  ]);
+  const replyText =
+    sanitizeReplyText(modelResponse.reply_text) ||
+    sanitizeReplyText(modelResponse.human_response) ||
+    heuristicResponse.reply_text;
+  const shouldRequestConfirmation =
+    typeof modelResponse.should_request_confirmation === "boolean"
+      ? modelResponse.should_request_confirmation || conflicts.length > 0
+      : heuristicResponse.should_request_confirmation || conflicts.length > 0;
+
+  return {
+    reply_text: replyText,
+    slots_detected: slotsDetected,
+    pending_slots: pendingSlots,
+    conflicts,
+    suggested_next_slot: suggestedNextSlot,
+    consultive_notes: consultiveNotes,
+    should_request_confirmation: shouldRequestConfirmation,
+    should_advance_stage: false,
+    confidence: clampConfidence(
+      modelResponse.confidence,
+      heuristicResponse.confidence
+    )
+  };
+}
+
 export function validateReadOnlyCognitiveResponse(response) {
   const errors = [];
   const value = response && typeof response === "object" ? response : null;
@@ -332,54 +739,26 @@ export function getReadOnlyCognitiveFixtureById(fixtureId) {
   return READ_ONLY_COGNITIVE_FIXTURES.find((fixture) => fixture.id === fixtureId) || null;
 }
 
-export function runReadOnlyCognitiveEngine(rawInput = {}) {
+export async function runReadOnlyCognitiveEngine(rawInput = {}, options = {}) {
   const request = normalizeRequest(rawInput);
   const analysis = detectSlotsFromConversation(request);
   const knownSlotConflicts = detectKnownSlotConflicts(request.known_slots, analysis.slots_detected);
   const conflicts = [...analysis.conflicts, ...knownSlotConflicts];
-  const pendingSlots = buildPendingSlots(request, analysis.slots_detected);
-  const suggestedNextSlot = buildSuggestedNextSlot(pendingSlots, conflicts);
-  const slotsDetectedCount = Object.keys(analysis.slots_detected).length;
-  const shouldRequestConfirmation =
-    conflicts.length > 0 ||
-    slotsDetectedCount > 3 ||
-    Object.keys(analysis.slots_detected).some((slot) => CONFIRMATION_SLOT_KEYS.has(slot));
-
-  const consultiveNotes = [...analysis.consultive_notes];
-  if (slotsDetectedCount > 2) {
-    consultiveNotes.push("A resposta concentrou múltiplos slots; revisar a ordem canônica apenas fora do fluxo real.");
-  }
-  if (suggestedNextSlot) {
-    consultiveNotes.push(`Próximo slot sugerido em modo read-only: ${suggestedNextSlot}.`);
-  }
-  consultiveNotes.push("Runner isolado: sem write oficial, sem Meta real e sem alteração de stage.");
-
-  const confidenceBase = slotsDetectedCount
-    ? CONFIDENCE_RULES.detectedBase + Math.min(slotsDetectedCount, 4) * CONFIDENCE_RULES.detectedIncrement
-    : (analysis.offtrack ? CONFIDENCE_RULES.offtrackBase : CONFIDENCE_RULES.noSlotBase);
-  const confidencePenalty =
-    conflicts.length * CONFIDENCE_RULES.conflictPenalty +
-    (analysis.offtrack ? CONFIDENCE_RULES.offtrackPenalty : 0);
-  const confidence = Math.max(0.05, Math.min(0.99, Number((confidenceBase - confidencePenalty).toFixed(2))));
-
-  const response = {
-    reply_text: buildReplyText({
-      request,
-      detectedSlots: analysis.slots_detected,
-      pendingSlots,
-      suggestedNextSlot,
-      conflicts,
-      offtrack: analysis.offtrack
-    }),
-    slots_detected: analysis.slots_detected,
-    pending_slots: pendingSlots,
-    conflicts,
-    suggested_next_slot: suggestedNextSlot,
-    consultive_notes: consultiveNotes,
-    should_request_confirmation: shouldRequestConfirmation,
-    should_advance_stage: false,
-    confidence
+  const heuristicResponse = buildHeuristicResponse(request, analysis, conflicts);
+  const runtimeConfig = resolveRuntimeConfig(options);
+  const normativeContext = buildNormativeContext(request, runtimeConfig);
+  const prompt = {
+    system: buildOpenAISystemPrompt(),
+    user: buildOpenAIUserPrompt(request, analysis, normativeContext)
   };
+  const llmResult = await callOpenAIReadOnly(runtimeConfig, prompt);
+  const response = normalizeModelResponse({
+    request,
+    analysis,
+    heuristicResponse,
+    modelResponse: llmResult.parsed,
+    llmUsed: llmResult.ok
+  });
 
   const validation = validateReadOnlyCognitiveResponse(response);
 
@@ -388,7 +767,14 @@ export function runReadOnlyCognitiveEngine(rawInput = {}) {
     mode: "read_only_test",
     request,
     response,
-    validation
+    validation,
+    engine: {
+      llm_requested: Boolean(runtimeConfig.openaiApiKey),
+      llm_used: llmResult.ok,
+      provider: llmResult.ok ? "openai" : "heuristic_fallback",
+      model: runtimeConfig.openaiApiKey ? runtimeConfig.model : null,
+      fallback_reason: llmResult.ok ? null : llmResult.reason
+    }
   };
 }
 
@@ -417,12 +803,12 @@ async function runCli() {
       process.exitCode = 1;
       return;
     }
-    console.log(JSON.stringify(runReadOnlyCognitiveEngine(fixture.input), null, 2));
+    console.log(JSON.stringify(await runReadOnlyCognitiveEngine(fixture.input), null, 2));
     return;
   }
 
   if (typeof args.json === "string") {
-    console.log(JSON.stringify(runReadOnlyCognitiveEngine(JSON.parse(args.json)), null, 2));
+    console.log(JSON.stringify(await runReadOnlyCognitiveEngine(JSON.parse(args.json)), null, 2));
     return;
   }
 

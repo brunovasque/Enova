@@ -1,12 +1,17 @@
 import assert from "node:assert/strict";
 
 const workerModule = await import(new URL("../Enova worker.js", import.meta.url).href);
+const openaiMockModule = await import(new URL("./cognitive_openai_mock.mjs", import.meta.url).href);
 const worker = workerModule.default;
+const { createMockOpenAIFetch } = openaiMockModule;
 
 function buildEnv() {
   return {
     ENV_MODE: "test",
     ENOVA_ADMIN_KEY: "adm-key",
+    OPENAI_API_KEY_PROD: "test-openai-key",
+    COGNITIVE_AI_MODEL: "gpt-4.1-mini",
+    __COGNITIVE_OPENAI_FETCH: createMockOpenAIFetch(),
     VERCEL_PROXY_URL: "https://proxy.example.com",
     SUPABASE_SERVICE_ROLE: "service-role",
     META_API_VERSION: "v20.0",
@@ -16,7 +21,13 @@ function buildEnv() {
   };
 }
 
-const fixtureIds = ["autonomo_sem_ir", "casado_civil", "resposta_ambigua"];
+const fixtureIds = [
+  "autonomo_sem_ir",
+  "casado_civil",
+  "composicao_familiar",
+  "fora_fluxo_duvida",
+  "resposta_ambigua"
+];
 
 for (const fixtureId of fixtureIds) {
   const env = buildEnv();
@@ -35,7 +46,12 @@ for (const fixtureId of fixtureIds) {
   assert.equal(res.status, 200, `unexpected status for ${fixtureId}`);
   assert.equal(data?.ok, true, `engine failed for ${fixtureId}`);
   assert.equal(data?.fixture_id, fixtureId);
+  assert.equal(data?.engine?.llm_used, true, `admin route must exercise openai path for ${fixtureId}`);
   assert.equal(data?.response?.should_advance_stage, false);
+  assert.notEqual(String(data?.response?.reply_text || "").trim(), "", `${fixtureId} reply_text must not be empty`);
+  if (fixtureId !== "fora_fluxo_duvida" && fixtureId !== "resposta_ambigua") {
+    assert.ok(Object.keys(data?.response?.slots_detected || {}).length > 0, `${fixtureId} slots_detected must not be empty`);
+  }
   assert.equal(data?.side_effect_audit?.official_write_count, 0);
   assert.equal(data?.side_effect_audit?.would_send_meta, false);
   assert.equal(data?.side_effect_audit?.send_preview, null);
@@ -64,8 +80,10 @@ for (const fixtureId of fixtureIds) {
 
   assert.equal(res.status, 200);
   assert.equal(data?.ok, true);
+  assert.equal(data?.engine?.llm_used, true);
   assert.equal(data?.response?.slots_detected?.estado_civil?.value, "solteiro");
   assert.equal(data?.response?.slots_detected?.regime_trabalho?.value, "autonomo");
+  assert.equal(data?.response?.slots_detected?.renda?.value, 3200);
   assert.equal(data?.response?.slots_detected?.ir_declarado?.value, "nao");
   assert.equal(data?.side_effect_audit?.official_write_count, 0);
   assert.equal(data?.side_effect_audit?.would_send_meta, false);

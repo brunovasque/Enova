@@ -4017,7 +4017,16 @@ if (isAdminProdPath) {
       env.__enovaSimulationCtx = auditCtx;
 
       try {
-        const result = runReadOnlyCognitiveEngine(rawRequest);
+        const result = await runReadOnlyCognitiveEngine(rawRequest, {
+          openaiApiKey: String(env.OPENAI_API_KEY_PROD || "").trim() || null,
+          model: String(env.COGNITIVE_AI_MODEL || "gpt-4.1-mini"),
+          fetchImpl:
+            typeof env.__COGNITIVE_OPENAI_FETCH === "function"
+              ? env.__COGNITIVE_OPENAI_FETCH
+              : typeof fetch === "function"
+                ? fetch.bind(globalThis)
+                : null
+        });
         const status = result?.validation?.valid ? 200 : 400;
 
         return adminJson(status, {

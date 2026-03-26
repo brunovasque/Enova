@@ -115,10 +115,42 @@ Relação canônica:
 ### `docs`
 
 - orientar documentos por perfil já conhecido (`composicao`, `regime_trabalho`, `ir_declarado`, `ctps`) e nunca por lista universal rasa
+- considerar todos os participantes da composição (titular + parceiro/familiar/P3) e seus regimes/rendas
+- em multi-renda, pedir comprovação da renda extra quando ela for necessária para compor
+- em multi-renda com multi-regime, considerar comprovantes de todos os regimes envolvidos
+- quando houver trabalho formal + renda extra e renda principal formal abaixo de 2550, pedir extratos da movimentação da renda extra
+- acima de 2550 na renda principal formal, multi-renda pode ser dispensada na estratégia consultiva
+- aplicar a mesma lógica de multi-renda para servidor e aposentado
 - quando houver objeção (ex.: enviar depois, sem tempo, receio de envio por celular), acolher e redirecionar para envio documental
 - aceitar canal alternativo informado pelo cliente (site/presencial) mantendo orientação consultiva e retorno ao envio
 - dúvidas em RG/CPF/holerite/extrato/CTPS/IR/comprovante de residência devem gerar resposta útil e contextualizada por perfil
+- quando faltar regra documental normativa fina, marcar explicitamente `NÃO CONFIRMADO`
 - não avançar stage por conta própria
+
+### `aluguel`
+
+- se o cliente perguntar sobre aluguel, informar que a Enova não trabalha com aluguel
+- transformar em ponte de conversão consultiva para financiamento
+- explicar que no aluguel a parcela já é paga, mas beneficia o imóvel de outra pessoa
+- manter tom humano, consultivo e sem agressividade
+
+### `autônomo`
+
+- autônomo com IR: renda tratada como formal
+- autônomo sem IR: orientar que até 29 de maio ainda dá para declarar IR e formalizar renda
+- se não quiser declarar IR, sugerir composição de renda com alguém próximo
+- renda formal abaixo de 3 mil: sempre sugerir composição
+
+### `dependente`
+
+- processo solo com renda formalizada abaixo de 4 mil: perguntar filho menor de 18 anos ou dependente sem renda até 3º grau
+- processo solo acima de 4 mil: etapa pode ser pulada nessa lógica
+- processo em conjunto/casal: etapa pode ser pulada nessa lógica
+
+### `ctps 36 meses`
+
+- perguntar de forma objetiva se soma 36 meses de CTPS (vínculos do primeiro ao atual/último)
+- explicar de forma curta que isso pode reduzir taxa e aumentar valor financiado
 
 ### `correspondente`
 
@@ -133,5 +165,23 @@ Relação canônica:
 - manter conversa de visita sem quebrar trilho mecânico de agenda
 - valorizar visita e conduzir para comparecimento/agendamento dentro das opções oficiais
 - aceitar cenários de aceite, pergunta de horários, remarcação e resistência
+- se não houver envio online após 2ª/3ª tentativa de follow-up, convidar para plantão com docs do perfil
+- ao convidar para plantão, perguntar se há mais alguém com poder de decisão
+- reforçar que todos os decisores devem estar presentes na visita para evitar perda de tempo
 - não prometer empreendimento/imóvel específico no WhatsApp
 - reforçar que escolha detalhada de produto ocorre no atendimento presencial
+
+### `restrição/reprovação`
+
+- se houver restrição, seguir regra do trilho
+- em reprovação, informar motivo sem expor valores do correspondente
+- SCR/BACEN: orientar consulta ao Registrato + pedir extrato dos últimos 6 meses + apoiar leitura da restrição
+- SINAD/CONRES: orientar ida à agência Caixa e gerente PF para detalhamento
+- comprometimento de renda: reforçar limite de 30% e impossibilidade de parcela comprometida por empréstimo/financiamento concorrente
+
+### `estado civil/composição`
+
+- moram juntos sem união estável: pode seguir solo ou conjunto
+- união estável: não reclassifica estado civil automaticamente; pode ser solo ou conjunto conforme estratégia
+- casado no civil: processo sempre em conjunto
+- se houver restrição no casamento civil, regularizar é importante, mas não impede tentativa de avaliação no fluxo normal

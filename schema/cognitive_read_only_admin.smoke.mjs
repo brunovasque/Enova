@@ -38,7 +38,23 @@ const fixtureIds = [
   "correspondente_sem_retorno_ansioso",
   "correspondente_aprovado_insiste_detalhes",
   "visita_remarcar_sem_promessa",
-  "visita_resistencia_por_que"
+  "visita_resistencia_por_que",
+  "aluguel_ponte_conversao",
+  "docs_multi_renda",
+  "docs_multi_renda_multi_regime",
+  "autonomo_sem_ir_regra",
+  "renda_formal_abaixo_3mil_composicao",
+  "dependente_solo_abaixo_4mil",
+  "dependente_solo_acima_4mil",
+  "ctps_36_meses",
+  "reprovacao_scr_bacen",
+  "reprovacao_sinad_conres",
+  "reprovacao_comprometimento_renda",
+  "visita_falta_envio_online",
+  "visita_decisores_presentes",
+  "uniao_estavel_solo",
+  "uniao_estavel_conjunto",
+  "casado_civil_conjunto_obrigatorio"
 ];
 
 for (const fixtureId of fixtureIds) {
@@ -91,6 +107,65 @@ for (const fixtureId of fixtureIds) {
   if (fixtureId === "visita_resistencia_por_que") {
     assert.match(replyNormalized, /sem criar expectativa errada/);
     assert.match(replyNormalized, /agenda oficial do plantao/);
+  }
+  if (fixtureId === "aluguel_ponte_conversao") {
+    assert.match(replyNormalized, /nao trabalha com aluguel/);
+    assert.match(replyNormalized, /financiamento do seu proprio imovel|financiamento do seu próprio imóvel/);
+  }
+  if (fixtureId === "docs_multi_renda") {
+    assert.match(replyNormalized, /comprovacao da renda extra usada na composicao|comprovação da renda extra usada na composição/);
+    assert.match(replyNormalized, /extratos bancarios recentes para comprovar movimentacao da renda extra|extratos bancários recentes para comprovar movimentação da renda extra/);
+  }
+  if (fixtureId === "docs_multi_renda_multi_regime") {
+    assert.match(replyNormalized, /comprovantes de renda de todos os regimes envolvidos na composicao|comprovantes de renda de todos os regimes envolvidos na composição/);
+  }
+  if (fixtureId === "autonomo_sem_ir_regra") {
+    assert.match(replyNormalized, /ate 29 de maio ainda da para declarar ir|até 29 de maio ainda dá para declarar ir/);
+    assert.match(replyNormalized, /compor renda com alguem proximo|compor renda com alguém próximo|composicao com alguem proximo|composição com alguém próximo/);
+  }
+  if (fixtureId === "renda_formal_abaixo_3mil_composicao") {
+    assert.match(replyNormalized, /abaixo de 3 mil/);
+    assert.match(replyNormalized, /compor com alguem proximo|compor com alguém próximo/);
+  }
+  if (fixtureId === "dependente_solo_abaixo_4mil") {
+    assert.match(replyNormalized, /filho menor de 18 anos/);
+    assert.match(replyNormalized, /dependente sem renda ate terceiro grau|dependente sem renda até terceiro grau/);
+  }
+  if (fixtureId === "dependente_solo_acima_4mil") {
+    assert.match(replyNormalized, /acima de 4 mil/);
+    assert.match(replyNormalized, /pular dependente/);
+  }
+  if (fixtureId === "ctps_36_meses") {
+    assert.match(replyNormalized, /36 meses de registro em ctps/);
+    assert.match(replyNormalized, /reduzir taxa de juros/);
+  }
+  if (fixtureId === "reprovacao_scr_bacen") {
+    assert.match(replyNormalized, /registrato/);
+    assert.match(replyNormalized, /ultimos 6 meses|últimos 6 meses/);
+  }
+  if (fixtureId === "reprovacao_sinad_conres") {
+    assert.match(replyNormalized, /sinad|conres/);
+    assert.match(replyNormalized, /agencia da caixa|agência da caixa/);
+  }
+  if (fixtureId === "reprovacao_comprometimento_renda") {
+    assert.match(replyNormalized, /comprometimento de renda/);
+    assert.match(replyNormalized, /30% da renda/);
+  }
+  if (fixtureId === "visita_falta_envio_online" || fixtureId === "visita_decisores_presentes") {
+    assert.match(replyNormalized, /plantao com os documentos do seu perfil|plantão com os documentos do seu perfil/);
+    assert.match(replyNormalized, /poder de decisao|poder de decisão/);
+  }
+  if (fixtureId === "uniao_estavel_solo") {
+    assert.match(replyNormalized, /uniao estavel|união estável/);
+    assert.match(replyNormalized, /solo ou em conjunto/);
+  }
+  if (fixtureId === "uniao_estavel_conjunto") {
+    assert.match(replyNormalized, /uniao estavel|união estável/);
+    assert.match(replyNormalized, /em conjunto/);
+  }
+  if (fixtureId === "casado_civil_conjunto_obrigatorio") {
+    assert.match(replyNormalized, /casamento civil/);
+    assert.match(replyNormalized, /sempre em conjunto/);
   }
   assert.equal(data?.side_effect_audit?.official_write_count, 0);
   assert.equal(data?.side_effect_audit?.would_send_meta, false);
@@ -152,7 +227,7 @@ for (const fixtureId of fixtureIds) {
   assert.equal(res.status, 200);
   assert.equal(data?.ok, true);
   assert.ok(Array.isArray(data?.fixtures));
-  assert.ok(data.fixtures.length >= 16);
+  assert.ok(data.fixtures.length >= 32);
 }
 
 console.log("cognitive_read_only_admin.smoke: ok");

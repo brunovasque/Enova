@@ -30,7 +30,7 @@ const FEAR_PATTERN = /\b(medo|receio|insegur|preocupad|expost[oa]|vazar|golpe)\b
 const REMOTE_REFUSAL_PATTERN =
   /\b(nao quero atendimento online|não quero atendimento online|nao quero atendimento remoto|não quero atendimento remoto|nao quero seguir online|não quero seguir online|nao quero continuar online|não quero continuar online|nao quero no whatsapp|não quero no whatsapp|prefiro presencial|quero atendimento presencial|quero ir presencial|sem whatsapp)\b/i;
 const DOCS_HINT_PATTERN =
-  /\b(doc|documento|documentos|rg|cpf|holerite|extrato|ctps|carteira de trabalho|imposto de renda|ir|comprovante de residencia|comprovante de residência)\b/i;
+  /\b(doc|documento|documentos|rg|cpf|holerite|extrato|imposto de renda|declara[cç][aã]o de ir|comprovante de residencia|comprovante de residência)\b/i;
 const DOCS_STAGE_PATTERN = /\b(envio docs|envio_docs|docs|documento|documentos)\b/;
 const CORRESPONDENTE_STAGE_PATTERN =
   /\b(correspondente|analise correspondente|an[aá]lise correspondente|retorno correspondente|analise_correspondente|retorno_correspondente)\b/;
@@ -43,6 +43,14 @@ const VISITA_HINT_PATTERN = /\b(visita|plantao|plantão|hor[aá]rio|dia|remarcar
 const VISITA_RESCHEDULE_PATTERN = /\b(remarcar|reagendar|outro hor[aá]rio|outro dia)\b/i;
 const VISITA_ACCEPT_PATTERN = /\b(quero visitar|aceito visita|vamos agendar|pode agendar|quero agendar)\b/i;
 const VISITA_RESIST_PATTERN = /\b(n[aã]o quero visitar|prefiro n[aã]o visitar|pra que visitar|por que visitar)\b/i;
+const ALUGUEL_HINT_PATTERN = /\b(aluguel|alugar|alugo|alugando)\b/i;
+const AUTONOMO_HINT_PATTERN = /\bautonom[oa]|aut[oô]nomo|por conta|bico|uber|taxa\b/i;
+const DEPENDENTE_HINT_PATTERN = /\b(dependente|filho|filha|menor de 18|terceiro grau)\b/i;
+const CTPS_36_HINT_PATTERN = /\b(ctps|carteira de trabalho|36 meses|trinta e seis meses)\b/i;
+const REPROVACAO_HINT_PATTERN =
+  /\b(reprovad|restri[cç][aã]o|scr|bacen|registrato|sinad|conres|comprometimento|emprestimo|empr[eé]stimo)\b/i;
+const ESTADO_CIVIL_COMPOSICAO_HINT_PATTERN =
+  /\b(uni[aã]o est[aá]vel|casad[oa] no civil|casad[oa]|moro junto|moramos juntos|composi[cç][aã]o)\b/i;
 const FAMILY_MEMBER_PATTERN = /\bm[aã]e\b|\bpai\b|\birm[aã](?:o)?\b|\bav[oó]\b|\btio\b|\btia\b|\bprima\b|\bprimo\b/g;
 const CONFIRMATION_SLOT_KEYS = new Set(["p3"]);
 const ESTADO_CIVIL_CONFIDENCE = Object.freeze({
@@ -244,6 +252,7 @@ function detectMoney(text) {
 }
 
 function detectEstadoCivil(text) {
+  if (/\bmoro junto\b|\bmoramos juntos\b/.test(text) && /\bsem uniao estavel\b|\bsem uni[aã]o est[aá]vel\b/.test(text)) return null;
   if (/\buniao estavel\b|\buni[aã]o est[aá]vel\b|\bmoro junto\b/.test(text)) return "uniao_estavel";
   if (/\bcasad[oa]\b/.test(text)) return "casado_civil";
   if (/\bsolteir[oa]\b/.test(text)) return "solteiro";
@@ -364,6 +373,67 @@ function isVisitaContext(request, suggestedNextSlot, pendingSlots) {
   return VISITA_STAGE_PATTERN.test(stage) || VISITA_HINT_PATTERN.test(request?.message_text) || nextSlot === "visita" || pending.includes("visita");
 }
 
+function isAluguelContext(request) {
+  return ALUGUEL_HINT_PATTERN.test(String(request?.message_text || ""));
+}
+
+function isAutonomoContext(request, pendingSlots) {
+  const stage = normalizeText(request?.current_stage);
+  const regime = normalizeText(getKnownSlotValue(request?.known_slots || {}, "regime_trabalho"));
+  const pending = Array.isArray(pendingSlots) ? pendingSlots.map((slot) => normalizeText(slot)) : [];
+  return AUTONOMO_HINT_PATTERN.test(String(request?.message_text || "")) || regime === "autonomo" || stage.includes("autonomo") || pending.includes("ir_declarado");
+}
+
+function isDependenteContext(request, pendingSlots) {
+  const stage = normalizeText(request?.current_stage);
+  const pending = Array.isArray(pendingSlots) ? pendingSlots.map((slot) => normalizeText(slot)) : [];
+  return DEPENDENTE_HINT_PATTERN.test(String(request?.message_text || "")) || stage.includes("dependente") || pending.includes("dependente");
+}
+
+function isCtps36Context(request, pendingSlots) {
+  const stage = normalizeText(request?.current_stage);
+  const pending = Array.isArray(pendingSlots) ? pendingSlots.map((slot) => normalizeText(slot)) : [];
+  return CTPS_36_HINT_PATTERN.test(String(request?.message_text || "")) || stage.includes("ctps") || pending.includes("ctps");
+}
+
+function isReprovacaoContext(request, pendingSlots) {
+  const stage = normalizeText(request?.current_stage);
+  const pending = Array.isArray(pendingSlots) ? pendingSlots.map((slot) => normalizeText(slot)) : [];
+  return REPROVACAO_HINT_PATTERN.test(String(request?.message_text || "")) || stage.includes("reprov") || pending.includes("restricao");
+}
+
+function isEstadoCivilComposicaoContext(request, pendingSlots) {
+  const stage = normalizeText(request?.current_stage);
+  const pending = Array.isArray(pendingSlots) ? pendingSlots.map((slot) => normalizeText(slot)) : [];
+  return (
+    ESTADO_CIVIL_COMPOSICAO_HINT_PATTERN.test(String(request?.message_text || "")) ||
+    stage.includes("estado_civil") ||
+    pending.includes("estado_civil") ||
+    pending.includes("composicao")
+  );
+}
+
+function toNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function getRendaPrincipal(knownSlots, fallbackFromText) {
+  const candidate =
+    getKnownSlotValue(knownSlots, "renda_formal") ??
+    getKnownSlotValue(knownSlots, "renda_principal") ??
+    getKnownSlotValue(knownSlots, "renda");
+  return toNumber(candidate) ?? toNumber(fallbackFromText);
+}
+
+function getFollowupAttempts(knownSlots) {
+  const candidate =
+    getKnownSlotValue(knownSlots, "docs_followup_tentativas") ??
+    getKnownSlotValue(knownSlots, "tentativas_followup_docs") ??
+    getKnownSlotValue(knownSlots, "followup_tentativas");
+  return toNumber(candidate) ?? 0;
+}
+
 function buildDocsGuidanceByProfile(request) {
   const normalizedMessage = normalizeText(request?.message_text);
   const knownSlots = request?.known_slots || {};
@@ -371,6 +441,12 @@ function buildDocsGuidanceByProfile(request) {
   const regime = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho"));
   const irDeclarado = normalizeText(getKnownSlotValue(knownSlots, "ir_declarado"));
   const ctps = normalizeText(getKnownSlotValue(knownSlots, "ctps"));
+  const regimeExtra = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho_extra"));
+  const regimeParceiro = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho_parceiro"));
+  const regimeFamiliar = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho_familiar"));
+  const regimeP3 = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho_p3"));
+  const multiRenda = normalizeText(getKnownSlotValue(knownSlots, "multi_renda")) === "sim" || /\bmulti renda|renda extra|segunda renda|bico|uber|taxa\b/.test(normalizedMessage);
+  const rendaPrincipal = getRendaPrincipal(knownSlots, detectMoney(request?.message_text));
   const docs = ["RG ou CNH com CPF", "comprovante de residência atualizado"];
 
   if (regime === "clt") {
@@ -392,6 +468,29 @@ function buildDocsGuidanceByProfile(request) {
   if (composicao === "parceiro" || composicao === "familiar") {
     docs.push("documentos pessoais e de renda da pessoa que vai compor com você");
   }
+  if (normalizeText(getKnownSlotValue(knownSlots, "p3")) === "sim") {
+    docs.push("documentos pessoais e de renda da terceira pessoa da composição");
+  }
+
+  if (multiRenda) {
+    docs.push("comprovação da renda extra usada na composição");
+  }
+
+  const regimesEnvolvidos = [regime, regimeExtra, regimeParceiro, regimeFamiliar, regimeP3].filter(Boolean);
+  const multiRegime = new Set(regimesEnvolvidos).size > 1;
+  if (multiRenda && multiRegime) {
+    docs.push("comprovantes de renda de todos os regimes envolvidos na composição");
+  }
+
+  if ((regime === "clt" || regime === "servidor" || regime === "aposentado") && multiRenda) {
+    if (Number.isFinite(rendaPrincipal) && rendaPrincipal < 2550) {
+      docs.push("extratos bancários recentes para comprovar movimentação da renda extra");
+    } else if (Number.isFinite(rendaPrincipal) && rendaPrincipal >= 2550) {
+      docs.push("se a renda formal principal ficar acima de 2550, a soma da renda extra pode ser dispensada na estratégia");
+    }
+  }
+
+  docs.push("NÃO CONFIRMADO: validar lista documental fina por regime/renda no plantão");
 
   let channelNote = "";
   if (/\b(site|portal)\b/.test(normalizedMessage)) {
@@ -441,6 +540,15 @@ function buildCorrespondenteGuidance(request) {
 
 function buildVisitaGuidance(request) {
   const normalizedMessage = normalizeText(request?.message_text);
+  const knownSlots = request?.known_slots || {};
+  const followupAttempts = getFollowupAttempts(knownSlots);
+  const recusouOnline =
+    REMOTE_REFUSAL_PATTERN.test(normalizedMessage) ||
+    /\bnao enviar online|não enviar online|nao mando online|não mando online|nao vou mandar docs online|não vou mandar docs online\b/.test(normalizedMessage);
+
+  if (recusouOnline && followupAttempts >= 2) {
+    return "Sem problema em não enviar online. Como já tentamos esse follow-up algumas vezes, te convido para o plantão com os documentos do seu perfil. Para evitar perda de tempo sua e do corretor, me confirma se existe mais alguém com poder de decisão para já participarem todos da visita.";
+  }
 
   if (VISITA_RESCHEDULE_PATTERN.test(normalizedMessage)) {
     return "Claro, a gente consegue remarcar dentro dos dias e horários oficiais do plantão, sem perder a organização do seu atendimento.";
@@ -461,10 +569,111 @@ function buildVisitaGuidance(request) {
   return "A visita ajuda você a avançar com segurança, dentro da agenda oficial do plantão e sem quebrar o trilho do processo.";
 }
 
+function buildAluguelGuidance() {
+  return "Hoje a Enova não trabalha com aluguel. Mas vale um ponto importante: no aluguel você já paga uma parcela todo mês para o imóvel de outra pessoa. Aqui a ideia é transformar esse mesmo esforço em financiamento do seu próprio imóvel, com estratégia segura para o seu perfil.";
+}
+
+function buildAutonomoGuidance(request) {
+  const normalizedMessage = normalizeText(request?.message_text);
+  const knownSlots = request?.known_slots || {};
+  const regime = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho")) || (AUTONOMO_HINT_PATTERN.test(normalizedMessage) ? "autonomo" : "");
+  const irDeclarado = normalizeText(getKnownSlotValue(knownSlots, "ir_declarado")) || detectIr(normalizedMessage);
+  const rendaPrincipal = getRendaPrincipal(knownSlots, detectMoney(request?.message_text));
+
+  if (regime !== "autonomo") return null;
+  if (irDeclarado === "sim") {
+    if (Number.isFinite(rendaPrincipal) && rendaPrincipal < 3000) {
+      return "Perfeito, com IR sua renda já entra como formal. Como sua renda formal está abaixo de 3 mil, vale muito a pena compor com alguém próximo para ganhar força na análise.";
+    }
+    return "Perfeito, autônomo com IR entra como renda formal e já ajuda bastante na estratégia do seu atendimento.";
+  }
+
+  if (irDeclarado === "nao") {
+    const composeSnippet =
+      Number.isFinite(rendaPrincipal) && rendaPrincipal < 3000
+        ? "Como sua renda formal está abaixo de 3 mil, recomendo composição com alguém próximo."
+        : "Se você preferir não declarar agora, a alternativa é compor renda com alguém próximo.";
+    return `Entendi. Até 29 de maio ainda dá para declarar IR e formalizar sua renda. ${composeSnippet}`;
+  }
+
+  return null;
+}
+
+function buildDependenteGuidance(request) {
+  const knownSlots = request?.known_slots || {};
+  const composicao = normalizeText(getKnownSlotValue(knownSlots, "composicao"));
+  const rendaPrincipal = getRendaPrincipal(knownSlots, detectMoney(request?.message_text));
+  const emConjunto = ["parceiro", "familiar"].includes(composicao) || normalizeText(getKnownSlotValue(knownSlots, "p3")) === "sim";
+
+  if (emConjunto) {
+    return "Como o processo está em composição conjunta, nessa lógica a etapa de dependente pode ser pulada para seguirmos mais objetivos.";
+  }
+  if (Number.isFinite(rendaPrincipal) && rendaPrincipal > 4000) {
+    return "Com processo solo e renda formal acima de 4 mil, nessa lógica podemos pular dependente e seguir para o próximo ponto.";
+  }
+  return "No seu processo solo com renda formal abaixo de 4 mil, me confirma se você tem filho menor de 18 anos ou dependente sem renda até terceiro grau.";
+}
+
+function buildCtps36Guidance() {
+  return "Me confirma uma coisa: você soma 36 meses de registro em CTPS, contando vínculos do primeiro até o atual/último? Quando isso acontece, pode reduzir taxa de juros e, com custo menor para o banco, aumentar seu valor financiado.";
+}
+
+function buildReprovacaoGuidance(request) {
+  const normalizedMessage = normalizeText(request?.message_text);
+  if (/\bscr\b|\bbacen\b|\bregistrato\b/.test(normalizedMessage)) {
+    return "Quando a reprovação vem por SCR/BACEN, o melhor caminho é consultar o Registrato, trazer extrato dos últimos 6 meses e a gente te ajuda a interpretar e orientar os próximos passos.";
+  }
+  if (/\bsinad\b|\bconres\b/.test(normalizedMessage)) {
+    return "Quando aparece SINAD ou CONRES, a orientação é procurar uma agência da Caixa e falar com o gerente de pessoa física para obter mais detalhes.";
+  }
+  if (/\bcomprometimento\b|\bemprestimo\b|\bempr[eé]stimo\b/.test(normalizedMessage)) {
+    return "Nesse caso é comprometimento de renda: pelas regras da Caixa, não pode haver empréstimo ou financiamento puxando a parcela, e o limite de comprometimento é 30% da renda.";
+  }
+  if (/\breprovad/.test(normalizedMessage)) {
+    return "Entendi sua reprovação. Eu te explico o motivo de forma clara por aqui, sem expor valores do correspondente, e te oriento no próximo passo dentro do trilho.";
+  }
+  return "Se houver restrição, seguimos o trilho normal: identificar a natureza da restrição, orientar o caminho certo e avançar com segurança.";
+}
+
+function buildEstadoCivilComposicaoGuidance(request) {
+  const normalizedMessage = normalizeText(request?.message_text);
+  const knownSlots = request?.known_slots || {};
+  const estadoCivil = normalizeText(getKnownSlotValue(knownSlots, "estado_civil"));
+  const composicao = normalizeText(getKnownSlotValue(knownSlots, "composicao"));
+  const hasRestricao = /\brestri[cç][aã]o\b/.test(normalizedMessage) || /\brestri[cç][aã]o\b/.test(normalizeText(getKnownSlotValue(knownSlots, "restricao")));
+
+  if (/\bmoro junto\b|\bmoramos juntos\b/.test(normalizedMessage) && /\bsem uniao estavel\b|\bsem uni[aã]o est[aá]vel\b/.test(normalizedMessage)) {
+    return "Quando moram juntos sem união estável formal, pode seguir solo ou em conjunto, conforme estratégia de aprovação.";
+  }
+  if (/\buni[aã]o est[aá]vel\b/.test(normalizedMessage) || estadoCivil === "uniao_estavel") {
+    const mode = composicao && composicao !== "sozinho" ? "em conjunto" : "solo";
+    return `Na união estável, não há reclassificação automática de estado civil e o processo pode seguir ${mode} ou em conjunto, conforme a melhor estratégia.`;
+  }
+  if (/\bcasad[oa]\b/.test(normalizedMessage) || estadoCivil === "casado_civil") {
+    if (hasRestricao) {
+      return "No casamento civil, o processo é sempre em conjunto. Regularizar restrição é importante, mas isso não impede tentar avaliação com o banco no fluxo normal.";
+    }
+    return "No casamento civil, o processo segue sempre em conjunto para avaliação do banco.";
+  }
+  return null;
+}
+
 function buildPhaseGuidanceReply({ request, suggestedNextSlot, pendingSlots }) {
+  if (isAluguelContext(request)) return buildAluguelGuidance(request);
+  if (isDocsContext(request, pendingSlots)) return buildDocsGuidanceByProfile(request);
   if (isCorrespondenteContext(request, pendingSlots)) return buildCorrespondenteGuidance(request);
   if (isVisitaContext(request, suggestedNextSlot, pendingSlots)) return buildVisitaGuidance(request);
-  if (isDocsContext(request, pendingSlots)) return buildDocsGuidanceByProfile(request);
+  if (isReprovacaoContext(request, pendingSlots)) return buildReprovacaoGuidance(request);
+  if (isCtps36Context(request, pendingSlots)) return buildCtps36Guidance(request);
+  if (isDependenteContext(request, pendingSlots)) return buildDependenteGuidance(request);
+  if (isEstadoCivilComposicaoContext(request, pendingSlots)) {
+    const estadoCivilReply = buildEstadoCivilComposicaoGuidance(request);
+    if (estadoCivilReply) return estadoCivilReply;
+  }
+  if (isAutonomoContext(request, pendingSlots)) {
+    const autonomoReply = buildAutonomoGuidance(request);
+    if (autonomoReply) return autonomoReply;
+  }
   return null;
 }
 

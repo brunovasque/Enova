@@ -35,6 +35,90 @@ function getSimulationContext(env) {
   return env && env.__enovaSimulationCtx ? env.__enovaSimulationCtx : null;
 }
 
+function logCognitiveTelemetry(data) {
+  try {
+    console.log(JSON.stringify({
+      type: "cognitive_telemetry",
+      timestamp: new Date().toISOString(),
+      ...data
+    }));
+  } catch (e) {}
+}
+
+function hasCognitiveTelemetryState(st) {
+  return Boolean(st && st.__cognitive_telemetry && typeof st.__cognitive_telemetry === "object");
+}
+
+function initializeCognitiveTelemetryState(st, currentStage) {
+  if (!st || typeof st !== "object") return null;
+  st.__cognitive_telemetry = {
+    stage: String(currentStage || st?.fase_conversa || "inicio"),
+    used_llm: false,
+    used_heuristic: false,
+    offtrack_detected: false,
+    slot_detected: null
+  };
+  return st.__cognitive_telemetry;
+}
+
+function updateCognitiveTelemetryState(st, patch = {}) {
+  if (!hasCognitiveTelemetryState(st)) return null;
+  st.__cognitive_telemetry = {
+    ...st.__cognitive_telemetry,
+    ...patch
+  };
+  return st.__cognitive_telemetry;
+}
+
+function clearCognitiveTelemetryState(st) {
+  if (!st || typeof st !== "object") return;
+  st.__cognitive_telemetry = null;
+}
+
+function resolveCognitiveTelemetrySlot(stage, cognitiveOutput) {
+  const entities = cognitiveOutput?.entities && typeof cognitiveOutput.entities === "object" ? cognitiveOutput.entities : {};
+  const stageSignals =
+    cognitiveOutput?.stage_signals && typeof cognitiveOutput.stage_signals === "object"
+      ? cognitiveOutput.stage_signals
+      : {};
+  const detectedStageAnswer = extractCompatibleStageAnswerFromCognitive(stage, cognitiveOutput);
+  if (detectedStageAnswer) {
+    if (stage === "quem_pode_somar" || stage === "interpretar_composicao") return "composicao";
+    return String(stage || "").trim() || null;
+  }
+
+  if (stage === "renda" && (entities.renda != null || stageSignals.renda != null)) return "renda";
+
+  const safeSignal = normalizeText(cognitiveOutput?.safe_stage_signal || "");
+  if (safeSignal.startsWith("estado_civil:")) return "estado_civil";
+  if (safeSignal.startsWith("composicao:")) return "composicao";
+  if (safeSignal.startsWith("renda:")) return "renda";
+  if (safeSignal.startsWith("ir:")) return "ir_declarado";
+  return null;
+}
+
+function emitCognitiveTelemetry(st, { point, currentStage, nextStage, replyText }) {
+  if (!hasCognitiveTelemetryState(st)) return;
+  const telemetryState = st.__cognitive_telemetry || {};
+  const resolvedCurrentStage = String(currentStage || telemetryState.stage || st?.fase_conversa || "inicio");
+  const resolvedNextStage = String(nextStage || resolvedCurrentStage);
+  const safeReplyText = typeof replyText === "string" ? replyText : String(replyText || "");
+
+  logCognitiveTelemetry({
+    point,
+    stage: resolvedCurrentStage,
+    used_llm: telemetryState.used_llm === true,
+    used_heuristic: telemetryState.used_heuristic === true,
+    offtrack_detected: telemetryState.offtrack_detected === true,
+    slot_detected:
+      typeof telemetryState.slot_detected === "string" && telemetryState.slot_detected.trim()
+        ? telemetryState.slot_detected.trim()
+        : null,
+    advanced_stage: resolvedNextStage !== resolvedCurrentStage,
+    response_length: safeReplyText.length || 0
+  });
+}
+
 function getRuntimeGitCommitHint(env) {
   return String(
     env?.ENOVA_GIT_COMMIT ||
@@ -68,6 +152,7 @@ async function step(env, st, messages, nextStage, options = {}) {
   const simCtx = getSimulationContext(env);
   const isSim = Boolean(simCtx?.active);
   const requireSendSuccess = options?.requireSendSuccess === true;
+  const currentStage = st?.fase_conversa || "inicio";
 
   // Converte sempre para array
     const rawArr = Array.isArray(messages) ? messages : [messages];
@@ -82,13 +167,21 @@ async function step(env, st, messages, nextStage, options = {}) {
 
   // 🔥 AQUI: aplica modo humano (somente se ativo)
   const msgs = modoHumanoRender(st, arr);
+  const replyText = msgs.join("\n");
+
+  emitCognitiveTelemetry(st, {
+    point: "after_response_assembled",
+    currentStage,
+    nextStage: nextStage || currentStage,
+    replyText
+  });
 
   if (isSim) {
     simCtx.messageLog = Array.isArray(simCtx.messageLog) ? simCtx.messageLog : [];
     simCtx.messageLog.push({
       wa_id: st?.wa_id || null,
-      stage_before: st?.fase_conversa || "inicio",
-      stage_after: nextStage || st?.fase_conversa || null,
+      stage_before: currentStage,
+      stage_after: nextStage || currentStage || null,
       messages: msgs
     });
   }
@@ -100,13 +193,13 @@ async function step(env, st, messages, nextStage, options = {}) {
     await telemetry(env, {
       wa_id: st.wa_id,
       event: "funnel_output",
-      stage: st.fase_conversa || "inicio",
+      stage: currentStage,
       next_stage: nextStage || null,
       severity: "info",
       message: "Saída do step() — transição de fase",
       details: {
         messages_out: msgs,
-        stage_before: st.fase_conversa,
+        stage_before: currentStage,
         stage_after: nextStage,
         last_user_text: st.last_user_text || null,
         array_len: msgs.length,
@@ -121,7 +214,7 @@ async function step(env, st, messages, nextStage, options = {}) {
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "leave_stage",
-      from_stage: st.fase_conversa || "inicio",
+      from_stage: currentStage,
       to_stage: nextStage,
       user_text: st.last_user_text || null,
       severity: "info",
@@ -136,7 +229,7 @@ async function step(env, st, messages, nextStage, options = {}) {
       // 🔍 LOG PARA DEBUGAR SE A FASE ESTÁ SENDO ATUALIZADA
       console.log("UPDATE_FASE:", {
         wa_id: st.wa_id,
-        before: st.fase_conversa,
+        before: currentStage,
         after: nextStage
       });
 
@@ -205,6 +298,13 @@ async function step(env, st, messages, nextStage, options = {}) {
     }
 
     if (isSim) {
+      emitCognitiveTelemetry(st, {
+        point: "before_return_response",
+        currentStage,
+        nextStage: nextStage || currentStage,
+        replyText
+      });
+      clearCognitiveTelemetryState(st);
       return {
         ok: true,
         simulated: true,
@@ -213,8 +313,16 @@ async function step(env, st, messages, nextStage, options = {}) {
       };
     }
 
+    emitCognitiveTelemetry(st, {
+      point: "before_return_response",
+      currentStage,
+      nextStage: nextStage || currentStage,
+      replyText
+    });
+    clearCognitiveTelemetryState(st);
     return new Response("OK", { status: 200 });
   } catch (err) {
+    clearCognitiveTelemetryState(st);
     // ============================================================
     // 🛑 TELEMETRIA — ERRO CRÍTICO NO STEP
     // ============================================================
@@ -15909,6 +16017,7 @@ async function runFunnel(env, st, userText) {
 
   const stage = st.fase_conversa || "inicio";
   const normalizedUserText = normalizeText(userText || "");
+  initializeCognitiveTelemetryState(st, stage);
 
   const isQaReset =
     normalizedUserText === QA_RESET_COMMANDS.DOCS ||
@@ -16124,6 +16233,20 @@ async function runFunnel(env, st, userText) {
         st.__cognitive_reply_prefix = null;
       }
 
+      const usedLlm = cognitive?.reason !== "no_llm_or_parse";
+      updateCognitiveTelemetryState(st, {
+        used_llm: usedLlm,
+        used_heuristic: usedLlm ? false : true,
+        offtrack_detected: false,
+        slot_detected: resolveCognitiveTelemetrySlot(stage, cognitive)
+      });
+      emitCognitiveTelemetry(st, {
+        point: "decision_heuristic_vs_llm",
+        currentStage: stage,
+        nextStage: stage,
+        replyText: cognitiveReply
+      });
+
       st.__cognitive_stage_answer = null;
     }
   } catch (e) {
@@ -16142,6 +16265,21 @@ async function runFunnel(env, st, userText) {
     });
 
     if (guard?.offtrack === true) {
+      const offtrackMessages = [
+        "Certo. Vou analisar seu perfil primeiro e, no final, tiro todas suas dúvidas, combinado?",
+        "Pra eu seguir aqui, me responde só a pergunta anterior direitinho. 🙏"
+      ];
+      updateCognitiveTelemetryState(st, {
+        used_heuristic: true,
+        offtrack_detected: true,
+        slot_detected: null
+      });
+      emitCognitiveTelemetry(st, {
+        point: "decision_heuristic_vs_llm",
+        currentStage: stage,
+        nextStage: stage,
+        replyText: offtrackMessages.join("\n")
+      });
       await telemetry(env, {
         wa_id: st.wa_id,
         event: "offtrack_signal",
@@ -16158,10 +16296,7 @@ async function runFunnel(env, st, userText) {
       return step(
         env,
         st,
-        [
-          "Certo. Vou analisar seu perfil primeiro e, no final, tiro todas suas dúvidas, combinado?",
-          "Pra eu seguir aqui, me responde só a pergunta anterior direitinho. 🙏"
-        ],
+        offtrackMessages,
         stage // mantém a mesma fase (não pula etapa)
       );
     }

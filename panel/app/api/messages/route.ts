@@ -196,7 +196,7 @@ export async function GET(request: Request) {
     const rows = (await legacyResponse.json()) as EnovaLogRow[];
 
     if (Array.isArray(rows)) {
-      for (const row of [...rows].reverse()) {
+      for (const row of rows.reverse()) {
         if (row.tag === "meta_minimal") {
           const inbound = normalizeText(row.meta_text);
           if (!inbound) continue;

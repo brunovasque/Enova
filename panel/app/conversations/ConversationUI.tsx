@@ -161,7 +161,7 @@ export function ConversationUI() {
   const selectedWaId = (searchParams.get("wa_id") ?? "").trim();
   const selectedWaIdRef = useRef(selectedWaId);
   const latestMessagesRequestRef = useRef(0);
-  const refreshStateRef = useRef({ inFlight: false, queued: false });
+  const refreshStateRef = useRef({ inFlight: false, queued: false, queuedSilent: true });
   const messagesAreaRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollFrameRef = useRef<number | null>(null);
   const loadedThreadWaIdRef = useRef("");
@@ -279,6 +279,7 @@ export function ConversationUI() {
     async (silent = false) => {
       if (refreshStateRef.current.inFlight) {
         refreshStateRef.current.queued = true;
+        refreshStateRef.current.queuedSilent = refreshStateRef.current.queuedSilent && silent;
         return;
       }
 
@@ -295,8 +296,10 @@ export function ConversationUI() {
         refreshStateRef.current.inFlight = false;
 
         if (refreshStateRef.current.queued) {
+          const queuedSilent = refreshStateRef.current.queuedSilent;
           refreshStateRef.current.queued = false;
-          void refreshPanelData(true);
+          refreshStateRef.current.queuedSilent = true;
+          void refreshPanelData(queuedSilent);
         }
       }
     },

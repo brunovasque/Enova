@@ -164,6 +164,7 @@ export function ConversationUI() {
   const refreshStateRef = useRef({ inFlight: false, queued: false });
   const messagesAreaRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollFrameRef = useRef<number | null>(null);
+  const loadedThreadWaIdRef = useRef("");
   const previousVisibleStateRef = useRef({ waId: selectedWaId, count: 0, lastKey: "" });
   const pendingScrollToBottomRef = useRef(Boolean(selectedWaId));
   const isThreadNearBottomRef = useRef(true);
@@ -221,6 +222,7 @@ export function ConversationUI() {
     const requestId = ++latestMessagesRequestRef.current;
 
     if (!waId) {
+      loadedThreadWaIdRef.current = "";
       setMessages([]);
       setThreadError(null);
       setThreadLoading(false);
@@ -248,6 +250,7 @@ export function ConversationUI() {
         return;
       }
 
+      loadedThreadWaIdRef.current = waId;
       setMessages(Array.isArray(data.messages) ? data.messages : []);
       setThreadError(null);
     } catch (error) {
@@ -443,6 +446,7 @@ export function ConversationUI() {
   useEffect(() => {
     selectedWaIdRef.current = selectedWaId;
     setComposerText("");
+    loadedThreadWaIdRef.current = "";
     setMessages([]);
     setThreadError(null);
     setThreadLoading(Boolean(selectedWaId));
@@ -488,8 +492,13 @@ export function ConversationUI() {
   useEffect(() => {
     if (!selectedWaId) {
       cancelPendingThreadScroll();
+      loadedThreadWaIdRef.current = "";
       previousVisibleStateRef.current = { waId: "", count: 0, lastKey: "" };
       pendingScrollToBottomRef.current = false;
+      return;
+    }
+
+    if (loadedThreadWaIdRef.current !== selectedWaId) {
       return;
     }
 

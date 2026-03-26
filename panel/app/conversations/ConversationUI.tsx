@@ -6,6 +6,7 @@ import styles from "./conversations.module.css";
 
 const POLL_INTERVAL_MS = 1000;
 const THREAD_BOTTOM_THRESHOLD_PX = 32;
+const MAX_THREAD_SCROLL_RETRIES = 4;
 
 type Conversation = {
   id: string;
@@ -379,7 +380,7 @@ export function ConversationUI() {
 
         const nearBottom = isNearBottom(element);
 
-        if (!nearBottom && attempt < 4) {
+        if (!nearBottom && attempt < MAX_THREAD_SCROLL_RETRIES) {
           attempt += 1;
           pendingScrollFrameRef.current = window.requestAnimationFrame(applyScroll);
           return;

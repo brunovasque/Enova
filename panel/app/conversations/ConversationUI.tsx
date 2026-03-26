@@ -98,6 +98,15 @@ function sanitizePreview(text: string | null): string {
     .trim();
 }
 
+function buildMessageRenderKey(message: Message): string {
+  return [
+    message.direction,
+    message.wa_id,
+    message.created_at ?? "",
+    (message.text ?? "").trim(),
+  ].join("|");
+}
+
 function sameOriginApiUrl(path: string) {
   if (typeof window === "undefined") {
     return path;
@@ -520,15 +529,7 @@ export function ConversationUI() {
               <p className={styles.panelHint}>Sem mensagens para esta conversa.</p>
             ) : (
               visibleMessages.map((message) => {
-                const key =
-                  message.id ??
-                  [
-                    message.direction,
-                    message.wa_id,
-                    message.created_at ?? "msg",
-                    (message.text ?? "").trim(),
-                    message.source ?? "",
-                  ].join("|");
+                const key = message.id ?? buildMessageRenderKey(message);
                 const isOut = message.direction === "out";
                 const text = (message.text ?? "").trim();
 

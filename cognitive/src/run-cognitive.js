@@ -645,11 +645,13 @@ function buildEstadoCivilComposicaoGuidance(request) {
   const composicao = normalizeText(getKnownSlotValue(knownSlots, "composicao"));
   const hasRestricao = /\brestri[cç][aã]o\b/.test(normalizedMessage) || /\brestri[cç][aã]o\b/.test(normalizeText(getKnownSlotValue(knownSlots, "restricao")));
 
-  if (MORA_JUNTO_PATTERN.test(normalizedMessage) && SEM_UNIAO_ESTAVEL_PATTERN.test(normalizedMessage)) {
-    return "Quando moram juntos sem união estável formal, pode seguir solo ou em conjunto, conforme estratégia de aprovação.";
-  }
-  if (MORA_JUNTO_PATTERN.test(normalizedMessage) && !EXPLICIT_UNIAO_ESTAVEL_PATTERN.test(normalizedMessage)) {
-    return "Quando vocês moram juntos, isso por si só não define união estável. O processo pode seguir solo ou em conjunto, conforme a melhor estratégia.";
+  if (MORA_JUNTO_PATTERN.test(normalizedMessage)) {
+    if (SEM_UNIAO_ESTAVEL_PATTERN.test(normalizedMessage)) {
+      return "Quando moram juntos sem união estável formal, pode seguir solo ou em conjunto, conforme estratégia de aprovação.";
+    }
+    if (!EXPLICIT_UNIAO_ESTAVEL_PATTERN.test(normalizedMessage)) {
+      return "Quando vocês moram juntos, isso por si só não define união estável. O processo pode seguir solo ou em conjunto, conforme a melhor estratégia.";
+    }
   }
   if (EXPLICIT_UNIAO_ESTAVEL_PATTERN.test(normalizedMessage) || estadoCivil === "uniao_estavel") {
     const mode = composicao && composicao !== "sozinho" ? "em conjunto" : "solo";

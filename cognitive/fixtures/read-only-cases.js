@@ -168,5 +168,122 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
       should_request_confirmation: true,
       min_confidence: 0.2
     }
+  },
+  {
+    id: "docs_clt_objecao_duvida",
+    title: "Docs CLT com objeção, dúvida e medo",
+    input: {
+      conversation_id: "fx-docs-clt-001",
+      current_stage: "envio_docs",
+      message_text: "Tenho medo de mandar pelo celular. Quais docs preciso? Quero entender RG, CPF e holerite.",
+      known_slots: {
+        composicao: "sozinho",
+        regime_trabalho: "clt",
+        ir_declarado: "sim"
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "docs_autonomo_site_depois",
+    title: "Docs autônomo prefere site e quer enviar depois",
+    input: {
+      conversation_id: "fx-docs-aut-001",
+      current_stage: "envio_docs",
+      message_text: "Sou autônomo sem IR, prefiro mandar pelo site e mando depois.",
+      known_slots: {
+        composicao: "familiar",
+        regime_trabalho: "autonomo",
+        ir_declarado: "nao"
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.58
+    }
+  },
+  {
+    id: "correspondente_sem_retorno_ansioso",
+    title: "Correspondente sem retorno e cliente ansioso",
+    input: {
+      conversation_id: "fx-corr-001",
+      current_stage: "analise_correspondente",
+      message_text: "Já saiu aprovação? Estou ansioso.",
+      known_slots: {
+        correspondente: "pendente"
+      },
+      pending_slots: ["correspondente"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "correspondente_aprovado_insiste_detalhes",
+    title: "Correspondente aprovado com insistência por detalhes financeiros",
+    input: {
+      conversation_id: "fx-corr-002",
+      current_stage: "analise_correspondente",
+      message_text: "Quanto foi aprovado? Manda print e taxa de juros.",
+      known_slots: {
+        correspondente: "aprovado",
+        retorno_correspondente_status: "aprovado"
+      },
+      pending_slots: ["visita"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "visita_remarcar_sem_promessa",
+    title: "Visita com pedido de remarcação e expectativa comercial",
+    input: {
+      conversation_id: "fx-visita-001",
+      current_stage: "agendamento_visita",
+      message_text: "Quero remarcar e saber se já posso escolher apartamento específico.",
+      known_slots: {
+        visita: "convite"
+      },
+      pending_slots: ["visita"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "visita_resistencia_por_que",
+    title: "Visita com resistência e pergunta do porquê",
+    input: {
+      conversation_id: "fx-visita-002",
+      current_stage: "agendamento_visita",
+      message_text: "Pra que precisa visitar? Prefiro não visitar agora.",
+      known_slots: {},
+      pending_slots: ["visita"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
   }
 ]);

@@ -26,7 +26,13 @@ const fixtureIds = [
   "casado_civil",
   "composicao_familiar",
   "fora_fluxo_duvida",
-  "resposta_ambigua"
+  "resposta_ambigua",
+  "docs_clt_objecao_duvida",
+  "docs_autonomo_site_depois",
+  "correspondente_sem_retorno_ansioso",
+  "correspondente_aprovado_insiste_detalhes",
+  "visita_remarcar_sem_promessa",
+  "visita_resistencia_por_que"
 ];
 
 for (const fixtureId of fixtureIds) {
@@ -55,8 +61,29 @@ for (const fixtureId of fixtureIds) {
   assert.ok(data?.llm_parsed_response && typeof data?.llm_parsed_response === "object", `admin route must expose llm_parsed_response for ${fixtureId}`);
   assert.equal(data?.response?.should_advance_stage, false);
   assert.notEqual(String(data?.response?.reply_text || "").trim(), "", `${fixtureId} reply_text must not be empty`);
-  if (fixtureId !== "fora_fluxo_duvida" && fixtureId !== "resposta_ambigua") {
+  if (["autonomo_sem_ir", "casado_civil", "composicao_familiar"].includes(fixtureId)) {
     assert.ok(Object.keys(data?.response?.slots_detected || {}).length > 0, `${fixtureId} slots_detected must not be empty`);
+  }
+  const replyNormalized = String(data?.response?.reply_text || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  if (fixtureId === "docs_clt_objecao_duvida") {
+    assert.match(replyNormalized, /pelo seu perfil/);
+    assert.match(replyNormalized, /holerite/);
+  }
+  if (fixtureId === "docs_autonomo_site_depois") {
+    assert.match(replyNormalized, /extratos bancarios recentes/);
+    assert.match(replyNormalized, /nao confirmado/);
+  }
+  if (fixtureId === "correspondente_aprovado_insiste_detalhes") {
+    assert.match(replyNormalized, /nao tenho acesso ao sistema/);
+    assert.match(replyNormalized, /corretor vasques no plantao/);
+    assert.doesNotMatch(replyNormalized, /r\$\s*\d|valor aprovado de|credito liberado de|taxa de juros de/);
+  }
+  if (fixtureId === "visita_resistencia_por_que") {
+    assert.match(replyNormalized, /a visita e importante/);
+    assert.match(replyNormalized, /horario de visita/);
   }
   assert.equal(data?.side_effect_audit?.official_write_count, 0);
   assert.equal(data?.side_effect_audit?.would_send_meta, false);
@@ -118,7 +145,7 @@ for (const fixtureId of fixtureIds) {
   assert.equal(res.status, 200);
   assert.equal(data?.ok, true);
   assert.ok(Array.isArray(data?.fixtures));
-  assert.ok(data.fixtures.length >= 10);
+  assert.ok(data.fixtures.length >= 16);
 }
 
 console.log("cognitive_read_only_admin.smoke: ok");

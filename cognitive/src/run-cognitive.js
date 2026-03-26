@@ -24,10 +24,25 @@ const STAGE_DEFAULT_PENDING_SLOTS = Object.freeze({
 const BRL_CURRENCY_PATTERN = /(?<!\d)(?:r\$\s*)?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{2})?(?!\d)/i;
 const OFFTRACK_HINTS = /\b(valor|entrada|parcela|imovel|imóvel|casa|apartamento|bairro|regiao|região|metros)\b/i;
 const AMBIGUOUS_HINTS = /\b(acho|talvez|mais ou menos|nao sei|não sei|meio|duvida|dúvida)\b/i;
-const DEFER_ACTION_PATTERN = /\b(depois eu vejo|depois vejo|vejo depois|depois eu mando|depois mando|te mando depois|depois eu vejo isso|depois vejo isso|depois te falo)\b/i;
+const DEFER_ACTION_PATTERN = /\b(depois eu vejo|depois vejo|vejo depois|depois eu mando|depois mando|te mando depois|mando depois|depois eu vejo isso|depois vejo isso|depois te falo)\b/i;
 const NO_TIME_PATTERN = /\b(nao tenho tempo|não tenho tempo|agora nao tenho tempo|agora não tenho tempo|agora nao consigo|agora não consigo|to sem tempo|tô sem tempo|corrido agora)\b/i;
+const FEAR_PATTERN = /\b(medo|receio|insegur|preocupad|expost[oa]|vazar|golpe)\b/i;
 const REMOTE_REFUSAL_PATTERN =
   /\b(nao quero atendimento online|não quero atendimento online|nao quero atendimento remoto|não quero atendimento remoto|nao quero seguir online|não quero seguir online|nao quero continuar online|não quero continuar online|nao quero no whatsapp|não quero no whatsapp|prefiro presencial|quero atendimento presencial|quero ir presencial|sem whatsapp)\b/i;
+const DOCS_HINT_PATTERN =
+  /\b(doc|documento|documentos|rg|cpf|holerite|extrato|ctps|carteira de trabalho|imposto de renda|ir|comprovante de residencia|comprovante de residência)\b/i;
+const DOCS_STAGE_PATTERN = /\b(envio docs|envio_docs|docs|documento|documentos)\b/;
+const CORRESPONDENTE_STAGE_PATTERN =
+  /\b(correspondente|analise correspondente|an[aá]lise correspondente|retorno correspondente|analise_correspondente|retorno_correspondente)\b/;
+const CORRESPONDENTE_HINT_PATTERN = /\b(correspondente|aprovad|analise|an[aá]lise|retorno)\b/i;
+const APPROVAL_HINT_PATTERN = /\b(aprovad[oa]|aprovou|aprovacao|aprovação)\b/i;
+const FINANCIAL_DETAILS_PATTERN = /\b(valor|credito|crédito|liberad|taxa|juros|subs[ií]dio|poder de compra|entrada|parcela)\b/i;
+const APPROVAL_PROOF_PATTERN = /\b(print|imagem|comprov|prova|evid[eê]ncia)\b/i;
+const VISITA_STAGE_PATTERN = /\b(visita|agendamento_visita|visita_confirmada|plantao|plantão|finalizacao processo|finalizacao_processo)\b/;
+const VISITA_HINT_PATTERN = /\b(visita|plantao|plantão|hor[aá]rio|dia|remarcar|reagendar|escolher im[oó]vel|empreendimento|apartamento|unidade)\b/i;
+const VISITA_RESCHEDULE_PATTERN = /\b(remarcar|reagendar|outro hor[aá]rio|outro dia)\b/i;
+const VISITA_ACCEPT_PATTERN = /\b(quero visitar|aceito visita|vamos agendar|pode agendar|quero agendar)\b/i;
+const VISITA_RESIST_PATTERN = /\b(n[aã]o quero visitar|prefiro n[aã]o visitar|pra que visitar|por que visitar)\b/i;
 const FAMILY_MEMBER_PATTERN = /\bm[aã]e\b|\bpai\b|\birm[aã](?:o)?\b|\bav[oó]\b|\btio\b|\btia\b|\bprima\b|\bprimo\b/g;
 const CONFIRMATION_SLOT_KEYS = new Set(["p3"]);
 const ESTADO_CIVIL_CONFIDENCE = Object.freeze({
@@ -294,6 +309,136 @@ function humanizeSlotName(slot) {
 function buildSlotActionPrompt(slot) {
   const safe = String(slot || "").trim();
   return SLOT_ACTION_PROMPTS[safe] || `Me confirma primeiro a informação de ${humanizeSlotName(safe)}?`;
+}
+
+function getKnownSlotValue(knownSlots, slotName) {
+  const value = knownSlots?.[slotName];
+  if (value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, "value")) {
+    return value.value;
+  }
+  return value;
+}
+
+function hasApprovedCorrespondenteStatus(value) {
+  return ["aprovado", "aprovada", "sim", "aprovado_condicionado"].includes(normalizeText(value));
+}
+
+function isDocsContext(request, pendingSlots) {
+  const stage = normalizeText(request?.current_stage);
+  const pending = Array.isArray(pendingSlots) ? pendingSlots.map((slot) => normalizeText(slot)) : [];
+  return DOCS_STAGE_PATTERN.test(stage) || DOCS_HINT_PATTERN.test(request?.message_text) || pending.includes("docs");
+}
+
+function isCorrespondenteContext(request, pendingSlots) {
+  const stage = normalizeText(request?.current_stage);
+  const pending = Array.isArray(pendingSlots) ? pendingSlots.map((slot) => normalizeText(slot)) : [];
+  return CORRESPONDENTE_STAGE_PATTERN.test(stage) || CORRESPONDENTE_HINT_PATTERN.test(request?.message_text) || pending.includes("correspondente");
+}
+
+function isVisitaContext(request, suggestedNextSlot, pendingSlots) {
+  const stage = normalizeText(request?.current_stage);
+  const nextSlot = normalizeText(suggestedNextSlot);
+  const pending = Array.isArray(pendingSlots) ? pendingSlots.map((slot) => normalizeText(slot)) : [];
+  return VISITA_STAGE_PATTERN.test(stage) || VISITA_HINT_PATTERN.test(request?.message_text) || nextSlot === "visita" || pending.includes("visita");
+}
+
+function buildDocsGuidanceByProfile(request) {
+  const normalizedMessage = normalizeText(request?.message_text);
+  const knownSlots = request?.known_slots || {};
+  const composicao = normalizeText(getKnownSlotValue(knownSlots, "composicao"));
+  const regime = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho"));
+  const irDeclarado = normalizeText(getKnownSlotValue(knownSlots, "ir_declarado"));
+  const ctps = normalizeText(getKnownSlotValue(knownSlots, "ctps"));
+  const docs = ["RG ou CNH com CPF", "comprovante de residência atualizado"];
+
+  if (regime === "clt") {
+    docs.push("holerite recente");
+    docs.push(ctps === "nao" ? "NÃO CONFIRMADO: validar documento equivalente de vínculo formal no plantão" : "CTPS (foto da identificação e vínculo atual)");
+  } else if (regime === "autonomo") {
+    if (irDeclarado === "sim") {
+      docs.push("declaração de IR com recibo de entrega");
+    } else {
+      docs.push("extratos bancários recentes para composição de renda");
+      docs.push("NÃO CONFIRMADO: validar comprovantes complementares da atividade no plantão");
+    }
+  } else if (regime === "servidor" || regime === "aposentado") {
+    docs.push("comprovante de renda recente do benefício/remuneração");
+  } else {
+    docs.push("comprovante de renda mais recente conforme seu perfil");
+  }
+
+  if (composicao === "parceiro" || composicao === "familiar") {
+    docs.push("documentos pessoais e de renda da pessoa que vai compor com você");
+  }
+
+  let channelNote = "";
+  if (/\b(site|portal)\b/.test(normalizedMessage)) {
+    channelNote = "Perfeito, pode enviar pelo site com tranquilidade.";
+  } else if (REMOTE_REFUSAL_PATTERN.test(normalizedMessage)) {
+    channelNote = "Sem problema, no atendimento presencial também conseguimos receber e conferir com você.";
+  }
+
+  let doubtNote = "";
+  if (DOCS_HINT_PATTERN.test(normalizedMessage)) {
+    doubtNote = "Se tiver dúvida em RG, CPF, holerite, extrato, CTPS, IR ou comprovante de residência, eu te explico item a item.";
+  }
+
+  let empathyNote = "";
+  if (FEAR_PATTERN.test(normalizedMessage)) {
+    empathyNote = "Entendo sua preocupação, e vamos fazer isso com segurança e sem pressa.";
+  }
+
+  return [empathyNote, `Pelo seu perfil, os documentos mais importantes agora são: ${docs.join(", ")}.`, doubtNote, channelNote]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function buildCorrespondenteGuidance(request) {
+  const normalizedMessage = normalizeText(request?.message_text);
+  const knownSlots = request?.known_slots || {};
+  const correspondenteSlot = normalizeText(getKnownSlotValue(knownSlots, "correspondente"));
+  const retornoStatus = normalizeText(getKnownSlotValue(knownSlots, "retorno_correspondente_status"));
+  const approved = hasApprovedCorrespondenteStatus(correspondenteSlot) || hasApprovedCorrespondenteStatus(retornoStatus);
+  const insistsFinancial = FINANCIAL_DETAILS_PATTERN.test(normalizedMessage) || APPROVAL_PROOF_PATTERN.test(normalizedMessage);
+
+  if (!approved) {
+    return "Entendo a ansiedade e estou acompanhando com você. Enquanto não houver retorno do correspondente, eu ainda não consigo confirmar aprovação.";
+  }
+
+  if (insistsFinancial || APPROVAL_HINT_PATTERN.test(normalizedMessage)) {
+    return "Eu gostaria muito de ajudar, mas infelizmente não tenho acesso ao sistema de aprovação. Eu só recebi o retorno de que houve aprovação, e os detalhes de financiamento, taxas, subsídios e poder de compra são tratados presencialmente com o corretor Vasques no plantão.";
+  }
+
+  return "Recebemos retorno de aprovação, e agora os detalhes de financiamento, taxas, subsídios e poder de compra são tratados presencialmente com o corretor Vasques no plantão.";
+}
+
+function buildVisitaGuidance(request) {
+  const normalizedMessage = normalizeText(request?.message_text);
+
+  if (VISITA_RESCHEDULE_PATTERN.test(normalizedMessage)) {
+    return "Perfeito, conseguimos remarcar dentro dos dias e horários oficiais do plantão para manter seu atendimento organizado.";
+  }
+  if (VISITA_RESIST_PATTERN.test(normalizedMessage)) {
+    return "A visita é importante para você conhecer o processo com clareza e tomar decisão com segurança, sem criar expectativa errada no WhatsApp.";
+  }
+  if (/\bhor[aá]rio|dia|quando\b/.test(normalizedMessage)) {
+    return "Ótima pergunta. Eu sigo a agenda oficial do plantão e te passo as opções válidas de dias e horários para visita.";
+  }
+  if (/\bescolher im[oó]vel|unidade|empreendimento|apartamento espec[ií]fico|casa espec[ií]fica\b/.test(normalizedMessage)) {
+    return "A escolha de imóvel e disponibilidade é alinhada presencialmente no plantão com o corretor, para evitar promessas fora da operação.";
+  }
+  if (VISITA_ACCEPT_PATTERN.test(normalizedMessage)) {
+    return "Perfeito, sua visita é um passo importante e já te conduzo pelas opções oficiais de agenda.";
+  }
+
+  return "A visita te ajuda a avançar com segurança, dentro da agenda oficial do plantão, sem quebrar o trilho do processo.";
+}
+
+function buildPhaseGuidanceReply({ request, suggestedNextSlot, pendingSlots }) {
+  if (isCorrespondenteContext(request, pendingSlots)) return buildCorrespondenteGuidance(request);
+  if (isVisitaContext(request, suggestedNextSlot, pendingSlots)) return buildVisitaGuidance(request);
+  if (isDocsContext(request, pendingSlots)) return buildDocsGuidanceByProfile(request);
+  return null;
 }
 
 function shouldDriveToDocuments(request, suggestedNextSlot, pendingSlots) {
@@ -691,6 +836,20 @@ function buildSuggestedNextSlot(pendingSlots, conflicts) {
 }
 
 function buildReplyText({ request, detectedSlots, pendingSlots, suggestedNextSlot, conflicts, offtrack }) {
+  const phaseGuidanceReply = buildPhaseGuidanceReply({
+    request,
+    suggestedNextSlot,
+    pendingSlots
+  });
+
+  if (phaseGuidanceReply) {
+    return ensureReplyHasNextAction(phaseGuidanceReply, {
+      request,
+      pendingSlots,
+      suggestedNextSlot
+    });
+  }
+
   if (offtrack) {
     return ensureReplyHasNextAction(
       "Entendi sua dúvida, e eu te explico isso com segurança, mas antes preciso fechar esta etapa para te orientar com mais precisão.",
@@ -805,10 +964,39 @@ function normalizeModelResponse({
     llmUsed ? `Modelo cognitivo read-only utilizado: ${request.current_stage}.` : null
   ]);
   const parsedReplyText = sanitizeReplyText(modelResponse.reply_text);
+  const hasParsedReplyText = parsedReplyText && parsedReplyText.trim().length > 0;
   const existingReplyFallback =
     sanitizeReplyText(modelResponse.human_response) ||
     heuristicResponse.reply_text;
   const normalizedMessage = normalizeText(request.message_text);
+  const phaseGuidanceReply = buildPhaseGuidanceReply({
+    request,
+    suggestedNextSlot,
+    pendingSlots
+  });
+  if (phaseGuidanceReply) {
+    return {
+      reply_text: ensureReplyHasNextAction(phaseGuidanceReply, {
+        request,
+        pendingSlots,
+        suggestedNextSlot
+      }),
+      slots_detected: slotsDetected,
+      pending_slots: pendingSlots,
+      conflicts,
+      suggested_next_slot: suggestedNextSlot,
+      consultive_notes: consultiveNotes,
+      should_request_confirmation:
+        typeof modelResponse.should_request_confirmation === "boolean"
+          ? modelResponse.should_request_confirmation || conflicts.length > 0
+          : heuristicResponse.should_request_confirmation || conflicts.length > 0,
+      should_advance_stage: false,
+      confidence: clampConfidence(
+        modelResponse.confidence,
+        heuristicResponse.confidence
+      )
+    };
+  }
   const preferHeuristicReply =
     analysis.offtrack ||
     conflicts.length > 0 ||
@@ -816,12 +1004,11 @@ function normalizeModelResponse({
     DEFER_ACTION_PATTERN.test(normalizedMessage) ||
     NO_TIME_PATTERN.test(normalizedMessage) ||
     REMOTE_REFUSAL_PATTERN.test(normalizedMessage);
-  const replyText =
-    parsedReplyText && parsedReplyText.trim().length > 0
-      ? parsedReplyText
-      : preferHeuristicReply
-        ? heuristicResponse.reply_text
-        : existingReplyFallback;
+  const replyText = hasParsedReplyText
+    ? parsedReplyText
+    : preferHeuristicReply
+      ? heuristicResponse.reply_text
+      : existingReplyFallback;
   const shouldRequestConfirmation =
     typeof modelResponse.should_request_confirmation === "boolean"
       ? modelResponse.should_request_confirmation || conflicts.length > 0

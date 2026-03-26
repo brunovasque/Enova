@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import styles from "./conversations.module.css";
 
-const POLL_INTERVAL_MS = 5000;
+const POLL_INTERVAL_MS = 1000;
 
 type Conversation = {
   id: string;

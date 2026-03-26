@@ -5,6 +5,8 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import styles from "./conversations.module.css";
 
 const POLL_INTERVAL_MS = 1000;
+const THREAD_BOTTOM_THRESHOLD_PX = 32;
+const MAX_THREAD_SCROLL_RETRIES = 4;
 
 type Conversation = {
   id: string;
@@ -111,7 +113,7 @@ function getConversationActivityKey(conversation: Pick<Conversation, "last_messa
   return conversation.last_message_at ?? conversation.updated_at ?? "";
 }
 
-function isNearBottom(element: HTMLDivElement | null, threshold = 72) {
+function isNearBottom(element: HTMLDivElement | null, threshold = THREAD_BOTTOM_THRESHOLD_PX) {
   if (!element) {
     return true;
   }
@@ -156,6 +158,7 @@ export function ConversationUI() {
   const latestMessagesRequestRef = useRef(0);
   const refreshStateRef = useRef({ inFlight: false, queued: false });
   const messagesAreaRef = useRef<HTMLDivElement | null>(null);
+  const pendingScrollFrameRef = useRef<number | null>(null);
   const previousVisibleStateRef = useRef({ waId: selectedWaId, count: 0, lastKey: "" });
   const pendingScrollToBottomRef = useRef(Boolean(selectedWaId));
   const isThreadNearBottomRef = useRef(true);
@@ -349,21 +352,49 @@ export function ConversationUI() {
     setIsThreadNearBottom((current) => (current === value ? current : value));
   }, []);
 
+  const cancelPendingThreadScroll = useCallback(() => {
+    if (pendingScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(pendingScrollFrameRef.current);
+      pendingScrollFrameRef.current = null;
+    }
+  }, []);
+
   const scrollThreadToBottom = useCallback(
     (behavior: ScrollBehavior = "auto") => {
-      const element = messagesAreaRef.current;
+      cancelPendingThreadScroll();
 
-      if (!element) {
-        return;
-      }
+      let attempt = 0;
 
-      element.scrollTo({
-        top: element.scrollHeight,
-        behavior,
+      const applyScroll = () => {
+        const element = messagesAreaRef.current;
+
+        if (!element) {
+          pendingScrollFrameRef.current = null;
+          return;
+        }
+
+        element.scrollTo({
+          top: element.scrollHeight,
+          behavior: attempt === 0 ? behavior : "auto",
+        });
+
+        const nearBottom = isNearBottom(element);
+
+        if (!nearBottom && attempt < MAX_THREAD_SCROLL_RETRIES) {
+          attempt += 1;
+          pendingScrollFrameRef.current = window.requestAnimationFrame(applyScroll);
+          return;
+        }
+
+        pendingScrollFrameRef.current = null;
+        syncThreadNearBottom(nearBottom);
+      };
+
+      pendingScrollFrameRef.current = window.requestAnimationFrame(() => {
+        pendingScrollFrameRef.current = window.requestAnimationFrame(applyScroll);
       });
-      syncThreadNearBottom(true);
     },
-    [syncThreadNearBottom]
+    [cancelPendingThreadScroll, syncThreadNearBottom]
   );
 
   const handleSelectConversation = (waId: string) => {
@@ -401,6 +432,7 @@ export function ConversationUI() {
     setThreadError(null);
     setThreadLoading(Boolean(selectedWaId));
     setThreadUnreadCount(0);
+    cancelPendingThreadScroll();
     pendingScrollToBottomRef.current = Boolean(selectedWaId);
     previousVisibleStateRef.current = { waId: selectedWaId, count: 0, lastKey: "" };
     syncThreadNearBottom(true);
@@ -416,9 +448,16 @@ export function ConversationUI() {
     }, POLL_INTERVAL_MS);
 
     return () => {
+      cancelPendingThreadScroll();
       window.clearInterval(intervalId);
     };
-  }, [refreshPanelData, selectedConversation?.wa_id, selectedWaId, syncThreadNearBottom]);
+  }, [
+    cancelPendingThreadScroll,
+    refreshPanelData,
+    selectedConversation?.wa_id,
+    selectedWaId,
+    syncThreadNearBottom,
+  ]);
 
   useEffect(() => {
     if (!selectedWaId) {
@@ -433,6 +472,7 @@ export function ConversationUI() {
 
   useEffect(() => {
     if (!selectedWaId) {
+      cancelPendingThreadScroll();
       previousVisibleStateRef.current = { waId: "", count: 0, lastKey: "" };
       pendingScrollToBottomRef.current = false;
       return;
@@ -461,15 +501,11 @@ export function ConversationUI() {
 
     if (pendingScrollToBottomRef.current) {
       pendingScrollToBottomRef.current = false;
-      requestAnimationFrame(() => {
-        scrollThreadToBottom("auto");
-      });
+      scrollThreadToBottom("auto");
       setThreadUnreadCount(0);
       markConversationAsSeen(selectedWaId, activeConversationActivityKey);
     } else if (hasNewMessages && isThreadNearBottomRef.current) {
-      requestAnimationFrame(() => {
-        scrollThreadToBottom("smooth");
-      });
+      scrollThreadToBottom("smooth");
       setThreadUnreadCount(0);
       markConversationAsSeen(selectedWaId, activeConversationActivityKey);
     } else if (hasNewMessages) {
@@ -483,6 +519,7 @@ export function ConversationUI() {
     };
   }, [
     activeConversationActivityKey,
+    cancelPendingThreadScroll,
     markConversationAsSeen,
     scrollThreadToBottom,
     selectedWaId,

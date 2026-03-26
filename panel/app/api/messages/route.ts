@@ -27,6 +27,8 @@ type EnovaLogRow = {
 };
 
 const REQUIRED_ENVS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const;
+const OUTBOUND_EQUIVALENT_WINDOW_MS = 5000;
+const OUTBOUND_EQUIVALENT_SOURCES = new Set(["DECISION_OUTPUT", "SEND_OK"]);
 
 const jsonResponse = (body: MessagesResponse, status: number) =>
   NextResponse.json<MessagesResponse>(body, {
@@ -82,15 +84,41 @@ function parseOutgoingText(details: unknown): string | null {
   }
 }
 
-function buildMessageKey(message: Message): string {
-  const normalizedText = normalizeText(message.text) ?? "";
+function parseCreatedAtMs(value: string | null): number | null {
+  if (!value) return null;
 
-  return [
-    message.direction,
-    message.wa_id,
-    message.created_at ?? "",
-    normalizedText,
-  ].join("|");
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function shouldCollapseEquivalentOutboundPair(
+  previous: Message | undefined,
+  current: Message,
+): boolean {
+  if (!previous) return false;
+  if (previous.direction !== "out" || current.direction !== "out") return false;
+  if (previous.wa_id !== current.wa_id) return false;
+
+  const previousText = normalizeText(previous.text);
+  const currentText = normalizeText(current.text);
+  if (!previousText || previousText !== currentText) return false;
+
+  if (
+    !previous.source ||
+    !current.source ||
+    previous.source === current.source ||
+    !OUTBOUND_EQUIVALENT_SOURCES.has(previous.source) ||
+    !OUTBOUND_EQUIVALENT_SOURCES.has(current.source)
+  ) {
+    return false;
+  }
+
+  const previousCreatedAtMs = parseCreatedAtMs(previous.created_at);
+  const currentCreatedAtMs = parseCreatedAtMs(current.created_at);
+  if (previousCreatedAtMs === null || currentCreatedAtMs === null) return false;
+
+  const deltaMs = currentCreatedAtMs - previousCreatedAtMs;
+  return deltaMs >= 0 && deltaMs <= OUTBOUND_EQUIVALENT_WINDOW_MS;
 }
 
 export async function GET(request: Request) {
@@ -128,12 +156,10 @@ export async function GET(request: Request) {
     };
 
     const messages: Message[] = [];
-    const seen = new Set<string>();
 
-    const pushUnique = (msg: Message) => {
-      const key = buildMessageKey(msg);
-      if (seen.has(key)) return;
-      seen.add(key);
+    const pushMessage = (msg: Message) => {
+      const previous = messages.at(-1);
+      if (shouldCollapseEquivalentOutboundPair(previous, msg)) return;
       messages.push(msg);
     };
 
@@ -175,7 +201,7 @@ export async function GET(request: Request) {
           const inbound = normalizeText(row.meta_text);
           if (!inbound) continue;
 
-          pushUnique({
+          pushMessage({
             id: row.id !== undefined && row.id !== null ? String(row.id) : null,
             wa_id: row.wa_id ?? waId,
             direction: "in",
@@ -191,7 +217,7 @@ export async function GET(request: Request) {
           const outText = normalizeText(row.meta_text) ?? parseOutgoingText(row.details);
           if (!outText) continue;
 
-          pushUnique({
+          pushMessage({
             id: row.id !== undefined && row.id !== null ? String(row.id) : null,
             wa_id: row.wa_id ?? waId,
             direction: "out",
@@ -207,7 +233,7 @@ export async function GET(request: Request) {
           const outText = parseOutgoingText(row.details) ?? normalizeText(row.meta_text);
           if (!outText) continue;
 
-          pushUnique({
+          pushMessage({
             id: row.id !== undefined && row.id !== null ? String(row.id) : null,
             wa_id: row.wa_id ?? waId,
             direction: "out",

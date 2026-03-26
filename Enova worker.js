@@ -4733,6 +4733,22 @@ const waId =
   msg.from ||
   (contacts[0] && (contacts[0].wa_id || contacts[0].waId)) ||
   null;
+const profileName = String(contacts?.[0]?.profile?.name || "").trim() || null;
+let stFromProfile = null;
+if (waId && profileName) {
+  stFromProfile = await getState(env, waId);
+  if (!stFromProfile) {
+    await upsertState(env, waId, {
+      fase_conversa: "inicio",
+      funil_status: null,
+      nome: profileName
+    });
+    stFromProfile = await getState(env, waId);
+  } else if (!String(stFromProfile?.nome || "").trim()) {
+    await upsertState(env, waId, { nome: profileName });
+    stFromProfile = { ...stFromProfile, nome: profileName };
+  }
+}
   await telemetry(env, {
     wa_id: waId,
     event: "corr_route_probe_enter",
@@ -5090,7 +5106,7 @@ let userText = null;
     // 1) Carrega estado REAL antes de chamar funil
     //    usando getState / upsertState oficiais (A2)
     // ============================================================
-    let st = await getState(env, waId);
+    let st = stFromProfile || await getState(env, waId);
 
     if (!st) {
       await upsertState(env, waId, {

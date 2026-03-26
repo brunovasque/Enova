@@ -52,6 +52,9 @@ const fixtureIds = [
   "reprovacao_comprometimento_renda",
   "visita_falta_envio_online",
   "visita_decisores_presentes",
+  "moro_junto_sem_uniao_estavel",
+  "moramos_juntos_sem_uniao_estavel",
+  "uniao_estavel_explicita",
   "uniao_estavel_solo",
   "uniao_estavel_conjunto",
   "casado_civil_conjunto_obrigatorio"
@@ -156,6 +159,16 @@ for (const fixtureId of fixtureIds) {
     assert.match(replyNormalized, /poder de decisao|poder de decisão/);
   }
   if (fixtureId === "uniao_estavel_solo") {
+    assert.match(replyNormalized, /uniao estavel|união estável/);
+    assert.match(replyNormalized, /solo ou em conjunto/);
+  }
+  if (fixtureId === "moro_junto_sem_uniao_estavel" || fixtureId === "moramos_juntos_sem_uniao_estavel") {
+    assert.equal(data?.response?.slots_detected?.estado_civil, undefined, `${fixtureId} must not infer estado_civil as uniao_estavel`);
+    assert.match(replyNormalized, /nao define uniao estavel|não define união estável/);
+    assert.match(replyNormalized, /solo ou em conjunto/);
+  }
+  if (fixtureId === "uniao_estavel_explicita") {
+    assert.equal(data?.response?.slots_detected?.estado_civil?.value, "uniao_estavel");
     assert.match(replyNormalized, /uniao estavel|união estável/);
     assert.match(replyNormalized, /solo ou em conjunto/);
   }

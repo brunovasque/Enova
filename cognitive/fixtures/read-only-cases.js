@@ -536,6 +536,57 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
     }
   },
   {
+    id: "moro_junto_sem_uniao_estavel",
+    title: "Moro junto sem união estável explícita",
+    input: {
+      conversation_id: "fx-mj-001",
+      current_stage: "estado_civil",
+      message_text: "Moro junto, como funciona?",
+      known_slots: {},
+      pending_slots: ["estado_civil", "composicao"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "moramos_juntos_sem_uniao_estavel",
+    title: "Moramos juntos sem união estável explícita",
+    input: {
+      conversation_id: "fx-mj-002",
+      current_stage: "estado_civil",
+      message_text: "Moramos juntos e quero entender se pode seguir.",
+      known_slots: {},
+      pending_slots: ["estado_civil", "composicao"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "uniao_estavel_explicita",
+    title: "União estável explícita",
+    input: {
+      conversation_id: "fx-uex-001",
+      current_stage: "estado_civil",
+      message_text: "Tenho união estável e quero avaliar o melhor formato.",
+      known_slots: {},
+      pending_slots: ["estado_civil", "composicao"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: ["estado_civil"],
+      should_request_confirmation: false,
+      min_confidence: 0.74
+    }
+  },
+  {
     id: "uniao_estavel_solo",
     title: "União estável solo",
     input: {

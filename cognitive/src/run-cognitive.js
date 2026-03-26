@@ -52,6 +52,7 @@ const REPROVACAO_HINT_PATTERN =
 const ESTADO_CIVIL_COMPOSICAO_HINT_PATTERN =
   /\b(uni[aã]o est[aá]vel|casad[oa] no civil|casad[oa]|moro junto|moramos juntos|composi[cç][aã]o)\b/i;
 const MORA_JUNTO_PATTERN = /\bmoro junto\b|\bmoramos juntos\b/;
+const EXPLICIT_UNIAO_ESTAVEL_PATTERN = /\buniao estavel\b|\buni[aã]o est[aá]vel\b/;
 const SEM_UNIAO_ESTAVEL_PATTERN = /\bsem uniao estavel\b|\bsem uni[aã]o est[aá]vel\b/;
 const FAMILY_MEMBER_PATTERN = /\bm[aã]e\b|\bpai\b|\birm[aã](?:o)?\b|\bav[oó]\b|\btio\b|\btia\b|\bprima\b|\bprimo\b/g;
 const CONFIRMATION_SLOT_KEYS = new Set(["p3"]);
@@ -255,7 +256,7 @@ function detectMoney(text) {
 
 function detectEstadoCivil(text) {
   if (MORA_JUNTO_PATTERN.test(text) && SEM_UNIAO_ESTAVEL_PATTERN.test(text)) return null;
-  if (/\buniao estavel\b|\buni[aã]o est[aá]vel\b|\bmoro junto\b/.test(text)) return "uniao_estavel";
+  if (EXPLICIT_UNIAO_ESTAVEL_PATTERN.test(text)) return "uniao_estavel";
   if (/\bcasad[oa]\b/.test(text)) return "casado_civil";
   if (/\bsolteir[oa]\b/.test(text)) return "solteiro";
   return null;
@@ -647,7 +648,10 @@ function buildEstadoCivilComposicaoGuidance(request) {
   if (MORA_JUNTO_PATTERN.test(normalizedMessage) && SEM_UNIAO_ESTAVEL_PATTERN.test(normalizedMessage)) {
     return "Quando moram juntos sem união estável formal, pode seguir solo ou em conjunto, conforme estratégia de aprovação.";
   }
-  if (/\buni[aã]o est[aá]vel\b/.test(normalizedMessage) || estadoCivil === "uniao_estavel") {
+  if (MORA_JUNTO_PATTERN.test(normalizedMessage) && !EXPLICIT_UNIAO_ESTAVEL_PATTERN.test(normalizedMessage)) {
+    return "Quando vocês moram juntos, isso por si só não define união estável. O processo pode seguir solo ou em conjunto, conforme a melhor estratégia.";
+  }
+  if (EXPLICIT_UNIAO_ESTAVEL_PATTERN.test(normalizedMessage) || estadoCivil === "uniao_estavel") {
     const mode = composicao && composicao !== "sozinho" ? "em conjunto" : "solo";
     return `Na união estável, não há reclassificação automática de estado civil e o processo pode seguir ${mode} ou em conjunto, conforme a melhor estratégia.`;
   }

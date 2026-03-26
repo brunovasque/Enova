@@ -3524,8 +3524,10 @@ export default {
 // ---------------------------------------------
 const envMode = String(env.ENV_MODE || env.ENOVA_ENV || "").toLowerCase();
 const isAdminPath = pathname.startsWith("/__admin__/");
+const isCanonicalAdminSendPath =
+  request.method === "POST" && pathname === "/__admin__/send";
 
-if (isAdminPath && envMode !== "test") {
+if (isAdminPath && envMode !== "test" && !isCanonicalAdminSendPath) {
   return adminJson(403, {
     ok: false,
     error: "forbidden_test_only",

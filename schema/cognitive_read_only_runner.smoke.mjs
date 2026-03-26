@@ -20,6 +20,12 @@ function normalizeForMatch(value) {
     .toLowerCase();
 }
 
+function assertCleanPortugueseText(value, label) {
+  const text = String(value || "");
+  assert.equal(text, text.normalize("NFC"), `${label} must keep NFC-composed accents`);
+  assert.doesNotMatch(text, /Ã[¡-ÿ]|Â[^\sa-zA-Z0-9]|�/, `${label} must not contain mojibake or replacement chars`);
+}
+
 function escapeRegex(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -66,6 +72,7 @@ for (const scenarioId of scenarioIds) {
   assert.equal(validation.valid, true, `${scenarioId} invalid response: ${validation.errors.join(", ")}`);
   assert.equal(result?.validation?.valid, true, `${scenarioId} internal validation failed`);
   assert.notEqual(result.response.reply_text.trim(), "", `${scenarioId} reply_text must not be empty`);
+  assertCleanPortugueseText(result.response.reply_text, `${scenarioId} reply_text`);
 
   for (const slotName of fixture.expected.required_slots) {
     assert.ok(result.response.slots_detected[slotName], `${scenarioId} missing slot ${slotName}`);
@@ -100,39 +107,42 @@ for (const scenarioId of scenarioIds) {
   const replyNormalized = normalizeForMatch(result.response.reply_text);
   if (scenarioId === "docs_clt_objecao_duvida") {
     assert.match(replyNormalized, /pelo seu perfil/);
+    assert.match(replyNormalized, /o ideal e separar/);
     assert.match(replyNormalized, /rg ou cnh com cpf/);
     assert.match(replyNormalized, /holerite/);
     assert.match(replyNormalized, /ctps/);
     assert.match(replyNormalized, /seguranca|segurança/);
-    assert.match(replyNormalized, /me manda os documentos basicos agora/);
+    assert.match(replyNormalized, /documentos basicos por aqui/);
   }
   if (scenarioId === "docs_autonomo_site_depois") {
     assert.match(replyNormalized, /pelo seu perfil/);
+    assert.match(replyNormalized, /o ideal e separar/);
     assert.match(replyNormalized, /extratos bancarios recentes/);
     assert.match(replyNormalized, /nao confirmado/);
-    assert.match(replyNormalized, /pode enviar pelo site/);
+    assert.match(replyNormalized, /preferir pode enviar pelo site com tranquilidade/);
     assert.match(replyNormalized, /quanto antes voce me enviar os documentos/);
   }
   if (scenarioId === "correspondente_sem_retorno_ansioso") {
+    assert.match(replyNormalized, /sigo acompanhando com voce/);
     assert.match(replyNormalized, /enquanto nao houver retorno do correspondente/);
     assert.doesNotMatch(replyNormalized, /r\$\s*\d|valor aprovado de|credito liberado de/);
   }
   if (scenarioId === "correspondente_aprovado_insiste_detalhes") {
-    assert.match(replyNormalized, /gostaria muito de ajudar/);
-    assert.match(replyNormalized, /nao tenho acesso ao sistema/);
+    assert.match(replyNormalized, /queria muito conseguir te abrir isso por aqui/);
+    assert.match(replyNormalized, /realmente nao tenho acesso ao sistema de aprovacao/);
     assert.match(replyNormalized, /houve aprovacao/);
     assert.match(replyNormalized, /corretor vasques no plantao/);
     assert.doesNotMatch(replyNormalized, /r\$\s*\d|valor aprovado de|credito liberado de|taxa de juros de/);
   }
   if (scenarioId === "visita_remarcar_sem_promessa") {
-    assert.match(replyNormalized, /remarcar/);
+    assert.match(replyNormalized, /a gente consegue remarcar/);
     assert.match(replyNormalized, /dias e horarios oficiais do plantao/);
-    assert.match(replyNormalized, /quer que eu ja veja um horario de visita/);
+    assert.match(replyNormalized, /ja vejo um horario dentro da agenda oficial do plantao/);
   }
   if (scenarioId === "visita_resistencia_por_que") {
-    assert.match(replyNormalized, /a visita e importante/);
+    assert.match(replyNormalized, /a visita e o momento de te mostrar o processo com mais clareza/);
     assert.match(replyNormalized, /sem criar expectativa errada/);
-    assert.match(replyNormalized, /quer que eu ja veja um horario de visita/);
+    assert.match(replyNormalized, /ja vejo um horario dentro da agenda oficial do plantao/);
   }
 }
 
@@ -230,6 +240,61 @@ for (const scenarioId of scenarioIds) {
     /^RESPOSTA PARSEADA DO MODELO/,
     "final reply_text must preserve parsed reply_text even when heuristic fallback is available"
   );
+  assertCleanPortugueseText(parsedReplyPriorityResult?.response?.reply_text, "parsed reply priority");
+}
+
+{
+  const encodingRepairResult = await runReadOnlyCognitiveEngine(
+    {
+      conversation_id: "encoding-repair-001",
+      current_stage: "renda",
+      message_text: "Minha renda é 3000.",
+      pending_slots: ["renda"]
+    },
+    {
+      openaiApiKey: "test-openai-key",
+      model: "gpt-4.1-mini",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    reply_text: "NÃ£o se preocupe, sua anÃ¡lise segue com aprovaÃ§Ã£o consultiva.",
+                    slots_detected: {
+                      renda: {
+                        value: 3000,
+                        confidence: 0.93,
+                        evidence: "3000",
+                        source: "openai_cognitive"
+                      }
+                    },
+                    pending_slots: ["renda"],
+                    conflicts: [],
+                    suggested_next_slot: "renda",
+                    consultive_notes: [],
+                    should_request_confirmation: false,
+                    should_advance_stage: false,
+                    confidence: 0.93
+                  })
+                }
+              }
+            ]
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        )
+    }
+  );
+
+  const replyText = String(encodingRepairResult?.response?.reply_text || "");
+  assert.match(replyText, /Não se preocupe, sua análise segue com aprovação consultiva\./);
+  assertCleanPortugueseText(replyText, "encoding repair reply_text");
 }
 
 {
@@ -258,7 +323,7 @@ for (const scenarioId of scenarioIds) {
         should_advance_stage: false,
         confidence: 0.9
       },
-      mustInclude: ["pelo seu perfil", "holerite", "documentos básicos"]
+      mustInclude: ["pelo seu perfil", "o ideal é separar", "documentos básicos por aqui"]
     },
     {
       id: "normalize_phase_correspondente",
@@ -283,14 +348,14 @@ for (const scenarioId of scenarioIds) {
         should_advance_stage: false,
         confidence: 0.9
       },
-      mustInclude: ["gostaria muito de ajudar", "não tenho acesso ao sistema", "corretor vasques no plantão"]
+      mustInclude: ["queria muito conseguir te abrir isso por aqui", "não tenho acesso ao sistema de aprovação", "corretor vasques no plantão"]
     },
     {
       id: "normalize_phase_visita",
       request: {
         conversation_id: "normalize-phase-visita-001",
         current_stage: "renda",
-        message_text: "Pra que precisa visitar?",
+        message_text: "Pra que precisa visitar? Prefiro não visitar agora.",
         known_slots: {},
         pending_slots: ["renda"]
       },
@@ -305,7 +370,7 @@ for (const scenarioId of scenarioIds) {
         should_advance_stage: false,
         confidence: 0.9
       },
-      mustInclude: ["agenda oficial do plantão", "sem quebrar o trilho do processo", "horário de visita"]
+      mustInclude: ["sem criar expectativa errada", "agenda oficial do plantão", "horário dentro da agenda oficial do plantão"]
     }
   ];
 
@@ -338,6 +403,7 @@ for (const scenarioId of scenarioIds) {
 
     assert.equal(result?.engine?.llm_used, true, `${scenario.id} should use llm path`);
     assert.equal(result?.response?.should_advance_stage, false, `${scenario.id} must keep should_advance_stage=false`);
+    assertCleanPortugueseText(replyText, `${scenario.id} reply_text`);
     assert.doesNotMatch(
       normalized,
       /resposta antiga do modelo|entendi, mas ainda preciso de um ponto objetivo/,

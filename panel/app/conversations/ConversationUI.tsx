@@ -453,6 +453,11 @@ export function ConversationUI() {
       previous.count === visibleMessages.length &&
       previous.lastKey !== lastKey;
     const hasNewMessages = countIncreased || lastMessageChanged;
+    const newMessagesCount = countIncreased
+      ? visibleMessages.length - previous.count
+      : lastMessageChanged
+      ? 1
+      : 0;
 
     if (pendingScrollToBottomRef.current) {
       pendingScrollToBottomRef.current = false;
@@ -468,7 +473,7 @@ export function ConversationUI() {
       setThreadUnreadCount(0);
       markConversationAsSeen(selectedWaId, activeConversationActivityKey);
     } else if (hasNewMessages) {
-      setThreadUnreadCount((current) => current + Math.max(visibleMessages.length - previous.count, 1));
+      setThreadUnreadCount((current) => current + newMessagesCount);
     }
 
     previousVisibleStateRef.current = {

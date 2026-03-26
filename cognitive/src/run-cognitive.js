@@ -24,6 +24,10 @@ const STAGE_DEFAULT_PENDING_SLOTS = Object.freeze({
 const BRL_CURRENCY_PATTERN = /(?<!\d)(?:r\$\s*)?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{2})?(?!\d)/i;
 const OFFTRACK_HINTS = /\b(valor|entrada|parcela|imovel|imóvel|casa|apartamento|bairro|regiao|região|metros)\b/i;
 const AMBIGUOUS_HINTS = /\b(acho|talvez|mais ou menos|nao sei|não sei|meio|duvida|dúvida)\b/i;
+const DEFER_ACTION_PATTERN = /\b(depois eu vejo|depois vejo|vejo depois|depois eu mando|depois mando|te mando depois|depois eu vejo isso|depois vejo isso|depois te falo)\b/i;
+const NO_TIME_PATTERN = /\b(nao tenho tempo|não tenho tempo|agora nao tenho tempo|agora não tenho tempo|agora nao consigo|agora não consigo|to sem tempo|tô sem tempo|corrido agora)\b/i;
+const REMOTE_REFUSAL_PATTERN =
+  /\b(nao quero atendimento online|não quero atendimento online|nao quero atendimento remoto|não quero atendimento remoto|nao quero seguir online|não quero seguir online|nao quero continuar online|não quero continuar online|nao quero no whatsapp|não quero no whatsapp|prefiro presencial|quero atendimento presencial|quero ir presencial|sem whatsapp)\b/i;
 const FAMILY_MEMBER_PATTERN = /\bm[aã]e\b|\bpai\b|\birm[aã](?:o)?\b|\bav[oó]\b|\btio\b|\btia\b|\bprima\b|\bprimo\b/g;
 const CONFIRMATION_SLOT_KEYS = new Set(["p3"]);
 const ESTADO_CIVIL_CONFIDENCE = Object.freeze({
@@ -48,6 +52,39 @@ const COGNITIVE_SLOT_DEPENDENCIES = Object.freeze({
   restricao: ["docs"],
   docs: ["correspondente"],
   correspondente: ["visita"]
+});
+const REPLY_TEXT_REPLACEMENTS = Object.freeze([
+  [/\brunner read-only\b/gi, "atendimento"],
+  [/\bmotor cognitivo de teste\b/gi, "atendimento"],
+  [/\bcognitivo de teste\b/gi, "atendimento"],
+  [/\bmodo read-only\b/gi, ""],
+  [/\bneste teste isolado\b/gi, ""],
+  [/\bleitura estruturada do cognitivo\b/gi, "leitura do seu caso"],
+  [/\bleitura cognitiva\b/gi, "leitura do seu caso"]
+]);
+const SLOT_LABELS = Object.freeze({
+  estado_civil: "estado civil",
+  composicao: "composição de renda",
+  familiar: "familiar que vai compor renda",
+  p3: "terceira pessoa na composição",
+  regime_trabalho: "tipo de trabalho",
+  renda: "renda mensal",
+  ir_declarado: "Imposto de Renda",
+  docs: "documentos",
+  correspondente: "documentos pendentes",
+  visita: "visita no plantão"
+});
+const SLOT_ACTION_PROMPTS = Object.freeze({
+  estado_civil: "Me confirma seu estado civil hoje: solteiro, casado no civil ou união estável?",
+  composicao: "Me confirma se você vai seguir sozinho, com parceiro ou com familiar?",
+  familiar: "Me diz com qual familiar você pretende compor renda?",
+  p3: "Me confirma se terá uma terceira pessoa compondo renda?",
+  regime_trabalho: "Me confirma se hoje você é CLT, autônomo, servidor ou aposentado?",
+  renda: "Me informa sua renda média mensal?",
+  ir_declarado: "Me confirma se você declara Imposto de Renda?",
+  docs: "Se quiser, já me manda os documentos básicos agora que eu adianto sua análise.",
+  correspondente: "Se quiser, já me manda os documentos pendentes agora que eu adianto sua análise.",
+  visita: "Quer que eu já veja um horário de visita no plantão para você?"
 });
 const COGNITIVE_SLOT_CONTRACT = Object.freeze([
   {
@@ -239,10 +276,92 @@ function clampConfidence(value, fallback = 0.5) {
 }
 
 function sanitizeReplyText(value) {
-  return String(value || "")
-    .replace(/\u0000/g, "")
+  return REPLY_TEXT_REPLACEMENTS.reduce(
+    (text, [pattern, replacement]) => text.replace(pattern, replacement),
+    String(value || "").replace(/\u0000/g, "")
+  )
     .replace(/\s+/g, " ")
+    .replace(/\s+([,.!?;:])/g, "$1")
     .trim();
+}
+
+function humanizeSlotName(slot) {
+  const safe = String(slot || "").trim();
+  if (!safe) return "informação pendente";
+  return SLOT_LABELS[safe] || safe.replace(/_/g, " ");
+}
+
+function buildSlotActionPrompt(slot) {
+  const safe = String(slot || "").trim();
+  return SLOT_ACTION_PROMPTS[safe] || `Me confirma primeiro a informação de ${humanizeSlotName(safe)}?`;
+}
+
+function shouldDriveToDocuments(request, suggestedNextSlot, pendingSlots) {
+  const stage = normalizeText(request?.current_stage);
+  const candidateSlots = [suggestedNextSlot, ...(Array.isArray(pendingSlots) ? pendingSlots : [])]
+    .map((slot) => normalizeText(slot))
+    .filter(Boolean);
+
+  return (
+    candidateSlots.some((slot) => ["docs", "documentos", "correspondente"].includes(slot)) ||
+    /\b(doc|documento|envio docs|envio_docs|correspondente)\b/.test(stage)
+  );
+}
+
+function shouldDriveToVisit(request, suggestedNextSlot) {
+  const stage = normalizeText(request?.current_stage);
+  const nextSlot = normalizeText(suggestedNextSlot);
+  return nextSlot === "visita" || /\b(visita|plantao|plantão|finalizacao processo|finalizacao_processo)\b/.test(stage);
+}
+
+function buildNextActionPrompt({ request, suggestedNextSlot, pendingSlots }) {
+  const normalizedMessage = normalizeText(request?.message_text);
+  const nextSlot = suggestedNextSlot || pendingSlots[0] || null;
+
+  if (REMOTE_REFUSAL_PATTERN.test(normalizedMessage)) {
+    return "No plantão você consegue entender melhor as opções e ver o que faz sentido para o seu perfil. Quer que eu já veja um horário de visita para você?";
+  }
+
+  if (DEFER_ACTION_PATTERN.test(normalizedMessage)) {
+    if (shouldDriveToDocuments(request, suggestedNextSlot, pendingSlots)) {
+      return "Quanto antes você me enviar os documentos, mais rápido eu consigo te orientar com precisão. Se quiser, já me manda agora que eu adianto sua análise.";
+    }
+    return `Quanto antes você me confirmar isso, mais rápido eu consigo te orientar com precisão no seu caso. ${buildSlotActionPrompt(nextSlot)}`;
+  }
+
+  if (NO_TIME_PATTERN.test(normalizedMessage)) {
+    if (shouldDriveToDocuments(request, suggestedNextSlot, pendingSlots)) {
+      return "É rapidinho e já adianta bastante sua análise. Se quiser, me manda o básico agora e depois a gente complementa.";
+    }
+    return `É rapidinho e já adianta bastante sua análise. ${buildSlotActionPrompt(nextSlot)}`;
+  }
+
+  if (shouldDriveToDocuments(request, suggestedNextSlot, pendingSlots)) {
+    return buildSlotActionPrompt(suggestedNextSlot === "correspondente" ? "correspondente" : "docs");
+  }
+
+  if (shouldDriveToVisit(request, suggestedNextSlot)) {
+    return buildSlotActionPrompt("visita");
+  }
+
+  if (nextSlot) {
+    return buildSlotActionPrompt(nextSlot);
+  }
+
+  return "Se estiver tudo certo até aqui, já me manda os documentos básicos agora que isso adianta sua análise.";
+}
+
+function ensureReplyHasNextAction(replyText, context) {
+  const safeReply = sanitizeReplyText(replyText);
+  const actionPrompt = sanitizeReplyText(buildNextActionPrompt(context));
+  if (!safeReply) return actionPrompt;
+  if (!actionPrompt) return safeReply;
+
+  const normalizedReply = normalizeText(safeReply);
+  const normalizedAction = normalizeText(actionPrompt);
+  if (normalizedAction && normalizedReply.includes(normalizedAction)) return safeReply;
+
+  return `${safeReply} ${actionPrompt}`.trim();
 }
 
 function uniqueStringArray(values, fallback = []) {
@@ -425,6 +544,8 @@ function buildOpenAISystemPrompt() {
     "Você é o Enova Cognitive Engine read-only da fase 3, especialista consultivo em MCMV/CEF da Enova.",
     "Converse em português do Brasil de forma humana, natural, consultiva e objetiva.",
     "Interprete respostas abertas, extraia slots úteis, sugira a próxima melhor pergunta e aponte ambiguidades.",
+    "Toda resposta deve acolher brevemente, orientar com firmeza e fechar com uma próxima ação concreta.",
+    "Nunca deixe a resposta aberta: sempre conduza para envio de documentos, próxima pergunta do funil ou agendamento de visita, conforme o contexto.",
     "Você NÃO pode aprovar financiamento, NÃO pode alterar o stage oficial, NÃO pode inventar regra fora do contrato ou do contexto normativo recebido.",
     "Você NÃO pode acionar produção, Meta, Supabase oficial ou qualquer side effect.",
     "Responda APENAS JSON válido compatível com este contrato:",
@@ -446,7 +567,7 @@ function buildOpenAISystemPrompt() {
       should_advance_stage: false,
       confidence: 0.0
     }),
-    "Se faltar sinal suficiente, mantenha slots_detected vazio e use reply_text consultivo.",
+    "Se faltar sinal suficiente, mantenha slots_detected vazio e use reply_text consultivo com chamada para ação.",
     "Sempre preserve should_advance_stage=false."
   ].join(" ");
 }
@@ -571,24 +692,38 @@ function buildSuggestedNextSlot(pendingSlots, conflicts) {
 
 function buildReplyText({ request, detectedSlots, pendingSlots, suggestedNextSlot, conflicts, offtrack }) {
   if (offtrack) {
-    const nextSlotLabel = suggestedNextSlot || request.current_stage;
-    return `Posso te orientar nisso de forma consultiva, mas neste teste read-only eu não avanço o fluxo real. Para seguir com segurança, me confirma primeiro o ponto de ${nextSlotLabel}.`;
+    return ensureReplyHasNextAction(
+      "Entendi sua dúvida, e eu te explico isso com segurança, mas antes preciso fechar esta etapa para te orientar com mais precisão.",
+      { request, pendingSlots, suggestedNextSlot }
+    );
   }
 
   if (conflicts.length) {
-    return "Entendi sua resposta, mas ela ficou ambígua para o motor cognitivo de teste. Vou marcar a necessidade de confirmação antes de sugerir qualquer próximo passo.";
+    return ensureReplyHasNextAction(
+      "Entendi sua resposta, mas ela ficou ambígua e eu prefiro alinhar isso certinho antes de seguir, para te orientar do jeito certo.",
+      { request, pendingSlots, suggestedNextSlot: suggestedNextSlot || conflicts[0]?.slot || request.current_stage }
+    );
   }
 
   const detectedKeys = Object.keys(detectedSlots);
   if (!detectedKeys.length) {
-    return "Recebi sua mensagem no runner read-only, mas ainda não identifiquei slot suficiente para sugerir avanço. Posso seguir de forma consultiva sem tocar no fluxo real.";
+    return ensureReplyHasNextAction(
+      "Entendi, mas ainda preciso de um ponto objetivo seu para conseguir te orientar com segurança no próximo passo.",
+      { request, pendingSlots, suggestedNextSlot }
+    );
   }
 
   if (detectedKeys.length > 2) {
-    return "Perfeito — consegui detectar múltiplos sinais na mesma frase em modo read-only. Vou devolver tudo estruturado para teste, sem alterar o funil real.";
+    return ensureReplyHasNextAction(
+      "Perfeito, isso já adianta bastante sua análise e me dá um bom contexto do seu perfil.",
+      { request, pendingSlots, suggestedNextSlot }
+    );
   }
 
-  return "Perfeito — capturei o sinal principal da sua mensagem em modo read-only e devolvi a leitura estruturada do cognitivo para validação.";
+  return ensureReplyHasNextAction(
+    "Perfeito, já entendi o ponto principal da sua resposta e consigo te conduzir com mais precisão daqui para frente.",
+    { request, pendingSlots, suggestedNextSlot }
+  );
 }
 
 function buildHeuristicResponse(request, analysis, conflictList) {
@@ -669,17 +804,30 @@ function normalizeModelResponse({
     ...(Array.isArray(modelResponse.consultive_notes) ? modelResponse.consultive_notes : []),
     llmUsed ? `Modelo cognitivo read-only utilizado: ${request.current_stage}.` : null
   ]);
-  const replyText =
+  const rawReplyText =
     sanitizeReplyText(modelResponse.reply_text) ||
     sanitizeReplyText(modelResponse.human_response) ||
     heuristicResponse.reply_text;
+  const normalizedMessage = normalizeText(request.message_text);
+  const preferHeuristicReply =
+    analysis.offtrack ||
+    conflicts.length > 0 ||
+    Object.keys(slotsDetected).length === 0 ||
+    DEFER_ACTION_PATTERN.test(normalizedMessage) ||
+    NO_TIME_PATTERN.test(normalizedMessage) ||
+    REMOTE_REFUSAL_PATTERN.test(normalizedMessage);
+  const replyText = preferHeuristicReply ? heuristicResponse.reply_text : rawReplyText;
   const shouldRequestConfirmation =
     typeof modelResponse.should_request_confirmation === "boolean"
       ? modelResponse.should_request_confirmation || conflicts.length > 0
       : heuristicResponse.should_request_confirmation || conflicts.length > 0;
 
   return {
-    reply_text: replyText,
+    reply_text: ensureReplyHasNextAction(replyText, {
+      request,
+      pendingSlots,
+      suggestedNextSlot
+    }),
     slots_detected: slotsDetected,
     pending_slots: pendingSlots,
     conflicts,

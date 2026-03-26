@@ -285,5 +285,313 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
       should_request_confirmation: false,
       min_confidence: 0.5
     }
+  },
+  {
+    id: "aluguel_ponte_conversao",
+    title: "Aluguel com ponte de conversão",
+    input: {
+      conversation_id: "fx-aluguel-001",
+      current_stage: "renda",
+      message_text: "Vocês trabalham com aluguel?",
+      known_slots: {},
+      pending_slots: ["renda"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "docs_multi_renda",
+    title: "Docs com multi renda",
+    input: {
+      conversation_id: "fx-docs-mr-001",
+      current_stage: "envio_docs",
+      message_text: "Sou CLT e faço Uber também, quero saber os docs.",
+      known_slots: {
+        regime_trabalho: "clt",
+        renda_formal: 2200,
+        multi_renda: "sim"
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "docs_multi_renda_multi_regime",
+    title: "Docs com multi renda e multi regime",
+    input: {
+      conversation_id: "fx-docs-mrmr-001",
+      current_stage: "envio_docs",
+      message_text: "Eu sou CLT e meu parceiro é autônomo, vamos compor e usar renda extra.",
+      known_slots: {
+        composicao: "parceiro",
+        regime_trabalho: "clt",
+        regime_trabalho_parceiro: "autonomo",
+        renda_formal: 2100,
+        multi_renda: "sim"
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "autonomo_sem_ir_regra",
+    title: "Autônomo sem IR com prazo e composição",
+    input: {
+      conversation_id: "fx-aut-sem-ir-regra-001",
+      current_stage: "autonomo_ir_pergunta",
+      message_text: "Sou autônomo, não declaro IR e ganho 2.700.",
+      known_slots: {
+        regime_trabalho: "autonomo",
+        ir_declarado: "nao",
+        renda_formal: 2700
+      },
+      pending_slots: ["ir_declarado", "renda"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "renda_formal_abaixo_3mil_composicao",
+    title: "Renda formal abaixo de 3 mil pedindo composição",
+    input: {
+      conversation_id: "fx-renda-3k-001",
+      current_stage: "autonomo_ir_pergunta",
+      message_text: "Sou autônomo com IR e minha renda é 2.800.",
+      known_slots: {
+        regime_trabalho: "autonomo",
+        ir_declarado: "sim",
+        renda_formal: 2800
+      },
+      pending_slots: ["renda"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "dependente_solo_abaixo_4mil",
+    title: "Dependente solo abaixo de 4 mil",
+    input: {
+      conversation_id: "fx-dep-001",
+      current_stage: "dependente",
+      message_text: "Quero seguir sozinho e minha renda formal é 3.500.",
+      known_slots: {
+        composicao: "sozinho",
+        renda_formal: 3500
+      },
+      pending_slots: ["dependente"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "dependente_solo_acima_4mil",
+    title: "Dependente solo acima de 4 mil",
+    input: {
+      conversation_id: "fx-dep-002",
+      current_stage: "dependente",
+      message_text: "Estou sozinho e minha renda formal é 4.500.",
+      known_slots: {
+        composicao: "sozinho",
+        renda_formal: 4500
+      },
+      pending_slots: ["dependente"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "ctps_36_meses",
+    title: "Explicação de CTPS 36 meses",
+    input: {
+      conversation_id: "fx-ctps-001",
+      current_stage: "ctps",
+      message_text: "Como funciona isso de 36 meses de CTPS?",
+      known_slots: {},
+      pending_slots: ["ctps"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "reprovacao_scr_bacen",
+    title: "Reprovação por SCR/BACEN",
+    input: {
+      conversation_id: "fx-reprov-001",
+      current_stage: "restricao",
+      message_text: "Fui reprovado por SCR/BACEN. E agora?",
+      known_slots: {},
+      pending_slots: ["restricao"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "reprovacao_sinad_conres",
+    title: "Reprovação por SINAD/CONRES",
+    input: {
+      conversation_id: "fx-reprov-002",
+      current_stage: "restricao",
+      message_text: "Me falaram que caiu em SINAD e CONRES.",
+      known_slots: {},
+      pending_slots: ["restricao"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "reprovacao_comprometimento_renda",
+    title: "Reprovação por comprometimento de renda",
+    input: {
+      conversation_id: "fx-reprov-003",
+      current_stage: "restricao",
+      message_text: "Fui reprovado por comprometimento de renda por causa de empréstimo.",
+      known_slots: {},
+      pending_slots: ["restricao"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "visita_falta_envio_online",
+    title: "Visita por falta de envio online",
+    input: {
+      conversation_id: "fx-visita-003",
+      current_stage: "agendamento_visita",
+      message_text: "Não quero enviar online, prefiro presencial.",
+      known_slots: {
+        docs_followup_tentativas: 2
+      },
+      pending_slots: ["visita"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "visita_decisores_presentes",
+    title: "Visita com exigência de decisores presentes",
+    input: {
+      conversation_id: "fx-visita-004",
+      current_stage: "visita",
+      message_text: "Não vou mandar docs online, já tentamos isso antes.",
+      known_slots: {
+        docs_followup_tentativas: 3
+      },
+      pending_slots: ["visita"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "uniao_estavel_solo",
+    title: "União estável solo",
+    input: {
+      conversation_id: "fx-uniao-002",
+      current_stage: "estado_civil",
+      message_text: "Tenho união estável, mas quero seguir solo.",
+      known_slots: {
+        estado_civil: "uniao_estavel",
+        composicao: "sozinho"
+      },
+      pending_slots: ["composicao"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "uniao_estavel_conjunto",
+    title: "União estável conjunto",
+    input: {
+      conversation_id: "fx-uniao-003",
+      current_stage: "estado_civil",
+      message_text: "Tenho união estável e quero fazer em conjunto.",
+      known_slots: {
+        estado_civil: "uniao_estavel",
+        composicao: "parceiro"
+      },
+      pending_slots: ["composicao"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "casado_civil_conjunto_obrigatorio",
+    title: "Casado civil com conjunto obrigatório",
+    input: {
+      conversation_id: "fx-civil-002",
+      current_stage: "estado_civil",
+      message_text: "Sou casado no civil e quero seguir sozinho.",
+      known_slots: {
+        estado_civil: "casado_civil"
+      },
+      pending_slots: ["composicao"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
   }
 ]);

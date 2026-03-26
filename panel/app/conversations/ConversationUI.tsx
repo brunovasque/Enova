@@ -455,10 +455,7 @@ export function ConversationUI() {
     pendingScrollToBottomRef.current = Boolean(selectedWaId);
     previousVisibleStateRef.current = { waId: selectedWaId, count: 0, lastKey: "" };
     syncThreadNearBottom(true);
-
-    if (selectedConversation?.wa_id !== selectedWaId) {
-      setSelectedConversationSnapshot(null);
-    }
+    setSelectedConversationSnapshot(null);
 
     void refreshPanelData(false);
 
@@ -473,7 +470,6 @@ export function ConversationUI() {
   }, [
     cancelPendingThreadScroll,
     refreshPanelData,
-    selectedConversation?.wa_id,
     selectedWaId,
     syncThreadNearBottom,
   ]);

@@ -120,7 +120,11 @@ Relação canônica:
 - em multi-renda com multi-regime, considerar comprovantes de todos os regimes envolvidos
 - quando houver trabalho formal + renda extra e renda principal formal abaixo de 2550, pedir extratos da movimentação da renda extra
 - acima de 2550 na renda principal formal, multi-renda pode ser dispensada na estratégia consultiva
+- em CLT com salário fixo, pedir somente o último holerite
+- em CLT com variação (comissão/hora extra/adicional), pedir os últimos 3 holerites
 - aplicar a mesma lógica de multi-renda para servidor e aposentado
+- em autônomo com IR, tratar como renda formal e orientar declaração de IR + recibo de entrega
+- em autônomo sem IR, orientar janela até 29 de maio para declarar IR; se não quiser declarar agora, sugerir composição e pedir os últimos 6 extratos de movimentação bancária
 - quando houver objeção (ex.: enviar depois, sem tempo, receio de envio por celular), acolher e redirecionar para envio documental
 - aceitar canal alternativo informado pelo cliente (site/presencial) mantendo orientação consultiva e retorno ao envio
 - dúvidas em RG/CPF/holerite/extrato/CTPS/IR/comprovante de residência devem gerar resposta útil e contextualizada por perfil

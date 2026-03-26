@@ -28,8 +28,11 @@ Inserir aqui a normativa CEF real, validada e versionada sobre documentos.
 - em multi-renda com multi-regime, pedir comprovantes de todos os regimes envolvidos
 - em renda formal principal abaixo de 2550 com renda extra (CLT/servidor/aposentado + extra), pedir extratos da movimentação da renda extra
 - quando renda formal principal ficar acima de 2550, a composição por renda extra pode ser dispensada na estratégia consultiva
+- em CLT com salário fixo, pedir somente o último holerite
+- em CLT com variação de renda (comissão/hora extra/adicional), pedir os últimos 3 holerites
 - autônomo com IR: tratar como renda formal
-- autônomo sem IR: orientar possibilidade de declarar IR até 29 de maio; se não quiser, sugerir composição com alguém próximo
+- autônomo com IR: orientar declaração de IR e recibo de entrega
+- autônomo sem IR: orientar possibilidade de declarar IR até 29 de maio; se não quiser, sugerir composição com alguém próximo e pedir os últimos 6 extratos de movimentação bancária
 - renda formal abaixo de 3 mil: sugerir composição de renda
 - quando houver objeção de envio (depois, sem tempo, celular), acolher e puxar novamente para envio com próxima ação clara
 - permitir orientação de envio por canal alternativo informado pelo cliente (site/presencial) sem alterar trilho mecânico

@@ -31,6 +31,7 @@ const REMOTE_REFUSAL_PATTERN =
   /\b(nao quero atendimento online|não quero atendimento online|nao quero atendimento remoto|não quero atendimento remoto|nao quero seguir online|não quero seguir online|nao quero continuar online|não quero continuar online|nao quero no whatsapp|não quero no whatsapp|prefiro presencial|quero atendimento presencial|quero ir presencial|sem whatsapp)\b/i;
 const DOCS_HINT_PATTERN =
   /\b(doc|documento|documentos|rg|cpf|holerite|extrato|imposto de renda|declara[cç][aã]o de ir|comprovante de residencia|comprovante de residência)\b/i;
+const HOLERITE_VARIATION_PATTERN = /\b(comissao|comissão|hora extra|horas extras|adicional|bonus|b[oô]nus|vari[aá]vel|variacao|varia[cç][aã]o)\b/i;
 const DOCS_STAGE_PATTERN = /\b(envio docs|envio_docs|docs|documento|documentos)\b/;
 const CORRESPONDENTE_STAGE_PATTERN =
   /\b(correspondente|analise correspondente|an[aá]lise correspondente|retorno correspondente|analise_correspondente|retorno_correspondente)\b/;
@@ -437,6 +438,27 @@ function getFollowupAttempts(knownSlots) {
   return toNumber(candidate) ?? 0;
 }
 
+function hasVariableIncomeForHolerite(knownSlots, normalizedMessage) {
+  const candidateKeys = [
+    "renda_variavel",
+    "variacao_renda",
+    "salario_variavel",
+    "comissao",
+    "hora_extra",
+    "adicional",
+    "tem_variacao_renda"
+  ];
+  const slotSignalsVariable = candidateKeys.some((key) => normalizeText(getKnownSlotValue(knownSlots, key)) === "sim");
+  if (slotSignalsVariable) return true;
+  const messageText = String(normalizedMessage || "");
+  const negatesVariation =
+    /\bsem (comissao|comissão|hora extra|horas extras|adicional|bonus|b[oô]nus|variacao|varia[cç][aã]o)\b|\bn[aã]o tenho (comissao|comissão|hora extra|horas extras|adicional|bonus|b[oô]nus|variacao|varia[cç][aã]o)\b/.test(
+    messageText
+  );
+  if (negatesVariation) return false;
+  return HOLERITE_VARIATION_PATTERN.test(messageText);
+}
+
 function buildDocsGuidanceByProfile(request) {
   const normalizedMessage = normalizeText(request?.message_text);
   const knownSlots = request?.known_slots || {};
@@ -448,19 +470,23 @@ function buildDocsGuidanceByProfile(request) {
   const regimeParceiro = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho_parceiro"));
   const regimeFamiliar = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho_familiar"));
   const regimeP3 = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho_p3"));
+  const familiarSlot = normalizeText(getKnownSlotValue(knownSlots, "familiar"));
   const multiRenda = normalizeText(getKnownSlotValue(knownSlots, "multi_renda")) === "sim" || /\bmulti renda|renda extra|segunda renda|bico|uber|taxa\b/.test(normalizedMessage);
   const rendaPrincipal = getRendaPrincipal(knownSlots, detectMoney(request?.message_text));
+  const holeriteVariavel = hasVariableIncomeForHolerite(knownSlots, normalizedMessage);
+  const asksHoleriteQuantity = /\bquantos?\b.*\bholerite\b|\bholerite\b.*\bquantos?\b/.test(normalizedMessage);
   const docs = ["RG ou CNH com CPF", "comprovante de residência atualizado"];
 
   if (regime === "clt") {
-    docs.push("holerite recente");
+    docs.push(holeriteVariavel ? "os últimos 3 holerites (renda com variação)" : "somente o último holerite (salário fixo)");
     docs.push(ctps === "nao" ? "NÃO CONFIRMADO: validar documento equivalente de vínculo formal no plantão" : "CTPS (foto da identificação e vínculo atual)");
   } else if (regime === "autonomo") {
     if (irDeclarado === "sim") {
-      docs.push("declaração de IR com recibo de entrega");
+      docs.push("declaração de IR");
+      docs.push("recibo de entrega da declaração");
     } else {
-      docs.push("extratos bancários recentes para composição de renda");
-      docs.push("NÃO CONFIRMADO: validar comprovantes complementares da atividade no plantão");
+      docs.push("os últimos 6 extratos bancários recentes de movimentação bancária");
+      docs.push("NÃO CONFIRMADO: validar comprovantes complementares da atividade no plantão, se necessário");
     }
   } else if (regime === "servidor" || regime === "aposentado") {
     docs.push("comprovante de renda recente do benefício/remuneração");
@@ -468,15 +494,29 @@ function buildDocsGuidanceByProfile(request) {
     docs.push("comprovante de renda mais recente conforme seu perfil");
   }
 
-  if (composicao === "parceiro" || composicao === "familiar") {
-    docs.push("documentos pessoais e de renda da pessoa que vai compor com você");
+  if (composicao === "parceiro") {
+    docs.push("documentos pessoais e de renda do parceiro na composição");
+  }
+  if (composicao === "familiar") {
+    docs.push("documentos pessoais e de renda do familiar na composição");
+  }
+  if (familiarSlot && composicao !== "familiar") {
+    docs.push("documentos pessoais e de renda do familiar na composição");
   }
   if (normalizeText(getKnownSlotValue(knownSlots, "p3")) === "sim") {
-    docs.push("documentos pessoais e de renda da terceira pessoa da composição");
+    docs.push("documentos pessoais e de renda da terceira pessoa (P3) na composição");
   }
 
-  if (multiRenda) {
+  const rendaExtraNaComposicao =
+    normalizeText(getKnownSlotValue(knownSlots, "renda_extra_na_composicao")) === "sim" ||
+    /\brenda extra.*compos|compos.*renda extra|entra na composicao|entrar na composicao|usar renda extra\b/.test(normalizedMessage);
+  const formalPrincipal = regime === "clt" || regime === "servidor" || regime === "aposentado";
+  const formalAbaixo2550 = formalPrincipal && Number.isFinite(rendaPrincipal) && rendaPrincipal < 2550;
+  const formalAcima2550 = formalPrincipal && Number.isFinite(rendaPrincipal) && rendaPrincipal >= 2550;
+
+  if (multiRenda && rendaExtraNaComposicao) {
     docs.push("comprovação da renda extra usada na composição");
+    docs.push("NÃO CONFIRMADO: validar no plantão o comprovante específico aceito pelo banco para a renda extra");
   }
 
   const regimesEnvolvidos = [regime, regimeExtra, regimeParceiro, regimeFamiliar, regimeP3].filter(Boolean);
@@ -485,15 +525,21 @@ function buildDocsGuidanceByProfile(request) {
     docs.push("comprovantes de renda de todos os regimes envolvidos na composição");
   }
 
-  if ((regime === "clt" || regime === "servidor" || regime === "aposentado") && multiRenda) {
-    if (Number.isFinite(rendaPrincipal) && rendaPrincipal < 2550) {
+  if (formalPrincipal && multiRenda) {
+    if (formalAbaixo2550) {
       docs.push("extratos bancários recentes para comprovar movimentação da renda extra");
-    } else if (Number.isFinite(rendaPrincipal) && rendaPrincipal >= 2550) {
+    } else if (formalAcima2550) {
       docs.push("se a renda formal principal ficar acima de 2550, a soma da renda extra pode ser dispensada na estratégia");
     }
   }
 
   docs.push("NÃO CONFIRMADO: validar lista documental fina por regime/renda no plantão");
+  if (/\brg\b|\bcnh\b|\bcpf\b/.test(normalizedMessage)) {
+    docs.push("NÃO CONFIRMADO: validar no plantão a combinação de RG/CNH/CPF aceita pelo banco para o seu caso");
+  }
+  if (/comprovante de residencia|comprovante de residência/.test(normalizedMessage)) {
+    docs.push("NÃO CONFIRMADO: validar no plantão os comprovantes de residência aceitos e o prazo de emissão");
+  }
 
   let channelNote = "";
   if (/\b(site|portal)\b/.test(normalizedMessage)) {
@@ -503,8 +549,22 @@ function buildDocsGuidanceByProfile(request) {
   }
 
   let doubtNote = "";
-  if (DOCS_HINT_PATTERN.test(normalizedMessage)) {
+  if (asksHoleriteQuantity) {
+    if (regime === "clt" && holeriteVariavel) {
+      doubtNote = "Sobre holerite: como sua renda tem variação (comissão/hora extra/adicional), eu peço os 3 últimos.";
+    } else if (regime === "clt") {
+      doubtNote = "Sobre holerite: com salário fixo, eu peço somente o último.";
+    } else {
+      doubtNote = "No holerite funciona assim: salário fixo pede somente o último, e renda com variação pede os 3 últimos.";
+    }
+  } else if (DOCS_HINT_PATTERN.test(normalizedMessage)) {
     doubtNote = "Se quiser, eu também posso te explicar rapidinho o que entra em RG, CPF, holerite, extrato, CTPS, IR ou comprovante de residência.";
+  }
+
+  let autonomoIrNote = "";
+  if (regime === "autonomo" && irDeclarado === "nao") {
+    autonomoIrNote =
+      "Até 29 de maio ainda dá para declarar IR e formalizar sua renda. Se preferir não declarar agora, a alternativa é composição com alguém próximo.";
   }
 
   let empathyNote = "";
@@ -515,6 +575,7 @@ function buildDocsGuidanceByProfile(request) {
   return [
     empathyNote,
     `Pelo seu perfil, para adiantar sua análise, o ideal é separar ${humanJoinList(docs)}.`,
+    autonomoIrNote,
     doubtNote,
     channelNote
   ]

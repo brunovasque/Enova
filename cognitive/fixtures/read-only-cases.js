@@ -313,7 +313,8 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
       known_slots: {
         regime_trabalho: "clt",
         renda_formal: 2200,
-        multi_renda: "sim"
+        multi_renda: "sim",
+        renda_extra_na_composicao: "sim"
       },
       pending_slots: ["docs"],
       recent_messages: []
@@ -336,7 +337,8 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
         regime_trabalho: "clt",
         regime_trabalho_parceiro: "autonomo",
         renda_formal: 2100,
-        multi_renda: "sim"
+        multi_renda: "sim",
+        renda_extra_na_composicao: "sim"
       },
       pending_slots: ["docs"],
       recent_messages: []
@@ -637,6 +639,221 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
         estado_civil: "casado_civil"
       },
       pending_slots: ["composicao"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "clt_fixo_holerite_quantidade",
+    title: "CLT salário fixo perguntando holerite",
+    input: {
+      conversation_id: "fx-docs-hol-fixo-001",
+      current_stage: "envio_docs",
+      message_text: "Sou CLT com salário fixo, sem comissão. Quantos holerites preciso enviar?",
+      known_slots: {
+        regime_trabalho: "clt",
+        renda_formal: 3200
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "clt_variavel_holerite_quantidade",
+    title: "CLT renda variável perguntando holerite",
+    input: {
+      conversation_id: "fx-docs-hol-var-001",
+      current_stage: "envio_docs",
+      message_text: "Sou CLT, tenho comissão e hora extra. Quantos holerites preciso?",
+      known_slots: {
+        regime_trabalho: "clt",
+        renda_formal: 3100,
+        renda_variavel: "sim"
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "autonomo_com_ir_docs_microregra",
+    title: "Autônomo com IR perguntando documentos",
+    input: {
+      conversation_id: "fx-docs-aut-ir-001",
+      current_stage: "envio_docs",
+      message_text: "Sou autônomo com IR, quais documentos vocês pedem?",
+      known_slots: {
+        regime_trabalho: "autonomo",
+        ir_declarado: "sim",
+        renda_formal: 3600
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "autonomo_sem_ir_docs_microregra",
+    title: "Autônomo sem IR perguntando documentos",
+    input: {
+      conversation_id: "fx-docs-aut-noir-001",
+      current_stage: "envio_docs",
+      message_text: "Sou autônomo e não declaro IR. Quais docs preciso agora?",
+      known_slots: {
+        regime_trabalho: "autonomo",
+        ir_declarado: "nao",
+        renda_formal: 2300
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "renda_extra_abaixo_2550_microregra",
+    title: "Renda extra com principal abaixo de 2550",
+    input: {
+      conversation_id: "fx-docs-extra-low-001",
+      current_stage: "envio_docs",
+      message_text: "Sou CLT, renda formal 2400 e vou usar renda extra na composição.",
+      known_slots: {
+        regime_trabalho: "clt",
+        renda_formal: 2400,
+        multi_renda: "sim",
+        renda_extra_na_composicao: "sim"
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "renda_extra_acima_2550_microregra",
+    title: "Renda extra com principal acima de 2550",
+    input: {
+      conversation_id: "fx-docs-extra-high-001",
+      current_stage: "envio_docs",
+      message_text: "Sou CLT e minha renda formal é 3000, tenho uma renda extra de Uber também.",
+      known_slots: {
+        regime_trabalho: "clt",
+        renda_formal: 3000,
+        multi_renda: "sim"
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "multi_renda_multi_regime_microregra",
+    title: "Multi renda com multi regime",
+    input: {
+      conversation_id: "fx-docs-multirule-001",
+      current_stage: "envio_docs",
+      message_text: "Eu sou CLT, meu parceiro é autônomo e ainda temos renda extra na composição.",
+      known_slots: {
+        composicao: "parceiro",
+        regime_trabalho: "clt",
+        regime_trabalho_parceiro: "autonomo",
+        renda_formal: 2300,
+        multi_renda: "sim",
+        renda_extra_na_composicao: "sim"
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "composicao_participantes_docs_microregra",
+    title: "Composição com parceiro familiar e P3",
+    input: {
+      conversation_id: "fx-docs-participantes-001",
+      current_stage: "envio_docs",
+      message_text: "Vamos compor com parceiro, familiar e terceira pessoa. Quais docs de cada um?",
+      known_slots: {
+        composicao: "parceiro",
+        parceiro_p2: "sim",
+        familiar: "mae",
+        p3: "sim",
+        regime_trabalho: "clt",
+        regime_trabalho_parceiro: "autonomo",
+        regime_trabalho_familiar: "aposentado",
+        regime_trabalho_p3: "servidor"
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: true,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "duvida_identificacao_rg_cnh_cpf_microregra",
+    title: "Dúvida de identificação RG CNH CPF",
+    input: {
+      conversation_id: "fx-docs-id-001",
+      current_stage: "envio_docs",
+      message_text: "Para identificação pode ser RG, CNH e CPF? Como vocês pedem isso?",
+      known_slots: {
+        regime_trabalho: "clt"
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "duvida_comprovante_residencia_microregra",
+    title: "Dúvida de comprovante de residência",
+    input: {
+      conversation_id: "fx-docs-res-001",
+      current_stage: "envio_docs",
+      message_text: "Quais comprovantes de residência vocês aceitam no meu caso?",
+      known_slots: {
+        regime_trabalho: "autonomo",
+        ir_declarado: "sim"
+      },
+      pending_slots: ["docs"],
       recent_messages: []
     },
     expected: {

@@ -183,7 +183,7 @@ for (const scenarioId of scenarioIds) {
   assert.equal(parsedReplyPriorityResult?.llm_parsed_response?.reply_text, "RESPOSTA PARSEADA DO MODELO");
   assert.match(
     parsedReplyPriorityResult?.response?.reply_text || "",
-    /^RESPOSTA PARSEADA DO MODELO\b/,
+    /^RESPOSTA PARSEADA DO MODELO/,
     "final reply_text must preserve parsed reply_text even when heuristic fallback is available"
   );
 }

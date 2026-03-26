@@ -20,10 +20,6 @@ function normalizeForMatch(value) {
     .toLowerCase();
 }
 
-function escapeRegex(value) {
-  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 const llmRuntime = {
   openaiApiKey: "test-openai-key",
   model: "gpt-4.1-mini",
@@ -200,11 +196,7 @@ for (const scenarioId of scenarioIds) {
     assert.notEqual(replyText.trim(), "", `${scenario.id} reply_text must not be empty`);
 
     for (const expectedSnippet of scenario.mustInclude) {
-      assert.match(
-        normalizeForMatch(replyText),
-        new RegExp(escapeRegex(normalizeForMatch(expectedSnippet))),
-        `${scenario.id} must include ${expectedSnippet}`
-      );
+      assert.match(normalizeForMatch(replyText), new RegExp(normalizeForMatch(expectedSnippet).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `${scenario.id} must include ${expectedSnippet}`);
     }
 
     assert.match(replyText, scenario.mustMatch, `${scenario.id} must keep clear next action`);

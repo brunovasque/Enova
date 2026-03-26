@@ -232,12 +232,9 @@
 }
 
 .threadUnreadWrap {
-  position: sticky;
-  bottom: 0;
   display: flex;
   justify-content: center;
-  padding: 8px 0 2px;
-  margin-top: auto;
+  padding-bottom: 10px;
 }
 
 .threadUnreadButton {
@@ -299,6 +296,8 @@
 .threadFooter {
   border-top: 1px solid #223041;
   padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
 }
 
 .readOnlyInput {

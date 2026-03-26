@@ -6,7 +6,8 @@ import styles from "./conversations.module.css";
 
 const POLL_INTERVAL_MS = 1000;
 const THREAD_BOTTOM_THRESHOLD_PX = 32;
-const MAX_THREAD_SCROLL_RETRIES = 4;
+const MAX_THREAD_SCROLL_RETRIES = 24;
+const THREAD_SCROLL_STABLE_FRAMES = 3;
 
 type Conversation = {
   id: string;
@@ -120,6 +121,10 @@ function isNearBottom(element: HTMLDivElement | null, threshold = THREAD_BOTTOM_
 
   const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
   return distanceToBottom <= threshold;
+}
+
+function getThreadLayoutKey(element: HTMLDivElement) {
+  return `${element.scrollHeight}:${element.clientHeight}`;
 }
 
 function sameOriginApiUrl(path: string) {
@@ -364,6 +369,8 @@ export function ConversationUI() {
       cancelPendingThreadScroll();
 
       let attempt = 0;
+      let stableFrames = 0;
+      let previousLayoutKey = "";
 
       const applyScroll = () => {
         const element = messagesAreaRef.current;
@@ -373,14 +380,22 @@ export function ConversationUI() {
           return;
         }
 
+        const currentScrollHeight = element.scrollHeight;
+        const currentLayoutKey = getThreadLayoutKey(element);
+
         element.scrollTo({
-          top: element.scrollHeight,
+          top: currentScrollHeight,
           behavior: attempt === 0 ? behavior : "auto",
         });
 
         const nearBottom = isNearBottom(element);
+        stableFrames = currentLayoutKey === previousLayoutKey ? stableFrames + 1 : 0;
+        previousLayoutKey = currentLayoutKey;
 
-        if (!nearBottom && attempt < MAX_THREAD_SCROLL_RETRIES) {
+        if (
+          attempt < MAX_THREAD_SCROLL_RETRIES &&
+          (!nearBottom || stableFrames < THREAD_SCROLL_STABLE_FRAMES)
+        ) {
           attempt += 1;
           pendingScrollFrameRef.current = window.requestAnimationFrame(applyScroll);
           return;
@@ -814,24 +829,24 @@ export function ConversationUI() {
                     </div>
                   );
                 })}
-                {threadUnreadCount > 0 && !isThreadNearBottom ? (
-                  <div className={styles.threadUnreadWrap}>
-                    <button
-                      type="button"
-                      className={styles.threadUnreadButton}
-                      onClick={handleJumpToLatest}
-                    >
-                      {threadUnreadCount === 1
-                        ? "1 nova mensagem"
-                        : `${threadUnreadCount} novas mensagens`}
-                    </button>
-                  </div>
-                ) : null}
               </>
             )}
           </div>
 
           <footer className={styles.threadFooter}>
+            {threadUnreadCount > 0 && !isThreadNearBottom ? (
+              <div className={styles.threadUnreadWrap}>
+                <button
+                  type="button"
+                  className={styles.threadUnreadButton}
+                  onClick={handleJumpToLatest}
+                >
+                  {threadUnreadCount === 1
+                    ? "1 nova mensagem"
+                    : `${threadUnreadCount} novas mensagens`}
+                </button>
+              </div>
+            ) : null}
             <div
               className={`${styles.composerWrap} ${
                 isManualActive ? styles.composerWrapActive : ""

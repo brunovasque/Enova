@@ -3417,6 +3417,113 @@ function extractWaIdFromWebhookEvent(event) {
   return String(msgWa || statusWa || "").trim() || null;
 }
 
+const MANUAL_CANONICAL_SAVE_ALLOWLIST = new Set([
+  "estado_civil",
+  "financiamento_conjunto",
+  "somar_renda",
+  "regime",
+  "renda",
+  "parceiro_tem_renda",
+  "renda_parceiro",
+  "restricao",
+  "dependente",
+  "familiar_tipo",
+  "p3_tipo",
+  "ir_declarado"
+]);
+
+const MANUAL_CANONICAL_SAVE_BLOCKED_FIELDS = new Set([
+  "fase_conversa",
+  "funil_status",
+  "intro_etapa",
+  "updated_at",
+  "atualizado_em",
+  "last_user_text",
+  "last_processed_text",
+  "last_message_id",
+  "last_bot_msg",
+  "last_incoming_text",
+  "last_incoming_at",
+  "atendimento_manual",
+  "modo_humano"
+]);
+
+const MANUAL_CANONICAL_SAVE_BLOCKED_PREFIXES = [
+  "docs_",
+  "envio_docs_",
+  "canal_docs_",
+  "corr_",
+  "visita_",
+  "_incoming_",
+  "__cognitive_",
+  "pacote_"
+];
+
+function parseManualCanonicalBool(value) {
+  if (value === true || value === false) return value;
+  const txt = String(value || "").trim().toLowerCase();
+  if (["1", "true", "sim", "yes"].includes(txt)) return true;
+  if (["0", "false", "nao", "não", "no"].includes(txt)) return false;
+  return null;
+}
+
+function normalizeManualCanonicalFieldValue(field, rawValue) {
+  if (field === "renda" || field === "renda_parceiro") {
+    const parsed = typeof rawValue === "number" ? rawValue : parseMoneyBR(String(rawValue || ""));
+    if (!Number.isFinite(parsed) || parsed <= 0) throw new Error("invalid_money");
+    return parsed;
+  }
+
+  if (field === "estado_civil") {
+    const parsed = parseEstadoCivil(String(rawValue || ""));
+    if (!parsed) throw new Error("invalid_estado_civil");
+    return parsed;
+  }
+
+  if (field === "regime") {
+    const parsed = parseRegimeTrabalho(String(rawValue || ""));
+    if (!parsed) throw new Error("invalid_regime");
+    return parsed;
+  }
+
+  if (field === "p3_tipo") {
+    const parsed = parseP3Tipo(String(rawValue || ""));
+    if (!parsed) throw new Error("invalid_p3_tipo");
+    return parsed;
+  }
+
+  if (field === "familiar_tipo") {
+    const normalized = normalizeText(String(rawValue || ""));
+    const allowed = new Set(["pai", "mae", "avo", "tio", "irmao", "primo", "nao_especificado"]);
+    if (!allowed.has(normalized)) throw new Error("invalid_familiar_tipo");
+    return normalized;
+  }
+
+  if (
+    field === "financiamento_conjunto" ||
+    field === "somar_renda" ||
+    field === "parceiro_tem_renda" ||
+    field === "restricao" ||
+    field === "dependente" ||
+    field === "ir_declarado"
+  ) {
+    const parsed = parseManualCanonicalBool(rawValue);
+    if (parsed === null) throw new Error("invalid_bool");
+    return parsed;
+  }
+
+  throw new Error("field_not_normalizable");
+}
+
+function detectManualCanonicalBlockReason(fieldRaw) {
+  const field = String(fieldRaw || "").trim().toLowerCase();
+  if (!field) return "field_missing";
+  if (MANUAL_CANONICAL_SAVE_BLOCKED_FIELDS.has(field)) return "explicit_blocked_field";
+  if (MANUAL_CANONICAL_SAVE_BLOCKED_PREFIXES.some((prefix) => field.startsWith(prefix))) return "blocked_prefix";
+  if (!MANUAL_CANONICAL_SAVE_ALLOWLIST.has(field)) return "not_allowlisted";
+  return null;
+}
+
 // =============================================================
 // 🧱 A4 — Router do Worker (GET/POST META) — VERSÃO BLINDADA
 // =============================================================
@@ -3524,10 +3631,11 @@ export default {
 // ---------------------------------------------
 const envMode = String(env.ENV_MODE || env.ENOVA_ENV || "").toLowerCase();
 const isAdminPath = pathname.startsWith("/__admin__/");
-const isCanonicalAdminSendPath =
-  request.method === "POST" && pathname === "/__admin__/send";
+const isCanonicalAdminPublicPath =
+  request.method === "POST" &&
+  (pathname === "/__admin__/send" || pathname === "/__admin__/manual-canonical-save");
 
-if (isAdminPath && envMode !== "test" && !isCanonicalAdminSendPath) {
+if (isAdminPath && envMode !== "test" && !isCanonicalAdminPublicPath) {
   return adminJson(403, {
     ok: false,
     error: "forbidden_test_only",
@@ -3713,6 +3821,241 @@ if (isAdminProdPath) {
         build: ENOVA_BUILD,
         ts: new Date().toISOString()
       });
+    }
+
+    if (request.method === "POST" && pathname === "/__admin__/manual-canonical-save") {
+      const requestTs = new Date().toISOString();
+      let payload;
+      try {
+        payload = await request.json();
+      } catch (err) {
+        console.error("[MANUAL_SAVE_REQUEST]", {
+          request_received: true,
+          failed_at: "response",
+          error_message: err?.message || "invalid_json",
+          timestamp: requestTs
+        });
+        return adminJson(400, {
+          ok: false,
+          blocked: false,
+          failed_at: "response",
+          changed: false,
+          previous_value: null,
+          normalized_value: null,
+          error: "invalid_json",
+          timestamp: requestTs
+        });
+      }
+
+      const wa_id = String(payload?.wa_id || "").trim();
+      const field = String(payload?.field || "").trim().toLowerCase();
+      const rawValue = payload?.value;
+      const source = String(payload?.source || "").trim() || "unknown";
+      const operator = String(payload?.operator || "").trim() || "unknown";
+
+      console.log("[MANUAL_SAVE_REQUEST]", {
+        request_received: true,
+        field_received: field || null,
+        raw_value: rawValue ?? null,
+        wa_id: wa_id || null,
+        operator,
+        source,
+        timestamp: requestTs
+      });
+
+      if (!isAdminAuthorized()) {
+        console.warn("[MANUAL_SAVE_AUTH_FAILED]", {
+          auth_failed: true,
+          failed_at: "auth",
+          field: field || null,
+          wa_id: wa_id || null,
+          operator,
+          timestamp: requestTs
+        });
+        return adminJson(401, {
+          ok: false,
+          blocked: false,
+          failed_at: "auth",
+          changed: false,
+          previous_value: null,
+          normalized_value: null,
+          error: "unauthorized",
+          field,
+          wa_id: wa_id || null,
+          source,
+          operator,
+          timestamp: requestTs
+        });
+      }
+
+      console.log("[MANUAL_SAVE_REQUEST]", {
+        auth_ok: true,
+        field_received: field || null,
+        wa_id: wa_id || null,
+        operator,
+        source,
+        timestamp: requestTs
+      });
+
+      if (!wa_id || !field) {
+        console.error("[MANUAL_SAVE_PERSIST_FAIL]", {
+          failed_at: "response",
+          error_message: "invalid_payload",
+          field: field || null,
+          wa_id: wa_id || null,
+          operator,
+          timestamp: requestTs
+        });
+        return adminJson(400, {
+          ok: false,
+          blocked: false,
+          failed_at: "response",
+          changed: false,
+          previous_value: null,
+          normalized_value: null,
+          error: "invalid_payload",
+          details: "wa_id e field são obrigatórios",
+          field: field || null,
+          wa_id: wa_id || null,
+          source,
+          operator,
+          timestamp: requestTs
+        });
+      }
+
+      const blockReason = detectManualCanonicalBlockReason(field);
+      if (blockReason) {
+        console.warn("[MANUAL_SAVE_BLOCKED]", {
+          field_allowed: false,
+          block_reason: blockReason,
+          failed_at: "allowlist",
+          field,
+          wa_id,
+          operator,
+          source,
+          timestamp: requestTs
+        });
+        return adminJson(200, {
+          ok: false,
+          blocked: true,
+          failed_at: "allowlist",
+          changed: false,
+          previous_value: null,
+          normalized_value: null,
+          field,
+          field_allowed: false,
+          block_reason: blockReason,
+          wa_id,
+          source,
+          operator,
+          timestamp: requestTs
+        });
+      }
+
+      let normalizedValue;
+      try {
+        normalizedValue = normalizeManualCanonicalFieldValue(field, rawValue);
+      } catch (err) {
+        console.error("[MANUAL_SAVE_PERSIST_FAIL]", {
+          failed_at: "normalize",
+          error_message: err?.message || String(err),
+          field,
+          wa_id,
+          operator,
+          timestamp: requestTs
+        });
+        return adminJson(400, {
+          ok: false,
+          blocked: false,
+          failed_at: "normalize",
+          changed: false,
+          previous_value: null,
+          normalized_value: null,
+          error: err?.message || "normalize_failed",
+          field,
+          wa_id,
+          source,
+          operator,
+          timestamp: requestTs
+        });
+      }
+
+      console.log("[MANUAL_SAVE_NORMALIZED]", {
+        field_allowed: true,
+        field,
+        raw_value: rawValue ?? null,
+        normalized_value: normalizedValue ?? null,
+        wa_id,
+        operator,
+        source,
+        timestamp: requestTs
+      });
+
+      try {
+        const current = await getState(env, wa_id);
+        const previousValue = current?.[field] ?? null;
+        const changed = previousValue !== normalizedValue;
+        let writeApplied = false;
+
+        if (changed) {
+          await upsertState(env, wa_id, { [field]: normalizedValue });
+          writeApplied = true;
+        }
+
+        console.log("[MANUAL_SAVE_PERSIST_OK]", {
+          write_attempted: changed,
+          write_applied: writeApplied,
+          changed,
+          previous_value: previousValue,
+          normalized_value: normalizedValue,
+          field,
+          wa_id,
+          operator,
+          source,
+          timestamp: requestTs
+        });
+
+        return adminJson(200, {
+          ok: true,
+          blocked: false,
+          failed_at: null,
+          changed,
+          previous_value: previousValue,
+          normalized_value: normalizedValue,
+          write_attempted: changed,
+          write_applied: writeApplied,
+          field,
+          field_allowed: true,
+          block_reason: null,
+          wa_id,
+          source,
+          operator,
+          timestamp: requestTs
+        });
+      } catch (err) {
+        console.error("[MANUAL_SAVE_PERSIST_FAIL]", {
+          failed_at: "persist",
+          error_message: err?.message || String(err),
+          field,
+          wa_id,
+          operator,
+          timestamp: requestTs
+        });
+        return adminJson(500, {
+          ok: false,
+          blocked: false,
+          failed_at: "persist",
+          changed: false,
+          previous_value: null,
+          normalized_value: normalizedValue ?? null,
+          error: err?.message || "persist_failed",
+          field,
+          wa_id,
+          source,
+          operator,
+          timestamp: requestTs
+        });
+      }
     }
 
     if (request.method === "POST" && pathname === "/__admin_prod__/simulate-funnel") {
@@ -4451,6 +4794,44 @@ async function handleMediaEnvelope(env, waId, msg, type) {
     });
   }
 
+  if (st?.atendimento_manual === true) {
+    const bypassTs = new Date().toISOString();
+    console.log("[MANUAL_MODE_BYPASS]", {
+      atendimento_manual_detectado: true,
+      bypass_point: "media_envelope_before_runFunnel",
+      runFunnel_called: false,
+      sendMessage_blocked: true,
+      fase_write_blocked: true,
+      wa_id: waId,
+      timestamp: bypassTs
+    });
+    await telemetry(env, {
+      wa_id: waId,
+      event: "manual_mode_bypass",
+      stage: st?.fase_conversa || "inicio",
+      severity: "info",
+      message: "[MANUAL_MODE_BYPASS] atendimento_manual ativo — media envelope bypass antes do runFunnel",
+      details: {
+        atendimento_manual_detectado: true,
+        bypass_point: "media_envelope_before_runFunnel",
+        runFunnel_called: false,
+        sendMessage_blocked: true,
+        fase_write_blocked: true,
+        timestamp: bypassTs
+      }
+    });
+    return new Response(JSON.stringify({
+      ok: true,
+      reason: "manual_mode_bypass",
+      type
+    }), {
+      status: 200,
+      headers: {
+        "content-type": "application/json"
+      }
+    });
+  }
+
   await upsertState(env, waId, { _incoming_media: mediaPayload });
   st = { ...st, _incoming_media: mediaPayload };
   await runFunnel(env, st, mediaPayload.caption || "");
@@ -5116,6 +5497,35 @@ let userText = null;
       });
 
       st = await getState(env, waId);
+    }
+
+    if (st?.atendimento_manual === true) {
+      const bypassTs = new Date().toISOString();
+      console.log("[MANUAL_MODE_BYPASS]", {
+        atendimento_manual_detectado: true,
+        bypass_point: "before_runFunnel",
+        runFunnel_called: false,
+        sendMessage_blocked: true,
+        fase_write_blocked: true,
+        wa_id: waId,
+        timestamp: bypassTs
+      });
+      await telemetry(env, {
+        wa_id: waId,
+        event: "manual_mode_bypass",
+        stage: st?.fase_conversa || "inicio",
+        severity: "info",
+        message: "[MANUAL_MODE_BYPASS] atendimento_manual ativo — webhook bypass antes do runFunnel",
+        details: {
+          atendimento_manual_detectado: true,
+          bypass_point: "before_runFunnel",
+          runFunnel_called: false,
+          sendMessage_blocked: true,
+          fase_write_blocked: true,
+          timestamp: bypassTs
+        }
+      });
+      return metaWebhookResponse(200, { reason: "manual_mode_bypass", type });
     }
 
     // ============================================================

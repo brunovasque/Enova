@@ -319,6 +319,10 @@ function getKnownSlotValue(knownSlots, slotName) {
   return value;
 }
 
+function hasApprovedCorrespondenteStatus(value) {
+  return ["aprovado", "aprovada", "sim", "aprovado_condicionado"].includes(normalizeText(value));
+}
+
 function isDocsContext(request, pendingSlots) {
   const stage = normalizeText(request?.current_stage);
   const pending = Array.isArray(pendingSlots) ? pendingSlots.map((slot) => normalizeText(slot)) : [];
@@ -394,8 +398,7 @@ function buildCorrespondenteGuidance(request) {
   const knownSlots = request?.known_slots || {};
   const correspondenteSlot = normalizeText(getKnownSlotValue(knownSlots, "correspondente"));
   const retornoStatus = normalizeText(getKnownSlotValue(knownSlots, "retorno_correspondente_status"));
-  const approved = ["aprovado", "aprovada", "sim", "aprovado_condicionado"].includes(correspondenteSlot) ||
-    ["aprovado", "aprovado_condicionado"].includes(retornoStatus);
+  const approved = hasApprovedCorrespondenteStatus(correspondenteSlot) || hasApprovedCorrespondenteStatus(retornoStatus);
   const insistsFinancial = FINANCIAL_DETAILS_PATTERN.test(normalizedMessage) || APPROVAL_PROOF_PATTERN.test(normalizedMessage);
 
   if (!approved) {
@@ -961,6 +964,7 @@ function normalizeModelResponse({
     llmUsed ? `Modelo cognitivo read-only utilizado: ${request.current_stage}.` : null
   ]);
   const parsedReplyText = sanitizeReplyText(modelResponse.reply_text);
+  const hasParsedReplyText = parsedReplyText && parsedReplyText.trim().length > 0;
   const existingReplyFallback =
     sanitizeReplyText(modelResponse.human_response) ||
     heuristicResponse.reply_text;
@@ -970,6 +974,29 @@ function normalizeModelResponse({
     suggestedNextSlot,
     pendingSlots
   });
+  if (phaseGuidanceReply) {
+    return {
+      reply_text: ensureReplyHasNextAction(heuristicResponse.reply_text, {
+        request,
+        pendingSlots,
+        suggestedNextSlot
+      }),
+      slots_detected: slotsDetected,
+      pending_slots: pendingSlots,
+      conflicts,
+      suggested_next_slot: suggestedNextSlot,
+      consultive_notes: consultiveNotes,
+      should_request_confirmation:
+        typeof modelResponse.should_request_confirmation === "boolean"
+          ? modelResponse.should_request_confirmation || conflicts.length > 0
+          : heuristicResponse.should_request_confirmation || conflicts.length > 0,
+      should_advance_stage: false,
+      confidence: clampConfidence(
+        modelResponse.confidence,
+        heuristicResponse.confidence
+      )
+    };
+  }
   const preferHeuristicReply =
     analysis.offtrack ||
     conflicts.length > 0 ||
@@ -977,17 +1004,11 @@ function normalizeModelResponse({
     DEFER_ACTION_PATTERN.test(normalizedMessage) ||
     NO_TIME_PATTERN.test(normalizedMessage) ||
     REMOTE_REFUSAL_PATTERN.test(normalizedMessage);
-  let replyText =
-    preferHeuristicReply
-      ? parsedReplyText && parsedReplyText.trim().length > 0
-        ? parsedReplyText
-        : heuristicResponse.reply_text
-      : parsedReplyText && parsedReplyText.trim().length > 0
-        ? parsedReplyText
-        : existingReplyFallback;
-  if (phaseGuidanceReply) {
-    replyText = heuristicResponse.reply_text;
-  }
+  const replyText = hasParsedReplyText
+    ? parsedReplyText
+    : preferHeuristicReply
+      ? heuristicResponse.reply_text
+      : existingReplyFallback;
   const shouldRequestConfirmation =
     typeof modelResponse.should_request_confirmation === "boolean"
       ? modelResponse.should_request_confirmation || conflicts.length > 0

@@ -450,12 +450,13 @@ function hasVariableIncomeForHolerite(knownSlots, normalizedMessage) {
   ];
   const slotSignalsVariable = candidateKeys.some((key) => normalizeText(getKnownSlotValue(knownSlots, key)) === "sim");
   if (slotSignalsVariable) return true;
-  const text = String(normalizedMessage || "");
-  const negatesVariation = /\bsem (comissao|comissão|hora extra|horas extras|adicional|bonus|b[oô]nus|variacao|varia[cç][aã]o)\b|\bnao tenho (comissao|comissão|hora extra|horas extras|adicional|bonus|b[oô]nus|variacao|varia[cç][aã]o)\b/.test(
-    text
+  const messageText = String(normalizedMessage || "");
+  const negatesVariation =
+    /\bsem (comissao|comissão|hora extra|horas extras|adicional|bonus|b[oô]nus|variacao|varia[cç][aã]o)\b|\bn[aã]o tenho (comissao|comissão|hora extra|horas extras|adicional|bonus|b[oô]nus|variacao|varia[cç][aã]o)\b/.test(
+    messageText
   );
   if (negatesVariation) return false;
-  return HOLERITE_VARIATION_PATTERN.test(text);
+  return HOLERITE_VARIATION_PATTERN.test(messageText);
 }
 
 function buildDocsGuidanceByProfile(request) {
@@ -474,7 +475,7 @@ function buildDocsGuidanceByProfile(request) {
   const rendaPrincipal = getRendaPrincipal(knownSlots, detectMoney(request?.message_text));
   const holeriteVariavel = hasVariableIncomeForHolerite(knownSlots, normalizedMessage);
   const asksHoleriteQuantity = /\bquantos?\b.*\bholerite\b|\bholerite\b.*\bquantos?\b/.test(normalizedMessage);
-  const docs = ["RG ou CNH com CPF", "comprovante de residência atualizado", "documento pessoal do titular"];
+  const docs = ["RG ou CNH com CPF", "comprovante de residência atualizado"];
 
   if (regime === "clt") {
     docs.push(holeriteVariavel ? "os últimos 3 holerites (renda com variação)" : "somente o último holerite (salário fixo)");
@@ -494,11 +495,9 @@ function buildDocsGuidanceByProfile(request) {
   }
 
   if (composicao === "parceiro") {
-    docs.push("documentos pessoais e de renda da pessoa que vai compor com você");
     docs.push("documentos pessoais e de renda do parceiro na composição");
   }
   if (composicao === "familiar") {
-    docs.push("documentos pessoais e de renda da pessoa que vai compor com você");
     docs.push("documentos pessoais e de renda do familiar na composição");
   }
   if (familiarSlot && composicao !== "familiar") {
@@ -515,7 +514,7 @@ function buildDocsGuidanceByProfile(request) {
   const formalAbaixo2550 = formalPrincipal && Number.isFinite(rendaPrincipal) && rendaPrincipal < 2550;
   const formalAcima2550 = formalPrincipal && Number.isFinite(rendaPrincipal) && rendaPrincipal >= 2550;
 
-  if (multiRenda && (formalAbaixo2550 || !formalPrincipal || rendaExtraNaComposicao)) {
+  if (multiRenda && rendaExtraNaComposicao) {
     docs.push("comprovação da renda extra usada na composição");
     docs.push("NÃO CONFIRMADO: validar no plantão o comprovante específico aceito pelo banco para a renda extra");
   }

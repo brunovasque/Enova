@@ -313,7 +313,8 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
       known_slots: {
         regime_trabalho: "clt",
         renda_formal: 2200,
-        multi_renda: "sim"
+        multi_renda: "sim",
+        renda_extra_na_composicao: "sim"
       },
       pending_slots: ["docs"],
       recent_messages: []
@@ -336,7 +337,8 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
         regime_trabalho: "clt",
         regime_trabalho_parceiro: "autonomo",
         renda_formal: 2100,
-        multi_renda: "sim"
+        multi_renda: "sim",
+        renda_extra_na_composicao: "sim"
       },
       pending_slots: ["docs"],
       recent_messages: []

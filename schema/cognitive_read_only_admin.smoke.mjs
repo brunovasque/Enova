@@ -131,6 +131,7 @@ for (const fixtureId of fixtureIds) {
   }
   if (fixtureId === "docs_multi_renda_multi_regime") {
     assert.match(replyNormalized, /comprovantes de renda de todos os regimes envolvidos na composicao|comprovantes de renda de todos os regimes envolvidos na composição/);
+    assert.match(replyNormalized, /documentos pessoais e de renda do parceiro na composicao|documentos pessoais e de renda do parceiro na composição/);
   }
   if (fixtureId === "autonomo_sem_ir_regra") {
     assert.match(replyNormalized, /ate 29 de maio ainda da para declarar ir|até 29 de maio ainda dá para declarar ir/);

@@ -63,6 +63,9 @@ const scenarioIds = [
   "reprovacao_comprometimento_renda",
   "visita_falta_envio_online",
   "visita_decisores_presentes",
+  "moro_junto_sem_uniao_estavel",
+  "moramos_juntos_sem_uniao_estavel",
+  "uniao_estavel_explicita",
   "uniao_estavel_solo",
   "uniao_estavel_conjunto",
   "casado_civil_conjunto_obrigatorio"
@@ -219,6 +222,16 @@ for (const scenarioId of scenarioIds) {
     assert.match(replyNormalized, /uniao estavel|união estável/);
     assert.match(replyNormalized, /pode seguir solo ou em conjunto/);
     assert.match(replyNormalized, /nao ha reclassificacao automatica|não há reclassificação automática/);
+  }
+  if (scenarioId === "moro_junto_sem_uniao_estavel" || scenarioId === "moramos_juntos_sem_uniao_estavel") {
+    assert.equal(result.response.slots_detected.estado_civil, undefined, `${scenarioId} must not infer estado_civil as uniao_estavel`);
+    assert.match(replyNormalized, /nao define uniao estavel|não define união estável/);
+    assert.match(replyNormalized, /pode seguir solo ou em conjunto/);
+  }
+  if (scenarioId === "uniao_estavel_explicita") {
+    assert.equal(result.response.slots_detected.estado_civil?.value, "uniao_estavel");
+    assert.match(replyNormalized, /uniao estavel|união estável/);
+    assert.match(replyNormalized, /solo ou em conjunto/);
   }
   if (scenarioId === "uniao_estavel_conjunto") {
     assert.match(replyNormalized, /uniao estavel|união estável/);

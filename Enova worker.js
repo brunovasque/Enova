@@ -1070,13 +1070,13 @@ function normalizeManualCanonicalFamiliarTipo(value) {
   if (value == null) return null;
   const nt = normalizeText(value);
   if (!nt) return null;
-  if (/\bmae\b|minha mae/.test(nt)) return "mae";
-  if (/\bpai\b|meu pai/.test(nt)) return "pai";
+  if (/\b(mae|minha mae)\b/.test(nt)) return "mae";
+  if (/\b(pai|meu pai)\b/.test(nt)) return "pai";
   if (/avo|av[oô]/.test(nt)) return "avo";
   if (/tio|tia/.test(nt)) return "tio";
   if (/irmao|irma/.test(nt)) return "irmao";
   if (/primo|prima/.test(nt)) return "primo";
-  if (/nao especificado|não especificado|outro|familiar/.test(nt)) return "nao_especificado";
+  if (/nao especificado|não especificado|outro/.test(nt)) return "nao_especificado";
   return undefined;
 }
 
@@ -1214,9 +1214,12 @@ function getManualCanonicalBlockReason(field) {
   if (!field) return "field_empty";
   if (MANUAL_CANONICAL_SAVE_BLOCKED_EXACT_FIELDS.has(field)) return "field_blocked_explicit";
   if (MANUAL_CANONICAL_SAVE_BLOCKED_PREFIXES.some((prefix) => field.startsWith(prefix))) return "field_blocked_prefix";
-  if (field === "atendimento_manual" || field === "modo_humano") return "field_blocked_operational";
   if (!MANUAL_CANONICAL_SAVE_ALLOWED_FIELDS.has(field)) return "field_not_allowlisted";
   return null;
+}
+
+function hasPayloadValue(payload, key) {
+  return Object.prototype.hasOwnProperty.call(payload || {}, key);
 }
 
 async function emitManualSaveTelemetry(env, marker, wa_id, details = {}) {
@@ -4252,7 +4255,7 @@ if (isAdminProdPath) {
 
       const wa_id = String(payload?.wa_id || "").trim();
       const field = String(payload?.field || "").trim();
-      const rawValue = Object.prototype.hasOwnProperty.call(payload || {}, "value")
+      const rawValue = hasPayloadValue(payload, "value")
         ? payload.value
         : undefined;
       const source = String(payload?.source || "panel_manual").trim() || "panel_manual";
@@ -4269,11 +4272,15 @@ if (isAdminProdPath) {
         timestamp: ts
       });
 
-      if (!wa_id || !field || !Object.prototype.hasOwnProperty.call(payload || {}, "value")) {
+      const hasValue = hasPayloadValue(payload, "value");
+      const payloadReason = !wa_id
+        ? "missing_wa_id"
+        : (!field ? "missing_field" : (!hasValue ? "missing_value" : null));
+      if (payloadReason) {
         await emitManualSaveTelemetry(env, "[MANUAL_SAVE_BLOCKED]", wa_id || null, {
           field_received: field || null,
           field_allowed: false,
-          block_reason: "invalid_payload",
+          block_reason: payloadReason,
           write_attempted: false,
           write_applied: false,
           changed: false,
@@ -4284,7 +4291,7 @@ if (isAdminProdPath) {
         });
         return adminJson(400, {
           ok: false,
-          reason: "invalid_payload",
+          reason: payloadReason,
           failed_at: "allowlist",
           ts
         });
@@ -4386,7 +4393,7 @@ if (isAdminProdPath) {
       let writeApplied = false;
 
       try {
-        if (changed || !stateBefore) {
+        if (changed) {
           await upsertState(env, wa_id, { [field]: normalizedValue });
           writeApplied = true;
           stateAfter = await getState(env, wa_id);

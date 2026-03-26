@@ -154,7 +154,7 @@
   min-height: 0;
   display: grid;
   grid-template-rows: auto 1fr auto;
-  background: radial-gradient(circle at top, #122334 0%, #0e151d 55%);
+  background: radial-gradient(circle at top, #0a0a0a 0%, #000000 55%);
 }
 
 .threadPane {

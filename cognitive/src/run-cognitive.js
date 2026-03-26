@@ -51,6 +51,8 @@ const REPROVACAO_HINT_PATTERN =
   /\b(reprovad|restri[cç][aã]o|scr|bacen|registrato|sinad|conres|comprometimento|emprestimo|empr[eé]stimo)\b/i;
 const ESTADO_CIVIL_COMPOSICAO_HINT_PATTERN =
   /\b(uni[aã]o est[aá]vel|casad[oa] no civil|casad[oa]|moro junto|moramos juntos|composi[cç][aã]o)\b/i;
+const MORA_JUNTO_PATTERN = /\bmoro junto\b|\bmoramos juntos\b/;
+const SEM_UNIAO_ESTAVEL_PATTERN = /\bsem uniao estavel\b|\bsem uni[aã]o est[aá]vel\b/;
 const FAMILY_MEMBER_PATTERN = /\bm[aã]e\b|\bpai\b|\birm[aã](?:o)?\b|\bav[oó]\b|\btio\b|\btia\b|\bprima\b|\bprimo\b/g;
 const CONFIRMATION_SLOT_KEYS = new Set(["p3"]);
 const ESTADO_CIVIL_CONFIDENCE = Object.freeze({
@@ -252,7 +254,7 @@ function detectMoney(text) {
 }
 
 function detectEstadoCivil(text) {
-  if (/\bmoro junto\b|\bmoramos juntos\b/.test(text) && /\bsem uniao estavel\b|\bsem uni[aã]o est[aá]vel\b/.test(text)) return null;
+  if (MORA_JUNTO_PATTERN.test(text) && SEM_UNIAO_ESTAVEL_PATTERN.test(text)) return null;
   if (/\buniao estavel\b|\buni[aã]o est[aá]vel\b|\bmoro junto\b/.test(text)) return "uniao_estavel";
   if (/\bcasad[oa]\b/.test(text)) return "casado_civil";
   if (/\bsolteir[oa]\b/.test(text)) return "solteiro";
@@ -642,7 +644,7 @@ function buildEstadoCivilComposicaoGuidance(request) {
   const composicao = normalizeText(getKnownSlotValue(knownSlots, "composicao"));
   const hasRestricao = /\brestri[cç][aã]o\b/.test(normalizedMessage) || /\brestri[cç][aã]o\b/.test(normalizeText(getKnownSlotValue(knownSlots, "restricao")));
 
-  if (/\bmoro junto\b|\bmoramos juntos\b/.test(normalizedMessage) && /\bsem uniao estavel\b|\bsem uni[aã]o est[aá]vel\b/.test(normalizedMessage)) {
+  if (MORA_JUNTO_PATTERN.test(normalizedMessage) && SEM_UNIAO_ESTAVEL_PATTERN.test(normalizedMessage)) {
     return "Quando moram juntos sem união estável formal, pode seguir solo ou em conjunto, conforme estratégia de aprovação.";
   }
   if (/\buni[aã]o est[aá]vel\b/.test(normalizedMessage) || estadoCivil === "uniao_estavel") {
@@ -659,6 +661,8 @@ function buildEstadoCivilComposicaoGuidance(request) {
 }
 
 function buildPhaseGuidanceReply({ request, suggestedNextSlot, pendingSlots }) {
+  // Prioridade intencional: temas operacionais específicos antes de temas amplos
+  // (docs/correspondente/visita) para evitar resposta genérica quando há regra fechada.
   if (isAluguelContext(request)) return buildAluguelGuidance(request);
   if (isDocsContext(request, pendingSlots)) return buildDocsGuidanceByProfile(request);
   if (isCorrespondenteContext(request, pendingSlots)) return buildCorrespondenteGuidance(request);

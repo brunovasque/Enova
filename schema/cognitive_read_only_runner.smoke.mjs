@@ -68,7 +68,17 @@ const scenarioIds = [
   "uniao_estavel_explicita",
   "uniao_estavel_solo",
   "uniao_estavel_conjunto",
-  "casado_civil_conjunto_obrigatorio"
+  "casado_civil_conjunto_obrigatorio",
+  "clt_fixo_holerite_quantidade",
+  "clt_variavel_holerite_quantidade",
+  "autonomo_com_ir_docs_microregra",
+  "autonomo_sem_ir_docs_microregra",
+  "renda_extra_abaixo_2550_microregra",
+  "renda_extra_acima_2550_microregra",
+  "multi_renda_multi_regime_microregra",
+  "composicao_participantes_docs_microregra",
+  "duvida_identificacao_rg_cnh_cpf_microregra",
+  "duvida_comprovante_residencia_microregra"
 ];
 
 for (const scenarioId of scenarioIds) {
@@ -240,6 +250,45 @@ for (const scenarioId of scenarioIds) {
   if (scenarioId === "casado_civil_conjunto_obrigatorio") {
     assert.match(replyNormalized, /casamento civil/);
     assert.match(replyNormalized, /sempre em conjunto/);
+  }
+  if (scenarioId === "clt_fixo_holerite_quantidade") {
+    assert.match(replyNormalized, /somente o ultimo holerite|somente o último holerite/);
+    assert.doesNotMatch(replyNormalized, /ultimos 3 holerites|últimos 3 holerites/);
+  }
+  if (scenarioId === "clt_variavel_holerite_quantidade") {
+    assert.match(replyNormalized, /ultimos 3 holerites|últimos 3 holerites/);
+  }
+  if (scenarioId === "autonomo_com_ir_docs_microregra") {
+    assert.match(replyNormalized, /declaracao de ir|declaração de ir/);
+    assert.match(replyNormalized, /recibo de entrega/);
+  }
+  if (scenarioId === "autonomo_sem_ir_docs_microregra") {
+    assert.match(replyNormalized, /ate 29 de maio|até 29 de maio/);
+    assert.match(replyNormalized, /ultimos 6 extratos de movimentacao bancaria|ultimos 6 extratos bancarios recentes de movimentacao bancaria|últimos 6 extratos de movimentação bancária|últimos 6 extratos bancários recentes de movimentação bancária/);
+  }
+  if (scenarioId === "renda_extra_abaixo_2550_microregra") {
+    assert.match(replyNormalized, /comprovacao da renda extra usada na composicao|comprovação da renda extra usada na composição/);
+    assert.match(replyNormalized, /extratos bancarios recentes para comprovar movimentacao da renda extra|extratos bancários recentes para comprovar movimentação da renda extra/);
+    assert.match(replyNormalized, /nao confirmado|não confirmado/);
+  }
+  if (scenarioId === "renda_extra_acima_2550_microregra") {
+    assert.match(replyNormalized, /acima de 2550/);
+    assert.match(replyNormalized, /renda extra pode ser dispensada na estrategia|renda extra pode ser dispensada na estratégia/);
+  }
+  if (scenarioId === "multi_renda_multi_regime_microregra") {
+    assert.match(replyNormalized, /comprovantes de renda de todos os regimes envolvidos na composicao|comprovantes de renda de todos os regimes envolvidos na composição/);
+  }
+  if (scenarioId === "composicao_participantes_docs_microregra") {
+    assert.match(replyNormalized, /documentos pessoais e de renda do parceiro na composicao|documentos pessoais e de renda do parceiro na composição/);
+    assert.match(replyNormalized, /documentos pessoais e de renda da terceira pessoa \(p3\) na composicao|documentos pessoais e de renda da terceira pessoa \(p3\) na composição/);
+  }
+  if (scenarioId === "duvida_identificacao_rg_cnh_cpf_microregra") {
+    assert.match(replyNormalized, /rg ou cnh com cpf/);
+    assert.match(replyNormalized, /nao confirmado|não confirmado/);
+  }
+  if (scenarioId === "duvida_comprovante_residencia_microregra") {
+    assert.match(replyNormalized, /comprovante de residencia atualizado|comprovante de residência atualizado/);
+    assert.match(replyNormalized, /nao confirmado|não confirmado/);
   }
 }
 

@@ -6,8 +6,8 @@ import styles from "./conversations.module.css";
 
 const POLL_INTERVAL_MS = 1000;
 const THREAD_BOTTOM_THRESHOLD_PX = 32;
-const MAX_THREAD_SCROLL_RETRIES = 12;
-const THREAD_SCROLL_STABLE_FRAMES = 2;
+const MAX_THREAD_SCROLL_RETRIES = 24;
+const THREAD_SCROLL_STABLE_FRAMES = 3;
 
 type Conversation = {
   id: string;
@@ -121,6 +121,10 @@ function isNearBottom(element: HTMLDivElement | null, threshold = THREAD_BOTTOM_
 
   const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
   return distanceToBottom <= threshold;
+}
+
+function getThreadLayoutKey(element: HTMLDivElement) {
+  return `${element.scrollHeight}:${element.clientHeight}`;
 }
 
 function sameOriginApiUrl(path: string) {
@@ -366,7 +370,7 @@ export function ConversationUI() {
 
       let attempt = 0;
       let stableFrames = 0;
-      let previousScrollHeight = -1;
+      let previousLayoutKey = "";
 
       const applyScroll = () => {
         const element = messagesAreaRef.current;
@@ -377,6 +381,7 @@ export function ConversationUI() {
         }
 
         const currentScrollHeight = element.scrollHeight;
+        const currentLayoutKey = getThreadLayoutKey(element);
 
         element.scrollTo({
           top: currentScrollHeight,
@@ -384,9 +389,8 @@ export function ConversationUI() {
         });
 
         const nearBottom = isNearBottom(element);
-        stableFrames =
-          currentScrollHeight === previousScrollHeight ? stableFrames + 1 : 0;
-        previousScrollHeight = currentScrollHeight;
+        stableFrames = currentLayoutKey === previousLayoutKey ? stableFrames + 1 : 0;
+        previousLayoutKey = currentLayoutKey;
 
         if (
           attempt < MAX_THREAD_SCROLL_RETRIES &&

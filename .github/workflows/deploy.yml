@@ -84,7 +84,7 @@ jobs:
           fi
 
   deploy-test:
-    if: github.event_name == 'workflow_dispatch' && inputs.target_env == 'test'
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.target_env == 'test'
     runs-on: ubuntu-latest
 
     env:

@@ -71,6 +71,10 @@ for (const scenarioId of scenarioIds) {
 
   if (scenarioId === "autonomo_sem_ir") {
     assert.equal(result.response.slots_detected.renda?.value, 2500);
+    assert.ok(result?.llm_parsed_response?.reply_text?.trim(), `${scenarioId} parsed reply_text must not be empty`);
+    assert.notEqual(String(result.response.reply_text || "").trim(), "", `${scenarioId} final reply_text must not be empty`);
+    assert.equal(Object.keys(result.response.slots_detected || {}).length > 0, true, `${scenarioId} slots_detected must not be empty`);
+    assert.equal(result?.engine?.llm_used, true, `${scenarioId} must keep llm_used true`);
   }
   if (scenarioId === "composicao_familiar") {
     assert.equal(result.response.slots_detected.renda?.value, 1900);
@@ -134,6 +138,57 @@ for (const scenarioId of scenarioIds) {
 }
 
 {
+  const parsedReplyPriorityResult = await runReadOnlyCognitiveEngine(
+    {
+      conversation_id: "priority-reply-001",
+      current_stage: "renda",
+      message_text: "Antes disso, qual valor de entrada e parcela de um imóvel?",
+      pending_slots: ["renda"]
+    },
+    {
+      openaiApiKey: "test-openai-key",
+      model: "gpt-4.1-mini",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    reply_text: "RESPOSTA PARSEADA DO MODELO",
+                    slots_detected: {},
+                    pending_slots: ["renda"],
+                    conflicts: [],
+                    suggested_next_slot: "renda",
+                    consultive_notes: [],
+                    should_request_confirmation: false,
+                    should_advance_stage: false,
+                    confidence: 0.9
+                  })
+                }
+              }
+            ]
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        )
+    }
+  );
+
+  assert.equal(parsedReplyPriorityResult?.engine?.llm_used, true);
+  assert.equal(parsedReplyPriorityResult?.llm_parsed_response?.reply_text, "RESPOSTA PARSEADA DO MODELO");
+  assert.match(
+    parsedReplyPriorityResult?.response?.reply_text || "",
+    /^RESPOSTA PARSEADA DO MODELO/,
+    "final reply_text must preserve parsed reply_text even when heuristic fallback is available"
+  );
+}
+
+{
   const conversionScenarios = [
     {
       id: "cliente_evasivo",
@@ -176,7 +231,7 @@ for (const scenarioId of scenarioIds) {
         message_text: "antes disso, qual valor de entrada e parcela de um imóvel?",
         pending_slots: ["renda"]
       },
-      mustInclude: ["preciso fechar esta etapa", "renda média mensal"],
+      mustInclude: ["posso te orientar de forma consultiva", "renda média mensal"],
       mustMatch: /(me informa|me confirma|me manda|quer que eu)/i
     },
     {

@@ -101,6 +101,12 @@
   align-items: baseline;
 }
 
+.itemMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .itemName {
   display: block;
   font-size: 0.97rem;
@@ -111,6 +117,21 @@
   font-size: 0.75rem;
   color: #9db1c5;
   white-space: nowrap;
+}
+
+.unreadSidebarBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(47, 230, 208, 0.16);
+  border: 1px solid rgba(47, 230, 208, 0.4);
+  color: #98efe0;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: lowercase;
 }
 
 .itemWaId {
@@ -208,6 +229,27 @@
   flex-direction: column;
   gap: 10px;
   background: transparent;
+}
+
+.threadUnreadWrap {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 2px;
+  margin-top: auto;
+}
+
+.threadUnreadButton {
+  border: 1px solid rgba(79, 202, 189, 0.45);
+  border-radius: 999px;
+  background: rgba(10, 36, 43, 0.92);
+  color: #9fe7dc;
+  padding: 8px 14px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
 }
 
 .messageRow {

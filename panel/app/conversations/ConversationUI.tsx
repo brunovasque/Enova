@@ -107,6 +107,19 @@ function buildMessageRenderKey(message: Message): string {
   ].join("|");
 }
 
+function getConversationActivityKey(conversation: Pick<Conversation, "last_message_at" | "updated_at">) {
+  return conversation.last_message_at ?? conversation.updated_at ?? "";
+}
+
+function isNearBottom(element: HTMLDivElement | null, threshold = 72) {
+  if (!element) {
+    return true;
+  }
+
+  const distanceToBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
+  return distanceToBottom <= threshold;
+}
+
 function sameOriginApiUrl(path: string) {
   if (typeof window === "undefined") {
     return path;
@@ -127,6 +140,13 @@ export function ConversationUI() {
   const [manualToggleLoading, setManualToggleLoading] = useState(false);
   const [sendLoading, setSendLoading] = useState(false);
   const [composerText, setComposerText] = useState("");
+  const [selectedConversationSnapshot, setSelectedConversationSnapshot] =
+    useState<Conversation | null>(null);
+  const [threadUnreadCount, setThreadUnreadCount] = useState(0);
+  const [isThreadNearBottom, setIsThreadNearBottom] = useState(true);
+  const [seenConversationActivity, setSeenConversationActivity] = useState<Record<string, string>>(
+    {}
+  );
 
   const router = useRouter();
   const pathname = usePathname();
@@ -135,6 +155,12 @@ export function ConversationUI() {
   const selectedWaIdRef = useRef(selectedWaId);
   const latestMessagesRequestRef = useRef(0);
   const refreshStateRef = useRef({ inFlight: false, queued: false });
+  const messagesAreaRef = useRef<HTMLDivElement | null>(null);
+  const previousVisibleStateRef = useRef({ waId: selectedWaId, count: 0, lastKey: "" });
+  const pendingScrollToBottomRef = useRef(Boolean(selectedWaId));
+  const isThreadNearBottomRef = useRef(true);
+  const initializedSeenConversationRef = useRef(false);
+  const initialConversationActivityRef = useRef<Record<string, string>>({});
 
   const loadConversations = useCallback(async (silent = false) => {
     if (!silent) {
@@ -152,7 +178,24 @@ export function ConversationUI() {
         );
       }
 
-      setConversations(Array.isArray(data.conversations) ? data.conversations : []);
+      const nextConversations = Array.isArray(data.conversations) ? data.conversations : [];
+
+      setConversations(nextConversations);
+      setSeenConversationActivity((current) => {
+        if (initializedSeenConversationRef.current) {
+          return current;
+        }
+
+        initializedSeenConversationRef.current = true;
+        const initialActivity = Object.fromEntries(
+          nextConversations.map((conversation) => [
+            conversation.wa_id,
+            getConversationActivityKey(conversation),
+          ])
+        );
+        initialConversationActivityRef.current = initialActivity;
+        return initialActivity;
+      });
       setListError(null);
     } catch (error) {
       if (!silent) {
@@ -249,20 +292,6 @@ export function ConversationUI() {
     [loadConversations, loadMessages]
   );
 
-  useEffect(() => {
-    selectedWaIdRef.current = selectedWaId;
-    setComposerText("");
-    void refreshPanelData(false);
-
-    const intervalId = window.setInterval(() => {
-      void refreshPanelData(true);
-    }, POLL_INTERVAL_MS);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [selectedWaId, refreshPanelData]);
-
   const filteredConversations = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
 
@@ -282,7 +311,14 @@ export function ConversationUI() {
   const selectedConversation =
     conversations.find((conversation) => conversation.wa_id === selectedWaId) ?? null;
 
+  const activeConversation =
+    selectedConversation ??
+    (selectedConversationSnapshot?.wa_id === selectedWaId ? selectedConversationSnapshot : null);
+
   const isManualActive = Boolean(selectedConversation?.atendimento_manual);
+  const activeConversationActivityKey = activeConversation
+    ? getConversationActivityKey(activeConversation)
+    : "";
 
   const visibleMessages = useMemo(() => {
     return messages.filter((message) => {
@@ -291,11 +327,181 @@ export function ConversationUI() {
     });
   }, [messages]);
 
+  const markConversationAsSeen = useCallback((waId: string, activityKey: string) => {
+    if (!waId) {
+      return;
+    }
+
+    setSeenConversationActivity((current) => {
+      if (current[waId] === activityKey) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [waId]: activityKey,
+      };
+    });
+  }, []);
+
+  const syncThreadNearBottom = useCallback((value: boolean) => {
+    isThreadNearBottomRef.current = value;
+    setIsThreadNearBottom((current) => (current === value ? current : value));
+  }, []);
+
+  const scrollThreadToBottom = useCallback(
+    (behavior: ScrollBehavior = "auto") => {
+      const element = messagesAreaRef.current;
+
+      if (!element) {
+        return;
+      }
+
+      element.scrollTo({
+        top: element.scrollHeight,
+        behavior,
+      });
+      syncThreadNearBottom(true);
+    },
+    [syncThreadNearBottom]
+  );
+
   const handleSelectConversation = (waId: string) => {
     const params = new URLSearchParams(searchParams.toString());
     params.set("wa_id", waId);
     router.replace(`${pathname}?${params.toString()}`);
   };
+
+  const handleMessagesScroll = useCallback(() => {
+    const nearBottom = isNearBottom(messagesAreaRef.current);
+    syncThreadNearBottom(nearBottom);
+
+    if (nearBottom) {
+      setThreadUnreadCount(0);
+
+      if (selectedWaId) {
+        markConversationAsSeen(selectedWaId, activeConversationActivityKey);
+      }
+    }
+  }, [activeConversationActivityKey, markConversationAsSeen, selectedWaId, syncThreadNearBottom]);
+
+  const handleJumpToLatest = useCallback(() => {
+    scrollThreadToBottom("smooth");
+    setThreadUnreadCount(0);
+
+    if (selectedWaId) {
+      markConversationAsSeen(selectedWaId, activeConversationActivityKey);
+    }
+  }, [activeConversationActivityKey, markConversationAsSeen, scrollThreadToBottom, selectedWaId]);
+
+  useEffect(() => {
+    selectedWaIdRef.current = selectedWaId;
+    setComposerText("");
+    setMessages([]);
+    setThreadError(null);
+    setThreadLoading(Boolean(selectedWaId));
+    setThreadUnreadCount(0);
+    pendingScrollToBottomRef.current = Boolean(selectedWaId);
+    previousVisibleStateRef.current = { waId: selectedWaId, count: 0, lastKey: "" };
+    syncThreadNearBottom(true);
+
+    if (selectedConversation?.wa_id !== selectedWaId) {
+      setSelectedConversationSnapshot(null);
+    }
+
+    void refreshPanelData(false);
+
+    const intervalId = window.setInterval(() => {
+      void refreshPanelData(true);
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [refreshPanelData, selectedConversation?.wa_id, selectedWaId, syncThreadNearBottom]);
+
+  useEffect(() => {
+    if (!selectedWaId) {
+      setSelectedConversationSnapshot(null);
+      return;
+    }
+
+    if (selectedConversation?.wa_id === selectedWaId) {
+      setSelectedConversationSnapshot(selectedConversation);
+    }
+  }, [selectedConversation, selectedWaId]);
+
+  useEffect(() => {
+    if (!selectedWaId) {
+      previousVisibleStateRef.current = { waId: "", count: 0, lastKey: "" };
+      pendingScrollToBottomRef.current = false;
+      return;
+    }
+
+    if (threadLoading) {
+      return;
+    }
+
+    const lastMessage = visibleMessages.at(-1);
+    const lastKey = lastMessage ? buildMessageRenderKey(lastMessage) : "";
+    const previous = previousVisibleStateRef.current;
+    const sameThread = previous.waId === selectedWaId;
+    const countIncreased = sameThread && visibleMessages.length > previous.count;
+    const lastMessageChanged =
+      sameThread &&
+      visibleMessages.length > 0 &&
+      previous.count === visibleMessages.length &&
+      previous.lastKey !== lastKey;
+    const hasNewMessages = countIncreased || lastMessageChanged;
+    const newMessagesCount = countIncreased
+      ? visibleMessages.length - previous.count
+      : lastMessageChanged
+      ? 1
+      : 0;
+
+    if (pendingScrollToBottomRef.current) {
+      pendingScrollToBottomRef.current = false;
+      requestAnimationFrame(() => {
+        scrollThreadToBottom("auto");
+      });
+      setThreadUnreadCount(0);
+      markConversationAsSeen(selectedWaId, activeConversationActivityKey);
+    } else if (hasNewMessages && isThreadNearBottomRef.current) {
+      requestAnimationFrame(() => {
+        scrollThreadToBottom("smooth");
+      });
+      setThreadUnreadCount(0);
+      markConversationAsSeen(selectedWaId, activeConversationActivityKey);
+    } else if (hasNewMessages) {
+      setThreadUnreadCount((current) => current + newMessagesCount);
+    }
+
+    previousVisibleStateRef.current = {
+      waId: selectedWaId,
+      count: visibleMessages.length,
+      lastKey,
+    };
+  }, [
+    activeConversationActivityKey,
+    markConversationAsSeen,
+    scrollThreadToBottom,
+    selectedWaId,
+    threadLoading,
+    visibleMessages,
+  ]);
+
+  useEffect(() => {
+    if (!selectedWaId || !isThreadNearBottom || !activeConversationActivityKey) {
+      return;
+    }
+
+    markConversationAsSeen(selectedWaId, activeConversationActivityKey);
+  }, [
+    activeConversationActivityKey,
+    isThreadNearBottom,
+    markConversationAsSeen,
+    selectedWaId,
+  ]);
 
   const handleToggleManual = async () => {
     if (!selectedConversation || manualToggleLoading) {
@@ -408,6 +614,18 @@ export function ConversationUI() {
             ) : (
               filteredConversations.map((conversation) => {
                 const isActive = conversation.wa_id === selectedWaId;
+                const activityKey = getConversationActivityKey(conversation);
+                const seenActivity =
+                  seenConversationActivity[conversation.wa_id] ??
+                  initialConversationActivityRef.current[conversation.wa_id];
+                const hasUnread =
+                  !initializedSeenConversationRef.current
+                    ? false
+                    : isActive && threadUnreadCount > 0
+                    ? true
+                    : seenActivity === undefined
+                    ? true
+                    : seenActivity !== activityKey;
 
                 return (
                   <button
@@ -427,9 +645,16 @@ export function ConversationUI() {
                           <strong className={styles.itemName}>
                             {conversation.nome || "Sem nome"}
                           </strong>
-                          <span className={styles.itemTime}>
-                            {formatTime(conversation.last_message_at ?? conversation.updated_at)}
-                          </span>
+                          <div className={styles.itemMeta}>
+                            <span className={styles.itemTime}>
+                              {formatTime(conversation.last_message_at ?? conversation.updated_at)}
+                            </span>
+                            {hasUnread ? (
+                              <span className={styles.unreadSidebarBadge} aria-label="Novas mensagens">
+                                nova
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
                         <div className={styles.itemWaId}>{conversation.wa_id}</div>
                         <div className={styles.itemPreview}>
@@ -463,43 +688,45 @@ export function ConversationUI() {
 
         <section className={styles.threadPane}>
           <header className={styles.threadHeader}>
-            {selectedConversation ? (
+            {activeConversation ? (
               <div className={styles.threadHeaderMain}>
                 <div className={styles.threadAvatar} aria-hidden>
-                  {getInitial(selectedConversation.nome, selectedConversation.wa_id)}
+                  {getInitial(activeConversation.nome, activeConversation.wa_id)}
                 </div>
                 <div className={styles.threadHeaderText}>
-                  <strong>{selectedConversation.nome || "Sem nome"}</strong>
-                  <span>{selectedConversation.wa_id}</span>
+                  <strong>{activeConversation.nome || "Sem nome"}</strong>
+                  <span>{activeConversation.wa_id}</span>
                 </div>
                 <div className={styles.badgesRow}>
-                  {selectedConversation.fase_conversa ? (
+                  {activeConversation.fase_conversa ? (
                     <span className={`${styles.badge} ${styles.badgePhase}`}>
-                      {selectedConversation.fase_conversa}
+                      {activeConversation.fase_conversa}
                     </span>
                   ) : null}
-                  {selectedConversation.funil_status ? (
+                  {activeConversation.funil_status ? (
                     <span className={`${styles.badge} ${styles.badgeNeutral}`}>
-                      {selectedConversation.funil_status}
+                      {activeConversation.funil_status}
                     </span>
                   ) : null}
-                  {selectedConversation.atendimento_manual ? (
+                  {activeConversation.atendimento_manual ? (
                     <span className={`${styles.badge} ${styles.badgeWarn}`}>manual</span>
                   ) : null}
                 </div>
-                <div className={styles.manualToggleWrap}>
-                  <label className={styles.toggleLabel}>
-                    <input
-                      type="checkbox"
-                      checked={selectedConversation.atendimento_manual}
-                      onChange={handleToggleManual}
-                      disabled={manualToggleLoading}
-                    />
-                    <span>
-                      Modo humano {selectedConversation.atendimento_manual ? "ON" : "OFF"}
-                    </span>
-                  </label>
-                </div>
+                {selectedConversation ? (
+                  <div className={styles.manualToggleWrap}>
+                    <label className={styles.toggleLabel}>
+                      <input
+                        type="checkbox"
+                        checked={selectedConversation.atendimento_manual}
+                        onChange={handleToggleManual}
+                        disabled={manualToggleLoading}
+                      />
+                      <span>
+                        Modo humano {selectedConversation.atendimento_manual ? "ON" : "OFF"}
+                      </span>
+                    </label>
+                  </div>
+                ) : null}
               </div>
             ) : (
               <>
@@ -515,38 +742,55 @@ export function ConversationUI() {
             )}
           </header>
 
-          <div className={styles.messagesArea}>
+          <div
+            ref={messagesAreaRef}
+            className={styles.messagesArea}
+            onScroll={handleMessagesScroll}
+          >
             <div className={styles.threadWatermark} aria-hidden="true" />
             {!selectedWaId ? (
               <p className={styles.emptyState}>Selecione uma conversa</p>
-            ) : threadLoading ? (
+            ) : threadLoading && visibleMessages.length === 0 ? (
               <p className={styles.panelHint}>Carregando mensagens...</p>
             ) : threadError ? (
               <p className={styles.panelError}>Erro na thread: {threadError}</p>
-            ) : selectedWaId && !selectedConversation ? (
-              <p className={styles.panelHint}>Atualizando conversa selecionada...</p>
             ) : visibleMessages.length === 0 ? (
               <p className={styles.panelHint}>Sem mensagens para esta conversa.</p>
             ) : (
-              visibleMessages.map((message) => {
-                const key = message.id ?? buildMessageRenderKey(message);
-                const isOut = message.direction === "out";
-                const text = (message.text ?? "").trim();
+              <>
+                {visibleMessages.map((message) => {
+                  const key = message.id ?? buildMessageRenderKey(message);
+                  const isOut = message.direction === "out";
+                  const text = (message.text ?? "").trim();
 
-                return (
-                  <div
-                    key={key}
-                    className={`${styles.messageRow} ${
-                      isOut ? styles.messageRowOut : styles.messageRowIn
-                    }`}
-                  >
-                    <article className={`${styles.bubble} ${isOut ? styles.bubbleOut : styles.bubbleIn}`}>
-                      <p>{text}</p>
-                      <div className={styles.messageMeta}>{formatDateTime(message.created_at)}</div>
-                    </article>
+                  return (
+                    <div
+                      key={key}
+                      className={`${styles.messageRow} ${
+                        isOut ? styles.messageRowOut : styles.messageRowIn
+                      }`}
+                    >
+                      <article className={`${styles.bubble} ${isOut ? styles.bubbleOut : styles.bubbleIn}`}>
+                        <p>{text}</p>
+                        <div className={styles.messageMeta}>{formatDateTime(message.created_at)}</div>
+                      </article>
+                    </div>
+                  );
+                })}
+                {threadUnreadCount > 0 && !isThreadNearBottom ? (
+                  <div className={styles.threadUnreadWrap}>
+                    <button
+                      type="button"
+                      className={styles.threadUnreadButton}
+                      onClick={handleJumpToLatest}
+                    >
+                      {threadUnreadCount === 1
+                        ? "1 nova mensagem"
+                        : `${threadUnreadCount} novas mensagens`}
+                    </button>
                   </div>
-                );
-              })
+                ) : null}
+              </>
             )}
           </div>
 
@@ -561,8 +805,10 @@ export function ConversationUI() {
                 value={composerText}
                 onChange={(event) => setComposerText(event.target.value)}
                 placeholder={
-                  !selectedConversation
+                  !selectedWaId
                     ? "Selecione uma conversa"
+                    : !selectedConversation
+                    ? "Atualizando conversa selecionada"
                     : isManualActive
                     ? "Digite a mensagem manual"
                     : "Ative o modo humano para enviar"

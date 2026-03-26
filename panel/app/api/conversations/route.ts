@@ -68,10 +68,24 @@ function parseOutgoingText(details: unknown): string | null {
       (parsed as Record<string, unknown>).bot_text ??
       (parsed as Record<string, unknown>).answer;
 
-    return typeof candidate === "string" ? candidate : null;
+    return typeof candidate === "string" ? normalizeText(candidate) : null;
   } catch {
     return null;
   }
+}
+
+function normalizeText(value: string | null | undefined): string | null {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return normalized.length > 0 ? normalized : null;
+}
+
+function compareDatesDesc(left: string | null, right: string | null): number {
+  const parsedLeft = left ? new Date(left).getTime() : Number.NEGATIVE_INFINITY;
+  const parsedRight = right ? new Date(right).getTime() : Number.NEGATIVE_INFINITY;
+  const leftTs = Number.isFinite(parsedLeft) ? parsedLeft : Number.NEGATIVE_INFINITY;
+  const rightTs = Number.isFinite(parsedRight) ? parsedRight : Number.NEGATIVE_INFINITY;
+
+  return rightTs - leftTs;
 }
 
 export async function GET() {
@@ -158,9 +172,13 @@ export async function GET() {
             let text: string | null = null;
 
             if (logRow.tag === "meta_minimal") {
-              text = logRow.meta_text ?? null;
+              text = normalizeText(logRow.meta_text);
             } else if (logRow.tag === "DECISION_OUTPUT" || logRow.tag === "SEND_OK") {
-              text = parseOutgoingText(logRow.details);
+              text = parseOutgoingText(logRow.details) ?? normalizeText(logRow.meta_text);
+            }
+
+            if (!text) {
+              continue;
             }
 
             latestByWaId.set(logRow.wa_id, {
@@ -178,15 +196,20 @@ export async function GET() {
           .map((row) => {
             const waId = row.wa_id as string;
             const latestLog = latestByWaId.get(waId);
+            const activityAt =
+              latestLog?.createdAt ?? row.last_incoming_at ?? row.updated_at ?? row.created_at ?? null;
 
             return {
               id: waId,
               wa_id: waId,
               nome: row.nome ?? null,
               last_message_text:
-                latestLog?.text ?? row.last_incoming_text ?? row.last_user_msg ?? row.last_bot_msg ?? null,
-              last_message_at:
-                latestLog?.createdAt ?? row.last_incoming_at ?? row.updated_at ?? row.created_at ?? null,
+                latestLog?.text ??
+                normalizeText(row.last_incoming_text) ??
+                normalizeText(row.last_user_msg) ??
+                normalizeText(row.last_bot_msg) ??
+                null,
+              last_message_at: activityAt,
               updated_at: row.updated_at ?? null,
               created_at: row.created_at ?? null,
               fase_conversa: row.fase_conversa ?? null,
@@ -194,6 +217,7 @@ export async function GET() {
               atendimento_manual: Boolean(row.atendimento_manual),
             };
           })
+          .sort((left, right) => compareDatesDesc(left.last_message_at, right.last_message_at))
       : [];
 
     return jsonResponse(

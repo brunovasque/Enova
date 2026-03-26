@@ -82,6 +82,17 @@ function parseOutgoingText(details: unknown): string | null {
   }
 }
 
+function buildMessageKey(message: Message): string {
+  const normalizedText = normalizeText(message.text) ?? "";
+
+  return [
+    message.direction,
+    message.wa_id,
+    message.created_at ?? "",
+    normalizedText,
+  ].join("|");
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const waId = (searchParams.get("wa_id") ?? "").trim();
@@ -120,7 +131,7 @@ export async function GET(request: Request) {
     const seen = new Set<string>();
 
     const pushUnique = (msg: Message) => {
-      const key = `${msg.direction}|${msg.created_at ?? ""}|${msg.source ?? ""}|${msg.text ?? ""}`;
+      const key = buildMessageKey(msg);
       if (seen.has(key)) return;
       seen.add(key);
       messages.push(msg);

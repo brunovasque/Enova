@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import styles from "./conversations.module.css";
+
+const POLL_INTERVAL_MS = 5000;
 
 type Conversation = {
   id: string;
   wa_id: string;
   nome: string | null;
   last_message_text: string | null;
+  last_message_at: string | null;
   updated_at: string | null;
   fase_conversa: string | null;
   funil_status: string | null;
@@ -95,6 +98,23 @@ function sanitizePreview(text: string | null): string {
     .trim();
 }
 
+function buildMessageRenderKey(message: Message): string {
+  return [
+    message.direction,
+    message.wa_id,
+    message.created_at ?? "",
+    (message.text ?? "").trim(),
+  ].join("|");
+}
+
+function sameOriginApiUrl(path: string) {
+  if (typeof window === "undefined") {
+    return path;
+  }
+
+  return new URL(path, window.location.origin).toString();
+}
+
 export function ConversationUI() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [listLoading, setListLoading] = useState(true);
@@ -112,18 +132,14 @@ export function ConversationUI() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const selectedWaId = (searchParams.get("wa_id") ?? "").trim();
+  const selectedWaIdRef = useRef(selectedWaId);
+  const latestMessagesRequestRef = useRef(0);
+  const refreshStateRef = useRef({ inFlight: false, queued: false });
 
-  const sameOriginApiUrl = (path: string) => {
-    if (typeof window === "undefined") {
-      return path;
+  const loadConversations = useCallback(async (silent = false) => {
+    if (!silent) {
+      setListLoading(true);
     }
-
-    return new URL(path, window.location.origin).toString();
-  };
-
-  const loadConversations = async () => {
-    setListLoading(true);
-    setListError(null);
 
     try {
       const conversationsUrl = sameOriginApiUrl("/api/conversations?ts=1");
@@ -137,15 +153,22 @@ export function ConversationUI() {
       }
 
       setConversations(Array.isArray(data.conversations) ? data.conversations : []);
+      setListError(null);
     } catch (error) {
-      setConversations([]);
+      if (!silent) {
+        setConversations([]);
+      }
       setListError(error instanceof Error ? error.message : "Falha ao carregar lista");
     } finally {
-      setListLoading(false);
+      if (!silent) {
+        setListLoading(false);
+      }
     }
-  };
+  }, []);
 
-  const loadMessages = async (waId: string) => {
+  const loadMessages = useCallback(async (waId: string, silent = false) => {
+    const requestId = ++latestMessagesRequestRef.current;
+
     if (!waId) {
       setMessages([]);
       setThreadError(null);
@@ -153,8 +176,9 @@ export function ConversationUI() {
       return;
     }
 
-    setThreadLoading(true);
-    setThreadError(null);
+    if (!silent) {
+      setThreadLoading(true);
+    }
 
     try {
       const messagesUrl = sameOriginApiUrl(
@@ -169,25 +193,75 @@ export function ConversationUI() {
         );
       }
 
+      if (selectedWaIdRef.current !== waId || latestMessagesRequestRef.current !== requestId) {
+        return;
+      }
+
       setMessages(Array.isArray(data.messages) ? data.messages : []);
+      setThreadError(null);
     } catch (error) {
-      setMessages([]);
+      if (selectedWaIdRef.current !== waId || latestMessagesRequestRef.current !== requestId) {
+        return;
+      }
+
+      if (!silent) {
+        setMessages([]);
+      }
       setThreadError(
         error instanceof Error ? error.message : "Falha ao carregar mensagens"
       );
     } finally {
-      setThreadLoading(false);
+      if (
+        !silent &&
+        selectedWaIdRef.current === waId &&
+        latestMessagesRequestRef.current === requestId
+      ) {
+        setThreadLoading(false);
+      }
     }
-  };
-
-  useEffect(() => {
-    void loadConversations();
   }, []);
 
+  const refreshPanelData = useCallback(
+    async (silent = false) => {
+      if (refreshStateRef.current.inFlight) {
+        refreshStateRef.current.queued = true;
+        return;
+      }
+
+      refreshStateRef.current.inFlight = true;
+
+      try {
+        const activeWaId = selectedWaIdRef.current;
+
+        await Promise.all([
+          loadConversations(silent),
+          activeWaId ? loadMessages(activeWaId, silent) : loadMessages("", silent),
+        ]);
+      } finally {
+        refreshStateRef.current.inFlight = false;
+
+        if (refreshStateRef.current.queued) {
+          refreshStateRef.current.queued = false;
+          void refreshPanelData(true);
+        }
+      }
+    },
+    [loadConversations, loadMessages]
+  );
+
   useEffect(() => {
+    selectedWaIdRef.current = selectedWaId;
     setComposerText("");
-    void loadMessages(selectedWaId);
-  }, [selectedWaId]);
+    void refreshPanelData(false);
+
+    const intervalId = window.setInterval(() => {
+      void refreshPanelData(true);
+    }, POLL_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [selectedWaId, refreshPanelData]);
 
   const filteredConversations = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -255,7 +329,7 @@ export function ConversationUI() {
         throw new Error(data.error || `Falha ao atualizar modo humano (${response.status})`);
       }
 
-      await loadConversations();
+      await refreshPanelData(true);
     } catch (error) {
       setThreadError(
         error instanceof Error ? error.message : "Falha ao atualizar modo humano"
@@ -298,7 +372,7 @@ export function ConversationUI() {
       }
 
       setComposerText("");
-      await loadMessages(selectedConversation.wa_id);
+      await refreshPanelData(true);
     } catch (error) {
       setThreadError(
         error instanceof Error ? error.message : "Falha ao enviar mensagem manual"
@@ -354,7 +428,7 @@ export function ConversationUI() {
                             {conversation.nome || "Sem nome"}
                           </strong>
                           <span className={styles.itemTime}>
-                            {formatTime(conversation.updated_at)}
+                            {formatTime(conversation.last_message_at ?? conversation.updated_at)}
                           </span>
                         </div>
                         <div className={styles.itemWaId}>{conversation.wa_id}</div>
@@ -429,8 +503,14 @@ export function ConversationUI() {
               </div>
             ) : (
               <>
-                <strong>Nenhuma conversa selecionada</strong>
-                <span>Selecione um item na lateral</span>
+                <strong>
+                  {selectedWaId ? "Conversa indisponível na lateral" : "Nenhuma conversa selecionada"}
+                </strong>
+                <span>
+                  {selectedWaId
+                    ? "Aguarde a atualização da lista ou selecione outro item."
+                    : "Selecione um item na lateral"}
+                </span>
               </>
             )}
           </header>
@@ -443,11 +523,13 @@ export function ConversationUI() {
               <p className={styles.panelHint}>Carregando mensagens...</p>
             ) : threadError ? (
               <p className={styles.panelError}>Erro na thread: {threadError}</p>
+            ) : selectedWaId && !selectedConversation ? (
+              <p className={styles.panelHint}>Atualizando conversa selecionada...</p>
             ) : visibleMessages.length === 0 ? (
               <p className={styles.panelHint}>Sem mensagens para esta conversa.</p>
             ) : (
-              visibleMessages.map((message, index) => {
-                const key = message.id ?? `${message.created_at ?? "msg"}-${index}`;
+              visibleMessages.map((message) => {
+                const key = message.id ?? buildMessageRenderKey(message);
                 const isOut = message.direction === "out";
                 const text = (message.text ?? "").trim();
 

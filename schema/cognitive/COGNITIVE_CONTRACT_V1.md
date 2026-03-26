@@ -109,3 +109,29 @@ Relação canônica:
 | `docs` | mapear pendências documentais | composição + autonomo_ir + ctps + restricao | sim |
 | `correspondente` | estruturar visão consultiva para encaminhamento | docs + qualificação mecânica | sim |
 | `visita` | estruturar visão consultiva de visita | correspondente + retorno mecânico | sim |
+
+## Regras operacionais adicionais (read-only isolado)
+
+### `docs`
+
+- orientar documentos por perfil já conhecido (`composicao`, `regime_trabalho`, `ir_declarado`, `ctps`) e nunca por lista universal rasa
+- quando houver objeção (ex.: enviar depois, sem tempo, receio de envio por celular), acolher e redirecionar para envio documental
+- aceitar canal alternativo informado pelo cliente (site/presencial) mantendo orientação consultiva e retorno ao envio
+- dúvidas em RG/CPF/holerite/extrato/CTPS/IR/comprovante de residência devem gerar resposta útil e contextualizada por perfil
+- não avançar stage por conta própria
+
+### `correspondente`
+
+- antes de retorno do correspondente: não confirmar aprovação
+- após retorno de aprovação: não revelar valor aprovado, crédito liberado, taxa, subsídio ou qualquer detalhe financeiro
+- nunca enviar prova de aprovação (print, imagem, evidência)
+- orientar que detalhes financeiros e poder de compra são tratados presencialmente no plantão com o corretor Vasques
+- manter postura humana de acolhimento em insistência, sem quebrar limites operacionais
+
+### `visita`
+
+- manter conversa de visita sem quebrar trilho mecânico de agenda
+- valorizar visita e conduzir para comparecimento/agendamento dentro das opções oficiais
+- aceitar cenários de aceite, pergunta de horários, remarcação e resistência
+- não prometer empreendimento/imóvel específico no WhatsApp
+- reforçar que escolha detalhada de produto ocorre no atendimento presencial

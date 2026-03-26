@@ -18,3 +18,11 @@ Inserir aqui a normativa CEF real, validada e versionada sobre documentos.
 
 - este arquivo é placeholder estruturado
 - não contém normativa operacional definitiva nesta fase
+
+## Base consultiva operacional (isolado read-only)
+
+- priorizar orientação documental por perfil do cliente, usando os slots já consolidados (`composicao`, `regime_trabalho`, `ir_declarado`, `ctps`)
+- quando houver objeção de envio (depois, sem tempo, celular), acolher e puxar novamente para envio com próxima ação clara
+- permitir orientação de envio por canal alternativo informado pelo cliente (site/presencial) sem alterar trilho mecânico
+- tratar dúvidas sobre RG, CPF, holerite, extrato, CTPS, IR e comprovante de residência em linguagem humana e específica
+- registrar `NÃO CONFIRMADO` quando faltar regra operacional validada para um subtipo de documento/perfil

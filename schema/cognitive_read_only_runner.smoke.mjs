@@ -30,14 +30,20 @@ const llmRuntime = {
   fetchImpl: createMockOpenAIFetch()
 };
 
-assert.ok(listReadOnlyCognitiveFixtures().length >= 10);
+assert.ok(listReadOnlyCognitiveFixtures().length >= 16);
 
 const scenarioIds = [
   "autonomo_sem_ir",
   "casado_civil",
   "composicao_familiar",
   "fora_fluxo_duvida",
-  "resposta_ambigua"
+  "resposta_ambigua",
+  "docs_clt_objecao_duvida",
+  "docs_autonomo_site_depois",
+  "correspondente_sem_retorno_ansioso",
+  "correspondente_aprovado_insiste_detalhes",
+  "visita_remarcar_sem_promessa",
+  "visita_resistencia_por_que"
 ];
 
 for (const scenarioId of scenarioIds) {
@@ -90,6 +96,44 @@ for (const scenarioId of scenarioIds) {
     `${scenarioId} confidence below expected floor`
   );
   assert.equal(result.response.should_advance_stage, false, `${scenarioId} must stay read-only`);
+
+  const replyNormalized = normalizeForMatch(result.response.reply_text);
+  if (scenarioId === "docs_clt_objecao_duvida") {
+    assert.match(replyNormalized, /pelo seu perfil/);
+    assert.match(replyNormalized, /rg ou cnh com cpf/);
+    assert.match(replyNormalized, /holerite/);
+    assert.match(replyNormalized, /ctps/);
+    assert.match(replyNormalized, /seguranca|segurança/);
+    assert.match(replyNormalized, /me manda os documentos basicos agora/);
+  }
+  if (scenarioId === "docs_autonomo_site_depois") {
+    assert.match(replyNormalized, /pelo seu perfil/);
+    assert.match(replyNormalized, /extratos bancarios recentes/);
+    assert.match(replyNormalized, /nao confirmado/);
+    assert.match(replyNormalized, /pode enviar pelo site/);
+    assert.match(replyNormalized, /quanto antes voce me enviar os documentos/);
+  }
+  if (scenarioId === "correspondente_sem_retorno_ansioso") {
+    assert.match(replyNormalized, /enquanto nao houver retorno do correspondente/);
+    assert.doesNotMatch(replyNormalized, /r\$\s*\d|valor aprovado de|credito liberado de/);
+  }
+  if (scenarioId === "correspondente_aprovado_insiste_detalhes") {
+    assert.match(replyNormalized, /gostaria muito de ajudar/);
+    assert.match(replyNormalized, /nao tenho acesso ao sistema/);
+    assert.match(replyNormalized, /houve aprovacao/);
+    assert.match(replyNormalized, /corretor vasques no plantao/);
+    assert.doesNotMatch(replyNormalized, /r\$\s*\d|valor aprovado de|credito liberado de|taxa de juros de/);
+  }
+  if (scenarioId === "visita_remarcar_sem_promessa") {
+    assert.match(replyNormalized, /remarcar/);
+    assert.match(replyNormalized, /dias e horarios oficiais do plantao/);
+    assert.match(replyNormalized, /quer que eu ja veja um horario de visita/);
+  }
+  if (scenarioId === "visita_resistencia_por_que") {
+    assert.match(replyNormalized, /a visita e importante/);
+    assert.match(replyNormalized, /sem criar expectativa errada/);
+    assert.match(replyNormalized, /quer que eu ja veja um horario de visita/);
+  }
 }
 
 {
@@ -267,5 +311,8 @@ for (const scenarioId of scenarioIds) {
 }
 
 assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "multiplos_slots"), true);
+assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "docs_clt_objecao_duvida"), true);
+assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "correspondente_aprovado_insiste_detalhes"), true);
+assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "visita_resistencia_por_que"), true);
 
 console.log("cognitive_read_only_runner.smoke: ok");

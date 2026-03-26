@@ -804,8 +804,8 @@ function normalizeModelResponse({
     ...(Array.isArray(modelResponse.consultive_notes) ? modelResponse.consultive_notes : []),
     llmUsed ? `Modelo cognitivo read-only utilizado: ${request.current_stage}.` : null
   ]);
-  const rawReplyText =
-    sanitizeReplyText(modelResponse.reply_text) ||
+  const parsedReplyText = sanitizeReplyText(modelResponse.reply_text);
+  const existingReplyFallback =
     sanitizeReplyText(modelResponse.human_response) ||
     heuristicResponse.reply_text;
   const normalizedMessage = normalizeText(request.message_text);
@@ -816,7 +816,12 @@ function normalizeModelResponse({
     DEFER_ACTION_PATTERN.test(normalizedMessage) ||
     NO_TIME_PATTERN.test(normalizedMessage) ||
     REMOTE_REFUSAL_PATTERN.test(normalizedMessage);
-  const replyText = preferHeuristicReply ? heuristicResponse.reply_text : rawReplyText;
+  const replyText =
+    parsedReplyText && parsedReplyText.trim().length > 0
+      ? parsedReplyText
+      : preferHeuristicReply
+        ? heuristicResponse.reply_text
+        : existingReplyFallback;
   const shouldRequestConfirmation =
     typeof modelResponse.should_request_confirmation === "boolean"
       ? modelResponse.should_request_confirmation || conflicts.length > 0

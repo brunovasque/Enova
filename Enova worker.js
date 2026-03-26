@@ -959,6 +959,299 @@ function parseP3Tipo(text) {
   return null;
 }
 
+const MANUAL_CANONICAL_SAVE_ALLOWED_FIELDS = new Set([
+  "nome",
+  "nome_parceiro",
+  "nacionalidade",
+  "rnm_status",
+  "rnm_validade",
+  "estado_civil",
+  "casamento_civil",
+  "financiamento_conjunto",
+  "somar_renda",
+  "composicao_pessoa",
+  "solteiro_sozinho",
+  "parceiro_tem_renda",
+  "familiar_tipo",
+  "p2_tipo",
+  "p3_tipo",
+  "regime",
+  "regime_trabalho",
+  "regime_parceiro",
+  "regime_trabalho_parceiro",
+  "regime_trabalho_parceiro_familiar",
+  "regime_trabalho_parceiro_familiar_p3",
+  "p3_regime_trabalho",
+  "renda",
+  "renda_titular",
+  "renda_parceiro",
+  "renda_familiar",
+  "p3_renda_mensal",
+  "ir_declarado",
+  "ir_declarado_parceiro",
+  "autonomo_ir",
+  "ctps_36",
+  "ctps_36_parceiro",
+  "p3_ctps_36",
+  "dependente",
+  "tem_dependente",
+  "dependentes_qtd",
+  "restricao",
+  "restricao_parceiro",
+  "p3_restricao",
+  "regularizacao",
+  "regularizacao_restricao",
+  "p3_regularizacao_intencao",
+  "valor_restricao_aproximado",
+  "p1_maior_idade",
+  "p2_maior_idade",
+  "p3_maior_idade"
+]);
+
+const MANUAL_CANONICAL_SAVE_BLOCKED_EXACT_FIELDS = new Set([
+  "fase_conversa",
+  "funil_status",
+  "intro_etapa",
+  "updated_at",
+  "atualizado_em",
+  "last_user_text",
+  "last_processed_text",
+  "last_message_id",
+  "last_bot_msg",
+  "last_incoming_text",
+  "last_incoming_at",
+  "atendimento_manual",
+  "modo_humano",
+  "renda_total_para_fluxo",
+  "renda_total_composicao",
+  "renda_individual_calculada",
+  "renda_parceiro_calculada",
+  "faixa_renda_programa",
+  "fator_social",
+  "multi_renda_flag",
+  "multi_regime_flag",
+  "multi_renda_lista",
+  "multi_regime_lista",
+  "multi_regime_lista_parceiro",
+  "multi_renda_lista_parceiro",
+  "qtd_rendas_informadas",
+  "qtd_regimes_informados",
+  "ultima_renda_bruta_informada",
+  "ultima_renda_bruta_informada_parceiro",
+  "ultima_regime_informado"
+]);
+
+const MANUAL_CANONICAL_SAVE_BLOCKED_PREFIXES = [
+  "docs_",
+  "envio_docs_",
+  "canal_docs_",
+  "corr_",
+  "visita_",
+  "_incoming_",
+  "__cognitive_",
+  "pacote_"
+];
+
+function normalizeManualCanonicalBoolean(value) {
+  if (value === null) return null;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+  const nt = normalizeText(value);
+  if (!nt) return null;
+  if (isYes(nt)) return true;
+  if (isNo(nt)) return false;
+  return undefined;
+}
+
+function normalizeManualCanonicalFamiliarTipo(value) {
+  if (value == null) return null;
+  const nt = normalizeText(value);
+  if (!nt) return null;
+  if (/\bmae\b|minha mae/.test(nt)) return "mae";
+  if (/\bpai\b|meu pai/.test(nt)) return "pai";
+  if (/avo|av[oô]/.test(nt)) return "avo";
+  if (/tio|tia/.test(nt)) return "tio";
+  if (/irmao|irma/.test(nt)) return "irmao";
+  if (/primo|prima/.test(nt)) return "primo";
+  if (/nao especificado|não especificado|outro|familiar/.test(nt)) return "nao_especificado";
+  return undefined;
+}
+
+function normalizeManualCanonicalP2Tipo(value) {
+  if (value == null) return null;
+  const nt = normalizeText(value);
+  if (!nt) return null;
+  if (/parceir|espos|marid/.test(nt)) return "parceiro";
+  if (/familiar|pai|mae|avo|irmao|primo|tio/.test(nt)) return "familiar";
+  return undefined;
+}
+
+function normalizeManualCanonicalNacionalidade(value) {
+  if (value == null) return null;
+  const nt = normalizeText(value);
+  if (!nt) return null;
+  if (/brasileir|brasil/.test(nt)) return "brasileiro";
+  if (/estrangeir|gringo/.test(nt)) return "estrangeiro";
+  return undefined;
+}
+
+function normalizeManualCanonicalRnmStatus(value) {
+  if (value == null) return null;
+  const nt = normalizeText(value);
+  if (!nt) return null;
+  if (/possui|tenho|sim/.test(nt)) return "possui";
+  if (/nao possui|não possui|nao|não|sem/.test(nt)) return "não possui";
+  return undefined;
+}
+
+function normalizeManualCanonicalRnmValidade(value) {
+  if (value == null) return null;
+  const nt = normalizeText(value);
+  if (!nt) return null;
+  if (/indeterminad/.test(nt)) return "indeterminado";
+  if (/definid|temporari|valid/.test(nt)) return "definida";
+  return undefined;
+}
+
+function normalizeManualCanonicalString(value) {
+  if (value == null) return null;
+  const normalized = String(value).trim();
+  return normalized || null;
+}
+
+function normalizeManualCanonicalNumeric(value) {
+  if (value == null) return null;
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  const parsed = parseMoneyBR(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function normalizeManualCanonicalFieldValue(field, rawValue) {
+  if (field === "estado_civil") {
+    if (rawValue == null) return null;
+    return parseEstadoCivil(rawValue);
+  }
+
+  if ([
+    "regime",
+    "regime_trabalho",
+    "regime_parceiro",
+    "regime_trabalho_parceiro",
+    "regime_trabalho_parceiro_familiar",
+    "regime_trabalho_parceiro_familiar_p3",
+    "p3_regime_trabalho"
+  ].includes(field)) {
+    if (rawValue == null) return null;
+    return parseRegimeTrabalho(rawValue);
+  }
+
+  if (field === "familiar_tipo") return normalizeManualCanonicalFamiliarTipo(rawValue);
+  if (field === "p3_tipo") return rawValue == null ? null : (parseP3Tipo(rawValue) || undefined);
+  if (field === "p2_tipo") return normalizeManualCanonicalP2Tipo(rawValue);
+  if (field === "nacionalidade") return normalizeManualCanonicalNacionalidade(rawValue);
+  if (field === "rnm_status") return normalizeManualCanonicalRnmStatus(rawValue);
+  if (field === "rnm_validade") return normalizeManualCanonicalRnmValidade(rawValue);
+
+  if ([
+    "somar_renda",
+    "parceiro_tem_renda",
+    "ir_declarado",
+    "ir_declarado_parceiro",
+    "autonomo_ir",
+    "ctps_36",
+    "ctps_36_parceiro",
+    "p3_ctps_36",
+    "dependente",
+    "tem_dependente",
+    "restricao",
+    "restricao_parceiro",
+    "p3_restricao",
+    "regularizacao",
+    "regularizacao_restricao",
+    "p3_regularizacao_intencao",
+    "financiamento_conjunto",
+    "casamento_civil",
+    "solteiro_sozinho",
+    "p1_maior_idade",
+    "p2_maior_idade",
+    "p3_maior_idade"
+  ].includes(field)) {
+    return normalizeManualCanonicalBoolean(rawValue);
+  }
+
+  if ([
+    "renda",
+    "renda_titular",
+    "renda_parceiro",
+    "renda_familiar",
+    "p3_renda_mensal",
+    "valor_restricao_aproximado"
+  ].includes(field)) {
+    return normalizeManualCanonicalNumeric(rawValue);
+  }
+
+  if (field === "dependentes_qtd") {
+    if (rawValue == null) return null;
+    const num = Number(rawValue);
+    if (!Number.isFinite(num)) return undefined;
+    const int = Math.max(0, Math.round(num));
+    return int;
+  }
+
+  if (["nome", "nome_parceiro", "composicao_pessoa"].includes(field)) {
+    return normalizeManualCanonicalString(rawValue);
+  }
+
+  return undefined;
+}
+
+function getManualCanonicalBlockReason(field) {
+  if (!field) return "field_empty";
+  if (MANUAL_CANONICAL_SAVE_BLOCKED_EXACT_FIELDS.has(field)) return "field_blocked_explicit";
+  if (MANUAL_CANONICAL_SAVE_BLOCKED_PREFIXES.some((prefix) => field.startsWith(prefix))) return "field_blocked_prefix";
+  if (field === "atendimento_manual" || field === "modo_humano") return "field_blocked_operational";
+  if (!MANUAL_CANONICAL_SAVE_ALLOWED_FIELDS.has(field)) return "field_not_allowlisted";
+  return null;
+}
+
+async function emitManualSaveTelemetry(env, marker, wa_id, details = {}) {
+  const payload = {
+    marker,
+    wa_id: wa_id || null,
+    timestamp: new Date().toISOString(),
+    ...details
+  };
+  console.log(marker, JSON.stringify(payload));
+  try {
+    await telemetry(env, {
+      wa_id: wa_id || null,
+      event: "manual_canonical_save",
+      stage: "manual_canonical_save",
+      severity: marker.includes("FAIL") || marker.includes("BLOCKED") ? "warning" : "info",
+      message: marker,
+      details: payload
+    });
+  } catch (err) {
+    console.error("[MANUAL_SAVE_TELEMETRY_FAIL]", err);
+  }
+}
+
+function buildManualStateAfterSummary(st, field) {
+  if (!st || typeof st !== "object") return null;
+  return {
+    wa_id: st.wa_id || null,
+    field,
+    value: Object.prototype.hasOwnProperty.call(st, field) ? st[field] : null,
+    fase_conversa: st.fase_conversa || null,
+    updated_at: st.updated_at || null
+  };
+}
+
 const COGNITIVE_V1_ALLOWED_STAGES = new Set([
   "estado_civil",
   "quem_pode_somar",
@@ -3526,8 +3819,10 @@ const envMode = String(env.ENV_MODE || env.ENOVA_ENV || "").toLowerCase();
 const isAdminPath = pathname.startsWith("/__admin__/");
 const isCanonicalAdminSendPath =
   request.method === "POST" && pathname === "/__admin__/send";
+const isCanonicalManualSavePath =
+  request.method === "POST" && pathname === "/__admin__/manual-canonical-save";
 
-if (isAdminPath && envMode !== "test" && !isCanonicalAdminSendPath) {
+if (isAdminPath && envMode !== "test" && !isCanonicalAdminSendPath && !isCanonicalManualSavePath) {
   return adminJson(403, {
     ok: false,
     error: "forbidden_test_only",
@@ -3906,6 +4201,247 @@ if (isAdminProdPath) {
         max_steps: maxSteps,
         build: ENOVA_BUILD,
         ts: new Date().toISOString()
+      });
+    }
+
+    if (request.method === "POST" && pathname === "/__admin__/manual-canonical-save") {
+      const ts = new Date().toISOString();
+      await emitManualSaveTelemetry(env, "[MANUAL_SAVE_REQUEST]", null, {
+        request_received: true,
+        auth_ok: false,
+        auth_failed: false,
+        timestamp: ts
+      });
+
+      if (!isAdminAuthorized()) {
+        await emitManualSaveTelemetry(env, "[MANUAL_SAVE_AUTH_FAILED]", null, {
+          request_received: true,
+          auth_ok: false,
+          auth_failed: true,
+          failed_at: "auth",
+          error_message: "unauthorized",
+          timestamp: ts
+        });
+        return adminJson(401, {
+          ok: false,
+          reason: "unauthorized",
+          failed_at: "auth",
+          ts
+        });
+      }
+
+      let payload;
+      try {
+        payload = await request.json();
+      } catch (err) {
+        await emitManualSaveTelemetry(env, "[MANUAL_SAVE_PARSE_FAIL]", null, {
+          request_received: true,
+          auth_ok: true,
+          auth_failed: false,
+          failed_at: "response",
+          error_message: err?.message || "invalid_json",
+          timestamp: ts
+        });
+        return adminJson(400, {
+          ok: false,
+          reason: "invalid_json",
+          failed_at: "response",
+          ts
+        });
+      }
+
+      const wa_id = String(payload?.wa_id || "").trim();
+      const field = String(payload?.field || "").trim();
+      const rawValue = Object.prototype.hasOwnProperty.call(payload || {}, "value")
+        ? payload.value
+        : undefined;
+      const source = String(payload?.source || "panel_manual").trim() || "panel_manual";
+      const operator = String(payload?.operator || "unknown").trim() || "unknown";
+
+      await emitManualSaveTelemetry(env, "[MANUAL_SAVE_AUTH_OK]", wa_id || null, {
+        request_received: true,
+        auth_ok: true,
+        auth_failed: false,
+        field_received: field || null,
+        source,
+        operator,
+        raw_value: rawValue ?? null,
+        timestamp: ts
+      });
+
+      if (!wa_id || !field || !Object.prototype.hasOwnProperty.call(payload || {}, "value")) {
+        await emitManualSaveTelemetry(env, "[MANUAL_SAVE_BLOCKED]", wa_id || null, {
+          field_received: field || null,
+          field_allowed: false,
+          block_reason: "invalid_payload",
+          write_attempted: false,
+          write_applied: false,
+          changed: false,
+          source,
+          operator,
+          failed_at: "allowlist",
+          timestamp: ts
+        });
+        return adminJson(400, {
+          ok: false,
+          reason: "invalid_payload",
+          failed_at: "allowlist",
+          ts
+        });
+      }
+
+      const blockReason = getManualCanonicalBlockReason(field);
+      if (blockReason) {
+        await emitManualSaveTelemetry(env, "[MANUAL_SAVE_BLOCKED]", wa_id, {
+          field_received: field,
+          field_allowed: false,
+          block_reason: blockReason,
+          write_attempted: false,
+          write_applied: false,
+          changed: false,
+          source,
+          operator,
+          failed_at: "allowlist",
+          timestamp: ts
+        });
+        return adminJson(400, {
+          ok: false,
+          field,
+          reason: blockReason,
+          failed_at: "allowlist",
+          ts
+        });
+      }
+
+      const normalizedValue = normalizeManualCanonicalFieldValue(field, rawValue);
+      if (typeof normalizedValue === "undefined") {
+        await emitManualSaveTelemetry(env, "[MANUAL_SAVE_NORMALIZE_FAIL]", wa_id, {
+          field_received: field,
+          field_allowed: true,
+          block_reason: "normalize_failed",
+          raw_value: rawValue ?? null,
+          normalized_value: null,
+          write_attempted: false,
+          write_applied: false,
+          changed: false,
+          source,
+          operator,
+          failed_at: "normalize",
+          timestamp: ts
+        });
+        return adminJson(400, {
+          ok: false,
+          field,
+          reason: "normalize_failed",
+          failed_at: "normalize",
+          ts
+        });
+      }
+
+      let stateBefore = null;
+      try {
+        stateBefore = await getState(env, wa_id);
+      } catch (err) {
+        await emitManualSaveTelemetry(env, "[MANUAL_SAVE_PERSIST_FAIL]", wa_id, {
+          field_received: field,
+          field_allowed: true,
+          raw_value: rawValue ?? null,
+          normalized_value: normalizedValue,
+          write_attempted: false,
+          write_applied: false,
+          changed: false,
+          source,
+          operator,
+          failed_at: "persist",
+          error_message: err?.message || String(err),
+          timestamp: ts
+        });
+        return adminJson(500, {
+          ok: false,
+          field,
+          reason: "state_read_failed",
+          failed_at: "persist",
+          ts
+        });
+      }
+
+      const previousValue = stateBefore && Object.prototype.hasOwnProperty.call(stateBefore, field)
+        ? stateBefore[field]
+        : null;
+      const changed = previousValue !== normalizedValue;
+
+      await emitManualSaveTelemetry(env, "[MANUAL_SAVE_NORMALIZED]", wa_id, {
+        field_received: field,
+        field_allowed: true,
+        raw_value: rawValue ?? null,
+        normalized_value: normalizedValue,
+        previous_value: previousValue,
+        write_attempted: true,
+        source,
+        operator,
+        timestamp: ts
+      });
+
+      let stateAfter = stateBefore || { wa_id };
+      let writeApplied = false;
+
+      try {
+        if (changed || !stateBefore) {
+          await upsertState(env, wa_id, { [field]: normalizedValue });
+          writeApplied = true;
+          stateAfter = await getState(env, wa_id);
+        }
+      } catch (err) {
+        await emitManualSaveTelemetry(env, "[MANUAL_SAVE_PERSIST_FAIL]", wa_id, {
+          field_received: field,
+          field_allowed: true,
+          raw_value: rawValue ?? null,
+          normalized_value: normalizedValue,
+          previous_value: previousValue,
+          write_attempted: true,
+          write_applied: false,
+          changed,
+          source,
+          operator,
+          failed_at: "persist",
+          error_message: err?.message || String(err),
+          timestamp: ts
+        });
+        return adminJson(500, {
+          ok: false,
+          field,
+          reason: "persist_failed",
+          failed_at: "persist",
+          ts
+        });
+      }
+
+      await emitManualSaveTelemetry(env, "[MANUAL_SAVE_PERSIST_OK]", wa_id, {
+        field_received: field,
+        field_allowed: true,
+        raw_value: rawValue ?? null,
+        normalized_value: normalizedValue,
+        previous_value: previousValue,
+        write_attempted: true,
+        write_applied: writeApplied,
+        changed,
+        result: "aplicado",
+        source,
+        operator,
+        timestamp: ts
+      });
+
+      return adminJson(200, {
+        ok: true,
+        field,
+        normalized_value: normalizedValue,
+        previous_value: previousValue,
+        changed,
+        write_applied: writeApplied,
+        source,
+        operator,
+        state_after: buildManualStateAfterSummary(stateAfter, field),
+        ts
       });
     }
 
@@ -4448,6 +4984,41 @@ async function handleMediaEnvelope(env, waId, msg, type) {
       fase_conversa: "inicio",
       funil_status: null,
       nome: null
+    });
+  }
+
+  if (st?.atendimento_manual === true) {
+    const bypassTs = new Date().toISOString();
+    const bypassDetails = {
+      marker: "[MANUAL_MODE_BYPASS]",
+      atendimento_manual_detectado: true,
+      flow_interrupt_point: "handleMediaEnvelope.pre_runFunnel",
+      runFunnel_called: false,
+      sendMessage_blocked: true,
+      fase_write_blocked: true,
+      wa_id: waId,
+      timestamp: bypassTs,
+      media_type: type || null
+    };
+    console.log("[MANUAL_MODE_BYPASS]", JSON.stringify(bypassDetails));
+    await telemetry(env, {
+      wa_id: waId,
+      event: "manual_mode_bypass",
+      stage: st?.fase_conversa || "inicio",
+      severity: "info",
+      force: true,
+      message: "[MANUAL_MODE_BYPASS]",
+      details: bypassDetails
+    });
+    return new Response(JSON.stringify({
+      ok: true,
+      reason: "manual_mode_bypass",
+      type
+    }), {
+      status: 200,
+      headers: {
+        "content-type": "application/json"
+      }
     });
   }
 
@@ -5117,6 +5688,57 @@ let userText = null;
 
       st = await getState(env, waId);
     }
+
+    const atendimentoManualOn = st?.atendimento_manual === true;
+    if (atendimentoManualOn) {
+      const bypassTs = new Date().toISOString();
+      const bypassDetails = {
+        marker: "[MANUAL_MODE_BYPASS]",
+        atendimento_manual_detectado: true,
+        flow_interrupt_point: "handleMetaWebhook.pre_runFunnel",
+        runFunnel_called: false,
+        sendMessage_blocked: true,
+        fase_write_blocked: true,
+        wa_id: waId,
+        timestamp: bypassTs
+      };
+      console.log("[MANUAL_MODE_BYPASS]", JSON.stringify(bypassDetails));
+      await telemetry(env, {
+        wa_id: waId,
+        event: "manual_mode_bypass",
+        stage: st?.fase_conversa || "inicio",
+        severity: "info",
+        force: true,
+        message: "[MANUAL_MODE_BYPASS]",
+        details: bypassDetails
+      });
+      return metaWebhookResponse(200, {
+        reason: "manual_mode_bypass",
+        type
+      });
+    }
+
+    const bypassProbeTs = new Date().toISOString();
+    const bypassProbeDetails = {
+      marker: "[MANUAL_MODE_BYPASS]",
+      atendimento_manual_detectado: false,
+      flow_interrupt_point: "handleMetaWebhook.pre_runFunnel",
+      runFunnel_called: true,
+      sendMessage_blocked: false,
+      fase_write_blocked: false,
+      wa_id: waId,
+      timestamp: bypassProbeTs
+    };
+    console.log("[MANUAL_MODE_BYPASS]", JSON.stringify(bypassProbeDetails));
+    await telemetry(env, {
+      wa_id: waId,
+      event: "manual_mode_bypass_probe",
+      stage: st?.fase_conversa || "inicio",
+      severity: "info",
+      force: true,
+      message: "[MANUAL_MODE_BYPASS]",
+      details: bypassProbeDetails
+    });
 
     // ============================================================
     // TELEMETRIA DE ENTRADA — AGORA COM STAGE REAL

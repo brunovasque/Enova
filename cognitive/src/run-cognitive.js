@@ -976,7 +976,7 @@ function normalizeModelResponse({
   });
   if (phaseGuidanceReply) {
     return {
-      reply_text: ensureReplyHasNextAction(heuristicResponse.reply_text, {
+      reply_text: ensureReplyHasNextAction(phaseGuidanceReply, {
         request,
         pendingSlots,
         suggestedNextSlot

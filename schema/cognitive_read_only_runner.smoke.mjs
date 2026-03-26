@@ -233,6 +233,128 @@ for (const scenarioId of scenarioIds) {
 }
 
 {
+  const phaseNormalizationScenarios = [
+    {
+      id: "normalize_phase_docs",
+      request: {
+        conversation_id: "normalize-phase-docs-001",
+        current_stage: "renda",
+        message_text: "Quais documentos preciso enviar?",
+        known_slots: {
+          regime_trabalho: "clt",
+          composicao: "sozinho",
+          ir_declarado: "sim"
+        },
+        pending_slots: ["renda"]
+      },
+      modelPayload: {
+        reply_text: "RESPOSTA ANTIGA DO MODELO",
+        slots_detected: {},
+        pending_slots: ["docs"],
+        conflicts: [],
+        suggested_next_slot: "docs",
+        consultive_notes: [],
+        should_request_confirmation: false,
+        should_advance_stage: false,
+        confidence: 0.9
+      },
+      mustInclude: ["pelo seu perfil", "holerite", "documentos básicos"]
+    },
+    {
+      id: "normalize_phase_correspondente",
+      request: {
+        conversation_id: "normalize-phase-cor-001",
+        current_stage: "renda",
+        message_text: "Me fala valor aprovado e taxa.",
+        known_slots: {
+          correspondente: "aprovado",
+          retorno_correspondente_status: "aprovado"
+        },
+        pending_slots: ["renda"]
+      },
+      modelPayload: {
+        reply_text: "RESPOSTA ANTIGA DO MODELO",
+        slots_detected: {},
+        pending_slots: ["correspondente"],
+        conflicts: [],
+        suggested_next_slot: "correspondente",
+        consultive_notes: [],
+        should_request_confirmation: false,
+        should_advance_stage: false,
+        confidence: 0.9
+      },
+      mustInclude: ["gostaria muito de ajudar", "não tenho acesso ao sistema", "corretor vasques no plantão"]
+    },
+    {
+      id: "normalize_phase_visita",
+      request: {
+        conversation_id: "normalize-phase-visita-001",
+        current_stage: "renda",
+        message_text: "Pra que precisa visitar?",
+        known_slots: {},
+        pending_slots: ["renda"]
+      },
+      modelPayload: {
+        reply_text: "RESPOSTA ANTIGA DO MODELO",
+        slots_detected: {},
+        pending_slots: ["visita"],
+        conflicts: [],
+        suggested_next_slot: "visita",
+        consultive_notes: [],
+        should_request_confirmation: false,
+        should_advance_stage: false,
+        confidence: 0.9
+      },
+      mustInclude: ["agenda oficial do plantão", "sem quebrar o trilho do processo", "horário de visita"]
+    }
+  ];
+
+  for (const scenario of phaseNormalizationScenarios) {
+    const result = await runReadOnlyCognitiveEngine(scenario.request, {
+      openaiApiKey: "test-openai-key",
+      model: "gpt-4.1-mini",
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify(scenario.modelPayload)
+                }
+              }
+            ]
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json"
+            }
+          }
+        )
+    });
+
+    const replyText = String(result?.response?.reply_text || "");
+    const normalized = normalizeForMatch(replyText);
+
+    assert.equal(result?.engine?.llm_used, true, `${scenario.id} should use llm path`);
+    assert.equal(result?.response?.should_advance_stage, false, `${scenario.id} must keep should_advance_stage=false`);
+    assert.doesNotMatch(
+      normalized,
+      /resposta antiga do modelo|entendi, mas ainda preciso de um ponto objetivo/,
+      `${scenario.id} must not fallback to generic heuristic or raw model reply`
+    );
+
+    for (const snippet of scenario.mustInclude) {
+      assert.match(
+        normalized,
+        new RegExp(escapeRegex(normalizeForMatch(snippet))),
+        `${scenario.id} must include phase guidance snippet: ${snippet}`
+      );
+    }
+  }
+}
+
+{
   const conversionScenarios = [
     {
       id: "cliente_evasivo",

@@ -4738,15 +4738,13 @@ let stFromProfile = null;
 if (waId && profileName) {
   stFromProfile = await getState(env, waId);
   if (!stFromProfile) {
-    await upsertState(env, waId, {
+    stFromProfile = await upsertState(env, waId, {
       fase_conversa: "inicio",
       funil_status: null,
       nome: profileName
     });
-    stFromProfile = await getState(env, waId);
   } else if (!String(stFromProfile?.nome || "").trim()) {
-    await upsertState(env, waId, { nome: profileName });
-    stFromProfile = { ...stFromProfile, nome: profileName };
+    stFromProfile = await upsertState(env, waId, { nome: profileName }) || { ...stFromProfile, nome: profileName };
   }
 }
   await telemetry(env, {

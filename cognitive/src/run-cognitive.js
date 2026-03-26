@@ -97,9 +97,9 @@ const SLOT_ACTION_PROMPTS = Object.freeze({
   regime_trabalho: "Me confirma se hoje você é CLT, autônomo, servidor ou aposentado?",
   renda: "Me informa sua renda média mensal?",
   ir_declarado: "Me confirma se você declara Imposto de Renda?",
-  docs: "Se quiser, já me manda os documentos básicos agora que eu adianto sua análise.",
-  correspondente: "Se quiser, já me manda os documentos pendentes agora que eu adianto sua análise.",
-  visita: "Quer que eu já veja um horário de visita no plantão para você?"
+  docs: "Se quiser, já pode me mandar os documentos básicos por aqui que eu adianto sua análise.",
+  correspondente: "Se quiser, eu sigo acompanhando por aqui e te aviso assim que tiver retorno do correspondente.",
+  visita: "Se fizer sentido para você, eu já vejo um horário dentro da agenda oficial do plantão."
 });
 const COGNITIVE_SLOT_CONTRACT = Object.freeze([
   {
@@ -143,13 +143,35 @@ function cloneJson(value) {
   return value == null ? value : JSON.parse(JSON.stringify(value));
 }
 
+function repairTextEncoding(value) {
+  let text = String(value || "").replace(/\u0000/g, "");
+  if (/[ÃÂ]/.test(text)) {
+    try {
+      text = decodeURIComponent(escape(text));
+    } catch (_) {
+      // se falhar, segue com o texto original
+    }
+  }
+  return text.normalize("NFC");
+}
+
 function normalizeText(value) {
-  return String(value || "")
+  return repairTextEncoding(value)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function humanJoinList(values) {
+  const items = Array.isArray(values)
+    ? values.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+  if (!items.length) return "";
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} e ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")} e ${items[items.length - 1]}`;
 }
 
 function normalizeRequest(input = {}) {
@@ -293,7 +315,7 @@ function clampConfidence(value, fallback = 0.5) {
 function sanitizeReplyText(value) {
   return REPLY_TEXT_REPLACEMENTS.reduce(
     (text, [pattern, replacement]) => text.replace(pattern, replacement),
-    String(value || "").replace(/\u0000/g, "")
+    repairTextEncoding(value)
   )
     .replace(/\s+/g, " ")
     .replace(/\s+([,.!?;:])/g, "$1")
@@ -373,22 +395,27 @@ function buildDocsGuidanceByProfile(request) {
 
   let channelNote = "";
   if (/\b(site|portal)\b/.test(normalizedMessage)) {
-    channelNote = "Perfeito, pode enviar pelo site com tranquilidade.";
+    channelNote = "Perfeito, se preferir pode enviar pelo site com tranquilidade que seguimos por lá.";
   } else if (REMOTE_REFUSAL_PATTERN.test(normalizedMessage)) {
-    channelNote = "Sem problema, no atendimento presencial também conseguimos receber e conferir com você.";
+    channelNote = "Sem problema, no presencial também conseguimos conferir tudo com você com calma.";
   }
 
   let doubtNote = "";
   if (DOCS_HINT_PATTERN.test(normalizedMessage)) {
-    doubtNote = "Se tiver dúvida em RG, CPF, holerite, extrato, CTPS, IR ou comprovante de residência, eu te explico item a item.";
+    doubtNote = "Se quiser, eu também posso te explicar rapidinho o que entra em RG, CPF, holerite, extrato, CTPS, IR ou comprovante de residência.";
   }
 
   let empathyNote = "";
   if (FEAR_PATTERN.test(normalizedMessage)) {
-    empathyNote = "Entendo sua preocupação, e vamos fazer isso com segurança e sem pressa.";
+    empathyNote = "Entendo sua preocupação, e dá para fazer isso com calma e segurança.";
   }
 
-  return [empathyNote, `Pelo seu perfil, os documentos mais importantes agora são: ${docs.join(", ")}.`, doubtNote, channelNote]
+  return [
+    empathyNote,
+    `Pelo seu perfil, para adiantar sua análise, o ideal é separar ${humanJoinList(docs)}.`,
+    doubtNote,
+    channelNote
+  ]
     .filter(Boolean)
     .join(" ");
 }
@@ -402,36 +429,36 @@ function buildCorrespondenteGuidance(request) {
   const insistsFinancial = FINANCIAL_DETAILS_PATTERN.test(normalizedMessage) || APPROVAL_PROOF_PATTERN.test(normalizedMessage);
 
   if (!approved) {
-    return "Entendo a ansiedade e estou acompanhando com você. Enquanto não houver retorno do correspondente, eu ainda não consigo confirmar aprovação.";
+    return "Entendo sua ansiedade, de verdade, e sigo acompanhando com você. Enquanto não houver retorno do correspondente, eu ainda não consigo confirmar aprovação.";
   }
 
   if (insistsFinancial || APPROVAL_HINT_PATTERN.test(normalizedMessage)) {
-    return "Eu gostaria muito de ajudar, mas infelizmente não tenho acesso ao sistema de aprovação. Eu só recebi o retorno de que houve aprovação, e os detalhes de financiamento, taxas, subsídios e poder de compra são tratados presencialmente com o corretor Vasques no plantão.";
+    return "Queria muito conseguir te abrir isso por aqui, mas eu realmente não tenho acesso ao sistema de aprovação. O que chegou para mim foi só a informação de que houve aprovação, e os detalhes de financiamento, taxas, subsídios e poder de compra são tratados presencialmente com o corretor Vasques no plantão.";
   }
 
-  return "Recebemos retorno de aprovação, e agora os detalhes de financiamento, taxas, subsídios e poder de compra são tratados presencialmente com o corretor Vasques no plantão.";
+  return "Recebemos o retorno de aprovação, e agora essa parte de financiamento, taxas, subsídios e poder de compra é tratada presencialmente com o corretor Vasques no plantão.";
 }
 
 function buildVisitaGuidance(request) {
   const normalizedMessage = normalizeText(request?.message_text);
 
   if (VISITA_RESCHEDULE_PATTERN.test(normalizedMessage)) {
-    return "Perfeito, conseguimos remarcar dentro dos dias e horários oficiais do plantão para manter seu atendimento organizado.";
+    return "Claro, a gente consegue remarcar dentro dos dias e horários oficiais do plantão, sem perder a organização do seu atendimento.";
   }
   if (VISITA_RESIST_PATTERN.test(normalizedMessage)) {
-    return "A visita é importante para você conhecer o processo com clareza e tomar decisão com segurança, sem criar expectativa errada no WhatsApp.";
+    return "Eu entendo. A visita é o momento de te mostrar o processo com mais clareza, tirar dúvidas com segurança e alinhar tudo sem criar expectativa errada pelo WhatsApp.";
   }
   if (/\bhor[aá]rio|dia|quando\b/.test(normalizedMessage)) {
-    return "Ótima pergunta. Eu sigo a agenda oficial do plantão e te passo as opções válidas de dias e horários para visita.";
+    return "Claro. Eu sigo a agenda oficial do plantão e te passo certinho as opções válidas de dia e horário para visita.";
   }
   if (/\bescolher im[oó]vel|unidade|empreendimento|apartamento espec[ií]fico|casa espec[ií]fica\b/.test(normalizedMessage)) {
-    return "A escolha de imóvel e disponibilidade é alinhada presencialmente no plantão com o corretor, para evitar promessas fora da operação.";
+    return "Para não te gerar expectativa errada, escolha de unidade, imóvel e disponibilidade é alinhada presencialmente no plantão com o corretor.";
   }
   if (VISITA_ACCEPT_PATTERN.test(normalizedMessage)) {
-    return "Perfeito, sua visita é um passo importante e já te conduzo pelas opções oficiais de agenda.";
+    return "Perfeito, faz sentido avançar por aqui. Já te conduzo pelas opções oficiais de agenda.";
   }
 
-  return "A visita te ajuda a avançar com segurança, dentro da agenda oficial do plantão, sem quebrar o trilho do processo.";
+  return "A visita ajuda você a avançar com segurança, dentro da agenda oficial do plantão e sem quebrar o trilho do processo.";
 }
 
 function buildPhaseGuidanceReply({ request, suggestedNextSlot, pendingSlots }) {

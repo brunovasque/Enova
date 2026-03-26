@@ -5,6 +5,12 @@ const openaiMockModule = await import(new URL("./cognitive_openai_mock.mjs", imp
 const worker = workerModule.default;
 const { createMockOpenAIFetch } = openaiMockModule;
 
+function assertCleanPortugueseText(value, label) {
+  const text = String(value || "");
+  assert.equal(text, text.normalize("NFC"), `${label} must keep NFC-composed accents`);
+  assert.doesNotMatch(text, /Ã[¡-ÿ]|Â[^\sa-zA-Z0-9]|�/, `${label} must not contain mojibake or replacement chars`);
+}
+
 function buildEnv() {
   return {
     ENV_MODE: "test",
@@ -61,6 +67,7 @@ for (const fixtureId of fixtureIds) {
   assert.ok(data?.llm_parsed_response && typeof data?.llm_parsed_response === "object", `admin route must expose llm_parsed_response for ${fixtureId}`);
   assert.equal(data?.response?.should_advance_stage, false);
   assert.notEqual(String(data?.response?.reply_text || "").trim(), "", `${fixtureId} reply_text must not be empty`);
+  assertCleanPortugueseText(data?.response?.reply_text, `${fixtureId} admin reply_text`);
   if (["autonomo_sem_ir", "casado_civil", "composicao_familiar"].includes(fixtureId)) {
     assert.ok(Object.keys(data?.response?.slots_detected || {}).length > 0, `${fixtureId} slots_detected must not be empty`);
   }
@@ -77,13 +84,13 @@ for (const fixtureId of fixtureIds) {
     assert.match(replyNormalized, /nao confirmado/);
   }
   if (fixtureId === "correspondente_aprovado_insiste_detalhes") {
-    assert.match(replyNormalized, /nao tenho acesso ao sistema/);
+    assert.match(replyNormalized, /nao tenho acesso ao sistema de aprovacao/);
     assert.match(replyNormalized, /corretor vasques no plantao/);
     assert.doesNotMatch(replyNormalized, /r\$\s*\d|valor aprovado de|credito liberado de|taxa de juros de/);
   }
   if (fixtureId === "visita_resistencia_por_que") {
-    assert.match(replyNormalized, /a visita e importante/);
-    assert.match(replyNormalized, /horario de visita/);
+    assert.match(replyNormalized, /sem criar expectativa errada/);
+    assert.match(replyNormalized, /agenda oficial do plantao/);
   }
   assert.equal(data?.side_effect_audit?.official_write_count, 0);
   assert.equal(data?.side_effect_audit?.would_send_meta, false);

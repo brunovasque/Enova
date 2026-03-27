@@ -3,6 +3,43 @@ import { resolveCaseFileById, type EnovaDocRow } from "../_shared";
 
 const REQUIRED_ENVS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const;
 
+function isAllowedFileOrigin(rawUrl: string, supabaseUrl: string): boolean {
+  let target: URL;
+  let supabase: URL;
+  try {
+    target = new URL(rawUrl);
+    supabase = new URL(supabaseUrl);
+  } catch {
+    return false;
+  }
+
+  if (target.protocol !== "https:") {
+    return false;
+  }
+
+  const host = String(target.hostname || "").toLowerCase();
+  if (!host) {
+    return false;
+  }
+
+  const supabaseHost = String(supabase.hostname || "").toLowerCase();
+  const isSupabase =
+    host === supabaseHost ||
+    host.endsWith(".supabase.co") ||
+    host.endsWith(".supabase.in");
+  if (isSupabase) {
+    return true;
+  }
+
+  const isMetaProtected =
+    host === "lookaside.fbsbx.com" ||
+    host.endsWith(".lookaside.fbsbx.com") ||
+    host === "graph.facebook.com" ||
+    host.endsWith(".graph.facebook.com") ||
+    host.endsWith(".fbsbx.com");
+  return isMetaProtected;
+}
+
 function buildContentDisposition(fileName: string | null, previewable: boolean): string {
   const fallbackName =
     (fileName || "arquivo")
@@ -68,6 +105,13 @@ export async function GET(request: Request) {
       return NextResponse.json(
         { ok: false, error: "arquivo não encontrado" },
         { status: 404, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    if (!isAllowedFileOrigin(resolved.sourceUrl, supabaseUrl)) {
+      return NextResponse.json(
+        { ok: false, error: "origem de arquivo não permitida" },
+        { status: 403, headers: { "Cache-Control": "no-store" } },
       );
     }
 

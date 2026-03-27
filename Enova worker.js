@@ -670,6 +670,19 @@ async function getState(env, wa_id) {
 // =============================================================
 async function upsertState(env, wa_id, payload) {
   const simCtx = getSimulationContext(env);
+  const OPTIONAL_MISSING_COLUMNS_ALLOWLIST = new Set([
+    "last_message_id_prev",
+    "last_message_timestamp"
+  ]);
+  const stripMissingOptionalColumnFromPatch = (targetPatch, err) => {
+    const missingColumn = extractMissingEnovaStateColumnFromSupabaseError(err);
+    if (!OPTIONAL_MISSING_COLUMNS_ALLOWLIST.has(missingColumn)) return false;
+    if (!Object.prototype.hasOwnProperty.call(targetPatch, missingColumn)) return false;
+    const { [missingColumn]: _ignoredMissingOptionalColumn, ...nextPatch } = targetPatch;
+    Object.keys(targetPatch).forEach((key) => { delete targetPatch[key]; });
+    Object.assign(targetPatch, nextPatch);
+    return true;
+  };
 
   // Sempre atualizamos o updated_at no Worker
   const patch = {
@@ -707,91 +720,88 @@ async function upsertState(env, wa_id, payload) {
     if (!existing) {
       const rowInsert = { wa_id, ...patch };
 
-      try {
-        const insertResult = await supabaseInsert(env, "enova_state", rowInsert);
+      while (true) {
+        try {
+          const insertResult = await supabaseInsert(env, "enova_state", rowInsert);
 
-        if (Array.isArray(insertResult)) {
-          return insertResult[0] || null;
-        }
-        if (insertResult && Array.isArray(insertResult.data)) {
-          return insertResult.data[0] || null;
-        }
-        return insertResult || null;
-      } catch (err) {
-        const missingColumn = extractMissingEnovaStateColumnFromSupabaseError(err);
-        if (missingColumn === "last_message_id_prev" && Object.prototype.hasOwnProperty.call(patch, "last_message_id_prev")) {
-          const { last_message_id_prev: _ignoredPrevMessageId, ...fallbackPatch } = patch;
-          const fallbackInsertResult = await supabaseInsert(env, "enova_state", { wa_id, ...fallbackPatch });
-          if (Array.isArray(fallbackInsertResult)) {
-            return fallbackInsertResult[0] || null;
+          if (Array.isArray(insertResult)) {
+            return insertResult[0] || null;
           }
-          if (fallbackInsertResult && Array.isArray(fallbackInsertResult.data)) {
-            return fallbackInsertResult.data[0] || null;
+          if (insertResult && Array.isArray(insertResult.data)) {
+            return insertResult.data[0] || null;
           }
-          return fallbackInsertResult || null;
-        }
-        // Se bater 409 aqui, significa que alguém inseriu
-        // na frente – então convertemos em UPDATE e segue a vida
-        if (err.status === 409) {
-          const updateResult = await supabaseUpdate(
-            env,
-            "enova_state",
-            { wa_id },
-            patch
+          return insertResult || null;
+        } catch (err) {
+          if (stripMissingOptionalColumnFromPatch(rowInsert, err)) {
+            continue;
+          }
+          // Se bater 409 aqui, significa que alguém inseriu
+          // na frente – então convertemos em UPDATE e segue a vida
+          if (err.status === 409) {
+            const updatePatch = { ...rowInsert };
+            delete updatePatch.wa_id;
+            while (true) {
+              try {
+                const updateResult = await supabaseUpdate(
+                  env,
+                  "enova_state",
+                  { wa_id },
+                  updatePatch
+                );
+
+                if (Array.isArray(updateResult)) {
+                  return updateResult[0] || null;
+                }
+                if (updateResult && Array.isArray(updateResult.data)) {
+                  return updateResult.data[0] || null;
+                }
+                return updateResult || null;
+              } catch (updateErr) {
+                if (stripMissingOptionalColumnFromPatch(updatePatch, updateErr)) {
+                  continue;
+                }
+                throw updateErr;
+              }
+            }
+          }
+
+          console.error(
+            `upsertState: erro no INSERT para wa_id=${wa_id}`,
+            err
           );
-
-          if (Array.isArray(updateResult)) {
-            return updateResult[0] || null;
-          }
-          if (updateResult && Array.isArray(updateResult.data)) {
-            return updateResult.data[0] || null;
-          }
-          return updateResult || null;
+          throw err;
         }
-
-        console.error(
-          `upsertState: erro no INSERT para wa_id=${wa_id}`,
-          err
-        );
-        throw err;
       }
     }
 
     // ---------------------------------------------------------
     // CASO 2: já existe registro → UPDATE direto
     // ---------------------------------------------------------
-    const updateResult = await supabaseUpdate(
-      env,
-      "enova_state",
-      { wa_id },
-      patch
-    );
+    const updatePatch = { ...patch };
+    while (true) {
+      try {
+        const updateResult = await supabaseUpdate(
+          env,
+          "enova_state",
+          { wa_id },
+          updatePatch
+        );
 
-    if (Array.isArray(updateResult)) {
-      return updateResult[0] || null;
+        if (Array.isArray(updateResult)) {
+          return updateResult[0] || null;
+        }
+        if (updateResult && Array.isArray(updateResult.data)) {
+          return updateResult.data[0] || null;
+        }
+        return updateResult || null;
+      } catch (err) {
+        if (stripMissingOptionalColumnFromPatch(updatePatch, err)) {
+          continue;
+        }
+        throw err;
+      }
     }
-    if (updateResult && Array.isArray(updateResult.data)) {
-      return updateResult.data[0] || null;
-    }
-    return updateResult || null;
   } catch (err) {
-    const missingColumn = extractMissingEnovaStateColumnFromSupabaseError(err);
-    if (missingColumn === "last_message_id_prev" && Object.prototype.hasOwnProperty.call(patch, "last_message_id_prev")) {
-      const { last_message_id_prev: _ignoredPrevMessageId, ...fallbackPatch } = patch;
-      const retryResult = await supabaseUpdate(
-        env,
-        "enova_state",
-        { wa_id },
-        fallbackPatch
-      );
-      if (Array.isArray(retryResult)) {
-        return retryResult[0] || null;
-      }
-      if (retryResult && Array.isArray(retryResult.data)) {
-        return retryResult.data[0] || null;
-      }
-      return retryResult || null;
-    }
     console.error(
       `upsertState: erro geral para wa_id=${wa_id}`,
       err

@@ -1102,6 +1102,139 @@ async function maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt)
   return null;
 }
 
+function nextAutonomoInformativoPendente(st = {}) {
+  if (!hasStateValue(getEtapa1InformativoValue(st, "titular_autonomo_profissao_atividade"))) return "profissao_atividade";
+  if (!hasStateValue(getEtapa1InformativoValue(st, "titular_autonomo_mei_pj_status"))) return "mei_pj_status";
+  if (!hasStateValue(getEtapa1InformativoValue(st, "titular_autonomo_renda_estabilidade"))) return "renda_estabilidade";
+  return null;
+}
+
+function buildAutonomoInformativoQuestion(kind) {
+  if (kind === "profissao_atividade") {
+    return [
+      "Perfeito. 👍",
+      "Antes de seguir, me diga sua profissão/atividade principal como autônomo(a)."
+    ];
+  }
+  if (kind === "mei_pj_status") {
+    return [
+      "Você atua como pessoa física, MEI ou PJ?",
+      "É só informativo nessa etapa."
+    ];
+  }
+  if (kind === "renda_estabilidade") {
+    return [
+      "Sua renda costuma ser mais estável ou varia bastante de mês para mês?"
+    ];
+  }
+  return [];
+}
+
+function parseAutonomoMeiPjStatus(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  if (/\bmei\b/.test(nt)) return "mei";
+  if (/\bpj\b|empresa|cnpj|microempresa|ltda/.test(nt)) return "pj";
+  if (/pessoa fisica|pf|autonom/.test(nt)) return "pf";
+  return null;
+}
+
+function parseAutonomoRendaEstabilidade(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  if (/estavel|fixa|constante|regular/.test(nt)) return "estavel";
+  if (/variavel|varia|oscil|instavel|instável/.test(nt)) return "variavel";
+  return null;
+}
+
+async function maybeHandleAutonomoInformativos(env, st, userText, stageForPrompt) {
+  const pendente = nextAutonomoInformativoPendente(st);
+  if (!pendente) return null;
+  const t = String(userText || "").trim();
+
+  if (pendente === "profissao_atividade" && !isGenericAckText(t)) {
+    const patch = buildEtapa1InformativosPatch(st, { titular_autonomo_profissao_atividade: t });
+    await upsertState(env, st.wa_id, patch);
+    Object.assign(st, patch);
+  } else if (pendente === "mei_pj_status" && !isGenericAckText(t)) {
+    const parsed = parseAutonomoMeiPjStatus(t) || t;
+    const patch = buildEtapa1InformativosPatch(st, { titular_autonomo_mei_pj_status: parsed });
+    await upsertState(env, st.wa_id, patch);
+    Object.assign(st, patch);
+  } else if (pendente === "renda_estabilidade" && !isGenericAckText(t)) {
+    const parsed = parseAutonomoRendaEstabilidade(t) || t;
+    const patch = buildEtapa1InformativosPatch(st, { titular_autonomo_renda_estabilidade: parsed });
+    await upsertState(env, st.wa_id, patch);
+    Object.assign(st, patch);
+  }
+
+  const proximo = nextAutonomoInformativoPendente(st);
+  if (proximo) {
+    return step(env, st, buildAutonomoInformativoQuestion(proximo), stageForPrompt);
+  }
+  return step(
+    env,
+    st,
+    ["Você declara Imposto de Renda (IR)? (sim/não)"],
+    stageForPrompt
+  );
+}
+
+function resolveRendaTitularParaCursoSuperior(st = {}) {
+  const rendaRaw = st.renda;
+  if (typeof rendaRaw === "number" && Number.isFinite(rendaRaw)) return rendaRaw;
+  if (typeof rendaRaw === "string" && rendaRaw.trim()) {
+    const parsed = parseMoneyBR(rendaRaw);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  const rendaTotalRaw = st.renda_total_para_fluxo;
+  if (typeof rendaTotalRaw === "number" && Number.isFinite(rendaTotalRaw)) return rendaTotalRaw;
+  if (typeof rendaTotalRaw === "string" && rendaTotalRaw.trim()) {
+    const parsedTotal = parseMoneyBR(rendaTotalRaw);
+    if (Number.isFinite(parsedTotal)) return parsedTotal;
+  }
+  return null;
+}
+
+function parseTitularCursoSuperiorStatus(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  if (/cursando|faculdade|universidade|graduacao em andamento|graduação em andamento/.test(nt)) return "cursando";
+  if (/concluid|formad|completei|tenho curso superior/.test(nt)) return "concluido";
+  if (/nao|não|sem|medio|fundamental/.test(nt)) return "nao";
+  return null;
+}
+
+async function maybeHandleTitularCursoSuperiorPreCtps(env, st, userText, stageForPrompt) {
+  const rendaTitular = resolveRendaTitularParaCursoSuperior(st);
+  const jaCapturado = hasStateValue(getEtapa1InformativoValue(st, "titular_curso_superior_status"));
+  if (!Number.isFinite(rendaTitular) || rendaTitular > 3500 || jaCapturado) return null;
+
+  const t = String(userText || "").trim();
+  const parsed = parseTitularCursoSuperiorStatus(t);
+  if (parsed !== null) {
+    const patch = buildEtapa1InformativosPatch(st, { titular_curso_superior_status: parsed });
+    await upsertState(env, st.wa_id, patch);
+    Object.assign(st, patch);
+    return step(
+      env,
+      st,
+      ["Perfeito 👌", "Agora me confirma: você tem 36 meses ou mais de carteira assinada (CTPS) nos últimos 3 anos?"],
+      stageForPrompt
+    );
+  }
+
+  return step(
+    env,
+    st,
+    [
+      "Antes de seguir, me conta: você tem curso superior completo ou está cursando?",
+      "Se não tiver, tudo bem — é só informativo."
+    ],
+    stageForPrompt
+  );
+}
+
 function nextVisitaInformativoPendente(st = {}) {
   if (!shouldRunEtapa1InformativosVisita(st)) return null;
   if (!hasStateValue(getEtapa1InformativoValue(st, "visita_reserva_entrada_tem"))) return "reserva";
@@ -19914,6 +20047,9 @@ case "regime_trabalho": {
 }
 
 case "autonomo_ir_pergunta": {
+  const informativoAutonomo = await maybeHandleAutonomoInformativos(env, st, userText, "autonomo_ir_pergunta");
+  if (informativoAutonomo) return informativoAutonomo;
+
  const nao = /^(n[aã]o|nao)$/i.test(String(userText || "").trim());
  const sim = /\b(sim|yes)\b/i.test(userText);
 
@@ -22278,6 +22414,8 @@ case "autonomo_compor_renda": {
 // 🧩 C31 — CTPS 36 MESES (Titular)
 // =========================================================
 case "ctps_36": {
+  const cursoSuperiorInformativo = await maybeHandleTitularCursoSuperiorPreCtps(env, st, userText, "ctps_36");
+  if (cursoSuperiorInformativo) return cursoSuperiorInformativo;
 
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "ctps_36"

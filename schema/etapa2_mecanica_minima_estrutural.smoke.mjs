@@ -65,24 +65,33 @@ async function simulateFromState(env, stage, text, stOverrides = {}) {
   return data;
 }
 
-// 1) CLT fixo/variável sem alterar trilho principal.
+// 1) CLT fixo/variável em subfase própria, separado de multi regime.
 {
   const env = buildEnv();
-  const fixed = await simulateFromState(env, "inicio_multi_regime_pergunta", "salário fixo, só esse", {
+  const fixed = await simulateFromState(env, "regime_trabalho", "clt", {});
+  assert.equal(fixed.stage_after, "clt_renda_perfil_informativo");
+  assert.match(fixed.reply_text || "", /sal[aá]rio.*fixo.*variar/i);
+
+  const fixedAnswer = await simulateFromState(env, "clt_renda_perfil_informativo", "fixo", {
     regime: "clt",
-    regime_trabalho: "clt"
+    regime_trabalho: "clt",
+    clt_perfil_contexto: "p1",
+    clt_perfil_return_stage: "inicio_multi_regime_pergunta"
   });
-  assert.equal(fixed.stage_after, "renda");
+  assert.equal(fixedAnswer.stage_after, "inicio_multi_regime_pergunta");
+  assert.match(fixedAnswer.reply_text || "", /mais algum regime de trabalho/i);
   assert.equal(
-    fixed.writes?.controle?.etapa2_estrutural?.clt_renda_perfil_por_participante?.p1,
+    fixedAnswer.writes?.controle?.etapa2_estrutural?.clt_renda_perfil_por_participante?.p1,
     "fixo"
   );
 
-  const variable = await simulateFromState(env, "inicio_multi_regime_pergunta", "varia por comissão e hora extra, só esse", {
+  const variable = await simulateFromState(env, "clt_renda_perfil_informativo", "varia por comissão e hora extra", {
     regime: "clt",
-    regime_trabalho: "clt"
+    regime_trabalho: "clt",
+    clt_perfil_contexto: "p1",
+    clt_perfil_return_stage: "inicio_multi_regime_pergunta"
   });
-  assert.equal(variable.stage_after, "renda");
+  assert.equal(variable.stage_after, "inicio_multi_regime_pergunta");
   assert.equal(
     variable.writes?.controle?.etapa2_estrutural?.clt_renda_perfil_por_participante?.p1,
     "variavel"
@@ -118,7 +127,7 @@ async function simulateFromState(env, stage, text, stOverrides = {}) {
   );
 }
 
-// 3) Multi renda/multi regime por participante (p1/p2/p3).
+// 3) Multi renda/multi regime por participante (p1/p2/p3) + CLT por participante p2/p3.
 {
   const env = buildEnv();
 
@@ -153,9 +162,28 @@ async function simulateFromState(env, stage, text, stOverrides = {}) {
   );
 
   const regimeP3 = await simulateFromState(env, "inicio_multi_regime_p3_loop", "clt", {});
+  assert.equal(regimeP3.stage_after, "clt_renda_perfil_informativo");
+
+  const cltP2 = await simulateFromState(env, "clt_renda_perfil_informativo", "fixo", {
+    regime_trabalho_parceiro: "clt",
+    clt_perfil_contexto: "p2",
+    clt_perfil_return_stage: "inicio_multi_regime_pergunta_parceiro"
+  });
+  assert.equal(cltP2.stage_after, "inicio_multi_regime_pergunta_parceiro");
   assert.equal(
-    Number(regimeP3.writes?.controle?.etapa2_estrutural?.multi_regime_qtd_por_participante?.p3 || 0) >= 1,
-    true
+    cltP2.writes?.controle?.etapa2_estrutural?.clt_renda_perfil_por_participante?.p2,
+    "fixo"
+  );
+
+  const cltP3 = await simulateFromState(env, "clt_renda_perfil_informativo", "variavel por adicional", {
+    p3_regime_trabalho: "clt",
+    clt_perfil_contexto: "p3",
+    clt_perfil_return_stage: "inicio_multi_regime_p3_pergunta"
+  });
+  assert.equal(cltP3.stage_after, "inicio_multi_regime_p3_pergunta");
+  assert.equal(
+    cltP3.writes?.controle?.etapa2_estrutural?.clt_renda_perfil_por_participante?.p3,
+    "variavel"
   );
 }
 

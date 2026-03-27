@@ -1031,6 +1031,79 @@ function getOfficialFollowupCounters(st = {}) {
   };
 }
 
+function getCltPerfilInformativoPrompt(participantId, contexto = null) {
+  if (participantId === "p3") {
+    return [
+      "Perfeito! 👌",
+      "Agora, só uma confirmação informativa:",
+      "A renda desse cônjuge é *fixa* ou costuma *variar* por comissão, hora extra ou adicional?"
+    ];
+  }
+  if (participantId === "p2" && contexto === "familiar") {
+    return [
+      "Perfeito! 👌",
+      "Agora, só uma confirmação informativa:",
+      "A renda desse familiar é *fixa* ou costuma *variar* por comissão, hora extra ou adicional?"
+    ];
+  }
+  if (participantId === "p2") {
+    return [
+      "Perfeito! 👌",
+      "Agora, só uma confirmação informativa:",
+      "A renda do parceiro(a) é *fixa* ou costuma *variar* por comissão, hora extra ou adicional?"
+    ];
+  }
+  return [
+    "Perfeito! 👌",
+    "Agora, só uma confirmação informativa:",
+    "Seu salário é *fixo* ou costuma *variar* por comissão, hora extra ou adicional?"
+  ];
+}
+
+function getCltPerfilFallbackPrompt(participantId, contexto = null) {
+  if (participantId === "p3") {
+    return ["Só para confirmar 🙂", "A renda desse cônjuge é *fixa* ou *variável*?"];
+  }
+  if (participantId === "p2" && contexto === "familiar") {
+    return ["Só para confirmar 🙂", "A renda desse familiar é *fixa* ou *variável*?"];
+  }
+  if (participantId === "p2") {
+    return ["Só para confirmar 🙂", "A renda do parceiro(a) é *fixa* ou *variável*?"];
+  }
+  return ["Só para confirmar 🙂", "Seu salário é *fixo* ou *variável*?"];
+}
+
+function getCltPerfilNextQuestion(returnStage, contexto = null) {
+  if (returnStage === "inicio_multi_regime_pergunta_parceiro") {
+    return [
+      "Certo! 😊",
+      "Agora me diga: o parceiro(a) tem *mais algum regime de trabalho* além desse?",
+      "Responda *sim* ou *não*."
+    ];
+  }
+  if (returnStage === "inicio_multi_regime_familiar_pergunta") {
+    const famLabel = contexto === "familiar_pai" ? "seu pai" : (contexto === "familiar_mae" ? "sua mãe" : "seu familiar");
+    return [
+      "Certo! 😊",
+      `Agora me diga: ${famLabel} tem mais algum regime de trabalho além desse?`,
+      "Responda sim ou não."
+    ];
+  }
+  if (returnStage === "inicio_multi_regime_p3_pergunta") {
+    const p3Label = contexto === "familiar_pai" ? "cônjuge do seu pai" : (contexto === "familiar_mae" ? "cônjuge da sua mãe" : "cônjuge do seu familiar");
+    return [
+      "Certo! 😊",
+      `Agora me diga: o(a) ${p3Label} tem mais algum regime de trabalho?`,
+      "Responda sim ou não."
+    ];
+  }
+  return [
+    "Certo! 😊",
+    "Agora me diga: você tem *mais algum regime de trabalho* além desse?",
+    "Responda *sim* ou *não*."
+  ];
+}
+
 function hasRestricaoIndicador(text) {
   const nt = normalizeText(text);
   if (!nt) return false;
@@ -19617,6 +19690,19 @@ case "inicio_multi_regime_familiar_loop": {
     ...buildEtapa2MultiParticipantPatch(st, multiRegimePatch)
   });
 
+  if (regimeFinal === "clt") {
+    await upsertState(env, st.wa_id, {
+      clt_perfil_contexto: "p2_familiar",
+      clt_perfil_return_stage: "inicio_multi_regime_familiar_pergunta"
+    });
+    return step(
+      env,
+      st,
+      getCltPerfilInformativoPrompt("p2", "familiar"),
+      "clt_renda_perfil_informativo"
+    );
+  }
+
   return step(env, st, ["Ótimo! 👍", `${famLabel} tem mais algum emprego/regime?`, "Responda sim ou não."], "inicio_multi_regime_familiar_pergunta");
 }
 
@@ -19702,20 +19788,6 @@ case "inicio_multi_regime_pergunta_parceiro": {
   });
 
   const nt = normalizeText(userText || "");
-  const cltProfileParceiro = parseCltIncomeProfile(userText || "");
-  if (cltProfileParceiro && (st.regime_trabalho_parceiro === "clt" || st.regime_parceiro === "clt")) {
-    const cltPatchParceiro = {
-      ...buildEtapa2EstruturalPatch(st, {
-        clt_renda_perfil_por_participante: participantSignalMapWithValue(
-          getEtapa2EstruturalBag(st).clt_renda_perfil_por_participante,
-          "p2",
-          cltProfileParceiro
-        )
-      })
-    };
-    await upsertState(env, st.wa_id, cltPatchParceiro);
-    Object.assign(st, cltPatchParceiro);
-  }
 
   // SIM → coletar outro regime do parceiro
   if (isYes(nt) || /^sim$/i.test(nt) || /(tenho outro|mais de um trabalho|mais um emprego|outro trampo)/i.test(nt)) {
@@ -20105,31 +20177,30 @@ case "regime_trabalho": {
   // TITULAR É CLT
   // ------------------------------------------------------
   if (clt) {
-    await upsertState(env, st.wa_id, {
+    const cltPatch = {
       regime: "clt",
-      regime_trabalho: "clt"
-    });
+      regime_trabalho: "clt",
+      clt_perfil_contexto: "p1",
+      clt_perfil_return_stage: "inicio_multi_regime_pergunta"
+    };
+    await upsertState(env, st.wa_id, cltPatch);
 
     // EXIT_STAGE → vai para pergunta de multi regime
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "inicio_multi_regime_pergunta",
+      next_stage: "clt_renda_perfil_informativo",
       severity: "info",
-      message: "Saindo da fase regime_trabalho → inicio_multi_regime_pergunta (CLT)",
+      message: "Saindo da fase regime_trabalho → clt_renda_perfil_informativo (CLT)",
       details: { userText }
     });
 
     return step(
       env,
       st,
-      [
-        "Perfeito. Você tem mais algum emprego ou faz algum bico além desse?",
-        "Responda *sim* ou *não*.",
-        "Antes de seguir: seu salário é *fixo* ou costuma *variar* por comissão, hora extra ou adicional?"
-      ],
-      "inicio_multi_regime_pergunta"
+      getCltPerfilInformativoPrompt("p1"),
+      "clt_renda_perfil_informativo"
     );
   }
 
@@ -20706,6 +20777,19 @@ if (!regimeCanonico) {
     });
   }
 
+  if (regimeFinal === "clt") {
+    await upsertState(env, st.wa_id, {
+      clt_perfil_contexto: "p2_familiar",
+      clt_perfil_return_stage: "inicio_multi_regime_familiar_pergunta"
+    });
+    return step(
+      env,
+      st,
+      getCltPerfilInformativoPrompt("p2", "familiar"),
+      "clt_renda_perfil_informativo"
+    );
+  }
+
   return step(
     env,
     st,
@@ -20761,6 +20845,18 @@ case "regime_trabalho_parceiro_familiar_p3": {
     ...multiRegimePatch,
     ...buildEtapa2MultiParticipantPatch(st, multiRegimePatch)
   });
+  if (regimeFinal === "clt") {
+    await upsertState(env, st.wa_id, {
+      clt_perfil_contexto: "p3",
+      clt_perfil_return_stage: "inicio_multi_regime_p3_pergunta"
+    });
+    return step(
+      env,
+      st,
+      getCltPerfilInformativoPrompt("p3"),
+      "clt_renda_perfil_informativo"
+    );
+  }
   return step(env, st, ["Perfeito!", `O(a) ${p3Label} tem mais algum regime de trabalho?`], "inicio_multi_regime_p3_pergunta");
 }
 
@@ -20806,6 +20902,18 @@ case "inicio_multi_regime_p3_loop": {
     ...multiRegimePatch,
     ...buildEtapa2MultiParticipantPatch(st, multiRegimePatch)
   });
+  if (regimeFinal === "clt") {
+    await upsertState(env, st.wa_id, {
+      clt_perfil_contexto: "p3",
+      clt_perfil_return_stage: "inicio_multi_regime_p3_pergunta"
+    });
+    return step(
+      env,
+      st,
+      getCltPerfilInformativoPrompt("p3"),
+      "clt_renda_perfil_informativo"
+    );
+  }
   return step(env, st, ["Ótimo! 👍", "Tem mais algum regime de trabalho?", "Responda sim ou não."], "inicio_multi_regime_p3_pergunta");
 }
 
@@ -21018,6 +21126,44 @@ case "regularizacao_restricao_p3": {
 // --------------------------------------------------
 // 🧩 C18 - INICIO_MULTI_REGIME_PERGUNTA
 // --------------------------------------------------
+case "clt_renda_perfil_informativo": {
+  const perfil = parseCltIncomeProfile(userText || "");
+  const contextoRaw = String(st.clt_perfil_contexto || "p1");
+  const contexto = normalizeText(contextoRaw);
+  const isP3 = contexto === "p3";
+  const isP2Familiar = contexto === "p2_familiar";
+  const participantId = isP3 ? "p3" : (contexto === "p2" || isP2Familiar ? "p2" : "p1");
+  const contextoPrompt = isP2Familiar ? "familiar" : null;
+  const returnStage = String(st.clt_perfil_return_stage || "inicio_multi_regime_pergunta");
+  const familiarCtx = st.familiar_tipo === "pai" ? "familiar_pai" : (st.familiar_tipo === "mae" ? "familiar_mae" : "familiar_outro");
+
+  if (!perfil) {
+    return step(env, st, getCltPerfilFallbackPrompt(participantId, contextoPrompt), "clt_renda_perfil_informativo");
+  }
+
+  const cltPatch = {
+    ...buildEtapa2EstruturalPatch(st, {
+      clt_renda_perfil_por_participante: participantSignalMapWithValue(
+        getEtapa2EstruturalBag(st).clt_renda_perfil_por_participante,
+        participantId,
+        perfil
+      )
+    }),
+    clt_perfil_contexto: null,
+    clt_perfil_return_stage: null
+  };
+  await upsertState(env, st.wa_id, cltPatch);
+  Object.assign(st, cltPatch);
+
+  const nextQuestion = getCltPerfilNextQuestion(
+    returnStage,
+    returnStage === "inicio_multi_regime_p3_pergunta" || returnStage === "inicio_multi_regime_familiar_pergunta"
+      ? familiarCtx
+      : null
+  );
+  return step(env, st, nextQuestion, returnStage);
+}
+
 case "inicio_multi_regime_pergunta": {
 
   await funnelTelemetry(env, {
@@ -21030,20 +21176,6 @@ case "inicio_multi_regime_pergunta": {
   });
 
   const nt = normalizeText(userText);
-  const cltProfile = parseCltIncomeProfile(userText || "");
-  if (cltProfile && (st.regime === "clt" || st.regime_trabalho === "clt")) {
-    const cltPatch = {
-      ...buildEtapa2EstruturalPatch(st, {
-        clt_renda_perfil_por_participante: participantSignalMapWithValue(
-          getEtapa2EstruturalBag(st).clt_renda_perfil_por_participante,
-          "p1",
-          cltProfile
-        )
-      })
-    };
-    await upsertState(env, st.wa_id, cltPatch);
-    Object.assign(st, cltPatch);
-  }
   // Exemplos cobertos: "sim, tenho outro trampo", "não, só esse"
 
   // SIM → ir coletar o segundo regime
@@ -21183,29 +21315,26 @@ case "regime_trabalho_parceiro": {
   // -----------------------------
   if (clt) {
     await upsertState(env, st.wa_id, {
-      regime_trabalho_parceiro: "clt"
+      regime_trabalho_parceiro: "clt",
+      clt_perfil_contexto: "p2",
+      clt_perfil_return_stage: "inicio_multi_regime_pergunta_parceiro"
     });
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "inicio_multi_regime_pergunta_parceiro",
+      next_stage: "clt_renda_perfil_informativo",
       severity: "info",
-      message: "Saindo da fase regime_trabalho_parceiro → inicio_multi_regime_pergunta_parceiro (CLT)",
+      message: "Saindo da fase regime_trabalho_parceiro → clt_renda_perfil_informativo (CLT)",
       details: { userText }
     });
 
     return step(
       env,
       st,
-      [
-        "Perfeito! 👍",
-        "Só pra eu montar certinho o perfil do parceiro(a):",
-        "Ele(a) tem *mais algum regime de trabalho* além desse?",
-        "Responda *sim* ou *não*."
-      ],
-      "inicio_multi_regime_pergunta_parceiro"
+      getCltPerfilInformativoPrompt("p2"),
+      "clt_renda_perfil_informativo"
     );
   }
 

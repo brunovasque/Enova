@@ -5044,6 +5044,8 @@ async function runColdFollowupBatch(env, ctx) {
 async function handleMediaEnvelope(env, waId, msg, type) {
   const mediaPayload = {
     type,
+    message_id: msg?.id || null,
+    message_timestamp: msg?.timestamp || null,
     caption: msg?.caption || msg?.[type]?.caption || null,
     [type]: msg?.[type] || null
   };
@@ -5095,8 +5097,13 @@ async function handleMediaEnvelope(env, waId, msg, type) {
     });
   }
 
-  await upsertState(env, waId, { _incoming_media: mediaPayload });
-  st = { ...st, _incoming_media: mediaPayload };
+  const messageMetadataPatch = {
+    last_message_id_prev: st?.last_message_id || null,
+    last_message_id: msg?.id || null,
+    last_message_timestamp: msg?.timestamp || null
+  };
+  await upsertState(env, waId, { _incoming_media: mediaPayload, ...messageMetadataPatch });
+  st = { ...st, _incoming_media: mediaPayload, ...messageMetadataPatch };
   await runFunnel(env, st, mediaPayload.caption || "");
 
   return new Response(JSON.stringify({
@@ -5887,6 +5894,14 @@ try {
         }
       });
     }
+
+    const messageMetadataPatch = {
+      last_message_id_prev: st?.last_message_id || null,
+      last_message_id: messageId || null,
+      last_message_timestamp: msg?.timestamp || null
+    };
+    await upsertState(env, waId, messageMetadataPatch);
+    st = { ...st, ...messageMetadataPatch };
 
     await runFunnel(env, st, userText);
 
@@ -8017,9 +8032,50 @@ function recomputeEnvioDocsProgress(itens = []) {
   };
 }
 
-function buildAnaliseDocsPayloadFromEnvio(itens = []) {
+function buildEnvioDocsPlausiveisPendentesConferenciaFromState(st = {}) {
+  const pendingStatus = String(st?.envio_docs_confirmacao_tipo_doc_status || "").trim().toLowerCase();
+  const pendingUpload = st?.envio_docs_ultimo_upload_pendente_confirmacao_json;
+  if (pendingStatus !== "aguardando_confirmacao_tipo_doc" || !pendingUpload || typeof pendingUpload !== "object") {
+    return [];
+  }
+  const candidateItems = Array.isArray(pendingUpload?.candidate_items) ? pendingUpload.candidate_items : [];
+  const mediaRef = pendingUpload?.media_ref && typeof pendingUpload.media_ref === "object" ? pendingUpload.media_ref : {};
+  return [{
+    upload_id: pendingUpload?.upload_id || null,
+    status: "plausivel_incerto",
+    detected_doc_type: pendingUpload?.detected_doc_type || null,
+    detected_doc_category: pendingUpload?.detected_doc_category || null,
+    detected_participant: pendingUpload?.detected_participant || null,
+    candidate_items: candidateItems.map((item) => ({
+      tipo: item?.tipo || null,
+      participante: item?.participante || null
+    })),
+    file_name: mediaRef?.file_name || pendingUpload?.file_name || null,
+    mime_type: mediaRef?.mime_type || null,
+    media_id: mediaRef?.media_id || null,
+    url: String(
+      mediaRef?.url ||
+      mediaRef?.link ||
+      mediaRef?.document_url ||
+      mediaRef?.download_url ||
+      mediaRef?.media_url ||
+      ""
+    ).trim() || null,
+    recebido_em: pendingUpload?.recebido_em || pendingUpload?.at || null
+  }];
+}
+
+function buildAnaliseDocsPayloadFromEnvio(itens = [], options = {}) {
   const itensBloqueantes = itens.filter((item) => isEnvioDocsBlockingItem(item));
   const normalizeStatus = (item) => String(item?.status || "").trim().toLowerCase();
+  const plausiveisPendentes = Array.isArray(options?.plausiveisPendentes) ? options.plausiveisPendentes : [];
+  const plausiveisCandidateKeys = new Set(
+    plausiveisPendentes.flatMap((item) =>
+      Array.isArray(item?.candidate_items)
+        ? item.candidate_items.map((candidate) => `${candidate?.tipo || ""}:${candidate?.participante || ""}`)
+        : []
+    )
+  );
 
   const docsValidos = itensBloqueantes.filter((item) => isEnvioDocsItemReceived(item));
   const docsInvalidos = itensBloqueantes.filter((item) => {
@@ -8033,6 +8089,8 @@ function buildAnaliseDocsPayloadFromEnvio(itens = []) {
   const docsFaltantes = itensBloqueantes.filter((item) => {
   if (isEnvioDocsItemReceived(item)) return false;
   const status = normalizeStatus(item);
+  const itemKey = `${item?.tipo || ""}:${item?.participante || ""}`;
+  if (plausiveisCandidateKeys.has(itemKey)) return false;
   return !(
     status === "invalido" ||
     status === "inválido" ||
@@ -8052,19 +8110,28 @@ function buildAnaliseDocsPayloadFromEnvio(itens = []) {
   const pendencias = [
     ...docsInvalidos.map((item) => ({ ...toDocItem(item), pendencia: "invalido" })),
     ...docsIlegiveis.map((item) => ({ ...toDocItem(item), pendencia: "ilegivel" })),
+    ...plausiveisPendentes.map((item) => ({
+      upload_id: item?.upload_id || null,
+      tipo: item?.detected_doc_type || null,
+      participante: item?.detected_participant || null,
+      status: item?.status || "plausivel_incerto",
+      pendencia: "plausivel_pendente_conferencia",
+      candidate_items: Array.isArray(item?.candidate_items) ? item.candidate_items : []
+    })),
     ...docsFaltantes.map((item) => ({ ...toDocItem(item), pendencia: "faltante" }))
   ];
 
   const analiseStatus =
   docsInvalidos.length > 0 || docsIlegiveis.length > 0
     ? "pendente_ajuste"
-    : docsFaltantes.length > 0
+    : docsFaltantes.length > 0 || plausiveisPendentes.length > 0
       ? "em_analise"
       : "validada";
 
   const resumo = {
     status: analiseStatus,
     total_validos: docsValidos.length,
+    total_plausiveis_pendentes_conferencia: plausiveisPendentes.length,
     total_invalidos: docsInvalidos.length,
     total_ilegiveis: docsIlegiveis.length,
     total_faltantes: docsFaltantes.length
@@ -8072,7 +8139,10 @@ function buildAnaliseDocsPayloadFromEnvio(itens = []) {
 
   return {
     analise_docs_status: analiseStatus,
+    analise_docs_docs_confirmados_json: docsValidos.map(toDocItem),
+    analise_docs_docs_plausiveis_pendentes_conferencia_json: plausiveisPendentes,
     analise_docs_total_validos: docsValidos.length,
+    analise_docs_total_plausiveis_pendentes_conferencia: plausiveisPendentes.length,
     analise_docs_total_invalidos: docsInvalidos.length,
     analise_docs_total_ilegiveis: docsIlegiveis.length,
     analise_docs_total_faltantes: docsFaltantes.length,
@@ -8113,15 +8183,25 @@ function buildPacoteDocumentosAnexadosResumo(itens = [], analiseBase = {}, histo
   const invalidos = Array.isArray(analiseBase?.analise_docs_docs_invalidos_json) ? analiseBase.analise_docs_docs_invalidos_json : [];
   const ilegiveis = Array.isArray(analiseBase?.analise_docs_docs_ilegiveis_json) ? analiseBase.analise_docs_docs_ilegiveis_json : [];
   const faltantes = Array.isArray(analiseBase?.analise_docs_docs_faltantes_json) ? analiseBase.analise_docs_docs_faltantes_json : [];
+  const plausiveis = Array.isArray(analiseBase?.analise_docs_docs_plausiveis_pendentes_conferencia_json)
+    ? analiseBase.analise_docs_docs_plausiveis_pendentes_conferencia_json
+    : [];
   const historicoLista = Array.isArray(historico) ? historico : [];
 
   const invalidosSet = new Set(invalidos.map((i) => `${i?.tipo || ""}:${i?.participante || ""}`));
   const ilegiveisSet = new Set(ilegiveis.map((i) => `${i?.tipo || ""}:${i?.participante || ""}`));
   const faltantesSet = new Set(faltantes.map((i) => `${i?.tipo || ""}:${i?.participante || ""}`));
+  const plausiveisSet = new Set(
+    plausiveis.flatMap((i) =>
+      Array.isArray(i?.candidate_items)
+        ? i.candidate_items.map((candidate) => `${candidate?.tipo || ""}:${candidate?.participante || ""}`)
+        : []
+    )
+  );
   const latestUploadByKey = new Map();
   for (let idx = historicoLista.length - 1; idx >= 0; idx -= 1) {
     const row = historicoLista[idx];
-    if (String(row?.origem || "").toLowerCase() !== "upload") continue;
+    if (!["upload", "confirmacao_textual"].includes(String(row?.origem || "").toLowerCase())) continue;
     const tipo = String(row?.associado?.tipo || row?.matched_checklist_item?.tipo || "").trim().toLowerCase();
     const participante = String(row?.associado?.participante || row?.matched_checklist_item?.participante || "").trim().toLowerCase();
     if (!tipo || !participante) continue;
@@ -8156,6 +8236,8 @@ function buildPacoteDocumentosAnexadosResumo(itens = [], analiseBase = {}, histo
         ? "invalido"
         : ilegiveisSet.has(key)
           ? "ilegivel"
+          : plausiveisSet.has(key)
+            ? "plausivel_pendente_conferencia"
           : faltantesSet.has(key)
             ? "faltante"
             : "sem_pendencia_analise"
@@ -8169,22 +8251,36 @@ function buildPacoteCorrespondentePayloadFromState(st, itens = [], analisePayloa
   const baseMinimaCoerente = participantes.length > 0;
   const envioCompleto = String(st?.envio_docs_status || "").toLowerCase() === "completo";
 
-  if (!baseMinimaCoerente || !envioCompleto) {
-    return {
-      pacote_status: "nao_montado",
-      pacote_destino: "correspondente",
-      pacote_enviado_em: null
-    };
-  }
-
   const analiseBase = analisePayload && typeof analisePayload === "object"
     ? analisePayload
     : {
+      analise_docs_docs_confirmados_json: st?.analise_docs_docs_confirmados_json,
+      analise_docs_docs_plausiveis_pendentes_conferencia_json: st?.analise_docs_docs_plausiveis_pendentes_conferencia_json,
       analise_docs_pendencias_json: st?.analise_docs_pendencias_json,
       analise_docs_docs_invalidos_json: st?.analise_docs_docs_invalidos_json,
       analise_docs_docs_ilegiveis_json: st?.analise_docs_docs_ilegiveis_json,
       analise_docs_docs_faltantes_json: st?.analise_docs_docs_faltantes_json
     };
+  const docsConfirmados = Array.isArray(analiseBase?.analise_docs_docs_confirmados_json)
+    ? analiseBase.analise_docs_docs_confirmados_json
+    : [];
+  const docsPlausiveisPendentes = Array.isArray(analiseBase?.analise_docs_docs_plausiveis_pendentes_conferencia_json)
+    ? analiseBase.analise_docs_docs_plausiveis_pendentes_conferencia_json
+    : [];
+  const docsFaltantes = Array.isArray(analiseBase?.analise_docs_docs_faltantes_json)
+    ? analiseBase.analise_docs_docs_faltantes_json
+    : [];
+
+  if (!baseMinimaCoerente || !envioCompleto || docsPlausiveisPendentes.length > 0) {
+    return {
+      pacote_status: "nao_montado",
+      pacote_destino: "correspondente",
+      pacote_enviado_em: null,
+      pacote_docs_confirmados_json: docsConfirmados,
+      pacote_docs_plausiveis_pendentes_conferencia_json: docsPlausiveisPendentes,
+      pacote_docs_faltantes_json: docsFaltantes
+    };
+  }
 
   const pendencias = Array.isArray(analiseBase?.analise_docs_pendencias_json)
     ? analiseBase.analise_docs_pendencias_json
@@ -8221,6 +8317,9 @@ function buildPacoteCorrespondentePayloadFromState(st, itens = [], analisePayloa
         restricao_regularizada: dossieIsYes(p?.restricao_regularizada ?? p?.regularizacao_restricao)
       }))
     },
+    pacote_docs_confirmados_json: docsConfirmados,
+    pacote_docs_plausiveis_pendentes_conferencia_json: docsPlausiveisPendentes,
+    pacote_docs_faltantes_json: docsFaltantes,
     pacote_pendencias_json: pendencias,
     pacote_documentos_anexados_json: buildPacoteDocumentosAnexadosResumo(itens, analiseBase, historicoUploads),
     pacote_observacoes_json: observacoes,
@@ -10971,6 +11070,199 @@ function isEnvioDocsTextualUploadSignal(texto) {
   return /\b(doc|documento|arquivo|anexo|foto|comprovante|rg|cpf|holerite|ir|extrato)\b/.test(t);
 }
 
+function clearEnvioDocsPendingTypeConfirmationPatch(extra = {}) {
+  return {
+    envio_docs_confirmacao_tipo_doc_status: null,
+    envio_docs_ultimo_upload_pendente_confirmacao_json: null,
+    ...extra
+  };
+}
+
+function isEnvioDocsAwaitingTypeConfirmation(st = {}) {
+  return (
+    String(st?.envio_docs_confirmacao_tipo_doc_status || "").trim().toLowerCase() === "aguardando_confirmacao_tipo_doc" &&
+    !!st?.envio_docs_ultimo_upload_pendente_confirmacao_json
+  );
+}
+
+function normalizeEnvioDocsUploadSemanticStatus(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "confirmado") return "confirmado";
+  if (raw === "plausivel_incerto") return "plausivel_incerto";
+  return "incompativel";
+}
+
+function resolveEnvioDocsPendingConfirmationCandidateItems(input = {}) {
+  const itens = Array.isArray(input?.itens) ? input.itens : [];
+  const checklistMatchedItems = Array.isArray(input?.checklistMatch?.matched_items) ? input.checklistMatch.matched_items : [];
+  const legacyItems = Array.isArray(input?.selection?.items) ? input.selection.items : [];
+  const detectedDocType = String(input?.documentClassification?.detected_doc_type || "").trim().toLowerCase();
+  const candidates = [];
+  const seen = new Set();
+  const pushCandidate = (item) => {
+    const key = `${item?.tipo || ""}:${item?.participante || ""}`;
+    if (!item || !isEnvioDocsChecklistItemKeyValid(key) || seen.has(key)) return;
+    seen.add(key);
+    candidates.push({
+      tipo: item?.tipo || null,
+      participante: item?.participante || null
+    });
+  };
+
+  for (const item of checklistMatchedItems) pushCandidate(item);
+  for (const item of legacyItems) pushCandidate(item);
+
+  if (detectedDocType && detectedDocType !== "nao_identificado") {
+    for (const item of itens.filter((entry) => isEnvioDocsConversationalPendingItem(entry))) {
+      if (envioDocsHintTipoMatchesItemTipo(detectedDocType, item?.tipo)) {
+        pushCandidate(item);
+      }
+    }
+  }
+
+  return candidates;
+}
+
+function resolveEnvioDocsUploadSemanticStatus(input = {}) {
+  const validationStatus = String(input?.validation?.status || "").trim().toLowerCase();
+  const detectedDocType = String(input?.documentClassification?.detected_doc_type || "").trim().toLowerCase();
+  const candidateItems = Array.isArray(input?.candidateItems) ? input.candidateItems : [];
+  const hasRecognitionEvidence =
+    (detectedDocType && detectedDocType !== "nao_identificado") ||
+    String(input?.selectionDebug?.hinted_tipo_raw || "").trim().length > 0 ||
+    candidateItems.length > 0;
+
+  if (Array.isArray(input?.matchedItems) && input.matchedItems.length > 0) {
+    return "confirmado";
+  }
+
+  if (validationStatus === "invalido" || validationStatus === "inválido" || validationStatus === "reenvio_solicitado" || validationStatus === "reenvio solicitado") {
+    return "incompativel";
+  }
+
+  if (hasRecognitionEvidence && candidateItems.length > 0) {
+    return "plausivel_incerto";
+  }
+
+  if (detectedDocType && detectedDocType !== "nao_identificado") {
+    return "confirmado";
+  }
+
+  return "incompativel";
+}
+
+function buildEnvioDocsPendingConfirmationQuestion(pendingUpload = {}) {
+  const candidateItems = Array.isArray(pendingUpload?.candidate_items) ? pendingUpload.candidate_items : [];
+  if (candidateItems.length === 1) {
+    const candidate = candidateItems[0];
+    const docLabel = prettyDocLabel(candidate?.tipo || "documento").toLowerCase();
+    const ownerLabel =
+      candidate?.participante === "p1"
+        ? `seu ${docLabel}`
+        : candidate?.participante === "p2"
+          ? `${docLabel} do parceiro(a)`
+          : `${docLabel} da composição`;
+    return `Recebi seu arquivo, mas não consegui confirmar sozinho. Esse arquivo é mesmo ${ownerLabel}?`;
+  }
+
+  const suggestedDocLabel = prettyDocLabel(pendingUpload?.detected_doc_type || "documento").toLowerCase();
+  return `Recebi seu arquivo, mas não consegui confirmar sozinho. Que documento é esse arquivo? Ex.: ${suggestedDocLabel}.`;
+}
+
+function buildEnvioDocsPendingConfirmationRecord(input = {}) {
+  const normalizedMsg = input?.normalizedMsg || {};
+  const mediaObject = input?.mediaObject || null;
+  const pendingUploadId =
+    String(
+      normalizedMsg?.message_id ||
+      mediaObject?.id ||
+      input?.st?.last_message_id ||
+      `upload_pendente_${Date.now()}`
+    ).trim();
+  const candidateItems = resolveEnvioDocsPendingConfirmationCandidateItems(input);
+  const mediaRef = {
+    media_id: mediaObject?.id || null,
+    mime_type: mediaObject?.mime_type || null,
+    file_name: mediaObject?.filename || mediaObject?.file_name || null,
+    url: String(
+      mediaObject?.url ||
+      mediaObject?.link ||
+      mediaObject?.document_url ||
+      mediaObject?.download_url ||
+      mediaObject?.media_url ||
+      ""
+    ).trim() || null
+  };
+  return {
+    upload_id: pendingUploadId,
+    upload_message_id: String(normalizedMsg?.message_id || input?.st?.last_message_id || "").trim() || null,
+    received_at: new Date().toISOString(),
+    detected_doc_type: input?.documentClassification?.detected_doc_type || null,
+    detected_doc_category: input?.documentClassification?.detected_doc_category || null,
+    detected_participant: input?.participantInference?.detected_participant || null,
+    classification_confidence: Number(input?.documentClassification?.classification_confidence || 0) || 0,
+    recognition_source: input?.recognitionSource || "document_engine",
+    candidate_items: candidateItems,
+    media_ref: mediaRef,
+    pergunta_confirmacao: buildEnvioDocsPendingConfirmationQuestion({
+      detected_doc_type: input?.documentClassification?.detected_doc_type || null,
+      candidate_items: candidateItems
+    })
+  };
+}
+
+function resolveEnvioDocsPendingConfirmationTargetFromText(st = {}, pendingUpload = {}, text = "") {
+  const hintedTipoRaw = guessEnvioDocsTipoFromText(text);
+  if (!hintedTipoRaw) {
+    return {
+      ok: false,
+      reason: "confirmation_text_without_doc_type",
+      target: null,
+      hinted_tipo_raw: null
+    };
+  }
+
+  const selection = selectEnvioDocsItemForUpload(st, { hintText: text });
+  const candidateKeys = new Set(
+    (Array.isArray(pendingUpload?.candidate_items) ? pendingUpload.candidate_items : [])
+      .map((item) => `${item?.tipo || ""}:${item?.participante || ""}`)
+      .filter((key) => isEnvioDocsChecklistItemKeyValid(key))
+  );
+  const selectedItem = selection?.item || null;
+  const selectedKey = selectedItem ? `${selectedItem?.tipo || ""}:${selectedItem?.participante || ""}` : null;
+  const selectedMatchesPending = !!selectedKey && candidateKeys.has(selectedKey);
+
+  if (selectedItem && selectedMatchesPending) {
+    return {
+      ok: true,
+      reason: "confirmation_text_matched_pending_candidate",
+      target: selectedItem,
+      hinted_tipo_raw: hintedTipoRaw
+    };
+  }
+
+  const hintedParticipant = inferEnvioDocsParticipanteFromText(text);
+  const candidateItems = (Array.isArray(pendingUpload?.candidate_items) ? pendingUpload.candidate_items : [])
+    .filter((item) => envioDocsHintTipoMatchesItemTipo(hintedTipoRaw, item?.tipo))
+    .filter((item) => !hintedParticipant || item?.participante === hintedParticipant);
+
+  if (candidateItems.length === 1) {
+    return {
+      ok: true,
+      reason: "confirmation_text_resolved_single_candidate",
+      target: candidateItems[0],
+      hinted_tipo_raw: hintedTipoRaw
+    };
+  }
+
+  return {
+    ok: false,
+    reason: candidateItems.length > 1 ? "confirmation_text_still_ambiguous" : "confirmation_text_incompatible_with_pending_upload",
+    target: null,
+    hinted_tipo_raw: hintedTipoRaw
+  };
+}
+
 function normalizeEnvioDocsIncomingMedia(msg, seen = new WeakSet()) {
   const rawMsg = msg;
   if (typeof msg === "string") {
@@ -11208,6 +11500,158 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
     const hintText = mediaCaption;
     const itensBase = Array.isArray(st.envio_docs_itens_json) ? [...st.envio_docs_itens_json] : [];
     const itens = reconcileEnvioDocsItensWithSavedDossier(st, itensBase);
+    const pendingUpload = st?.envio_docs_ultimo_upload_pendente_confirmacao_json;
+
+    if (isTextSignal) {
+      const progressAtual = recomputeEnvioDocsProgress(itens);
+      const hasPendingConfirmation = isEnvioDocsAwaitingTypeConfirmation(st);
+      if (!hasPendingConfirmation || !pendingUpload) {
+        return {
+          ok: true,
+          message: [
+            "Recebi sua mensagem, mas por texto sozinho eu não consigo classificar documento agora.",
+            ...buildEnvioDocsUploadGuidanceLines(itens, progressAtual)
+          ],
+          keepStage: "envio_docs"
+        };
+      }
+
+      const uploadId = String(pendingUpload?.upload_id || "").trim() || null;
+      const alreadyConfirmed = uploadId && st?.envio_docs_ultimo_upload_confirmacao_id === uploadId;
+      const immediatelyAfterUpload =
+        !!pendingUpload?.upload_message_id &&
+        !!st?.last_message_id_prev &&
+        String(st.last_message_id_prev) === String(pendingUpload.upload_message_id);
+
+      if (alreadyConfirmed) {
+        return {
+          ok: true,
+          message: [
+            "Esse último arquivo já foi confirmado aqui ✅",
+            ...buildEnvioDocsUploadGuidanceLines(itens, progressAtual)
+          ],
+          keepStage: "envio_docs"
+        };
+      }
+
+      if (!immediatelyAfterUpload) {
+        return {
+          ok: true,
+          message: [
+            "Pra eu confirmar o tipo por texto, essa resposta precisa vir logo depois do arquivo pendente.",
+            "Se preferir, pode reenviar o arquivo com a legenda do documento."
+          ],
+          keepStage: "envio_docs"
+        };
+      }
+
+      const confirmationResolution = resolveEnvioDocsPendingConfirmationTargetFromText(
+        st,
+        pendingUpload,
+        hintText || normalizedMsg?.caption || ""
+      );
+      if (!confirmationResolution.ok || !confirmationResolution.target) {
+        const alreadyAskedSameUpload =
+          uploadId &&
+          st?.envio_docs_ultima_pergunta_confirmacao_id === uploadId;
+        return {
+          ok: true,
+          message: alreadyAskedSameUpload
+            ? [
+                "Ainda preciso que você me diga qual é o último arquivo enviado.",
+                "Pode responder curto, por exemplo: *holerite*, *RG*, *CPF* ou *comprovante de residência*."
+              ]
+            : [pendingUpload?.pergunta_confirmacao || buildEnvioDocsPendingConfirmationQuestion(pendingUpload)],
+          keepStage: "envio_docs"
+        };
+      }
+
+      const targetConfirmedByText = confirmationResolution.target;
+      const idxConfirmedByText = itens.findIndex((item) =>
+        item.tipo === targetConfirmedByText?.tipo &&
+        item.participante === targetConfirmedByText?.participante &&
+        !isEnvioDocsItemReceived(item)
+      );
+      if (idxConfirmedByText >= 0) {
+        itens[idxConfirmedByText] = {
+          ...itens[idxConfirmedByText],
+          status: "recebido_pendente_validacao",
+          recebido_em: new Date().toISOString(),
+          validacao_basica_em: new Date().toISOString(),
+          validacao_basica_motivo: "confirmacao_textual_tipo_doc"
+        };
+      }
+
+      const progress = recomputeEnvioDocsProgress(itens);
+      const historicoBase = Array.isArray(st.envio_docs_historico_json) ? st.envio_docs_historico_json : [];
+      const pendingClearedState = {
+        ...st,
+        ...clearEnvioDocsPendingTypeConfirmationPatch({
+          envio_docs_ultimo_upload_confirmacao_id: uploadId,
+          envio_docs_ultima_pergunta_confirmacao_id: uploadId
+        })
+      };
+      const plausiveisPendentes = buildEnvioDocsPlausiveisPendentesConferenciaFromState(pendingClearedState);
+      const patch = {
+        envio_docs_itens_json: itens,
+        ...progress,
+        ...clearEnvioDocsPendingTypeConfirmationPatch({
+          envio_docs_ultimo_upload_confirmacao_id: uploadId,
+          envio_docs_ultima_pergunta_confirmacao_id: uploadId
+        }),
+        envio_docs_historico_json: [
+          ...historicoBase.slice(-19),
+          {
+            at: new Date().toISOString(),
+            origem: "confirmacao_textual",
+            canal_origem: st.canal_docs_escolhido || "whatsapp",
+            associado: { tipo: targetConfirmedByText.tipo, participante: targetConfirmedByText.participante },
+            recognition_source: "confirmacao_textual",
+            final_target_source: "confirmacao_textual",
+            fallback_used: false,
+            detected_doc_type: confirmationResolution.hinted_tipo_raw || pendingUpload?.detected_doc_type || null,
+            checklist_match_status: "matched_safe",
+            matched_checklist_item: { tipo: targetConfirmedByText.tipo, participante: targetConfirmedByText.participante },
+            matched_checklist_items: [{ tipo: targetConfirmedByText.tipo, participante: targetConfirmedByText.participante }],
+            validacao_basica: {
+              status: "recebido_pendente_validacao",
+              reason: "confirmacao_textual_tipo_doc",
+              details: { sourceType: "text_signal", upload_id: uploadId }
+            },
+            document_classification: {
+              detected_doc_type: confirmationResolution.hinted_tipo_raw || pendingUpload?.detected_doc_type || null,
+              classification_reason: "confirmacao_textual_valida",
+              classification_confidence: 0.75
+            },
+            media_ref: pendingUpload?.media_ref || null,
+            upload_ref: {
+              upload_id: uploadId,
+              upload_message_id: pendingUpload?.upload_message_id || null
+            },
+            orquestracao_documental_status: "confirmado"
+          }
+        ]
+      };
+      let analisePayload = null;
+      if (progress.envio_docs_status === "completo" || plausiveisPendentes.length > 0) {
+        analisePayload = buildAnaliseDocsPayloadFromEnvio(itens, { plausiveisPendentes });
+        Object.assign(patch, analisePayload);
+      }
+      const pacotePayload = buildPacoteCorrespondentePayloadFromState({ ...st, ...patch }, itens, analisePayload);
+      Object.assign(patch, pacotePayload);
+      await upsertState(env, st.wa_id, patch);
+      Object.assign(st, patch);
+
+      return {
+        ok: true,
+        message: [
+          "Perfeito, confirmei o tipo do último arquivo e atualizei sua pasta ✅",
+          ...buildEnvioDocsUploadGuidanceLines(itens, progress)
+        ],
+        keepStage: "envio_docs"
+      };
+    }
+
     const aiSourceType = normalizedMsg?.image
       ? "image"
       : (
@@ -11571,21 +12015,51 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       target,
       hintText
     });
+    const pendingConfirmationCandidates = resolveEnvioDocsPendingConfirmationCandidateItems({
+      itens,
+      checklistMatch,
+      selection,
+      documentClassification
+    });
+    const orchestrationStatus = normalizeEnvioDocsUploadSemanticStatus(resolveEnvioDocsUploadSemanticStatus({
+      matchedItems,
+      validation,
+      documentClassification,
+      checklistMatch,
+      selectionDebug,
+      candidateItems: pendingConfirmationCandidates
+    }));
+    const uploadPendingConfirmation = orchestrationStatus === "plausivel_incerto";
+    const pendingConfirmationRecord = uploadPendingConfirmation
+      ? buildEnvioDocsPendingConfirmationRecord({
+          st,
+          normalizedMsg,
+          mediaObject,
+          checklistMatch,
+          selection,
+          participantInference,
+          documentClassification,
+          recognitionSource,
+          itens
+        })
+      : null;
 
-    for (const matched of matchedItems) {
-      const idx = itens.findIndex((item) =>
-        item.tipo === matched?.tipo &&
-        item.participante === matched?.participante &&
-        !isEnvioDocsItemReceived(item)
-      );
-      if (idx >= 0) {
-        itens[idx] = {
-          ...itens[idx],
-          status: validation.status,
-          recebido_em: new Date().toISOString(),
-          validacao_basica_em: new Date().toISOString(),
-          validacao_basica_motivo: validation.reason
-        };
+    if (!uploadPendingConfirmation) {
+      for (const matched of matchedItems) {
+        const idx = itens.findIndex((item) =>
+          item.tipo === matched?.tipo &&
+          item.participante === matched?.participante &&
+          !isEnvioDocsItemReceived(item)
+        );
+        if (idx >= 0) {
+          itens[idx] = {
+            ...itens[idx],
+            status: validation.status,
+            recebido_em: new Date().toISOString(),
+            validacao_basica_em: new Date().toISOString(),
+            validacao_basica_motivo: validation.reason
+          };
+        }
       }
     }
 
@@ -11597,6 +12071,13 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
     const patch = {
       envio_docs_itens_json: itens,
       ...progress,
+      ...(uploadPendingConfirmation
+        ? {
+            envio_docs_confirmacao_tipo_doc_status: "aguardando_confirmacao_tipo_doc",
+            envio_docs_ultimo_upload_pendente_confirmacao_json: pendingConfirmationRecord,
+            envio_docs_ultima_pergunta_confirmacao_id: pendingConfirmationRecord?.upload_id || null
+          }
+        : clearEnvioDocsPendingTypeConfirmationPatch()),
       envio_docs_historico_json: [
         ...historicoBase.slice(-19),
         {
@@ -11617,6 +12098,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
           document_classification: documentClassification,
           participant_inference: participantInference,
           checklist_match: checklistMatch,
+          pending_confirmation_candidates: pendingConfirmationCandidates,
           media_ref: {
             media_id: mediaObject?.id || null,
             mime_type: mediaObject?.mime_type || null,
@@ -11629,13 +12111,19 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
               mediaObject?.media_url ||
               ""
             ).trim() || null
-          }
+          },
+          upload_ref: {
+            upload_id: pendingConfirmationRecord?.upload_id || String(normalizedMsg?.message_id || mediaObject?.id || "").trim() || null,
+            upload_message_id: String(normalizedMsg?.message_id || "").trim() || null
+          },
+          orquestracao_documental_status: orchestrationStatus
         }
       ]
     };
+    const plausiveisPendentes = buildEnvioDocsPlausiveisPendentesConferenciaFromState({ ...st, ...patch });
     let analisePayload = null;
-    if (progress.envio_docs_status === "completo") {
-      analisePayload = buildAnaliseDocsPayloadFromEnvio(itens);
+    if (progress.envio_docs_status === "completo" || plausiveisPendentes.length > 0) {
+      analisePayload = buildAnaliseDocsPayloadFromEnvio(itens, { plausiveisPendentes });
       Object.assign(patch, analisePayload);
     }
     const pacotePayload = buildPacoteCorrespondentePayloadFromState({ ...st, ...patch }, itens, analisePayload);
@@ -11708,6 +12196,8 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
           validation,
           progress,
           selectionDebug,
+          orchestrationStatus,
+          pendingConfirmationRecord,
           documentAiSignals,
           documentClassification,
           participantInference,
@@ -11738,11 +12228,18 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       if (validation.status === "ilegivel" || validation.status === "invalido" || validation.status === "reenvio_solicitado") {
         linhas.push("Se quiser, já pode reenviar esse documento com melhor qualidade/arquivo correto que eu atualizo aqui.");
       }
+    } else if (uploadPendingConfirmation && pendingConfirmationRecord) {
+      linhas.push(pendingConfirmationRecord.pergunta_confirmacao || buildEnvioDocsPendingConfirmationQuestion(pendingConfirmationRecord));
+    } else if (orchestrationStatus === "incompativel") {
+      linhas.push("Recebi o arquivo, mas ele não ficou compatível para classificar sua pendência.");
+      linhas.push("Pode reenviar o documento correto ou com melhor qualidade?");
     } else {
       linhas.push("Registrei o recebimento e sigo com sua pasta; a validação detalhada acontece na próxima etapa interna.");
     }
 
-    linhas.push(...buildEnvioDocsUploadGuidanceLines(itens, progress));
+    if (!uploadPendingConfirmation) {
+      linhas.push(...buildEnvioDocsUploadGuidanceLines(itens, progress));
+    }
 
     return {
       ok: true,
@@ -16799,11 +17296,12 @@ async function runFunnel(env, st, userText) {
       });
     }
 
-      await upsertState(env, st.wa_id, {
+    await upsertState(env, st.wa_id, {
       fase_conversa: "inicio_programa",
       last_user_text: null,
       last_processed_text: null,
       last_message_id: null,
+      last_message_id_prev: null,
       updated_at: new Date().toISOString()
     });
 
@@ -16811,6 +17309,7 @@ async function runFunnel(env, st, userText) {
     novoSt.last_user_text = null;
     novoSt.last_processed_text = null;
     novoSt.last_message_id = null;
+    novoSt.last_message_id_prev = null;
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -24811,7 +25310,8 @@ case "envio_docs": {
       !Array.isArray(st.pacote_participantes_json) ||
       !Array.isArray(st.pacote_documentos_anexados_json);
     if (progressSeed.envio_docs_status === "completo" && pacoteIncoerente) {
-      const analisePayload = buildAnaliseDocsPayloadFromEnvio(st.envio_docs_itens_json);
+      const plausiveisPendentes = buildEnvioDocsPlausiveisPendentesConferenciaFromState(st);
+      const analisePayload = buildAnaliseDocsPayloadFromEnvio(st.envio_docs_itens_json, { plausiveisPendentes });
       const pacotePayload = buildPacoteCorrespondentePayloadFromState(
         { ...st, ...progressSeed, ...analisePayload },
         st.envio_docs_itens_json,
@@ -25097,11 +25597,13 @@ case "envio_docs": {
     ], "envio_docs");
   }
 
-  if (isEnvioDocsTextualUploadSignal(t) && listaEnviada) {
+  if (isEnvioDocsAwaitingTypeConfirmation(st) && listaEnviada) {
     const resposta = await handleDocumentUpload(env, st, {
       type: "text_signal",
       text_signal: true,
-      caption: t
+      caption: t,
+      message_id: st?.last_message_id || null,
+      message_timestamp: st?.last_message_timestamp || null
     });
     const keepStage = resposta.keepStage || "envio_docs";
     const nextStageAfterUpload = keepStage === "envio_docs" && isCorrespondentePacoteReady(st)
@@ -26681,6 +27183,8 @@ export {
   buildEnvioDocsUploadGuidanceLines,
   generateChecklistForDocs,
   reconcileEnvioDocsItensWithSavedDossier,
+  buildAnaliseDocsPayloadFromEnvio,
+  buildEnvioDocsPlausiveisPendentesConferenciaFromState,
   buildDocumentDossierFromState,
   buildPacoteCorrespondentePayloadFromState,
   buildCorrespondenteCanonicalDossierBundleFromState,
@@ -26695,5 +27199,6 @@ export {
   isEnvioDocsConversationalFlowComplete,
   isEnvioDocsBlockingItem,
   recomputeEnvioDocsProgress,
+  handleDocumentUpload,
   isCorrespondentePacoteReady
 };

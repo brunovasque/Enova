@@ -148,7 +148,7 @@ function buildDocumentWebhook(from, msgId, { caption = "", mimeType = "applicati
   };
 }
 
-// 1) Com docs completos/pacote pronto, texto de upload avança para finalizacao_processo.
+// 1) Com docs completos/pacote pronto, texto sozinho não classifica nem avança sem upload/pendência de confirmação.
 {
   const env = buildEnv();
   const req = new Request("https://worker.local/webhook/meta", {
@@ -159,22 +159,18 @@ function buildDocumentWebhook(from, msgId, { caption = "", mimeType = "applicati
   const res = await worker.fetch(req, env, {});
   assert.equal(res.status, 200);
   const st = env.__enovaSimulationCtx.stateByWaId[waId];
-  assert.equal(st.fase_conversa, "finalizacao_processo");
+  assert.equal(st.fase_conversa, "envio_docs");
 }
 
 // 2) Em finalizacao_processo com pacote pronto, próxima mensagem dispara tentativa de publicação.
 {
   const env = buildEnv();
+  env.__enovaSimulationCtx.stateByWaId[waId] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waId],
+    fase_conversa: "finalizacao_processo"
+  };
   const capture = captureConsoleLogs();
-  // primeiro avanço envio_docs -> finalizacao_processo
-  const reqAdvance = new Request("https://worker.local/webhook/meta", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(buildTextWebhook(waId, "enviei documento", "wamid.docs.complete.2"))
-  });
   try {
-    await worker.fetch(reqAdvance, env, {});
-
     const reqPublish = new Request("https://worker.local/webhook/meta", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -427,12 +423,10 @@ function buildDocumentWebhook(from, msgId, { caption = "", mimeType = "applicati
 {
   const env = buildEnv();
   env.CORRESPONDENTE_TO = "";
-  const reqAdvance = new Request("https://worker.local/webhook/meta", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(buildTextWebhook(waId, "enviei documento", "wamid.docs.fail.advance"))
-  });
-  await worker.fetch(reqAdvance, env, {});
+  env.__enovaSimulationCtx.stateByWaId[waId] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waId],
+    fase_conversa: "finalizacao_processo"
+  };
 
   const req = new Request("https://worker.local/webhook/meta", {
     method: "POST",
@@ -462,12 +456,10 @@ function buildDocumentWebhook(from, msgId, { caption = "", mimeType = "applicati
   // Env vars chegam como string; habilita fallback textual apenas quando explicitamente "true".
   env.CORRESPONDENTE_TEXT_FALLBACK_WINDOW_OPEN = "true";
   env.__enovaSimulationCtx.suppressExternalSend = false;
-  const reqAdvance = new Request("https://worker.local/webhook/meta", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(buildTextWebhook(waId, "enviei documento", "wamid.docs.fallback.advance"))
-  });
-  await worker.fetch(reqAdvance, env, {});
+  env.__enovaSimulationCtx.stateByWaId[waId] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waId],
+    fase_conversa: "finalizacao_processo"
+  };
 
   let graphCalls = 0;
   const originalFetch = globalThis.fetch;
@@ -516,12 +508,10 @@ function buildDocumentWebhook(from, msgId, { caption = "", mimeType = "applicati
 {
   const env = buildEnv();
   env.CORRESPONDENTE_ENTRY_BASE_URL = "";
-  const reqAdvance = new Request("https://worker.local/webhook/meta", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(buildTextWebhook(waId, "enviei documento", "wamid.docs.noentry.advance"))
-  });
-  await worker.fetch(reqAdvance, env, {});
+  env.__enovaSimulationCtx.stateByWaId[waId] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waId],
+    fase_conversa: "finalizacao_processo"
+  };
 
   const reqPublish = new Request("https://worker.local/webhook/meta", {
     method: "POST",
@@ -542,6 +532,10 @@ function buildDocumentWebhook(from, msgId, { caption = "", mimeType = "applicati
   const env = buildEnv();
   const waA = waId;
   const waB = "5541991113333";
+  env.__enovaSimulationCtx.stateByWaId[waA] = {
+    ...env.__enovaSimulationCtx.stateByWaId[waA],
+    fase_conversa: "finalizacao_processo"
+  };
   env.__enovaSimulationCtx.stateByWaId[waB] = {
     ...env.__enovaSimulationCtx.stateByWaId[waA],
     wa_id: waB,
@@ -552,12 +546,6 @@ function buildDocumentWebhook(from, msgId, { caption = "", mimeType = "applicati
     fase_conversa: "finalizacao_processo"
   };
 
-  const reqA = new Request("https://worker.local/webhook/meta", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(buildTextWebhook(waA, "enviei documento", "wamid.docs.seq.a.1"))
-  });
-  await worker.fetch(reqA, env, {});
   const reqAPublish = new Request("https://worker.local/webhook/meta", {
     method: "POST",
     headers: { "content-type": "application/json" },

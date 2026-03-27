@@ -674,14 +674,14 @@ async function upsertState(env, wa_id, payload) {
     "last_message_id_prev",
     "last_message_timestamp"
   ]);
+  // Initial attempt + one retry for each optional allowlisted column that may need removal.
+  const MAX_OPTIONAL_FALLBACK_RETRIES = OPTIONAL_MISSING_COLUMNS_ALLOWLIST.size + 1;
   const stripMissingOptionalColumnFromPatch = (targetPatch, err) => {
     const missingColumn = extractMissingEnovaStateColumnFromSupabaseError(err);
-    if (!OPTIONAL_MISSING_COLUMNS_ALLOWLIST.has(missingColumn)) return false;
-    if (!Object.prototype.hasOwnProperty.call(targetPatch, missingColumn)) return false;
+    if (!OPTIONAL_MISSING_COLUMNS_ALLOWLIST.has(missingColumn)) return null;
+    if (!Object.prototype.hasOwnProperty.call(targetPatch, missingColumn)) return null;
     const { [missingColumn]: _ignoredMissingOptionalColumn, ...nextPatch } = targetPatch;
-    Object.keys(targetPatch).forEach((key) => { delete targetPatch[key]; });
-    Object.assign(targetPatch, nextPatch);
-    return true;
+    return nextPatch;
   };
 
   // Sempre atualizamos o updated_at no Worker
@@ -718,9 +718,9 @@ async function upsertState(env, wa_id, payload) {
     // CASO 1: não existe ainda → tenta INSERT
     // ---------------------------------------------------------
     if (!existing) {
-      const rowInsert = { wa_id, ...patch };
+      let rowInsert = { wa_id, ...patch };
 
-      while (true) {
+      for (let insertAttempt = 0; insertAttempt < MAX_OPTIONAL_FALLBACK_RETRIES; insertAttempt++) {
         try {
           const insertResult = await supabaseInsert(env, "enova_state", rowInsert);
 
@@ -732,15 +732,17 @@ async function upsertState(env, wa_id, payload) {
           }
           return insertResult || null;
         } catch (err) {
-          if (stripMissingOptionalColumnFromPatch(rowInsert, err)) {
+          const nextInsertPatch = stripMissingOptionalColumnFromPatch(rowInsert, err);
+          if (nextInsertPatch) {
+            rowInsert = nextInsertPatch;
             continue;
           }
           // Se bater 409 aqui, significa que alguém inseriu
           // na frente – então convertemos em UPDATE e segue a vida
           if (err.status === 409) {
-            const updatePatch = { ...rowInsert };
-            delete updatePatch.wa_id;
-            while (true) {
+            const { wa_id: _ignoredWaId, ...initialUpdatePatch } = rowInsert;
+            let updatePatch = initialUpdatePatch;
+            for (let updateAttempt = 0; updateAttempt < MAX_OPTIONAL_FALLBACK_RETRIES; updateAttempt++) {
               try {
                 const updateResult = await supabaseUpdate(
                   env,
@@ -757,7 +759,9 @@ async function upsertState(env, wa_id, payload) {
                 }
                 return updateResult || null;
               } catch (updateErr) {
-                if (stripMissingOptionalColumnFromPatch(updatePatch, updateErr)) {
+                const nextUpdatePatch = stripMissingOptionalColumnFromPatch(updatePatch, updateErr);
+                if (nextUpdatePatch) {
+                  updatePatch = nextUpdatePatch;
                   continue;
                 }
                 throw updateErr;
@@ -777,8 +781,8 @@ async function upsertState(env, wa_id, payload) {
     // ---------------------------------------------------------
     // CASO 2: já existe registro → UPDATE direto
     // ---------------------------------------------------------
-    const updatePatch = { ...patch };
-    while (true) {
+    let updatePatch = { ...patch };
+    for (let updateAttempt = 0; updateAttempt < MAX_OPTIONAL_FALLBACK_RETRIES; updateAttempt++) {
       try {
         const updateResult = await supabaseUpdate(
           env,
@@ -795,7 +799,9 @@ async function upsertState(env, wa_id, payload) {
         }
         return updateResult || null;
       } catch (err) {
-        if (stripMissingOptionalColumnFromPatch(updatePatch, err)) {
+        const nextUpdatePatch = stripMissingOptionalColumnFromPatch(updatePatch, err);
+        if (nextUpdatePatch) {
+          updatePatch = nextUpdatePatch;
           continue;
         }
         throw err;

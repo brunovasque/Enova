@@ -4451,6 +4451,38 @@ async function handleMediaEnvelope(env, waId, msg, type) {
     });
   }
 
+  if (st?.atendimento_manual === true) {
+    const bypassTs = new Date().toISOString();
+    await telemetry(env, {
+      wa_id: waId,
+      event: "manual_mode_bypass",
+      stage: st?.fase_conversa || "inicio",
+      severity: "info",
+      force: true,
+      message: "[MANUAL_MODE_BYPASS] Atendimento manual ativo: bypass no media envelope antes do funil",
+      details: {
+        marker: "[MANUAL_MODE_BYPASS]",
+        atendimento_manual_detectado: true,
+        bypass_point: "handleMediaEnvelope_pre_runFunnel",
+        runFunnel_called: false,
+        sendMessage_blocked: true,
+        fase_write_blocked: true,
+        wa_id: waId,
+        timestamp: bypassTs
+      }
+    });
+    return new Response(JSON.stringify({
+      ok: true,
+      reason: "manual_mode_bypass",
+      type
+    }), {
+      status: 200,
+      headers: {
+        "content-type": "application/json"
+      }
+    });
+  }
+
   await upsertState(env, waId, { _incoming_media: mediaPayload });
   st = { ...st, _incoming_media: mediaPayload };
   await runFunnel(env, st, mediaPayload.caption || "");
@@ -5116,6 +5148,32 @@ let userText = null;
       });
 
       st = await getState(env, waId);
+    }
+
+    if (st?.atendimento_manual === true) {
+      const bypassTs = new Date().toISOString();
+      await telemetry(env, {
+        wa_id: waId,
+        event: "manual_mode_bypass",
+        stage: st?.fase_conversa || "inicio",
+        severity: "info",
+        force: true,
+        message: "[MANUAL_MODE_BYPASS] Atendimento manual ativo: bypass no webhook principal antes do funil",
+        details: {
+          marker: "[MANUAL_MODE_BYPASS]",
+          atendimento_manual_detectado: true,
+          bypass_point: "handleMetaWebhook_pre_runFunnel",
+          runFunnel_called: false,
+          sendMessage_blocked: true,
+          fase_write_blocked: true,
+          wa_id: waId,
+          timestamp: bypassTs
+        }
+      });
+      return metaWebhookResponse(200, {
+        reason: "manual_mode_bypass",
+        type
+      });
     }
 
     // ============================================================

@@ -312,4 +312,78 @@ async function simulateFromState(env, stage, text, stOverrides) {
   assert.match(data.reply_text, /reagendar visita/i);
 }
 
+// 13) Informativos leves da visita: reserva/FGTS/decisor adicional sem gate.
+{
+  const env = buildEnvWithState();
+  let data = await simulateFromState(env, "agendamento_visita", "sim", {
+    processo_enviado_correspondente: true,
+    retorno_correspondente_status: "aprovado",
+    visita_origem: "aprovado",
+    visita_convite_status: "aceito",
+    visita_agendamento_status: "data",
+    visita_primeiro_slot_disponivel_em: "2026-03-14T18:30:00.000Z",
+    controle: { etapa1_informativos: { visita_informativos_etapa1: true } }
+  });
+  assert.equal(data.stage_after, "agendamento_visita");
+  assert.equal(data.writes.controle.etapa1_informativos.visita_reserva_entrada_tem, true);
+  assert.match(data.reply_text, /fgts disponível/i);
+
+  data = await simulateFromState(env, "agendamento_visita", "não", {
+    processo_enviado_correspondente: true,
+    retorno_correspondente_status: "aprovado",
+    visita_origem: "aprovado",
+    visita_convite_status: "aceito",
+    visita_agendamento_status: "data",
+    visita_primeiro_slot_disponivel_em: "2026-03-14T18:30:00.000Z",
+    controle: {
+      etapa1_informativos: {
+        visita_informativos_etapa1: true,
+        visita_reserva_entrada_tem: true
+      }
+    }
+  });
+  assert.equal(data.stage_after, "agendamento_visita");
+  assert.equal(data.writes.controle.etapa1_informativos.visita_fgts_disponivel, false);
+  assert.match(data.reply_text, /poder de decisão/i);
+
+  data = await simulateFromState(env, "agendamento_visita", "sim", {
+    processo_enviado_correspondente: true,
+    retorno_correspondente_status: "aprovado",
+    visita_origem: "aprovado",
+    visita_convite_status: "aceito",
+    visita_agendamento_status: "data",
+    visita_primeiro_slot_disponivel_em: "2026-03-14T18:30:00.000Z",
+    controle: {
+      etapa1_informativos: {
+        visita_informativos_etapa1: true,
+        visita_reserva_entrada_tem: true,
+        visita_fgts_disponivel: false
+      }
+    }
+  });
+  assert.equal(data.stage_after, "agendamento_visita");
+  assert.equal(data.writes.controle.etapa1_informativos.visita_decisor_adicional_visita, true);
+  assert.match(data.reply_text, /qual é o nome/i);
+
+  data = await simulateFromState(env, "agendamento_visita", "Maria", {
+    processo_enviado_correspondente: true,
+    retorno_correspondente_status: "aprovado",
+    visita_origem: "aprovado",
+    visita_convite_status: "aceito",
+    visita_agendamento_status: "data",
+    visita_primeiro_slot_disponivel_em: "2026-03-14T18:30:00.000Z",
+    controle: {
+      etapa1_informativos: {
+        visita_informativos_etapa1: true,
+        visita_reserva_entrada_tem: true,
+        visita_fgts_disponivel: false,
+        visita_decisor_adicional_visita: true
+      }
+    }
+  });
+  assert.equal(data.stage_after, "agendamento_visita");
+  assert.equal(data.writes.controle.etapa1_informativos.visita_decisor_adicional_nome, "Maria");
+  assert.match(data.reply_text, /escolha.*1, 2 ou 3/i);
+}
+
 console.log("visita.smoke: ok");

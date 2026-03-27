@@ -929,6 +929,181 @@ function parseRegimeTrabalho(text) {
   return null;
 }
 
+function parseCltIncomeProfile(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  if (/(comissao|comissao|hora extra|adicional|varia|variavel|vari[aá]vel|oscila)/.test(nt)) return "variavel";
+  if (/(fix[oa]|salario fixo|salario mensal fixo|sem variacao|sem variacao mensal|sem comissão|sem comissao)/.test(nt)) return "fixo";
+  return null;
+}
+
+function parseRendaExtraComposicaoDecision(text) {
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  if (/\b(n[aã]o entra|nao entra|n[aã]o compoe|nao compoe|n[aã]o compor|nao compor|fora da composicao)\b/.test(nt)) return false;
+  if (/\b(entra|compoe|compor|vai entrar|incluir na composicao|inclui na composicao)\b/.test(nt)) return true;
+  return null;
+}
+
+function participantSignalMapWithValue(rawValue, participantId, participantValue) {
+  const base =
+    rawValue && typeof rawValue === "object" && !Array.isArray(rawValue)
+      ? { ...rawValue }
+      : {};
+  base[participantId] = participantValue;
+  return base;
+}
+
+function normalizeOwnerToParticipantId(ownerRaw) {
+  const owner = String(ownerRaw || "").trim().toLowerCase();
+  if (owner === "p1" || owner === "titular") return "p1";
+  if (owner === "p2" || owner === "parceiro" || owner === "familiar") return "p2";
+  if (owner === "p3") return "p3";
+  return null;
+}
+
+function countOwnedByParticipant(items = []) {
+  const result = { p1: 0, p2: 0, p3: 0 };
+  for (const item of Array.isArray(items) ? items : []) {
+    const owner = normalizeOwnerToParticipantId(item?.owner);
+    if (owner && Object.prototype.hasOwnProperty.call(result, owner)) result[owner] += 1;
+  }
+  return result;
+}
+
+function mergeParticipantCounts(...counts) {
+  const merged = { p1: 0, p2: 0, p3: 0 };
+  for (const count of counts) {
+    if (!count || typeof count !== "object") continue;
+    merged.p1 += Number(count.p1 || 0);
+    merged.p2 += Number(count.p2 || 0);
+    merged.p3 += Number(count.p3 || 0);
+  }
+  return merged;
+}
+
+function buildEtapa2MultiParticipantPatch(st = {}, overrides = {}) {
+  const multiRendaLista = Array.isArray(overrides.multi_renda_lista)
+    ? overrides.multi_renda_lista
+    : (Array.isArray(st.multi_renda_lista) ? st.multi_renda_lista : []);
+  const multiRendaListaParceiro = Array.isArray(overrides.multi_renda_lista_parceiro)
+    ? overrides.multi_renda_lista_parceiro
+    : (Array.isArray(st.multi_renda_lista_parceiro) ? st.multi_renda_lista_parceiro : []);
+  const rendaOwned = mergeParticipantCounts(
+    countOwnedByParticipant(multiRendaLista),
+    { p2: multiRendaListaParceiro.length }
+  );
+
+  const legacyP1Regimes = Array.isArray(overrides.multi_regimes)
+    ? overrides.multi_regimes
+    : (Array.isArray(st.multi_regimes) ? st.multi_regimes : []);
+  const multiRegimeLista = Array.isArray(overrides.multi_regime_lista)
+    ? overrides.multi_regime_lista
+    : (Array.isArray(st.multi_regime_lista) ? st.multi_regime_lista : []);
+  const multiRegimeListaParceiro = Array.isArray(overrides.multi_regime_lista_parceiro)
+    ? overrides.multi_regime_lista_parceiro
+    : (Array.isArray(st.multi_regime_lista_parceiro) ? st.multi_regime_lista_parceiro : []);
+  const regimeOwned = mergeParticipantCounts(
+    countOwnedByParticipant(multiRegimeLista),
+    { p1: legacyP1Regimes.length, p2: multiRegimeListaParceiro.length }
+  );
+
+  return buildEtapa2EstruturalPatch(st, {
+    multi_renda_qtd_por_participante: rendaOwned,
+    multi_regime_qtd_por_participante: regimeOwned
+  });
+}
+
+function categorizeReprovacaoMotivo({ status, text, motivo }) {
+  const source = normalizeText([text, motivo].filter(Boolean).join(" "));
+  if (!source) return status === "reprovado" || status === "pendencia_risco" ? "outro" : "nao_categorizado";
+  if (/\b(scr|bacen|registrato)\b/.test(source)) return "scr_bacen";
+  if (/\b(sinad|conres)\b/.test(source)) return "sinad_conres";
+  if (/\b(comprometimento de renda|margem financeira comprometida|compromissos financeiros)\b/.test(source)) return "comprometimento_renda";
+  if (status === "reprovado" || status === "pendencia_risco") return "outro";
+  return "nao_categorizado";
+}
+
+function getOfficialFollowupCounters(st = {}) {
+  return {
+    envio_docs_lembrete_count: Number(st.envio_docs_lembrete_count || 0),
+    visita_recusa_online_tentativas_count: Number(st.visita_recusa_online_tentativas_count || 0)
+  };
+}
+
+function getCltPerfilInformativoPrompt(participantId, contexto = null) {
+  if (participantId === "p3") {
+    return [
+      "Perfeito! 👌",
+      "Agora, só uma confirmação informativa:",
+      "A renda desse cônjuge é *fixa* ou costuma *variar* por comissão, hora extra ou adicional?"
+    ];
+  }
+  if (participantId === "p2" && contexto === "familiar") {
+    return [
+      "Perfeito! 👌",
+      "Agora, só uma confirmação informativa:",
+      "A renda desse familiar é *fixa* ou costuma *variar* por comissão, hora extra ou adicional?"
+    ];
+  }
+  if (participantId === "p2") {
+    return [
+      "Perfeito! 👌",
+      "Agora, só uma confirmação informativa:",
+      "A renda do parceiro(a) é *fixa* ou costuma *variar* por comissão, hora extra ou adicional?"
+    ];
+  }
+  return [
+    "Perfeito! 👌",
+    "Agora, só uma confirmação informativa:",
+    "Seu salário é *fixo* ou costuma *variar* por comissão, hora extra ou adicional?"
+  ];
+}
+
+function getCltPerfilFallbackPrompt(participantId, contexto = null) {
+  if (participantId === "p3") {
+    return ["Só para confirmar 🙂", "A renda desse cônjuge é *fixa* ou *variável*?"];
+  }
+  if (participantId === "p2" && contexto === "familiar") {
+    return ["Só para confirmar 🙂", "A renda desse familiar é *fixa* ou *variável*?"];
+  }
+  if (participantId === "p2") {
+    return ["Só para confirmar 🙂", "A renda do parceiro(a) é *fixa* ou *variável*?"];
+  }
+  return ["Só para confirmar 🙂", "Seu salário é *fixo* ou *variável*?"];
+}
+
+function getCltPerfilNextQuestion(returnStage, contexto = null) {
+  if (returnStage === "inicio_multi_regime_pergunta_parceiro") {
+    return [
+      "Certo! 😊",
+      "Agora me diga: o parceiro(a) tem *mais algum regime de trabalho* além desse?",
+      "Responda *sim* ou *não*."
+    ];
+  }
+  if (returnStage === "inicio_multi_regime_familiar_pergunta") {
+    const famLabel = contexto === "familiar_pai" ? "seu pai" : (contexto === "familiar_mae" ? "sua mãe" : "seu familiar");
+    return [
+      "Certo! 😊",
+      `Agora me diga: ${famLabel} tem mais algum regime de trabalho além desse?`,
+      "Responda sim ou não."
+    ];
+  }
+  if (returnStage === "inicio_multi_regime_p3_pergunta") {
+    const p3Label = contexto === "familiar_pai" ? "cônjuge do seu pai" : (contexto === "familiar_mae" ? "cônjuge da sua mãe" : "cônjuge do seu familiar");
+    return [
+      "Certo! 😊",
+      `Agora me diga: o(a) ${p3Label} tem mais algum regime de trabalho?`,
+      "Responda sim ou não."
+    ];
+  }
+  return [
+    "Certo! 😊",
+    "Agora me diga: você tem *mais algum regime de trabalho* além desse?",
+    "Responda *sim* ou *não*."
+  ];
+}
+
 function hasRestricaoIndicador(text) {
   const nt = normalizeText(text);
   if (!nt) return false;
@@ -980,6 +1155,27 @@ function getEtapa1InformativosBag(st = {}) {
   const bag = controle.etapa1_informativos;
   if (bag && typeof bag === "object" && !Array.isArray(bag)) return bag;
   return {};
+}
+
+function getEtapa2EstruturalBag(st = {}) {
+  const controle = getControleObject(st);
+  const bag = controle.etapa2_estrutural;
+  if (bag && typeof bag === "object" && !Array.isArray(bag)) return bag;
+  return {};
+}
+
+function buildEtapa2EstruturalPatch(st = {}, updates = {}) {
+  const controle = getControleObject(st);
+  const atual = getEtapa2EstruturalBag(st);
+  return {
+    controle: {
+      ...controle,
+      etapa2_estrutural: {
+        ...atual,
+        ...updates
+      }
+    }
+  };
 }
 
 function getEtapa1InformativoValue(st = {}, key) {
@@ -15092,12 +15288,20 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   [String(signals.messageText || ""), String(signals.caption || ""), String(docExtraction?.extracted_text || "")].filter(Boolean).join("\n")
 );
 
+  const retornoCategoria = categorizeReprovacaoMotivo({
+  status: statusCanonico,
+  text: String(signals.messageText || userText || ""),
+  motivo
+ });
   const retornoCorrespondenteStatePatch = {
   retorno_correspondente_bruto: manualReviewRequired
     ? JSON.stringify(rawPayload)
     : String(signals.messageText || userText || "").trim(),
   retorno_correspondente_status: statusCanonico,
   retorno_correspondente_motivo: motivo,
+  ...buildEtapa2EstruturalPatch(stCaso || {}, {
+    reprovacao_categoria_caso: retornoCategoria
+  }),
   retorno_correspondente_valor_financiamento: valorFinanciamento,
   retorno_correspondente_valor_subsidio_federal: valorSubsidioFederal
  };
@@ -19257,6 +19461,18 @@ case "inicio_multi_renda_pergunta": {
   });
 
   const nt = normalizeText(userText || "");
+  const includeComposicao = parseRendaExtraComposicaoDecision(userText || "");
+  if (includeComposicao !== null) {
+    const extraPatch = buildEtapa2EstruturalPatch(st, {
+      renda_extra_entra_composicao_por_participante: participantSignalMapWithValue(
+        getEtapa2EstruturalBag(st).renda_extra_entra_composicao_por_participante,
+        "p1",
+        includeComposicao
+      )
+    });
+    await upsertState(env, st.wa_id, extraPatch);
+    Object.assign(st, extraPatch);
+  }
   // Exemplos cobertos: "sim, tenho bicos", "não tenho renda extra"
 
   // -------------------------------------------
@@ -19396,10 +19612,14 @@ case "inicio_multi_renda_coletar": {
   // -------------------------------
   // Upsert no banco
   // -------------------------------
-  await upsertState(env, st.wa_id, {
+  const multiRendaPatch = {
     multi_renda_lista: lista,
     ultima_renda_bruta_informada: valorNumerico,
     qtd_rendas_informadas: lista.length
+  };
+  await upsertState(env, st.wa_id, {
+    ...multiRendaPatch,
+    ...buildEtapa2MultiParticipantPatch(st, multiRendaPatch)
   });
 
   // -------------------------------
@@ -19462,9 +19682,26 @@ case "inicio_multi_regime_familiar_loop": {
   }
 
   const regimeFinal = regimeMulti === "aposentadoria" ? "aposentado" : regimeMulti;
-  await upsertState(env, st.wa_id, {
+  const multiRegimePatch = {
     multi_regime_lista: appendOwned(st.multi_regime_lista, { regime: regimeFinal, ts: Date.now() }, "familiar")
+  };
+  await upsertState(env, st.wa_id, {
+    ...multiRegimePatch,
+    ...buildEtapa2MultiParticipantPatch(st, multiRegimePatch)
   });
+
+  if (regimeFinal === "clt") {
+    await upsertState(env, st.wa_id, {
+      clt_perfil_contexto: "p2_familiar",
+      clt_perfil_return_stage: "inicio_multi_regime_familiar_pergunta"
+    });
+    return step(
+      env,
+      st,
+      getCltPerfilInformativoPrompt("p2", "familiar"),
+      "clt_renda_perfil_informativo"
+    );
+  }
 
   return step(env, st, ["Ótimo! 👍", `${famLabel} tem mais algum emprego/regime?`, "Responda sim ou não."], "inicio_multi_regime_familiar_pergunta");
 }
@@ -19474,6 +19711,18 @@ case "inicio_multi_regime_familiar_loop": {
 // --------------------------------------------------
 case "inicio_multi_renda_familiar_pergunta": {
   const nt = normalizeText(userText || "");
+  const includeComposicao = parseRendaExtraComposicaoDecision(userText || "");
+  if (includeComposicao !== null) {
+    const extraPatch = buildEtapa2EstruturalPatch(st, {
+      renda_extra_entra_composicao_por_participante: participantSignalMapWithValue(
+        getEtapa2EstruturalBag(st).renda_extra_entra_composicao_por_participante,
+        "p2",
+        includeComposicao
+      )
+    });
+    await upsertState(env, st.wa_id, extraPatch);
+    Object.assign(st, extraPatch);
+  }
   const famLabel = st.familiar_tipo === "pai" ? "seu pai" : st.familiar_tipo === "mae" ? "sua mãe" : "seu familiar";
 
   if (isYes(nt)) {
@@ -19513,8 +19762,12 @@ case "inicio_multi_renda_familiar_loop": {
     return step(env, st, ["Não consegui identificar o valor 😅", "Pode me enviar novamente?"], "inicio_multi_renda_familiar_loop");
   }
 
-  await upsertState(env, st.wa_id, {
+  const multiRendaPatch = {
     multi_renda_lista: appendOwned(st.multi_renda_lista, { tipo, valor: valorNumerico, ts: Date.now() }, "familiar")
+  };
+  await upsertState(env, st.wa_id, {
+    ...multiRendaPatch,
+    ...buildEtapa2MultiParticipantPatch(st, multiRendaPatch)
   });
 
   return step(env, st, ["Ótimo! 👌", "Quer adicionar mais alguma renda desse familiar?", "Responda sim ou não."], "inicio_multi_renda_familiar_pergunta");
@@ -19612,8 +19865,12 @@ case "inicio_multi_regime_coletar_parceiro": {
   let regimesParceiro = Array.isArray(st.multi_regime_lista_parceiro) ? st.multi_regime_lista_parceiro : [];
   regimesParceiro.push(regimeMulti === "aposentadoria" ? "aposentado" : regimeMulti);
 
-  await upsertState(env, st.wa_id, {
+  const multiRegimeParceiroPatch = {
     multi_regime_lista_parceiro: regimesParceiro
+  };
+  await upsertState(env, st.wa_id, {
+    ...multiRegimeParceiroPatch,
+    ...buildEtapa2MultiParticipantPatch(st, multiRegimeParceiroPatch)
   });
 
   return step(
@@ -19643,6 +19900,18 @@ case "inicio_multi_renda_pergunta_parceiro": {
   });
 
   const nt = normalizeText(userText || "");
+  const includeComposicao = parseRendaExtraComposicaoDecision(userText || "");
+  if (includeComposicao !== null) {
+    const extraPatch = buildEtapa2EstruturalPatch(st, {
+      renda_extra_entra_composicao_por_participante: participantSignalMapWithValue(
+        getEtapa2EstruturalBag(st).renda_extra_entra_composicao_por_participante,
+        "p2",
+        includeComposicao
+      )
+    });
+    await upsertState(env, st.wa_id, extraPatch);
+    Object.assign(st, extraPatch);
+  }
 
   // -------------------------------------------
   // NÃO — parceiro não possui outra renda
@@ -19847,10 +20116,14 @@ case "inicio_multi_renda_coletar_parceiro": {
     ts: Date.now()
   });
 
-  await upsertState(env, st.wa_id, {
+  const multiRendaParceiroPatch = {
     multi_renda_lista_parceiro: lista,
     ultima_renda_bruta_informada_parceiro: valorNumerico,
     qtd_rendas_informadas_parceiro: lista.length
+  };
+  await upsertState(env, st.wa_id, {
+    ...multiRendaParceiroPatch,
+    ...buildEtapa2MultiParticipantPatch(st, multiRendaParceiroPatch)
   });
 
   st.multi_renda_lista_parceiro = lista;
@@ -19904,29 +20177,30 @@ case "regime_trabalho": {
   // TITULAR É CLT
   // ------------------------------------------------------
   if (clt) {
-    await upsertState(env, st.wa_id, {
-      regime: "clt"
-    });
+    const cltPatch = {
+      regime: "clt",
+      regime_trabalho: "clt",
+      clt_perfil_contexto: "p1",
+      clt_perfil_return_stage: "inicio_multi_regime_pergunta"
+    };
+    await upsertState(env, st.wa_id, cltPatch);
 
     // EXIT_STAGE → vai para pergunta de multi regime
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "inicio_multi_regime_pergunta",
+      next_stage: "clt_renda_perfil_informativo",
       severity: "info",
-      message: "Saindo da fase regime_trabalho → inicio_multi_regime_pergunta (CLT)",
+      message: "Saindo da fase regime_trabalho → clt_renda_perfil_informativo (CLT)",
       details: { userText }
     });
 
     return step(
       env,
       st,
-      [
-        "Perfeito. Você tem mais algum emprego ou faz algum bico além desse?",
-        "Responda *sim* ou *não*."
-      ],
-      "inicio_multi_regime_pergunta"
+      getCltPerfilInformativoPrompt("p1"),
+      "clt_renda_perfil_informativo"
     );
   }
 
@@ -20503,6 +20777,19 @@ if (!regimeCanonico) {
     });
   }
 
+  if (regimeFinal === "clt") {
+    await upsertState(env, st.wa_id, {
+      clt_perfil_contexto: "p2_familiar",
+      clt_perfil_return_stage: "inicio_multi_regime_familiar_pergunta"
+    });
+    return step(
+      env,
+      st,
+      getCltPerfilInformativoPrompt("p2", "familiar"),
+      "clt_renda_perfil_informativo"
+    );
+  }
+
   return step(
     env,
     st,
@@ -20550,10 +20837,26 @@ case "regime_trabalho_parceiro_familiar_p3": {
   }
 
   const regimeFinal = regimeCanonicoP3 === "aposentadoria" ? "aposentado" : regimeCanonicoP3;
-  await upsertState(env, st.wa_id, {
+  const multiRegimePatch = {
     p3_regime_trabalho: regimeFinal,
     multi_regime_lista: appendOwned(st.multi_regime_lista, { regime: regimeFinal, ts: Date.now() }, "p3")
+  };
+  await upsertState(env, st.wa_id, {
+    ...multiRegimePatch,
+    ...buildEtapa2MultiParticipantPatch(st, multiRegimePatch)
   });
+  if (regimeFinal === "clt") {
+    await upsertState(env, st.wa_id, {
+      clt_perfil_contexto: "p3",
+      clt_perfil_return_stage: "inicio_multi_regime_p3_pergunta"
+    });
+    return step(
+      env,
+      st,
+      getCltPerfilInformativoPrompt("p3"),
+      "clt_renda_perfil_informativo"
+    );
+  }
   return step(env, st, ["Perfeito!", `O(a) ${p3Label} tem mais algum regime de trabalho?`], "inicio_multi_regime_p3_pergunta");
 }
 
@@ -20592,14 +20895,42 @@ case "inicio_multi_regime_p3_loop": {
     return step(env, st, ["Acho que não entendi certinho 😅", "Me diga apenas o regime, como CLT, autônomo ou servidor."], "inicio_multi_regime_p3_loop");
   }
   const regimeFinal = regimeMulti === "aposentadoria" ? "aposentado" : regimeMulti;
-  await upsertState(env, st.wa_id, {
+  const multiRegimePatch = {
     multi_regime_lista: appendOwned(st.multi_regime_lista, { regime: regimeFinal, ts: Date.now() }, "p3")
+  };
+  await upsertState(env, st.wa_id, {
+    ...multiRegimePatch,
+    ...buildEtapa2MultiParticipantPatch(st, multiRegimePatch)
   });
+  if (regimeFinal === "clt") {
+    await upsertState(env, st.wa_id, {
+      clt_perfil_contexto: "p3",
+      clt_perfil_return_stage: "inicio_multi_regime_p3_pergunta"
+    });
+    return step(
+      env,
+      st,
+      getCltPerfilInformativoPrompt("p3"),
+      "clt_renda_perfil_informativo"
+    );
+  }
   return step(env, st, ["Ótimo! 👍", "Tem mais algum regime de trabalho?", "Responda sim ou não."], "inicio_multi_regime_p3_pergunta");
 }
 
 case "inicio_multi_renda_p3_pergunta": {
   const nt = normalizeText(userText || "");
+  const includeComposicao = parseRendaExtraComposicaoDecision(userText || "");
+  if (includeComposicao !== null) {
+    const extraPatch = buildEtapa2EstruturalPatch(st, {
+      renda_extra_entra_composicao_por_participante: participantSignalMapWithValue(
+        getEtapa2EstruturalBag(st).renda_extra_entra_composicao_por_participante,
+        "p3",
+        includeComposicao
+      )
+    });
+    await upsertState(env, st.wa_id, extraPatch);
+    Object.assign(st, extraPatch);
+  }
   if (isYes(nt)) {
     return step(env, st, ["Perfeito! 👍", "Me diga a outra renda e o valor bruto.", "Exemplo: Bico - 1200"], "inicio_multi_renda_p3_loop");
   }
@@ -20627,8 +20958,12 @@ case "inicio_multi_renda_p3_loop": {
   if (!valorNumerico || valorNumerico <= 0) {
     return step(env, st, ["Não consegui identificar o valor 😅", "Pode me enviar novamente?"], "inicio_multi_renda_p3_loop");
   }
-  await upsertState(env, st.wa_id, {
+  const multiRendaPatch = {
     multi_renda_lista: appendOwned(st.multi_renda_lista, { tipo, valor: valorNumerico, ts: Date.now() }, "p3")
+  };
+  await upsertState(env, st.wa_id, {
+    ...multiRendaPatch,
+    ...buildEtapa2MultiParticipantPatch(st, multiRendaPatch)
   });
   return step(env, st, ["Ótimo! 👌", "Quer adicionar mais alguma renda?", "Responda sim ou não."], "inicio_multi_renda_p3_pergunta");
 }
@@ -20791,6 +21126,44 @@ case "regularizacao_restricao_p3": {
 // --------------------------------------------------
 // 🧩 C18 - INICIO_MULTI_REGIME_PERGUNTA
 // --------------------------------------------------
+case "clt_renda_perfil_informativo": {
+  const perfil = parseCltIncomeProfile(userText || "");
+  const contextoRaw = String(st.clt_perfil_contexto || "p1");
+  const contexto = normalizeText(contextoRaw);
+  const isP3 = contexto === "p3";
+  const isP2Familiar = contexto === "p2_familiar";
+  const participantId = isP3 ? "p3" : (contexto === "p2" || isP2Familiar ? "p2" : "p1");
+  const contextoPrompt = isP2Familiar ? "familiar" : null;
+  const returnStage = String(st.clt_perfil_return_stage || "inicio_multi_regime_pergunta");
+  const familiarCtx = st.familiar_tipo === "pai" ? "familiar_pai" : (st.familiar_tipo === "mae" ? "familiar_mae" : "familiar_outro");
+
+  if (!perfil) {
+    return step(env, st, getCltPerfilFallbackPrompt(participantId, contextoPrompt), "clt_renda_perfil_informativo");
+  }
+
+  const cltPatch = {
+    ...buildEtapa2EstruturalPatch(st, {
+      clt_renda_perfil_por_participante: participantSignalMapWithValue(
+        getEtapa2EstruturalBag(st).clt_renda_perfil_por_participante,
+        participantId,
+        perfil
+      )
+    }),
+    clt_perfil_contexto: null,
+    clt_perfil_return_stage: null
+  };
+  await upsertState(env, st.wa_id, cltPatch);
+  Object.assign(st, cltPatch);
+
+  const nextQuestion = getCltPerfilNextQuestion(
+    returnStage,
+    returnStage === "inicio_multi_regime_p3_pergunta" || returnStage === "inicio_multi_regime_familiar_pergunta"
+      ? familiarCtx
+      : null
+  );
+  return step(env, st, nextQuestion, returnStage);
+}
+
 case "inicio_multi_regime_pergunta": {
 
   await funnelTelemetry(env, {
@@ -20888,8 +21261,12 @@ case "inicio_multi_regime_coletar": {
   let regimes = st.multi_regimes || [];
   regimes.push(regimeMulti === "aposentadoria" ? "aposentado" : regimeMulti);
 
-  await upsertState(env, st.wa_id, {
+  const multiRegimeTitularPatch = {
     multi_regimes: regimes
+  };
+  await upsertState(env, st.wa_id, {
+    ...multiRegimeTitularPatch,
+    ...buildEtapa2MultiParticipantPatch(st, multiRegimeTitularPatch)
   });
 
   // após registrar o regime, volta para a pergunta de multi regime
@@ -20938,29 +21315,26 @@ case "regime_trabalho_parceiro": {
   // -----------------------------
   if (clt) {
     await upsertState(env, st.wa_id, {
-      regime_trabalho_parceiro: "clt"
+      regime_trabalho_parceiro: "clt",
+      clt_perfil_contexto: "p2",
+      clt_perfil_return_stage: "inicio_multi_regime_pergunta_parceiro"
     });
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "inicio_multi_regime_pergunta_parceiro",
+      next_stage: "clt_renda_perfil_informativo",
       severity: "info",
-      message: "Saindo da fase regime_trabalho_parceiro → inicio_multi_regime_pergunta_parceiro (CLT)",
+      message: "Saindo da fase regime_trabalho_parceiro → clt_renda_perfil_informativo (CLT)",
       details: { userText }
     });
 
     return step(
       env,
       st,
-      [
-        "Perfeito! 👍",
-        "Só pra eu montar certinho o perfil do parceiro(a):",
-        "Ele(a) tem *mais algum regime de trabalho* além desse?",
-        "Responda *sim* ou *não*."
-      ],
-      "inicio_multi_regime_pergunta_parceiro"
+      getCltPerfilInformativoPrompt("p2"),
+      "clt_renda_perfil_informativo"
     );
   }
 
@@ -24530,7 +24904,7 @@ case "envio_docs": {
   // Não classificar como legado.
   // Preservar como ponto de conexão da visita canônica futura.
   // Ainda não integrado ao fluxo oficial completo da visita.
-  const tentativasAcompanhamento = Number(st.envio_docs_lembrete_count || 0);
+  const countersDocs = getOfficialFollowupCounters(st);
   const faseAtual = String(stage || st.fase_conversa || "");
   const contextoDocumentalAtivo =
     faseAtual === "envio_docs" &&
@@ -24538,7 +24912,7 @@ case "envio_docs": {
   const naoEnviadoCorrespondente = st.processo_enviado_correspondente !== true;
   const naoConfirmouVisita = st.visita_confirmada !== true;
   const naoEncerrado = !["fim_ineligivel", "fim_inelegivel", "finalizacao", "finalizacao_processo", "aguardando_retorno_correspondente"].includes(String(st.fase_conversa || ""));
-  const provaMinimaDeTentativas = tentativasAcompanhamento >= 2;
+  const provaMinimaDeTentativas = countersDocs.envio_docs_lembrete_count >= 2;
   const sinalCompativelVisitaDocumental =
     canal.pediuVisita ||
     canal.objecaoOnlineForte ||
@@ -25637,7 +26011,8 @@ case "finalizacao_processo": {
     /\b(nao tenho interesse|nao quero mais|nao vou continuar|desisti|desisto|cancelar processo|quero cancelar)\b/;
   const sinalRecusaCanalRemoto = REMOTE_CHANNEL_REFUSAL_PATTERN.test(ntFinalizacao);
   const rejeicaoProcessoGeral = GENERAL_PROCESS_REJECTION_PATTERN.test(ntFinalizacao);
-  const tentativasConducaoAtual = Number(st.visita_recusa_online_tentativas_count || 0);
+  const countersFollowup = getOfficialFollowupCounters(st);
+  const tentativasConducaoAtual = countersFollowup.visita_recusa_online_tentativas_count;
   const tentativasConducaoAposContato = tentativasConducaoAtual + (sinalRecusaCanalRemoto ? 1 : 0);
   const contextoAtendimentoAtivo = stage === "finalizacao_processo";
   const naoEncerrado = !["fim_ineligivel", "fim_inelegivel", "finalizacao", "aguardando_retorno_correspondente"].includes(String(st.fase_conversa || ""));
@@ -26012,13 +26387,15 @@ case "aguardando_retorno_correspondente": {
   // Aprovado do correspondente -> agendamento_visita.
   // Qualquer evolução futura da fase visita deve respeitar este ponto de entrada.
   if (statusCanonico === "aprovado" || statusCanonico === "aprovado_condicionado") {
+    const reprovacaoCategoriaCaso = categorizeReprovacaoMotivo({ status: statusCanonico, text: txt, motivo: null });
 
     await upsertState(env, st.wa_id, {
       processo_aprovado: true,
       processo_reprovado: false,
       retorno_correspondente_bruto: txt,
       retorno_correspondente_status: statusCanonico,
-      retorno_correspondente_motivo: null
+      retorno_correspondente_motivo: null,
+      ...buildEtapa2EstruturalPatch(st, { reprovacao_categoria_caso: reprovacaoCategoriaCaso })
     });
 
     await funnelTelemetry(env, {
@@ -26049,12 +26426,14 @@ case "aguardando_retorno_correspondente": {
     const m = txt.match(/(pend[eê]ncia|motivo|raz[aã]o|detalhe|score)\s*:\s*([^\n\r]+)/i);
     if (m) motivo = m[2];
 
+    const reprovacaoCategoriaCaso = categorizeReprovacaoMotivo({ status: statusCanonico, text: txt, motivo });
     await upsertState(env, st.wa_id, {
       processo_aprovado: false,
       processo_reprovado: true,
       retorno_correspondente_bruto: txt,
       retorno_correspondente_status: "reprovado",
-      retorno_correspondente_motivo: motivo || null
+      retorno_correspondente_motivo: motivo || null,
+      ...buildEtapa2EstruturalPatch(st, { reprovacao_categoria_caso: reprovacaoCategoriaCaso })
     });
 
     await funnelTelemetry(env, {
@@ -26087,12 +26466,14 @@ case "aguardando_retorno_correspondente": {
     if (m) motivo = m[2];
     const motivoSafe = String(motivo || "").replace(/[*_`~]/g, "").trim();
 
+    const reprovacaoCategoriaCaso = categorizeReprovacaoMotivo({ status: statusCanonico, text: txt, motivo });
     await upsertState(env, st.wa_id, {
       processo_aprovado: false,
       processo_reprovado: false,
       retorno_correspondente_bruto: txt,
       retorno_correspondente_status: "pendencia_risco",
-      retorno_correspondente_motivo: motivo || null
+      retorno_correspondente_motivo: motivo || null,
+      ...buildEtapa2EstruturalPatch(st, { reprovacao_categoria_caso: reprovacaoCategoriaCaso })
     });
 
     await funnelTelemetry(env, {
@@ -26121,12 +26502,14 @@ case "aguardando_retorno_correspondente": {
     if (m) motivo = m[2];
     const motivoSafe = String(motivo || "").replace(/[*_`~]/g, "").trim();
 
+    const reprovacaoCategoriaCaso = categorizeReprovacaoMotivo({ status: statusCanonico, text: txt, motivo });
     await upsertState(env, st.wa_id, {
       processo_aprovado: false,
       processo_reprovado: false,
       retorno_correspondente_bruto: txt,
       retorno_correspondente_status: "pendencia_documental",
-      retorno_correspondente_motivo: motivo || null
+      retorno_correspondente_motivo: motivo || null,
+      ...buildEtapa2EstruturalPatch(st, { reprovacao_categoria_caso: reprovacaoCategoriaCaso })
     });
 
     await funnelTelemetry(env, {

@@ -65,9 +65,9 @@ function normalizeSizeBytes(row: EnovaDocRow): number | null {
       return value;
     }
     if (typeof value === "string") {
-      const parsed = Number.parseInt(value, 10);
+      const parsed = Number.parseFloat(value);
       if (Number.isFinite(parsed) && parsed >= 0) {
-        return parsed;
+        return Math.floor(parsed);
       }
     }
   }

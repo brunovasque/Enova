@@ -77,7 +77,8 @@ export async function GET(request: Request) {
     const rows = (await response.json()) as EnovaDocRow[];
     const files = normalizeCaseFiles(waId, rows);
     return jsonResponse({ ok: true, wa_id: waId, files, error: null }, 200);
-  } catch {
+  } catch (error) {
+    console.error("case-files list internal error", error);
     return jsonResponse({ ok: false, wa_id: waId, files: [], error: "internal error" }, 500);
   }
 }

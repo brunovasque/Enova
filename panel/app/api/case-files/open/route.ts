@@ -4,7 +4,10 @@ import { resolveCaseFileById, type EnovaDocRow } from "../_shared";
 const REQUIRED_ENVS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const;
 
 function buildContentDisposition(fileName: string | null, previewable: boolean): string {
-  const fallbackName = (fileName || "arquivo").replace(/[\r\n"]/g, "_").trim() || "arquivo";
+  const fallbackName =
+    (fileName || "arquivo")
+      .replace(/[\\/\r\n"<>:*?|]/g, "_")
+      .trim() || "arquivo";
   const encoded = encodeURIComponent(fallbackName);
   const mode = previewable ? "inline" : "attachment";
   return `${mode}; filename="${fallbackName}"; filename*=UTF-8''${encoded}`;
@@ -102,7 +105,8 @@ export async function GET(request: Request) {
       status: 200,
       headers,
     });
-  } catch {
+  } catch (error) {
+    console.error("case-files/open internal error", error);
     return NextResponse.json(
       { ok: false, error: "internal error" },
       { status: 500, headers: { "Cache-Control": "no-store" } },

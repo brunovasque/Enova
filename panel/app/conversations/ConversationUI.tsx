@@ -129,8 +129,9 @@ function formatFileSize(value: number | null): string {
   return `${(value / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function fileDisplayName(file: Pick<CaseFile, "file_name" | "tipo" | "file_id">): string {
-  return file.file_name || file.tipo || `arquivo-${file.file_id.slice(0, 8)}`;
+function formatFileDisplayName(file: Pick<CaseFile, "file_name" | "tipo" | "file_id">): string {
+  const shortId = (file.file_id || "").trim().slice(0, 8);
+  return file.file_name || file.tipo || (shortId ? `arquivo-${shortId}` : "arquivo");
 }
 
 function buildMessageRenderKey(message: Message): string {
@@ -186,9 +187,9 @@ export function ConversationUI() {
   const [seenConversationActivity, setSeenConversationActivity] = useState<Record<string, string>>(
     {}
   );
-  const [caseFiles, setCaseFiles] = useState<CaseFile[]>([]);
-  const [filesLoading, setFilesLoading] = useState(false);
-  const [filesError, setFilesError] = useState<string | null>(null);
+  const [threadFiles, setThreadFiles] = useState<CaseFile[]>([]);
+  const [caseFilesLoading, setCaseFilesLoading] = useState(false);
+  const [caseFilesError, setCaseFilesError] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<CaseFile | null>(null);
 
   const router = useRouter();
@@ -313,14 +314,14 @@ export function ConversationUI() {
 
   const loadCaseFiles = useCallback(async (waId: string, silent = false) => {
     if (!waId) {
-      setCaseFiles([]);
-      setFilesError(null);
-      setFilesLoading(false);
+      setThreadFiles([]);
+      setCaseFilesError(null);
+      setCaseFilesLoading(false);
       return;
     }
 
     if (!silent) {
-      setFilesLoading(true);
+      setCaseFilesLoading(true);
     }
 
     try {
@@ -335,19 +336,19 @@ export function ConversationUI() {
         return;
       }
 
-      setCaseFiles(Array.isArray(data.files) ? data.files : []);
-      setFilesError(null);
+      setThreadFiles(Array.isArray(data.files) ? data.files : []);
+      setCaseFilesError(null);
     } catch (error) {
       if (selectedWaIdRef.current !== waId) {
         return;
       }
       if (!silent) {
-        setCaseFiles([]);
+        setThreadFiles([]);
       }
-      setFilesError(error instanceof Error ? error.message : "Falha ao carregar arquivos");
+      setCaseFilesError(error instanceof Error ? error.message : "Falha ao carregar arquivos");
     } finally {
       if (!silent && selectedWaIdRef.current === waId) {
-        setFilesLoading(false);
+        setCaseFilesLoading(false);
       }
     }
   }, []);
@@ -529,11 +530,11 @@ export function ConversationUI() {
     setComposerText("");
     loadedThreadWaIdRef.current = "";
     setMessages([]);
-    setCaseFiles([]);
+    setThreadFiles([]);
     setThreadError(null);
-    setFilesError(null);
+    setCaseFilesError(null);
     setThreadLoading(Boolean(selectedWaId));
-    setFilesLoading(Boolean(selectedWaId));
+    setCaseFilesLoading(Boolean(selectedWaId));
     setThreadUnreadCount(0);
     cancelPendingThreadScroll();
     pendingScrollToBottomRef.current = Boolean(selectedWaId);
@@ -953,18 +954,18 @@ export function ConversationUI() {
 
               {!selectedWaId ? (
                 <p className={styles.filesHint}>Selecione uma conversa para visualizar arquivos.</p>
-              ) : filesLoading ? (
+              ) : caseFilesLoading ? (
                 <p className={styles.filesHint}>Carregando arquivos...</p>
-              ) : filesError ? (
-                <p className={styles.panelError}>Erro nos arquivos: {filesError}</p>
-              ) : caseFiles.length === 0 ? (
+              ) : caseFilesError ? (
+                <p className={styles.panelError}>Erro nos arquivos: {caseFilesError}</p>
+              ) : threadFiles.length === 0 ? (
                 <p className={styles.filesHint}>Nenhum arquivo recebido para este caso.</p>
               ) : (
                 <ul className={styles.filesList}>
-                  {caseFiles.map((file) => (
+                  {threadFiles.map((file) => (
                     <li key={file.file_id} className={styles.filesItem}>
                       <div className={styles.filesItemMeta}>
-                        <span className={styles.filesName}>{fileDisplayName(file)}</span>
+                        <span className={styles.filesName}>{formatFileDisplayName(file)}</span>
                         <span className={styles.filesMetaLine}>
                           tipo: {file.mime_type || "--"} • tamanho: {formatFileSize(file.size_bytes)}
                         </span>
@@ -1041,10 +1042,15 @@ export function ConversationUI() {
         </section>
       </section>
       {previewFile ? (
-        <div className={styles.previewOverlay} role="dialog" aria-modal="true">
+        <div
+          className={styles.previewOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Preview de arquivo: ${formatFileDisplayName(previewFile)}`}
+        >
           <div className={styles.previewCard}>
             <div className={styles.previewHeader}>
-              <strong>{fileDisplayName(previewFile)}</strong>
+              <strong>{formatFileDisplayName(previewFile)}</strong>
               <button
                 type="button"
                 className={styles.previewCloseButton}
@@ -1056,13 +1062,13 @@ export function ConversationUI() {
             <div className={styles.previewBody}>
               {previewFile.mime_type === "application/pdf" ? (
                 <iframe
-                  title={fileDisplayName(previewFile)}
+                  title={formatFileDisplayName(previewFile)}
                   src={openFileUrl(previewFile)}
                   className={styles.previewFrame}
                 />
               ) : (
                 <img
-                  alt={fileDisplayName(previewFile)}
+                  alt={formatFileDisplayName(previewFile)}
                   src={openFileUrl(previewFile)}
                   className={styles.previewImage}
                 />

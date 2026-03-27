@@ -959,6 +959,171 @@ function parseP3Tipo(text) {
   return null;
 }
 
+function hasStateValue(value) {
+  return !(value === null || typeof value === "undefined" || value === "");
+}
+
+function getControleObject(st = {}) {
+  const raw = st?.controle;
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) return { ...raw };
+  if (typeof raw === "string" && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    } catch (_) {}
+  }
+  return {};
+}
+
+function getEtapa1InformativosBag(st = {}) {
+  const controle = getControleObject(st);
+  const bag = controle.etapa1_informativos;
+  if (bag && typeof bag === "object" && !Array.isArray(bag)) return bag;
+  return {};
+}
+
+function getEtapa1InformativoValue(st = {}, key) {
+  const bag = getEtapa1InformativosBag(st);
+  if (Object.prototype.hasOwnProperty.call(bag, key)) return bag[key];
+  return st?.[key];
+}
+
+function buildEtapa1InformativosPatch(st = {}, updates = {}) {
+  const controle = getControleObject(st);
+  const atual = getEtapa1InformativosBag(st);
+  return {
+    controle: {
+      ...controle,
+      etapa1_informativos: {
+        ...atual,
+        ...updates
+      }
+    }
+  };
+}
+
+function shouldRunEtapa1InformativosVisita(st = {}) {
+  return getEtapa1InformativoValue(st, "visita_informativos_etapa1") === true;
+}
+
+function getComposicaoParticipantesInformativos(st = {}) {
+  const participantes = [{ id: "p1", label: "seu" }];
+  const compoeComParceiro = st.financiamento_conjunto === true;
+  const compoeComFamiliar = st.somar_renda === true && st.p2_tipo === "familiar";
+
+  if (compoeComParceiro) {
+    participantes.push({ id: "p2", label: "do(a) parceiro(a)" });
+  } else if (compoeComFamiliar) {
+    participantes.push({ id: "p2", label: "do familiar que compõe com você" });
+    if (st.p3_required === true && st.p3_done === true) {
+      participantes.push({ id: "p3", label: "da terceira pessoa que compõe com você" });
+    }
+  }
+
+  return participantes;
+}
+
+function informativoPreDocsField(topic, participantId) {
+  return topic === "moradia"
+    ? `informativo_moradia_${participantId}`
+    : `informativo_trabalho_${participantId}`;
+}
+
+function getNextInformativoPreDocsSlot(st = {}) {
+  const participantes = getComposicaoParticipantesInformativos(st);
+  const topics = ["moradia", "trabalho"];
+  for (const topic of topics) {
+    for (const participante of participantes) {
+      const field = informativoPreDocsField(topic, participante.id);
+      if (!hasStateValue(getEtapa1InformativoValue(st, field))) {
+        return { topic, ...participante };
+      }
+    }
+  }
+  return null;
+}
+
+function buildInformativoPreDocsQuestion(slot) {
+  if (!slot) return [];
+  if (slot.topic === "moradia") {
+    return [
+      `Antes de te passar os documentos, me conta rapidinho o local de moradia ${slot.label}.`,
+      "Pode ser bairro, região ou uma referência simples.",
+      "Depois você pode enviar qualquer comprovante de residência atualizado."
+    ];
+  }
+  return [
+    `Perfeito. Agora me conta o local de trabalho ${slot.label}.`,
+    "Pode ser endereço, bairro ou um ponto de referência."
+  ];
+}
+
+function shouldCollectInformativosPreDocs(st = {}) {
+  return (
+    hasStateValue(st.restricao) ||
+    hasStateValue(st.regularizacao_restricao) ||
+    hasStateValue(st.restricao_parceiro)
+  );
+}
+
+function parseInformativoBoolean(text) {
+  if (isYes(text)) return true;
+  if (isNo(text)) return false;
+  const nt = normalizeText(text);
+  if (!nt) return null;
+  if (/\b(sim|tenho|possuo|consigo|quero)\b/.test(nt)) return true;
+  if (/\b(nao|não|sem|nao tenho|não tenho)\b/.test(nt)) return false;
+  return null;
+}
+
+function isGenericAckText(text) {
+  const nt = normalizeText(text);
+  if (!nt) return true;
+  return /^(sim|nao|não|ok|blz|beleza|bora|vamos|quero|pode|manda|depois|talvez|1|2|3|4)$/.test(nt);
+}
+
+function nextVisitaInformativoPendente(st = {}) {
+  if (!shouldRunEtapa1InformativosVisita(st)) return null;
+  if (!hasStateValue(getEtapa1InformativoValue(st, "visita_reserva_entrada_tem"))) return "reserva";
+  if (!hasStateValue(getEtapa1InformativoValue(st, "visita_fgts_disponivel"))) return "fgts";
+  if (!hasStateValue(getEtapa1InformativoValue(st, "visita_decisor_adicional_visita"))) return "decisor";
+  if (getEtapa1InformativoValue(st, "visita_decisor_adicional_visita") === true && !hasStateValue(getEtapa1InformativoValue(st, "visita_decisor_adicional_nome"))) {
+    return "decisor_nome";
+  }
+  return null;
+}
+
+function buildVisitaInformativoQuestion(kind) {
+  if (kind === "reserva") {
+    return [
+      "Antes de fechar essa etapa, só uma pergunta rápida:",
+      "Você tem alguma reserva para ajudar na entrada?",
+      "Se não tiver, tudo bem — isso não trava seu processo.",
+      "Responda *sim* ou *não*."
+    ];
+  }
+  if (kind === "fgts") {
+    return [
+      "Perfeito. E você tem FGTS disponível hoje?",
+      "É só informativo nesta etapa.",
+      "Responda *sim* ou *não*."
+    ];
+  }
+  if (kind === "decisor") {
+    return [
+      "Na visita, existe mais alguém com poder de decisão além de você?",
+      "Responda *sim* ou *não*."
+    ];
+  }
+  if (kind === "decisor_nome") {
+    return [
+      "Perfeito. Qual é o nome dessa pessoa que também decide?",
+      "Se preferir, pode me passar só o primeiro nome."
+    ];
+  }
+  return [];
+}
+
 const COGNITIVE_V1_ALLOWED_STAGES = new Set([
   "estado_civil",
   "quem_pode_somar",
@@ -22930,7 +23095,6 @@ case "dependente": {
 // 🧩 C34 — RESTRIÇÃO (Serasa, SPC, pendências)
 // =========================================================
 case "restricao": {
-
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "restricao"
   // ============================================================
@@ -22946,7 +23110,7 @@ case "restricao": {
       somar_renda: st.somar_renda || null
     }
   });
-  
+
   // Exemplos cobertos: "nome sujo", "negativado no serasa", "cpf limpo", "não sei"
   const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(userText);
   const temTermoRestricao = hasRestricaoIndicador(userText);
@@ -23000,7 +23164,7 @@ const pessoa2Label =
 const modoFamiliar =
   (st.composicao_pessoa === "familiar") || (st.familiar_tipo !== null && typeof st.familiar_tipo !== "undefined");
 
-if (modoFamiliar) {
+  if (modoFamiliar) {
   const familiarJa = (st.restricao_parceiro !== null && typeof st.restricao_parceiro !== "undefined");
   const p3Precisa = (st.p3_required === true);
   const p3Ja = (st.p3_restricao !== null && typeof st.p3_restricao !== "undefined");
@@ -23177,8 +23341,8 @@ return step(env, st,
   );
 }
 
-return step(env, st,
-  [
+  return step(env, st,
+    [
   "Perfeito! 👌",
   "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
   "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
@@ -23538,6 +23702,40 @@ case "regularizacao_restricao": {
   });
 
   const isParceiro = (stage === "regularizacao_restricao_parceiro");
+  const maybeAskInformativosPreDocs = async () => {
+    if (!shouldCollectInformativosPreDocs(st)) return null;
+    const infoSlot = getNextInformativoPreDocsSlot(st);
+    if (!infoSlot) return null;
+    const infoField = informativoPreDocsField(infoSlot.topic, infoSlot.id);
+    const userProvidedInfo = String(userText || "").trim();
+    if (!isGenericAckText(userProvidedInfo) && !hasStateValue(getEtapa1InformativoValue(st, infoField))) {
+      const patchInfo = buildEtapa1InformativosPatch(st, { [infoField]: userProvidedInfo });
+      await upsertState(env, st.wa_id, patchInfo);
+      Object.assign(st, patchInfo);
+    }
+    const remainingSlot = getNextInformativoPreDocsSlot(st);
+    if (remainingSlot) {
+      return step(env, st, buildInformativoPreDocsQuestion(remainingSlot), stage);
+    }
+    return null;
+  };
+
+  if (hasStateValue(st.regularizacao_restricao)) {
+    const infoSlotAtual = getNextInformativoPreDocsSlot(st);
+    if (infoSlotAtual) {
+      const infoFieldAtual = informativoPreDocsField(infoSlotAtual.topic, infoSlotAtual.id);
+      const textoInformativo = String(userText || "").trim();
+      if (!isGenericAckText(textoInformativo) && !hasStateValue(getEtapa1InformativoValue(st, infoFieldAtual))) {
+        const patchInfoAtual = buildEtapa1InformativosPatch(st, { [infoFieldAtual]: textoInformativo });
+        await upsertState(env, st.wa_id, patchInfoAtual);
+        Object.assign(st, patchInfoAtual);
+      }
+      const pendenteAposCaptura = getNextInformativoPreDocsSlot(st);
+      if (pendenteAposCaptura) {
+        return step(env, st, buildInformativoPreDocsQuestion(pendenteAposCaptura), stage);
+      }
+    }
+  }
 
   // 🔢 Valor aproximado da restrição (se existir em memória)
   const valorRestricaoRaw =
@@ -23696,6 +23894,8 @@ case "regularizacao_restricao": {
     if (stage === "regularizacao_restricao_parceiro" && st.restricao !== true) {
       const gateRes2 = gateAntesEnvioDocs();
       if (gateRes2) return gateRes2;
+      const infoStepParceiro = await maybeAskInformativosPreDocs();
+      if (infoStepParceiro) return infoStepParceiro;
       return step(env, st,
         [
           "Ótimo! 👏",
@@ -23708,6 +23908,8 @@ case "regularizacao_restricao": {
 
     const gateRes = gateAntesEnvioDocs();
     if (gateRes) return gateRes;
+    const infoStepSim = await maybeAskInformativosPreDocs();
+    if (infoStepSim) return infoStepSim;
 
     return step(env, st,
       [
@@ -23782,6 +23984,8 @@ case "regularizacao_restricao": {
 
     const gateRes = gateAntesEnvioDocs();
     if (gateRes) return gateRes;
+    const infoStepNao = await maybeAskInformativosPreDocs();
+    if (infoStepNao) return infoStepNao;
 
     return step(env, st,
       [
@@ -23815,6 +24019,8 @@ case "regularizacao_restricao": {
 
     const gateRes = gateAntesEnvioDocs();
     if (gateRes) return gateRes;
+    const infoStepTalvez = await maybeAskInformativosPreDocs();
+    if (infoStepTalvez) return infoStepTalvez;
 
     return step(env, st,
       [
@@ -23912,6 +24118,23 @@ case "envio_docs": {
       incoming_media: !!st._incoming_media
     }
   });
+
+  if (!st._incoming_media) {
+    const infoSlotPreDocs = getNextInformativoPreDocsSlot(st);
+    if (infoSlotPreDocs) {
+      const infoFieldPreDocs = informativoPreDocsField(infoSlotPreDocs.topic, infoSlotPreDocs.id);
+      const textoInformativoPreDocs = String(userText || "").trim();
+      if (!isGenericAckText(textoInformativoPreDocs) && !hasStateValue(getEtapa1InformativoValue(st, infoFieldPreDocs))) {
+        const patchInfoPreDocs = buildEtapa1InformativosPatch(st, { [infoFieldPreDocs]: textoInformativoPreDocs });
+        await upsertState(env, st.wa_id, patchInfoPreDocs);
+        Object.assign(st, patchInfoPreDocs);
+      }
+      const infoSlotSeguinte = getNextInformativoPreDocsSlot(st);
+      if (infoSlotSeguinte) {
+        return step(env, st, buildInformativoPreDocsQuestion(infoSlotSeguinte), "envio_docs");
+      }
+    }
+  }
 
   if (!st.canal_docs_status) {
     const seedCanal = {
@@ -24146,7 +24369,8 @@ case "envio_docs": {
       visita_slot_escolhido: null,
       visita_confirmada: false,
       visita_confirmada_em: null,
-      visita_dia_hora: null
+      visita_dia_hora: null,
+      ...buildEtapa1InformativosPatch(st, { visita_informativos_etapa1: true })
     };
     await upsertState(env, st.wa_id, patchCanal);
     Object.assign(st, patchCanal);
@@ -24390,7 +24614,8 @@ const patchCanal = {
           visita_confirmada_em: null,
           visita_data_escolhida: null,
           visita_slot_escolhido: null,
-          visita_dia_hora: null
+          visita_dia_hora: null,
+          ...buildEtapa1InformativosPatch(st, { visita_informativos_etapa1: true })
         });
         // Entrada canônica no trilho de visita (estado + stage), evitando mensagem solta fora do case de agendamento.
         return step(env, st, [
@@ -24578,6 +24803,10 @@ case "agendamento_visita": {
     visita_primeiro_slot_disponivel_em: firstSlotIso,
     visita_resultado_status: st.visita_resultado_status || null
   };
+  const withEtapa1InformativosPatch = (updates = {}) => ({
+    ...updates,
+    ...(shouldRunEtapa1InformativosVisita(st) ? buildEtapa1InformativosPatch(st, updates) : {})
+  });
 
   if (agendaStatus === "confirmada") {
     const visitaResumo = st.visita_dia_hora || `${st.visita_data_escolhida || ""} ${st.visita_slot_escolhido || ""}`.trim() || "data a confirmar";
@@ -24610,7 +24839,13 @@ case "agendamento_visita": {
         visita_data_escolhida: null,
         visita_slot_escolhido: null,
         visita_confirmada_em: null,
-        visita_dia_hora: null
+        visita_dia_hora: null,
+        ...withEtapa1InformativosPatch({
+          visita_reserva_entrada_tem: null,
+          visita_fgts_disponivel: null,
+          visita_decisor_adicional_visita: null,
+          visita_decisor_adicional_nome: null
+        })
       });
 
       await funnelTelemetry(env, {
@@ -24623,14 +24858,18 @@ case "agendamento_visita": {
       });
 
       return step(env, st,
-        [
-          "Perfeito! Vamos agendar sua visita com horários oficiais. 👇",
-          `1) ${dateOptions[0]?.label || "-"}`,
-          `2) ${dateOptions[1]?.label || "-"}`,
-          `3) ${dateOptions[2]?.label || "-"}`,
-          "Escolha uma opção (1, 2 ou 3).",
-          "Atendimento: segunda a sábado. Domingo não atendemos."
-        ],
+        shouldRunEtapa1InformativosVisita(st)
+          ? [
+            ...buildVisitaInformativoQuestion("reserva")
+          ]
+          : [
+            "Perfeito! Vamos agendar sua visita com horários oficiais. 👇",
+            `1) ${dateOptions[0]?.label || "-"}`,
+            `2) ${dateOptions[1]?.label || "-"}`,
+            `3) ${dateOptions[2]?.label || "-"}`,
+            "Escolha uma opção (1, 2 ou 3).",
+            "Atendimento: segunda a sábado. Domingo não atendemos."
+          ],
         "agendamento_visita"
       );
     }
@@ -24703,6 +24942,31 @@ case "agendamento_visita": {
   }
 
   if (agendaStatus === "data") {
+    const pendenteInformativo = nextVisitaInformativoPendente(st);
+    if (pendenteInformativo) {
+      if (pendenteInformativo === "reserva" || pendenteInformativo === "fgts" || pendenteInformativo === "decisor") {
+        const parsed = parseInformativoBoolean(t);
+        if (parsed !== null) {
+          const fieldMap = {
+            reserva: "visita_reserva_entrada_tem",
+            fgts: "visita_fgts_disponivel",
+            decisor: "visita_decisor_adicional_visita"
+          };
+          const patch = withEtapa1InformativosPatch({ [fieldMap[pendenteInformativo]]: parsed });
+          await upsertState(env, st.wa_id, patch);
+          Object.assign(st, patch);
+        }
+      } else if (pendenteInformativo === "decisor_nome" && !isGenericAckText(t)) {
+        const patch = withEtapa1InformativosPatch({ visita_decisor_adicional_nome: t });
+        await upsertState(env, st.wa_id, patch);
+        Object.assign(st, patch);
+      }
+      const proximoInformativo = nextVisitaInformativoPendente(st);
+      if (proximoInformativo) {
+        return step(env, st, buildVisitaInformativoQuestion(proximoInformativo), "agendamento_visita");
+      }
+    }
+
     if (hasSundayIntent) {
       await funnelTelemetry(env, {
         wa_id: st.wa_id,
@@ -24777,6 +25041,31 @@ case "agendamento_visita": {
   }
 
   if (agendaStatus === "horario") {
+    const pendenteInformativo = nextVisitaInformativoPendente(st);
+    if (pendenteInformativo) {
+      if (pendenteInformativo === "reserva" || pendenteInformativo === "fgts" || pendenteInformativo === "decisor") {
+        const parsed = parseInformativoBoolean(t);
+        if (parsed !== null) {
+          const fieldMap = {
+            reserva: "visita_reserva_entrada_tem",
+            fgts: "visita_fgts_disponivel",
+            decisor: "visita_decisor_adicional_visita"
+          };
+          const patch = withEtapa1InformativosPatch({ [fieldMap[pendenteInformativo]]: parsed });
+          await upsertState(env, st.wa_id, patch);
+          Object.assign(st, patch);
+        }
+      } else if (pendenteInformativo === "decisor_nome" && !isGenericAckText(t)) {
+        const patch = withEtapa1InformativosPatch({ visita_decisor_adicional_nome: t });
+        await upsertState(env, st.wa_id, patch);
+        Object.assign(st, patch);
+      }
+      const proximoInformativo = nextVisitaInformativoPendente(st);
+      if (proximoInformativo) {
+        return step(env, st, buildVisitaInformativoQuestion(proximoInformativo), "agendamento_visita");
+      }
+    }
+
     const isoSelecionado = st.visita_data_escolhida || dateOptions[0]?.iso || null;
     const selectedDateLabel = isoSelecionado ? formatDayLabel(dayStart(isoSelecionado)) : "data escolhida";
     const allowedSlots = getAvailableSlotsForDay(isoSelecionado);
@@ -25244,7 +25533,8 @@ case "finalizacao_processo": {
       visita_slot_escolhido: null,
       visita_confirmada: false,
       visita_confirmada_em: null,
-      visita_dia_hora: null
+      visita_dia_hora: null,
+      ...buildEtapa1InformativosPatch(st, { visita_informativos_etapa1: true })
     };
     await upsertState(env, st.wa_id, visitaPatch);
     Object.assign(st, visitaPatch);

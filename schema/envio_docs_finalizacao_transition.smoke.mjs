@@ -162,15 +162,55 @@ function buildDocumentWebhook(from, msgId, { caption = "", mimeType = "applicati
   assert.equal(st.fase_conversa, "envio_docs");
 }
 
-// 2) Em finalizacao_processo com pacote pronto, próxima mensagem dispara tentativa de publicação.
+// 2) O avanço real envio_docs -> finalizacao_processo continua acontecendo por upload processado
+//    no fluxo vivo (handleDocumentUpload) quando esse upload fecha docs/pacote.
 {
   const env = buildEnv();
   env.__enovaSimulationCtx.stateByWaId[waId] = {
     ...env.__enovaSimulationCtx.stateByWaId[waId],
-    fase_conversa: "finalizacao_processo"
+    fase_conversa: "envio_docs",
+    envio_docs_status: "parcial",
+    pacote_status: "nao_montado",
+    analise_docs_status: null,
+    pacote_participantes_json: null,
+    pacote_documentos_anexados_json: null,
+    pacote_renda_resumo_json: null,
+    pacote_restricoes_json: null,
+    envio_docs_itens_json: [
+      { tipo: "identidade_cpf", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
+      { tipo: "holerites", participante: "p1", bucket: "obrigatorio", status: "pendente" }
+    ]
   };
   const capture = captureConsoleLogs();
   try {
+    const reqAdvance = new Request("https://worker.local/webhook/meta", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(buildDocumentWebhook(waId, "wamid.docs.complete.upload.1", {
+        caption: "holerite titular",
+        filename: "holerite-titular.pdf"
+      }))
+    });
+    const resAdvance = await worker.fetch(reqAdvance, env, {});
+    assert.equal(resAdvance.status, 200);
+
+    const stAfterAdvance = env.__enovaSimulationCtx.stateByWaId[waId];
+    assert.equal(stAfterAdvance.fase_conversa, "finalizacao_processo");
+    assert.equal(stAfterAdvance.envio_docs_status, "completo");
+    assert.equal(stAfterAdvance.pacote_status, "pronto");
+    assert.equal(
+      Array.isArray(stAfterAdvance.envio_docs_itens_json) &&
+        stAfterAdvance.envio_docs_itens_json.some(
+          (item) =>
+            item.tipo === "holerites" &&
+            item.participante === "p1" &&
+            item.status === "validado_basico" &&
+            item.validacao_basica_motivo === "validacao_basica_ok"
+        ),
+      true
+    );
+
     const reqPublish = new Request("https://worker.local/webhook/meta", {
       method: "POST",
       headers: { "content-type": "application/json" },

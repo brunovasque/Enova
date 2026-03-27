@@ -75,6 +75,16 @@ const commonPreDocs = {
   regularizacao_restricao: "em_andamento"
 };
 
+const basePreDocsInformativosTitular = {
+  ...commonPreDocs,
+  controle: {
+    etapa1_informativos: {
+      informativo_moradia_p1: "Cabral",
+      informativo_trabalho_p1: "Centro"
+    }
+  }
+};
+
 // 1) SOLO: moradia/trabalho titular e retorno sem quebrar envio_docs.
 {
   const env = buildEnv();
@@ -213,6 +223,97 @@ const commonPreDocs = {
   assert.equal(trabalhoP3.stage_after, "envio_docs");
   assert.equal(infoBag(trabalhoP3).informativo_trabalho_p3, "Rebouças");
   assert.doesNotMatch(trabalhoP3.reply_text, /local de moradia|local de trabalho/i);
+}
+
+// 4) AUTÔNOMO TITULAR: profissão, estabilidade e MEI/PJ como informativos (sem gate).
+{
+  const env = buildEnv();
+  const wa = "5541999200005";
+  const common = {
+    ...basePreDocsInformativosTitular,
+    regime_trabalho: "autonomo",
+    renda: 2800
+  };
+
+  const profissao = await simulateFromState(env, wa, "Sou designer autônomo", common);
+  assert.equal(profissao.stage_after, "envio_docs");
+  assert.equal(infoBag(profissao).titular_profissao_atividade, "Sou designer autônomo");
+  assert.match(profissao.reply_text, /curso superior/i);
+
+  const curso = await simulateFromState(env, wa, "Estou cursando", {
+    ...common,
+    controle: {
+      etapa1_informativos: {
+        ...common.controle.etapa1_informativos,
+        titular_profissao_atividade: "Sou designer autônomo"
+      }
+    }
+  });
+  assert.equal(curso.stage_after, "envio_docs");
+  assert.equal(infoBag(curso).titular_curso_superior_status, "Estou cursando");
+  assert.match(curso.reply_text, /renda costuma ser mais estável/i);
+
+  const estabilidade = await simulateFromState(env, wa, "Varia bastante", {
+    ...common,
+    controle: {
+      etapa1_informativos: {
+        ...common.controle.etapa1_informativos,
+        titular_profissao_atividade: "Sou designer autônomo",
+        titular_curso_superior_status: "Estou cursando"
+      }
+    }
+  });
+  assert.equal(estabilidade.stage_after, "envio_docs");
+  assert.equal(infoBag(estabilidade).titular_renda_estabilidade, "Varia bastante");
+  assert.match(estabilidade.reply_text, /pessoa física|mei|pj/i);
+
+  const meiPj = await simulateFromState(env, wa, "MEI", {
+    ...common,
+    controle: {
+      etapa1_informativos: {
+        ...common.controle.etapa1_informativos,
+        titular_profissao_atividade: "Sou designer autônomo",
+        titular_curso_superior_status: "Estou cursando",
+        titular_renda_estabilidade: "Varia bastante"
+      }
+    }
+  });
+  assert.equal(meiPj.stage_after, "envio_docs");
+  assert.equal(infoBag(meiPj).titular_mei_pj_status, "MEI");
+  assert.equal(Object.prototype.hasOwnProperty.call(meiPj.writes || {}, "regime_trabalho"), false);
+}
+
+// 5) RENDA TITULAR <= 3500: pergunta curso superior/cursando e salva.
+{
+  const env = buildEnv();
+  const wa = "5541999200006";
+  const common = {
+    ...basePreDocsInformativosTitular,
+    regime_trabalho: "clt",
+    renda: 3200
+  };
+
+  const perguntaCurso = await simulateFromState(env, wa, "ok", common);
+  assert.equal(perguntaCurso.stage_after, "envio_docs");
+  assert.match(perguntaCurso.reply_text, /curso superior/i);
+
+  const respostaCurso = await simulateFromState(env, wa, "Já concluí", common);
+  assert.equal(respostaCurso.stage_after, "envio_docs");
+  assert.equal(infoBag(respostaCurso).titular_curso_superior_status, "Já concluí");
+}
+
+// 6) RENDA TITULAR > 3500: não pergunta curso superior e não quebra fluxo.
+{
+  const env = buildEnv();
+  const wa = "5541999200007";
+  const semCurso = await simulateFromState(env, wa, "ok", {
+    ...basePreDocsInformativosTitular,
+    regime_trabalho: "clt",
+    renda: 5200
+  });
+  assert.equal(semCurso.stage_after, "envio_docs");
+  assert.doesNotMatch(semCurso.reply_text, /curso superior/i);
+  assert.equal(Object.prototype.hasOwnProperty.call(infoBag(semCurso), "titular_curso_superior_status"), false);
 }
 
 console.log("etapa1_predocs.smoke: ok");

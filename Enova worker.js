@@ -1058,6 +1058,101 @@ function buildInformativoPreDocsQuestion(slot) {
   ];
 }
 
+function toInformativoNumericValue(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    const parsedMoney = parseMoneyBR(trimmed);
+    if (Number.isFinite(parsedMoney) && parsedMoney > 0) return parsedMoney;
+    const parsedNumber = Number(trimmed);
+    if (Number.isFinite(parsedNumber)) return parsedNumber;
+  }
+  return null;
+}
+
+function isTitularAutonomoInformativo(st = {}) {
+  const stateRegime = normalizeText(st?.regime_trabalho || st?.regime || "");
+  if (stateRegime.includes("autonom")) return true;
+
+  const pacoteParticipantes = Array.isArray(st?.pacote_participantes_json) ? st.pacote_participantes_json : [];
+  const titularPacote = pacoteParticipantes.find((item) => String(item?.participante || "").toLowerCase() === "p1");
+  const titularPacoteRegime = normalizeText(titularPacote?.regime_trabalho || "");
+  if (titularPacoteRegime.includes("autonom")) return true;
+
+  const dossieParticipantes = Array.isArray(st?.dossie_participantes_json) ? st.dossie_participantes_json : [];
+  const titularDossie = dossieParticipantes.find((item) => String(item?.id || "").toLowerCase() === "p1");
+  const titularDossieRegime = normalizeText(titularDossie?.regime_trabalho || "");
+  return titularDossieRegime.includes("autonom");
+}
+
+function getTitularRendaInformativo(st = {}) {
+  const rendaPacoteP1 =
+    st?.pacote_renda_resumo_json?.por_participante?.p1?.total_geral ??
+    st?.pacote_renda_resumo_json?.por_participante?.p1?.renda_total ??
+    null;
+  const candidates = [st?.renda_titular, st?.renda, rendaPacoteP1];
+  for (const candidate of candidates) {
+    const numericValue = toInformativoNumericValue(candidate);
+    if (numericValue !== null) return numericValue;
+  }
+  return null;
+}
+
+function getTitularTrabalhoRendaInformativoSlots(st = {}) {
+  const slots = [];
+  const titularAutonomo = isTitularAutonomoInformativo(st);
+  const titularRenda = getTitularRendaInformativo(st);
+
+  if (titularAutonomo) {
+    slots.push({ field: "titular_profissao_atividade", kind: "profissao_atividade" });
+  }
+
+  if (typeof titularRenda === "number" && titularRenda <= 3500) {
+    slots.push({ field: "titular_curso_superior_status", kind: "curso_superior_status" });
+  }
+
+  if (titularAutonomo) {
+    slots.push({ field: "titular_renda_estabilidade", kind: "renda_estabilidade" });
+    slots.push({ field: "titular_mei_pj_status", kind: "mei_pj_status" });
+  }
+
+  return slots;
+}
+
+function getNextTitularTrabalhoRendaInformativoSlot(st = {}) {
+  const slots = getTitularTrabalhoRendaInformativoSlots(st);
+  for (const slot of slots) {
+    if (!hasStateValue(getEtapa1InformativoValue(st, slot.field))) {
+      return slot;
+    }
+  }
+  return null;
+}
+
+function buildTitularTrabalhoRendaInformativoQuestion(slot) {
+  if (!slot) return [];
+  if (slot.kind === "profissao_atividade") {
+    return [
+      "Antes de seguir com os documentos, qual sua profissão ou atividade hoje?"
+    ];
+  }
+  if (slot.kind === "curso_superior_status") {
+    return [
+      "Você está cursando ou já possui curso superior?"
+    ];
+  }
+  if (slot.kind === "renda_estabilidade") {
+    return [
+      "Sua renda costuma ser mais estável ou varia bastante de mês para mês?"
+    ];
+  }
+  return [
+    "Hoje você atua como pessoa física, MEI ou PJ?",
+    "É só uma informação para o seu dossiê nesta etapa."
+  ];
+}
+
 function shouldCollectInformativosPreDocs(st = {}) {
   return (
     hasStateValue(st.restricao) ||
@@ -1086,19 +1181,45 @@ function isGenericAckText(text) {
 
 async function maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt) {
   if (!shouldCollectInformativosPreDocs(st)) return null;
-  const infoSlot = getNextInformativoPreDocsSlot(st);
-  if (!infoSlot) return null;
-  const infoField = informativoPreDocsField(infoSlot.topic, infoSlot.id);
   const userProvidedInfo = String(userText || "").trim();
-  if (!isGenericAckText(userProvidedInfo) && !hasStateValue(getEtapa1InformativoValue(st, infoField))) {
-    const patchInfo = buildEtapa1InformativosPatch(st, { [infoField]: userProvidedInfo });
+  const infoSlot = getNextInformativoPreDocsSlot(st);
+  let capturedPreDocsSlot = false;
+
+  if (infoSlot) {
+    const infoField = informativoPreDocsField(infoSlot.topic, infoSlot.id);
+    if (!isGenericAckText(userProvidedInfo) && !hasStateValue(getEtapa1InformativoValue(st, infoField))) {
+      const patchInfo = buildEtapa1InformativosPatch(st, { [infoField]: userProvidedInfo });
+      await upsertState(env, st.wa_id, patchInfo);
+      Object.assign(st, patchInfo);
+      capturedPreDocsSlot = true;
+    }
+    const remainingSlot = getNextInformativoPreDocsSlot(st);
+    if (remainingSlot) {
+      return step(env, st, buildInformativoPreDocsQuestion(remainingSlot), stageForPrompt);
+    }
+    if (capturedPreDocsSlot) {
+      const nextTrabalhoRendaSlot = getNextTitularTrabalhoRendaInformativoSlot(st);
+      if (nextTrabalhoRendaSlot) {
+        return step(env, st, buildTitularTrabalhoRendaInformativoQuestion(nextTrabalhoRendaSlot), stageForPrompt);
+      }
+      return null;
+    }
+  }
+
+  const trabalhoRendaSlot = getNextTitularTrabalhoRendaInformativoSlot(st);
+  if (!trabalhoRendaSlot) return null;
+
+  if (!isGenericAckText(userProvidedInfo) && !hasStateValue(getEtapa1InformativoValue(st, trabalhoRendaSlot.field))) {
+    const patchInfo = buildEtapa1InformativosPatch(st, { [trabalhoRendaSlot.field]: userProvidedInfo });
     await upsertState(env, st.wa_id, patchInfo);
     Object.assign(st, patchInfo);
   }
-  const remainingSlot = getNextInformativoPreDocsSlot(st);
-  if (remainingSlot) {
-    return step(env, st, buildInformativoPreDocsQuestion(remainingSlot), stageForPrompt);
+
+  const remainingTrabalhoRendaSlot = getNextTitularTrabalhoRendaInformativoSlot(st);
+  if (remainingTrabalhoRendaSlot) {
+    return step(env, st, buildTitularTrabalhoRendaInformativoQuestion(remainingTrabalhoRendaSlot), stageForPrompt);
   }
+
   return null;
 }
 

@@ -43,6 +43,25 @@ type MessagesPayload = {
   error: string | null;
 };
 
+type CaseFile = {
+  file_id: string;
+  wa_id: string;
+  tipo: string;
+  participante: string | null;
+  created_at: string | null;
+  mime_type: string | null;
+  file_name: string | null;
+  size_bytes: number | null;
+  previewable: boolean;
+};
+
+type CaseFilesPayload = {
+  ok: boolean;
+  wa_id: string | null;
+  files: CaseFile[];
+  error: string | null;
+};
+
 function formatTime(input: string | null): string {
   if (!input) {
     return "--:--";
@@ -101,6 +120,19 @@ function sanitizePreview(text: string | null): string {
     .trim();
 }
 
+function formatFileSize(value: number | null): string {
+  if (value === null || !Number.isFinite(value) || value < 0) {
+    return "--";
+  }
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function fileDisplayName(file: Pick<CaseFile, "file_name" | "tipo" | "file_id">): string {
+  return file.file_name || file.tipo || `arquivo-${file.file_id.slice(0, 8)}`;
+}
+
 function buildMessageRenderKey(message: Message): string {
   return [
     message.direction,
@@ -154,6 +186,10 @@ export function ConversationUI() {
   const [seenConversationActivity, setSeenConversationActivity] = useState<Record<string, string>>(
     {}
   );
+  const [caseFiles, setCaseFiles] = useState<CaseFile[]>([]);
+  const [filesLoading, setFilesLoading] = useState(false);
+  const [filesError, setFilesError] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<CaseFile | null>(null);
 
   const router = useRouter();
   const pathname = usePathname();
@@ -275,6 +311,47 @@ export function ConversationUI() {
     }
   }, []);
 
+  const loadCaseFiles = useCallback(async (waId: string, silent = false) => {
+    if (!waId) {
+      setCaseFiles([]);
+      setFilesError(null);
+      setFilesLoading(false);
+      return;
+    }
+
+    if (!silent) {
+      setFilesLoading(true);
+    }
+
+    try {
+      const filesUrl = sameOriginApiUrl(`/api/case-files?wa_id=${encodeURIComponent(waId)}`);
+      const response = await fetch(filesUrl, { cache: "no-store" });
+      const data = (await response.json()) as CaseFilesPayload;
+      if (!response.ok || !data.ok) {
+        throw new Error(data.error || `Falha ao carregar arquivos (${response.status})`);
+      }
+
+      if (selectedWaIdRef.current !== waId) {
+        return;
+      }
+
+      setCaseFiles(Array.isArray(data.files) ? data.files : []);
+      setFilesError(null);
+    } catch (error) {
+      if (selectedWaIdRef.current !== waId) {
+        return;
+      }
+      if (!silent) {
+        setCaseFiles([]);
+      }
+      setFilesError(error instanceof Error ? error.message : "Falha ao carregar arquivos");
+    } finally {
+      if (!silent && selectedWaIdRef.current === waId) {
+        setFilesLoading(false);
+      }
+    }
+  }, []);
+
   const refreshPanelData = useCallback(
     async (silent = false) => {
       if (refreshStateRef.current.inFlight) {
@@ -291,6 +368,7 @@ export function ConversationUI() {
         await Promise.all([
           loadConversations(silent),
           activeWaId ? loadMessages(activeWaId, silent) : loadMessages("", silent),
+          activeWaId ? loadCaseFiles(activeWaId, silent) : loadCaseFiles("", silent),
         ]);
       } finally {
         refreshStateRef.current.inFlight = false;
@@ -303,7 +381,7 @@ export function ConversationUI() {
         }
       }
     },
-    [loadConversations, loadMessages]
+    [loadCaseFiles, loadConversations, loadMessages]
   );
 
   const filteredConversations = useMemo(() => {
@@ -451,8 +529,11 @@ export function ConversationUI() {
     setComposerText("");
     loadedThreadWaIdRef.current = "";
     setMessages([]);
+    setCaseFiles([]);
     setThreadError(null);
+    setFilesError(null);
     setThreadLoading(Boolean(selectedWaId));
+    setFilesLoading(Boolean(selectedWaId));
     setThreadUnreadCount(0);
     cancelPendingThreadScroll();
     pendingScrollToBottomRef.current = Boolean(selectedWaId);
@@ -652,6 +733,25 @@ export function ConversationUI() {
     }
   };
 
+  const openFileUrl = useCallback((file: CaseFile) => {
+    return sameOriginApiUrl(
+      `/api/case-files/open?wa_id=${encodeURIComponent(file.wa_id)}&file_id=${encodeURIComponent(
+        file.file_id
+      )}`
+    );
+  }, []);
+
+  const handleOpenFile = useCallback(
+    (file: CaseFile) => {
+      if (!file.previewable) {
+        window.open(openFileUrl(file), "_blank", "noopener,noreferrer");
+        return;
+      }
+      setPreviewFile(file);
+    },
+    [openFileUrl]
+  );
+
   return (
     <main className={styles.pageMain}>
       <section className={styles.shell}>
@@ -846,6 +946,46 @@ export function ConversationUI() {
           </div>
 
           <footer className={styles.threadFooter}>
+            <section className={styles.filesSection}>
+              <div className={styles.filesHeader}>
+                <strong>Arquivos recebidos</strong>
+              </div>
+
+              {!selectedWaId ? (
+                <p className={styles.filesHint}>Selecione uma conversa para visualizar arquivos.</p>
+              ) : filesLoading ? (
+                <p className={styles.filesHint}>Carregando arquivos...</p>
+              ) : filesError ? (
+                <p className={styles.panelError}>Erro nos arquivos: {filesError}</p>
+              ) : caseFiles.length === 0 ? (
+                <p className={styles.filesHint}>Nenhum arquivo recebido para este caso.</p>
+              ) : (
+                <ul className={styles.filesList}>
+                  {caseFiles.map((file) => (
+                    <li key={file.file_id} className={styles.filesItem}>
+                      <div className={styles.filesItemMeta}>
+                        <span className={styles.filesName}>{fileDisplayName(file)}</span>
+                        <span className={styles.filesMetaLine}>
+                          tipo: {file.mime_type || "--"} • tamanho: {formatFileSize(file.size_bytes)}
+                        </span>
+                        <span className={styles.filesMetaLine}>
+                          participante: {file.participante || "--"} • data:{" "}
+                          {formatDateTime(file.created_at)}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className={styles.fileOpenButton}
+                        onClick={() => handleOpenFile(file)}
+                      >
+                        Abrir
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
             {threadUnreadCount > 0 && !isThreadNearBottom ? (
               <div className={styles.threadUnreadWrap}>
                 <button
@@ -900,6 +1040,47 @@ export function ConversationUI() {
           </footer>
         </section>
       </section>
+      {previewFile ? (
+        <div className={styles.previewOverlay} role="dialog" aria-modal="true">
+          <div className={styles.previewCard}>
+            <div className={styles.previewHeader}>
+              <strong>{fileDisplayName(previewFile)}</strong>
+              <button
+                type="button"
+                className={styles.previewCloseButton}
+                onClick={() => setPreviewFile(null)}
+              >
+                Fechar
+              </button>
+            </div>
+            <div className={styles.previewBody}>
+              {previewFile.mime_type === "application/pdf" ? (
+                <iframe
+                  title={fileDisplayName(previewFile)}
+                  src={openFileUrl(previewFile)}
+                  className={styles.previewFrame}
+                />
+              ) : (
+                <img
+                  alt={fileDisplayName(previewFile)}
+                  src={openFileUrl(previewFile)}
+                  className={styles.previewImage}
+                />
+              )}
+            </div>
+            <div className={styles.previewActions}>
+              <a
+                href={openFileUrl(previewFile)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={styles.previewLink}
+              >
+                Abrir em nova aba
+              </a>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

@@ -88,15 +88,15 @@ async function simulateFromState(env, stage, text, stOverrides = {}) {
     fixedAnswer.writes?.controle?.etapa2_estrutural?.clt_renda_perfil_por_participante?.p1,
     "fixo"
   );
-  assert.equal(Object.prototype.hasOwnProperty.call(fixed.writes || {}, "clt_perfil_contexto"), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(fixed.writes || {}, "clt_perfil_return_stage"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(fixedAnswer.writes || {}, "clt_perfil_contexto"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(fixedAnswer.writes || {}, "clt_perfil_return_stage"), false);
   assert.equal(
-    fixed.writes?.controle?.etapa2_estrutural?.clt_perfil_contexto,
-    "p1"
+    fixedAnswer.writes?.controle?.etapa2_estrutural?.clt_perfil_contexto,
+    null
   );
   assert.equal(
-    fixed.writes?.controle?.etapa2_estrutural?.clt_perfil_return_stage,
-    "inicio_multi_regime_pergunta"
+    fixedAnswer.writes?.controle?.etapa2_estrutural?.clt_perfil_return_stage,
+    null
   );
 
   const variable = await simulateFromState(env, "clt_renda_perfil_informativo", "varia por comissão e hora extra", {

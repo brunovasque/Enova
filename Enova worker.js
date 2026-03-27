@@ -718,6 +718,18 @@ async function upsertState(env, wa_id, payload) {
         }
         return insertResult || null;
       } catch (err) {
+        const missingColumn = extractMissingEnovaStateColumnFromSupabaseError(err);
+        if (missingColumn === "last_message_id_prev" && Object.prototype.hasOwnProperty.call(patch, "last_message_id_prev")) {
+          const { last_message_id_prev: _ignoredPrevMessageId, ...fallbackPatch } = patch;
+          const fallbackInsertResult = await supabaseInsert(env, "enova_state", { wa_id, ...fallbackPatch });
+          if (Array.isArray(fallbackInsertResult)) {
+            return fallbackInsertResult[0] || null;
+          }
+          if (fallbackInsertResult && Array.isArray(fallbackInsertResult.data)) {
+            return fallbackInsertResult.data[0] || null;
+          }
+          return fallbackInsertResult || null;
+        }
         // Se bater 409 aqui, significa que alguém inseriu
         // na frente – então convertemos em UPDATE e segue a vida
         if (err.status === 409) {
@@ -763,6 +775,23 @@ async function upsertState(env, wa_id, payload) {
     }
     return updateResult || null;
   } catch (err) {
+    const missingColumn = extractMissingEnovaStateColumnFromSupabaseError(err);
+    if (missingColumn === "last_message_id_prev" && Object.prototype.hasOwnProperty.call(patch, "last_message_id_prev")) {
+      const { last_message_id_prev: _ignoredPrevMessageId, ...fallbackPatch } = patch;
+      const retryResult = await supabaseUpdate(
+        env,
+        "enova_state",
+        { wa_id },
+        fallbackPatch
+      );
+      if (Array.isArray(retryResult)) {
+        return retryResult[0] || null;
+      }
+      if (retryResult && Array.isArray(retryResult.data)) {
+        return retryResult.data[0] || null;
+      }
+      return retryResult || null;
+    }
     console.error(
       `upsertState: erro geral para wa_id=${wa_id}`,
       err
@@ -27200,5 +27229,6 @@ export {
   isEnvioDocsBlockingItem,
   recomputeEnvioDocsProgress,
   handleDocumentUpload,
-  isCorrespondentePacoteReady
+  isCorrespondentePacoteReady,
+  upsertState
 };

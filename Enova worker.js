@@ -1079,7 +1079,27 @@ function parseInformativoBoolean(text) {
 function isGenericAckText(text) {
   const nt = normalizeText(text);
   if (!nt) return true;
+  // Inclui 1..4 porque essa confirmação também aparece quando o usuário responde
+  // menus fechados do próprio trilho; nesse caso não tratamos como conteúdo informativo.
   return /^(sim|nao|não|ok|blz|beleza|bora|vamos|quero|pode|manda|depois|talvez|1|2|3|4)$/.test(nt);
+}
+
+async function maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt) {
+  if (!shouldCollectInformativosPreDocs(st)) return null;
+  const infoSlot = getNextInformativoPreDocsSlot(st);
+  if (!infoSlot) return null;
+  const infoField = informativoPreDocsField(infoSlot.topic, infoSlot.id);
+  const userProvidedInfo = String(userText || "").trim();
+  if (!isGenericAckText(userProvidedInfo) && !hasStateValue(getEtapa1InformativoValue(st, infoField))) {
+    const patchInfo = buildEtapa1InformativosPatch(st, { [infoField]: userProvidedInfo });
+    await upsertState(env, st.wa_id, patchInfo);
+    Object.assign(st, patchInfo);
+  }
+  const remainingSlot = getNextInformativoPreDocsSlot(st);
+  if (remainingSlot) {
+    return step(env, st, buildInformativoPreDocsQuestion(remainingSlot), stageForPrompt);
+  }
+  return null;
 }
 
 function nextVisitaInformativoPendente(st = {}) {
@@ -1122,6 +1142,35 @@ function buildVisitaInformativoQuestion(kind) {
     ];
   }
   return [];
+}
+
+async function maybeHandleEtapa1VisitaInformativoInput(env, st, t, withEtapa1InformativosPatch) {
+  const pendenteInformativo = nextVisitaInformativoPendente(st);
+  if (!pendenteInformativo) return null;
+
+  if (pendenteInformativo === "reserva" || pendenteInformativo === "fgts" || pendenteInformativo === "decisor") {
+    const parsed = parseInformativoBoolean(t);
+    if (parsed !== null) {
+      const fieldMap = {
+        reserva: "visita_reserva_entrada_tem",
+        fgts: "visita_fgts_disponivel",
+        decisor: "visita_decisor_adicional_visita"
+      };
+      const patch = withEtapa1InformativosPatch({ [fieldMap[pendenteInformativo]]: parsed });
+      await upsertState(env, st.wa_id, patch);
+      Object.assign(st, patch);
+    }
+  } else if (pendenteInformativo === "decisor_nome" && !isGenericAckText(t)) {
+    const patch = withEtapa1InformativosPatch({ visita_decisor_adicional_nome: t });
+    await upsertState(env, st.wa_id, patch);
+    Object.assign(st, patch);
+  }
+
+  const proximoInformativo = nextVisitaInformativoPendente(st);
+  if (proximoInformativo) {
+    return step(env, st, buildVisitaInformativoQuestion(proximoInformativo), "agendamento_visita");
+  }
+  return null;
 }
 
 const COGNITIVE_V1_ALLOWED_STAGES = new Set([
@@ -23702,39 +23751,11 @@ case "regularizacao_restricao": {
   });
 
   const isParceiro = (stage === "regularizacao_restricao_parceiro");
-  const maybeAskInformativosPreDocs = async () => {
-    if (!shouldCollectInformativosPreDocs(st)) return null;
-    const infoSlot = getNextInformativoPreDocsSlot(st);
-    if (!infoSlot) return null;
-    const infoField = informativoPreDocsField(infoSlot.topic, infoSlot.id);
-    const userProvidedInfo = String(userText || "").trim();
-    if (!isGenericAckText(userProvidedInfo) && !hasStateValue(getEtapa1InformativoValue(st, infoField))) {
-      const patchInfo = buildEtapa1InformativosPatch(st, { [infoField]: userProvidedInfo });
-      await upsertState(env, st.wa_id, patchInfo);
-      Object.assign(st, patchInfo);
-    }
-    const remainingSlot = getNextInformativoPreDocsSlot(st);
-    if (remainingSlot) {
-      return step(env, st, buildInformativoPreDocsQuestion(remainingSlot), stage);
-    }
-    return null;
-  };
+  const maybeAskInformativosPreDocs = async () => maybeCaptureEtapa1PreDocsInput(env, st, userText, stage);
 
   if (hasStateValue(st.regularizacao_restricao)) {
-    const infoSlotAtual = getNextInformativoPreDocsSlot(st);
-    if (infoSlotAtual) {
-      const infoFieldAtual = informativoPreDocsField(infoSlotAtual.topic, infoSlotAtual.id);
-      const textoInformativo = String(userText || "").trim();
-      if (!isGenericAckText(textoInformativo) && !hasStateValue(getEtapa1InformativoValue(st, infoFieldAtual))) {
-        const patchInfoAtual = buildEtapa1InformativosPatch(st, { [infoFieldAtual]: textoInformativo });
-        await upsertState(env, st.wa_id, patchInfoAtual);
-        Object.assign(st, patchInfoAtual);
-      }
-      const pendenteAposCaptura = getNextInformativoPreDocsSlot(st);
-      if (pendenteAposCaptura) {
-        return step(env, st, buildInformativoPreDocsQuestion(pendenteAposCaptura), stage);
-      }
-    }
+    const infoStepAtual = await maybeAskInformativosPreDocs();
+    if (infoStepAtual) return infoStepAtual;
   }
 
   // 🔢 Valor aproximado da restrição (se existir em memória)
@@ -24120,20 +24141,8 @@ case "envio_docs": {
   });
 
   if (!st._incoming_media) {
-    const infoSlotPreDocs = getNextInformativoPreDocsSlot(st);
-    if (infoSlotPreDocs) {
-      const infoFieldPreDocs = informativoPreDocsField(infoSlotPreDocs.topic, infoSlotPreDocs.id);
-      const textoInformativoPreDocs = String(userText || "").trim();
-      if (!isGenericAckText(textoInformativoPreDocs) && !hasStateValue(getEtapa1InformativoValue(st, infoFieldPreDocs))) {
-        const patchInfoPreDocs = buildEtapa1InformativosPatch(st, { [infoFieldPreDocs]: textoInformativoPreDocs });
-        await upsertState(env, st.wa_id, patchInfoPreDocs);
-        Object.assign(st, patchInfoPreDocs);
-      }
-      const infoSlotSeguinte = getNextInformativoPreDocsSlot(st);
-      if (infoSlotSeguinte) {
-        return step(env, st, buildInformativoPreDocsQuestion(infoSlotSeguinte), "envio_docs");
-      }
-    }
+    const infoStepPreDocs = await maybeCaptureEtapa1PreDocsInput(env, st, userText, "envio_docs");
+    if (infoStepPreDocs) return infoStepPreDocs;
   }
 
   if (!st.canal_docs_status) {
@@ -24942,30 +24951,8 @@ case "agendamento_visita": {
   }
 
   if (agendaStatus === "data") {
-    const pendenteInformativo = nextVisitaInformativoPendente(st);
-    if (pendenteInformativo) {
-      if (pendenteInformativo === "reserva" || pendenteInformativo === "fgts" || pendenteInformativo === "decisor") {
-        const parsed = parseInformativoBoolean(t);
-        if (parsed !== null) {
-          const fieldMap = {
-            reserva: "visita_reserva_entrada_tem",
-            fgts: "visita_fgts_disponivel",
-            decisor: "visita_decisor_adicional_visita"
-          };
-          const patch = withEtapa1InformativosPatch({ [fieldMap[pendenteInformativo]]: parsed });
-          await upsertState(env, st.wa_id, patch);
-          Object.assign(st, patch);
-        }
-      } else if (pendenteInformativo === "decisor_nome" && !isGenericAckText(t)) {
-        const patch = withEtapa1InformativosPatch({ visita_decisor_adicional_nome: t });
-        await upsertState(env, st.wa_id, patch);
-        Object.assign(st, patch);
-      }
-      const proximoInformativo = nextVisitaInformativoPendente(st);
-      if (proximoInformativo) {
-        return step(env, st, buildVisitaInformativoQuestion(proximoInformativo), "agendamento_visita");
-      }
-    }
+    const infoStepData = await maybeHandleEtapa1VisitaInformativoInput(env, st, t, withEtapa1InformativosPatch);
+    if (infoStepData) return infoStepData;
 
     if (hasSundayIntent) {
       await funnelTelemetry(env, {
@@ -25041,30 +25028,8 @@ case "agendamento_visita": {
   }
 
   if (agendaStatus === "horario") {
-    const pendenteInformativo = nextVisitaInformativoPendente(st);
-    if (pendenteInformativo) {
-      if (pendenteInformativo === "reserva" || pendenteInformativo === "fgts" || pendenteInformativo === "decisor") {
-        const parsed = parseInformativoBoolean(t);
-        if (parsed !== null) {
-          const fieldMap = {
-            reserva: "visita_reserva_entrada_tem",
-            fgts: "visita_fgts_disponivel",
-            decisor: "visita_decisor_adicional_visita"
-          };
-          const patch = withEtapa1InformativosPatch({ [fieldMap[pendenteInformativo]]: parsed });
-          await upsertState(env, st.wa_id, patch);
-          Object.assign(st, patch);
-        }
-      } else if (pendenteInformativo === "decisor_nome" && !isGenericAckText(t)) {
-        const patch = withEtapa1InformativosPatch({ visita_decisor_adicional_nome: t });
-        await upsertState(env, st.wa_id, patch);
-        Object.assign(st, patch);
-      }
-      const proximoInformativo = nextVisitaInformativoPendente(st);
-      if (proximoInformativo) {
-        return step(env, st, buildVisitaInformativoQuestion(proximoInformativo), "agendamento_visita");
-      }
-    }
+    const infoStepHorario = await maybeHandleEtapa1VisitaInformativoInput(env, st, t, withEtapa1InformativosPatch);
+    if (infoStepHorario) return infoStepHorario;
 
     const isoSelecionado = st.visita_data_escolhida || dateOptions[0]?.iso || null;
     const selectedDateLabel = isoSelecionado ? formatDayLabel(dayStart(isoSelecionado)) : "data escolhida";

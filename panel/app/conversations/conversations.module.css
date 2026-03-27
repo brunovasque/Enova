@@ -11,12 +11,12 @@
   width: 100%;
   display: grid;
   grid-template-columns: clamp(340px, 33vw, 420px) 1fr;
-  background: #0f1720;
+  background: #0b0b0b;
 }
 
 .sidebar {
-  border-right: 1px solid #223041;
-  background: #111b24;
+  border-right: 1px solid #2a2a2a;
+  background: #131313;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -26,7 +26,7 @@
 
 .sidebarHeader {
   padding: 16px;
-  border-bottom: 1px solid #223041;
+  border-bottom: 1px solid #2a2a2a;
 }
 
 .sidebarTitle {
@@ -36,9 +36,9 @@
 
 .searchInput {
   width: 100%;
-  border: 1px solid #233546;
+  border: 1px solid #2d2d2d;
   border-radius: 10px;
-  background: #0f2738;
+  background: #1a1a1a;
   color: #dbe7f3;
   padding: 10px 12px;
   outline: none;
@@ -63,7 +63,7 @@
 
 .list::-webkit-scrollbar-thumb,
 .messagesArea::-webkit-scrollbar-thumb {
-  background: #2b3a4a;
+  background: #353535;
   border-radius: 999px;
 }
 
@@ -71,27 +71,27 @@
   width: calc(100% - 16px);
   margin: 8px;
   text-align: left;
-  border: 1px solid #243649;
+  border: 1px solid #303030;
   border-radius: 14px;
-  background: linear-gradient(180deg, #132230 0%, #101b27 100%);
+  background: linear-gradient(180deg, #1a1a1a 0%, #141414 100%);
   color: #e6edf3;
   padding: 12px;
   cursor: pointer;
-  box-shadow: 0 4px 18px rgba(2, 8, 16, 0.28);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
   transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease, background 0.14s ease;
 }
 
 .conversationItem:hover {
   transform: translateY(-1px);
-  border-color: #32506a;
-  background: linear-gradient(180deg, #162938 0%, #122130 100%);
-  box-shadow: 0 10px 24px rgba(3, 10, 20, 0.36);
+  border-color: #3a3a3a;
+  background: linear-gradient(180deg, #202020 0%, #1a1a1a 100%);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
 }
 
 .conversationItemActive {
-  border-color: #4a9ce8;
-  box-shadow: 0 0 0 1px rgba(87, 172, 255, 0.45), 0 10px 24px rgba(13, 28, 52, 0.45);
-  background: linear-gradient(180deg, #1b3143 0%, #152537 100%);
+  border-color: #7a7a7a;
+  box-shadow: 0 0 0 1px rgba(122, 122, 122, 0.35), 0 10px 24px rgba(0, 0, 0, 0.45);
+  background: linear-gradient(180deg, #242424 0%, #1a1a1a 100%);
 }
 
 .itemTopRow {
@@ -198,9 +198,9 @@
 }
 
 .threadHeader {
-  border-bottom: 1px solid #223041;
+  border-bottom: 1px solid #2a2a2a;
   padding: 14px 18px;
-  background: linear-gradient(180deg, #121c27 0%, #0f1823 100%);
+  background: linear-gradient(180deg, #181818 0%, #141414 100%);
 }
 
 .threadHeaderMain {
@@ -265,8 +265,8 @@
   max-width: min(70ch, 75%);
   border-radius: 14px;
   padding: 10px 12px;
-  border: 1px solid #253445;
-  box-shadow: 0 4px 16px rgba(4, 11, 21, 0.25);
+  border: 1px solid #353535;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 
 .bubble p {
@@ -278,7 +278,7 @@
 }
 
 .bubbleIn {
-  background: linear-gradient(180deg, #1a2633 0%, #16222e 100%);
+  background: linear-gradient(180deg, #1f1f1f 0%, #171717 100%);
 }
 
 .bubbleOut {
@@ -294,7 +294,7 @@
 }
 
 .threadFooter {
-  border-top: 1px solid #223041;
+  border-top: 1px solid #2a2a2a;
   padding: 14px 18px;
   display: flex;
   flex-direction: column;
@@ -303,8 +303,8 @@
 .readOnlyInput {
   width: 100%;
   border-radius: 10px;
-  border: 1px solid #233546;
-  background: #0f2738;
+  border: 1px solid #2d2d2d;
+  background: #1a1a1a;
   color: #8fa5b8;
   padding: 10px 12px;
 }
@@ -331,7 +331,7 @@
 .bubbleSkeleton,
 .footerSkeleton {
   border-radius: 10px;
-  background: linear-gradient(90deg, #162230 20%, #1d2e40 40%, #162230 60%);
+  background: linear-gradient(90deg, #1a1a1a 20%, #242424 40%, #1a1a1a 60%);
   background-size: 300% 100%;
   animation: pulse 1.4s ease-in-out infinite;
 }
@@ -417,10 +417,10 @@
   place-items: center;
   font-size: 0.9rem;
   font-weight: 700;
-  color: #d7e8ff;
-  background: linear-gradient(145deg, #214c7c, #123055);
-  border: 1px solid #35669c;
-  box-shadow: 0 4px 16px rgba(8, 16, 30, 0.4);
+  color: #e4e7eb;
+  background: linear-gradient(145deg, #3a3a3a, #1f1f1f);
+  border: 1px solid #4a4a4a;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   flex-shrink: 0;
 }
 
@@ -448,9 +448,9 @@
 }
 
 .badgePhase {
-  color: #b7dcff;
-  background: rgba(44, 115, 199, 0.25);
-  border-color: rgba(84, 154, 238, 0.5);
+  color: #d2d7de;
+  background: rgba(122, 122, 122, 0.2);
+  border-color: rgba(122, 122, 122, 0.4);
 }
 
 .badgeNeutral {
@@ -502,8 +502,8 @@
 .composerInput {
   width: 100%;
   border-radius: 10px;
-  border: 1px solid #233546;
-  background: #0f2738;
+  border: 1px solid #2d2d2d;
+  background: #1a1a1a;
   color: #dbe7f3;
   padding: 10px 12px;
 }

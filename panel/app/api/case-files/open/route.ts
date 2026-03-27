@@ -111,7 +111,7 @@ export async function GET(request: Request) {
       parsedSourceUrl = new URL(resolved.sourceUrl);
     } catch {
       return NextResponse.json(
-        { ok: false, error: "sourceUrl inválida" },
+        { ok: false, error: "sourceUrl inválido" },
         { status: 400, headers: { "Cache-Control": "no-store" } },
       );
     }

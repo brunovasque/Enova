@@ -1164,6 +1164,61 @@ function getEtapa2EstruturalBag(st = {}) {
   return {};
 }
 
+function getPersistedEtapaSignalValue(st = {}, keys = []) {
+  const normalizedKeys = Array.isArray(keys) ? keys : [keys];
+  const etapa1 = getEtapa1InformativosBag(st);
+  const etapa2 = getEtapa2EstruturalBag(st);
+  for (const key of normalizedKeys) {
+    if (!key) continue;
+    if (Object.prototype.hasOwnProperty.call(etapa1, key) && hasStateValue(etapa1[key])) return etapa1[key];
+    if (Object.prototype.hasOwnProperty.call(etapa2, key) && hasStateValue(etapa2[key])) return etapa2[key];
+    if (Object.prototype.hasOwnProperty.call(st || {}, key) && hasStateValue(st[key])) return st[key];
+  }
+  return null;
+}
+
+function getPersistedEtapaSignals(st = {}) {
+  return {
+    moradia: {
+      p1: getPersistedEtapaSignalValue(st, "informativo_moradia_p1"),
+      p2: getPersistedEtapaSignalValue(st, "informativo_moradia_p2"),
+      p3: getPersistedEtapaSignalValue(st, "informativo_moradia_p3")
+    },
+    trabalho: {
+      p1: getPersistedEtapaSignalValue(st, "informativo_trabalho_p1"),
+      p2: getPersistedEtapaSignalValue(st, "informativo_trabalho_p2"),
+      p3: getPersistedEtapaSignalValue(st, "informativo_trabalho_p3")
+    },
+    visita: {
+      reserva_entrada_tem: getPersistedEtapaSignalValue(st, "visita_reserva_entrada_tem"),
+      fgts_disponivel: getPersistedEtapaSignalValue(st, "visita_fgts_disponivel"),
+      decisor_adicional_visita: getPersistedEtapaSignalValue(st, "visita_decisor_adicional_visita"),
+      decisor_adicional_nome: getPersistedEtapaSignalValue(st, "visita_decisor_adicional_nome")
+    },
+    autonomo: {
+      profissao_atividade: getPersistedEtapaSignalValue(st, "titular_autonomo_profissao_atividade"),
+      mei_pj_status: getPersistedEtapaSignalValue(st, "titular_autonomo_mei_pj_status"),
+      renda_estabilidade: getPersistedEtapaSignalValue(st, "titular_autonomo_renda_estabilidade")
+    },
+    titular: {
+      curso_superior_status: getPersistedEtapaSignalValue(st, "titular_curso_superior_status")
+    },
+    trabalho_clt: {
+      titular_tipo_renda: getPersistedEtapaSignalValue(st, ["titular_tipo_renda_clt", "inicio_clt_tipo_renda"]),
+      parceiro_tipo_renda: getPersistedEtapaSignalValue(st, ["parceiro_tipo_renda_clt", "parceiro_inicio_clt_tipo_renda"]),
+      p3_tipo_renda: getPersistedEtapaSignalValue(st, ["p3_tipo_renda_clt", "parceiro_familiar_p3_inicio_clt_tipo_renda"])
+    },
+    renda: {
+      renda_extra_entra: getPersistedEtapaSignalValue(st, ["possui_renda_extra", "inicio_multi_renda_pergunta"]),
+      multi_renda: getPersistedEtapaSignalValue(st, ["inicio_multi_renda_coletar", "parceiro_inicio_multi_renda_coletar"]),
+      multi_regime: getPersistedEtapaSignalValue(st, ["inicio_multi_regime_coletar", "parceiro_inicio_multi_regime_coletar"])
+    },
+    reprovacao: {
+      categoria: getPersistedEtapaSignalValue(st, "reprovacao_categoria_caso")
+    }
+  };
+}
+
 function buildEtapa2EstruturalPatch(st = {}, updates = {}) {
   const controle = getControleObject(st);
   const atual = getEtapa2EstruturalBag(st);
@@ -7182,6 +7237,7 @@ function dossieRendaVariavel(st, participanteId) {
 }
 
 function buildDocumentDossierFromState(st) {
+  const sinaisPersistidos = getPersistedEtapaSignals(st);
   const participantesCanonicos = resolveDossierCanonicalParticipantsFromState(st);
   const hasP2 = participantesCanonicos.some((p) => p.id === "p2");
   const hasP3 = participantesCanonicos.some((p) => p.id === "p3");
@@ -7325,6 +7381,7 @@ function buildDocumentDossierFromState(st) {
     dossie_docs_recomendados_json: docsRecomendados,
     dossie_observacoes_cliente_json: observacoesCliente,
     dossie_observacoes_correspondente_json: observacoesCorrespondente,
+    dossie_sinais_persistidos_json: sinaisPersistidos,
     envio_docs_itens_json: envioDocsItens,
     envio_docs_total_itens: envioDocsItens.length,
     envio_docs_total_recebidos: 0,
@@ -8093,6 +8150,7 @@ function buildPacoteDocumentosAnexadosResumo(itens = [], analiseBase = {}, histo
 }
 
 function buildPacoteCorrespondentePayloadFromState(st, itens = [], analisePayload = null) {
+  const sinaisPersistidos = getPersistedEtapaSignals(st);
   const participantes = Array.isArray(st?.dossie_participantes_json) ? st.dossie_participantes_json : [];
   const baseMinimaCoerente = participantes.length > 0;
   const envioCompleto = String(st?.envio_docs_status || "").toLowerCase() === "completo";
@@ -8151,7 +8209,8 @@ function buildPacoteCorrespondentePayloadFromState(st, itens = [], analisePayloa
     },
     pacote_pendencias_json: pendencias,
     pacote_documentos_anexados_json: buildPacoteDocumentosAnexadosResumo(itens, analiseBase, historicoUploads),
-    pacote_observacoes_json: observacoes
+    pacote_observacoes_json: observacoes,
+    pacote_sinais_persistidos_json: sinaisPersistidos
   };
 }
 
@@ -11929,6 +11988,7 @@ function sanitizeCorrespondentePrivateWhatsAppMessage(text, st = {}, canonical =
 }
 
 function buildCorrespondentePrivateDossierFromState(st) {
+  const sinaisPersistidos = getPersistedEtapaSignals(st);
   const participantes = Array.isArray(st?.dossie_participantes_json) ? st.dossie_participantes_json : [];
   const pacoteRenda = st?.pacote_renda_resumo_json && typeof st.pacote_renda_resumo_json === "object" ? st.pacote_renda_resumo_json : {};
   const pacoteRestricoes = st?.pacote_restricoes_json && typeof st.pacote_restricoes_json === "object" ? st.pacote_restricoes_json : {};
@@ -12517,6 +12577,7 @@ function buildCorrespondentePrivateDossierFromState(st) {
       docs_ilegiveis: docsIlegiveis.length ? docsIlegiveis : null,
       docs_faltantes: docsFaltantes.length ? docsFaltantes : null
     },
+    sinais_persistidos: sinaisPersistidos,
     extras_state: {
       total_campos_preenchidos: filledStateKeys.length,
       chaves_campos_preenchidos: filledStateKeys,
@@ -24905,6 +24966,10 @@ case "envio_docs": {
   // Preservar como ponto de conexão da visita canônica futura.
   // Ainda não integrado ao fluxo oficial completo da visita.
   const countersDocs = getOfficialFollowupCounters(st);
+  const sinaisPersistidosDocs = getPersistedEtapaSignals(st);
+  const decisorVisitaJaMapeado =
+    sinaisPersistidosDocs?.visita?.decisor_adicional_visita === true ||
+    hasStateValue(sinaisPersistidosDocs?.visita?.decisor_adicional_nome);
   const faseAtual = String(stage || st.fase_conversa || "");
   const contextoDocumentalAtivo =
     faseAtual === "envio_docs" &&
@@ -24963,15 +25028,25 @@ case "envio_docs": {
       message: "Entrada documental conectada ao agendamento oficial de visita",
       details: {
         visita_origem: "trava_documental",
-        canal_docs_agendamento_pendente: true
+        canal_docs_agendamento_pendente: true,
+        sinais_contexto: {
+          decisor_adicional_visita: sinaisPersistidosDocs?.visita?.decisor_adicional_visita ?? null,
+          decisor_adicional_nome: sinaisPersistidosDocs?.visita?.decisor_adicional_nome ?? null,
+          reserva_entrada_tem: sinaisPersistidosDocs?.visita?.reserva_entrada_tem ?? null,
+          fgts_disponivel: sinaisPersistidosDocs?.visita?.fgts_disponivel ?? null
+        }
       }
     });
 
+    const linhaContextoVisita = decisorVisitaJaMapeado
+      ? "Também deixei anotado que existe decisor adicional para alinharmos a visita com assertividade."
+      : null;
     return step(env, st, [
       "Perfeito, seguimos com atendimento presencial ✅",
       "Vamos destravar sua etapa documental com visita no plantão.",
       "Já vou abrir agora o agendamento oficial com datas e horários fechados.",
-      "Se preferir adiantar, também posso liberar o envio online pelo site."
+      "Se preferir adiantar, também posso liberar o envio online pelo site.",
+      ...(linhaContextoVisita ? [linhaContextoVisita] : [])
     ], "agendamento_visita");
   }
 
@@ -26012,6 +26087,10 @@ case "finalizacao_processo": {
   const sinalRecusaCanalRemoto = REMOTE_CHANNEL_REFUSAL_PATTERN.test(ntFinalizacao);
   const rejeicaoProcessoGeral = GENERAL_PROCESS_REJECTION_PATTERN.test(ntFinalizacao);
   const countersFollowup = getOfficialFollowupCounters(st);
+  const sinaisPersistidosFollowup = getPersistedEtapaSignals(st);
+  const fgtsOuReservaSinalizado =
+    sinaisPersistidosFollowup?.visita?.fgts_disponivel === true ||
+    sinaisPersistidosFollowup?.visita?.reserva_entrada_tem === true;
   const tentativasConducaoAtual = countersFollowup.visita_recusa_online_tentativas_count;
   const tentativasConducaoAposContato = tentativasConducaoAtual + (sinalRecusaCanalRemoto ? 1 : 0);
   const contextoAtendimentoAtivo = stage === "finalizacao_processo";
@@ -26052,7 +26131,10 @@ case "finalizacao_processo": {
         : [
             "Entendi sua preferência.",
             "Antes de migrarmos para o presencial, preciso fazer mais uma tentativa de condução remota por segurança do processo.",
-            "Se você mantiver a recusa ao canal online, eu já abro o agendamento da visita no plantão."
+            "Se você mantiver a recusa ao canal online, eu já abro o agendamento da visita no plantão.",
+            ...(fgtsOuReservaSinalizado
+              ? ["Já deixei registrado no seu contexto que você sinalizou FGTS e/ou reserva para a entrada."]
+              : [])
           ],
       "finalizacao_processo"
     );
@@ -26084,17 +26166,26 @@ case "finalizacao_processo": {
       message: "Entrada de visita por recusa de atendimento online (elegibilidade canônica)",
       details: {
         visita_origem: "recusa_online",
-        tentativas_conducao: tentativasConducaoAposContato
+        tentativas_conducao: tentativasConducaoAposContato,
+        sinais_contexto: {
+          reserva_entrada_tem: sinaisPersistidosFollowup?.visita?.reserva_entrada_tem ?? null,
+          fgts_disponivel: sinaisPersistidosFollowup?.visita?.fgts_disponivel ?? null,
+          decisor_adicional_visita: sinaisPersistidosFollowup?.visita?.decisor_adicional_visita ?? null
+        }
       }
     });
 
+    const linhaContextoRecusaOnline = fgtsOuReservaSinalizado
+      ? "Como você já sinalizou FGTS e/ou reserva, vou preservar esse contexto para agilizar o atendimento presencial."
+      : null;
     return step(
       env,
       st,
       [
         "Perfeito, vamos seguir pelo presencial ✅",
         "Como você recusou o canal remoto após as tentativas de condução, vou abrir o agendamento oficial da visita.",
-        "Já te mostro as opções fechadas de data e horário."
+        "Já te mostro as opções fechadas de data e horário.",
+        ...(linhaContextoRecusaOnline ? [linhaContextoRecusaOnline] : [])
       ],
       "agendamento_visita"
     );
@@ -26590,6 +26681,7 @@ export {
   generateChecklistForDocs,
   reconcileEnvioDocsItensWithSavedDossier,
   buildDocumentDossierFromState,
+  buildPacoteCorrespondentePayloadFromState,
   buildCorrespondenteCanonicalDossierBundleFromState,
   buildCorrespondenteDossierPayloadFromState,
   buildCorrespondentePrivateDossierFromState,

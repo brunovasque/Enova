@@ -1233,6 +1233,20 @@ function buildEtapa2EstruturalPatch(st = {}, updates = {}) {
   };
 }
 
+function buildCltPerfilContextPatch(st = {}, contexto, returnStage) {
+  return buildEtapa2EstruturalPatch(st, {
+    clt_perfil_contexto: contexto,
+    clt_perfil_return_stage: returnStage
+  });
+}
+
+function readCltPerfilContext(st = {}) {
+  return {
+    contexto: getPersistedEtapaSignalValue(st, "clt_perfil_contexto"),
+    returnStage: getPersistedEtapaSignalValue(st, "clt_perfil_return_stage")
+  };
+}
+
 function getEtapa1InformativoValue(st = {}, key) {
   const bag = getEtapa1InformativosBag(st);
   if (Object.prototype.hasOwnProperty.call(bag, key)) return bag[key];
@@ -19752,10 +19766,7 @@ case "inicio_multi_regime_familiar_loop": {
   });
 
   if (regimeFinal === "clt") {
-    await upsertState(env, st.wa_id, {
-      clt_perfil_contexto: "p2_familiar",
-      clt_perfil_return_stage: "inicio_multi_regime_familiar_pergunta"
-    });
+    await upsertState(env, st.wa_id, buildCltPerfilContextPatch(st, "p2_familiar", "inicio_multi_regime_familiar_pergunta"));
     return step(
       env,
       st,
@@ -20241,8 +20252,7 @@ case "regime_trabalho": {
     const cltPatch = {
       regime: "clt",
       regime_trabalho: "clt",
-      clt_perfil_contexto: "p1",
-      clt_perfil_return_stage: "inicio_multi_regime_pergunta"
+      ...buildCltPerfilContextPatch(st, "p1", "inicio_multi_regime_pergunta")
     };
     await upsertState(env, st.wa_id, cltPatch);
 
@@ -20839,10 +20849,7 @@ if (!regimeCanonico) {
   }
 
   if (regimeFinal === "clt") {
-    await upsertState(env, st.wa_id, {
-      clt_perfil_contexto: "p2_familiar",
-      clt_perfil_return_stage: "inicio_multi_regime_familiar_pergunta"
-    });
+    await upsertState(env, st.wa_id, buildCltPerfilContextPatch(st, "p2_familiar", "inicio_multi_regime_familiar_pergunta"));
     return step(
       env,
       st,
@@ -20907,10 +20914,7 @@ case "regime_trabalho_parceiro_familiar_p3": {
     ...buildEtapa2MultiParticipantPatch(st, multiRegimePatch)
   });
   if (regimeFinal === "clt") {
-    await upsertState(env, st.wa_id, {
-      clt_perfil_contexto: "p3",
-      clt_perfil_return_stage: "inicio_multi_regime_p3_pergunta"
-    });
+    await upsertState(env, st.wa_id, buildCltPerfilContextPatch(st, "p3", "inicio_multi_regime_p3_pergunta"));
     return step(
       env,
       st,
@@ -20964,10 +20968,7 @@ case "inicio_multi_regime_p3_loop": {
     ...buildEtapa2MultiParticipantPatch(st, multiRegimePatch)
   });
   if (regimeFinal === "clt") {
-    await upsertState(env, st.wa_id, {
-      clt_perfil_contexto: "p3",
-      clt_perfil_return_stage: "inicio_multi_regime_p3_pergunta"
-    });
+    await upsertState(env, st.wa_id, buildCltPerfilContextPatch(st, "p3", "inicio_multi_regime_p3_pergunta"));
     return step(
       env,
       st,
@@ -21189,13 +21190,14 @@ case "regularizacao_restricao_p3": {
 // --------------------------------------------------
 case "clt_renda_perfil_informativo": {
   const perfil = parseCltIncomeProfile(userText || "");
-  const contextoRaw = String(st.clt_perfil_contexto || "p1");
-  const contexto = normalizeText(contextoRaw);
+  const cltContext = readCltPerfilContext(st);
+  const contextoRaw = String(cltContext.contexto || "p1");
+  const contexto = contextoRaw.toLowerCase().trim();
   const isP3 = contexto === "p3";
   const isP2Familiar = contexto === "p2_familiar";
   const participantId = isP3 ? "p3" : (contexto === "p2" || isP2Familiar ? "p2" : "p1");
   const contextoPrompt = isP2Familiar ? "familiar" : null;
-  const returnStage = String(st.clt_perfil_return_stage || "inicio_multi_regime_pergunta");
+  const returnStage = String(cltContext.returnStage || "inicio_multi_regime_pergunta");
   const familiarCtx = st.familiar_tipo === "pai" ? "familiar_pai" : (st.familiar_tipo === "mae" ? "familiar_mae" : "familiar_outro");
 
   if (!perfil) {
@@ -21208,10 +21210,10 @@ case "clt_renda_perfil_informativo": {
         getEtapa2EstruturalBag(st).clt_renda_perfil_por_participante,
         participantId,
         perfil
-      )
-    }),
-    clt_perfil_contexto: null,
-    clt_perfil_return_stage: null
+      ),
+      clt_perfil_contexto: null,
+      clt_perfil_return_stage: null
+    })
   };
   await upsertState(env, st.wa_id, cltPatch);
   Object.assign(st, cltPatch);
@@ -21377,8 +21379,7 @@ case "regime_trabalho_parceiro": {
   if (clt) {
     await upsertState(env, st.wa_id, {
       regime_trabalho_parceiro: "clt",
-      clt_perfil_contexto: "p2",
-      clt_perfil_return_stage: "inicio_multi_regime_pergunta_parceiro"
+      ...buildCltPerfilContextPatch(st, "p2", "inicio_multi_regime_pergunta_parceiro")
     });
 
     await funnelTelemetry(env, {

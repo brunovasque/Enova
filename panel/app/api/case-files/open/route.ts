@@ -3,11 +3,9 @@ import { resolveCaseFileById, type EnovaDocRow } from "../_shared";
 
 const REQUIRED_ENVS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const;
 
-function isAllowedFileOrigin(rawUrl: string, supabaseUrl: string): boolean {
-  let target: URL;
+function isAllowedFileOrigin(target: URL, supabaseUrl: string): boolean {
   let supabase: URL;
   try {
-    target = new URL(rawUrl);
     supabase = new URL(supabaseUrl);
   } catch {
     return false;
@@ -108,7 +106,17 @@ export async function GET(request: Request) {
       );
     }
 
-    if (!isAllowedFileOrigin(resolved.sourceUrl, supabaseUrl)) {
+    let parsedSourceUrl: URL;
+    try {
+      parsedSourceUrl = new URL(resolved.sourceUrl);
+    } catch {
+      return NextResponse.json(
+        { ok: false, error: "sourceUrl inválida" },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
+    if (!isAllowedFileOrigin(parsedSourceUrl, supabaseUrl)) {
       return NextResponse.json(
         { ok: false, error: "origem de arquivo não permitida" },
         { status: 403, headers: { "Cache-Control": "no-store" } },

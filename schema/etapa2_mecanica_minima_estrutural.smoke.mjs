@@ -75,8 +75,12 @@ async function simulateFromState(env, stage, text, stOverrides = {}) {
   const fixedAnswer = await simulateFromState(env, "clt_renda_perfil_informativo", "fixo", {
     regime: "clt",
     regime_trabalho: "clt",
-    clt_perfil_contexto: "p1",
-    clt_perfil_return_stage: "inicio_multi_regime_pergunta"
+    controle: {
+      etapa2_estrutural: {
+        clt_perfil_contexto: "p1",
+        clt_perfil_return_stage: "inicio_multi_regime_pergunta"
+      }
+    }
   });
   assert.equal(fixedAnswer.stage_after, "inicio_multi_regime_pergunta");
   assert.match(fixedAnswer.reply_text || "", /mais algum regime de trabalho/i);
@@ -84,12 +88,26 @@ async function simulateFromState(env, stage, text, stOverrides = {}) {
     fixedAnswer.writes?.controle?.etapa2_estrutural?.clt_renda_perfil_por_participante?.p1,
     "fixo"
   );
+  assert.equal(Object.prototype.hasOwnProperty.call(fixedAnswer.writes || {}, "clt_perfil_contexto"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(fixedAnswer.writes || {}, "clt_perfil_return_stage"), false);
+  assert.equal(
+    fixedAnswer.writes?.controle?.etapa2_estrutural?.clt_perfil_contexto,
+    null
+  );
+  assert.equal(
+    fixedAnswer.writes?.controle?.etapa2_estrutural?.clt_perfil_return_stage,
+    null
+  );
 
   const variable = await simulateFromState(env, "clt_renda_perfil_informativo", "varia por comissão e hora extra", {
     regime: "clt",
     regime_trabalho: "clt",
-    clt_perfil_contexto: "p1",
-    clt_perfil_return_stage: "inicio_multi_regime_pergunta"
+    controle: {
+      etapa2_estrutural: {
+        clt_perfil_contexto: "p1",
+        clt_perfil_return_stage: "inicio_multi_regime_pergunta"
+      }
+    }
   });
   assert.equal(variable.stage_after, "inicio_multi_regime_pergunta");
   assert.equal(
@@ -166,8 +184,12 @@ async function simulateFromState(env, stage, text, stOverrides = {}) {
 
   const cltP2 = await simulateFromState(env, "clt_renda_perfil_informativo", "fixo", {
     regime_trabalho_parceiro: "clt",
-    clt_perfil_contexto: "p2",
-    clt_perfil_return_stage: "inicio_multi_regime_pergunta_parceiro"
+    controle: {
+      etapa2_estrutural: {
+        clt_perfil_contexto: "p2",
+        clt_perfil_return_stage: "inicio_multi_regime_pergunta_parceiro"
+      }
+    }
   });
   assert.equal(cltP2.stage_after, "inicio_multi_regime_pergunta_parceiro");
   assert.equal(
@@ -177,13 +199,51 @@ async function simulateFromState(env, stage, text, stOverrides = {}) {
 
   const cltP3 = await simulateFromState(env, "clt_renda_perfil_informativo", "variavel por adicional", {
     p3_regime_trabalho: "clt",
-    clt_perfil_contexto: "p3",
-    clt_perfil_return_stage: "inicio_multi_regime_p3_pergunta"
+    controle: {
+      etapa2_estrutural: {
+        clt_perfil_contexto: "p3",
+        clt_perfil_return_stage: "inicio_multi_regime_p3_pergunta"
+      }
+    }
   });
   assert.equal(cltP3.stage_after, "inicio_multi_regime_p3_pergunta");
   assert.equal(
     cltP3.writes?.controle?.etapa2_estrutural?.clt_renda_perfil_por_participante?.p3,
     "variavel"
+  );
+}
+
+// 3.1) CLT familiar usa contexto em bag segura e retorna para a etapa familiar.
+{
+  const env = buildEnv();
+  const familiarClt = await simulateFromState(env, "inicio_multi_regime_familiar_loop", "clt", {
+    familiar_tipo: "pai"
+  });
+  assert.equal(familiarClt.stage_after, "clt_renda_perfil_informativo");
+  assert.equal(Object.prototype.hasOwnProperty.call(familiarClt.writes || {}, "clt_perfil_contexto"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(familiarClt.writes || {}, "clt_perfil_return_stage"), false);
+  assert.equal(
+    familiarClt.writes?.controle?.etapa2_estrutural?.clt_perfil_contexto,
+    "p2_familiar"
+  );
+  assert.equal(
+    familiarClt.writes?.controle?.etapa2_estrutural?.clt_perfil_return_stage,
+    "inicio_multi_regime_familiar_pergunta"
+  );
+
+  const familiarCltPerfil = await simulateFromState(env, "clt_renda_perfil_informativo", "fixo", {
+    familiar_tipo: "pai",
+    controle: {
+      etapa2_estrutural: {
+        clt_perfil_contexto: "p2_familiar",
+        clt_perfil_return_stage: "inicio_multi_regime_familiar_pergunta"
+      }
+    }
+  });
+  assert.equal(familiarCltPerfil.stage_after, "inicio_multi_regime_familiar_pergunta");
+  assert.equal(
+    familiarCltPerfil.writes?.controle?.etapa2_estrutural?.clt_renda_perfil_por_participante?.p2,
+    "fixo"
   );
 }
 

@@ -135,29 +135,64 @@ type CanonicalStateRow = {
 function normalizeCanonicalRow(waId: string, value: unknown): EnovaDocRow | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
+  const mediaRef =
+    row.media_ref && typeof row.media_ref === "object"
+      ? (row.media_ref as Record<string, unknown>)
+      : {};
+  const associado =
+    row.associado && typeof row.associado === "object"
+      ? (row.associado as Record<string, unknown>)
+      : {};
+  const matchedChecklistItem =
+    row.matched_checklist_item && typeof row.matched_checklist_item === "object"
+      ? (row.matched_checklist_item as Record<string, unknown>)
+      : {};
   const url = String(
     row.url ||
       row.document_url ||
       row.download_url ||
       row.media_url ||
       row.link ||
+      mediaRef.url ||
+      mediaRef.link ||
+      mediaRef.document_url ||
+      mediaRef.download_url ||
+      mediaRef.media_url ||
       "",
   ).trim();
   if (!url) return null;
 
   const createdAtRaw = row.created_at || row.at || row.uploaded_at || row.timestamp || null;
   const createdAt = createdAtRaw === null || createdAtRaw === undefined ? null : String(createdAtRaw);
+  const documentUrl = row.document_url || mediaRef.document_url;
+  const downloadUrl = row.download_url || mediaRef.download_url;
+  const mediaUrl = row.media_url || mediaRef.media_url;
+  const linkUrl = row.link || mediaRef.link;
 
   return {
     wa_id: waId,
-    tipo: String(row.tipo || row.document_type || row.tipo_documento || "documento").trim() || "documento",
-    participante: String(row.participante || row.owner || "").trim() || null,
+    tipo: String(
+      row.tipo ||
+        row.document_type ||
+        row.tipo_documento ||
+        associado.tipo ||
+        matchedChecklistItem.tipo ||
+        "documento",
+    ).trim() || "documento",
+    participante:
+      String(
+        row.participante ||
+          row.owner ||
+          associado.participante ||
+          matchedChecklistItem.participante ||
+          "",
+      ).trim() || null,
     created_at: createdAt,
     url,
-    document_url: row.document_url ? String(row.document_url) : null,
-    download_url: row.download_url ? String(row.download_url) : null,
-    media_url: row.media_url ? String(row.media_url) : null,
-    link: row.link ? String(row.link) : null,
+    document_url: documentUrl ? String(documentUrl) : null,
+    download_url: downloadUrl ? String(downloadUrl) : null,
+    media_url: mediaUrl ? String(mediaUrl) : null,
+    link: linkUrl ? String(linkUrl) : null,
   };
 }
 

@@ -672,7 +672,9 @@ async function upsertState(env, wa_id, payload) {
   const simCtx = getSimulationContext(env);
   const OPTIONAL_MISSING_COLUMNS_ALLOWLIST = new Set([
     "last_message_id_prev",
-    "last_message_timestamp"
+    "last_message_timestamp",
+    "dossie_sinais_persistidos_json",
+    "envio_docs_confirmacao_tipo_doc_status"
   ]);
   // Initial attempt + one retry for each optional allowlisted column that may need removal.
   const MAX_OPTIONAL_FALLBACK_RETRIES = OPTIONAL_MISSING_COLUMNS_ALLOWLIST.size + 1;

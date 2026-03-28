@@ -46,7 +46,7 @@ export async function GET(request: Request) {
     const endpoint = new URL("/rest/v1/enova_docs", supabaseUrl);
     endpoint.searchParams.set(
       "select",
-      "wa_id,tipo,participante,created_at,url,document_url,download_url,media_url,link",
+      "wa_id,tipo,participante,created_at,url",
     );
     endpoint.searchParams.set("wa_id", `eq.${waId}`);
     endpoint.searchParams.set("order", "created_at.asc");

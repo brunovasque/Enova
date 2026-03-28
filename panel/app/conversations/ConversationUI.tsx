@@ -421,9 +421,7 @@ export function ConversationUI() {
         await Promise.all([
           loadConversations(silent),
           activeWaId ? loadMessages(activeWaId, silent) : loadMessages("", silent),
-          selectedConversationWaId
-            ? loadCaseFiles(selectedConversationWaId, silent)
-            : loadCaseFiles("", silent),
+          activeWaId ? loadCaseFiles(activeWaId, silent) : loadCaseFiles("", silent),
         ]);
       } finally {
         refreshStateRef.current.inFlight = false;
@@ -436,7 +434,7 @@ export function ConversationUI() {
         }
       }
     },
-    [loadCaseFiles, loadConversations, loadMessages, selectedConversationWaId]
+    [loadCaseFiles, loadConversations, loadMessages]
   );
 
   const filteredConversations = useMemo(() => {

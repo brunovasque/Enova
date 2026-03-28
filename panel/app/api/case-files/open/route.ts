@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { resolveCaseFileById, type EnovaDocRow } from "../_shared";
 
 const REQUIRED_ENVS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const;
+const CANONICAL_ALLOWED_ORIGINS = new Set([
+  "https://lookaside.fbsbx.com",
+  "https://graph.facebook.com",
+]);
+const CANONICAL_ALLOWED_HOSTS = new Set(["lookaside.fbsbx.com", "graph.facebook.com"]);
 
 function isAllowedFileOrigin(target: URL, supabaseUrl: string): boolean {
   let supabase: URL;
@@ -20,22 +25,22 @@ function isAllowedFileOrigin(target: URL, supabaseUrl: string): boolean {
     return false;
   }
 
-  const supabaseHost = String(supabase.hostname || "").toLowerCase();
-  const isSupabase =
-    host === supabaseHost ||
-    host.endsWith(".supabase.co") ||
-    host.endsWith(".supabase.in");
-  if (isSupabase) {
-    return true;
+  const origin = String(target.origin || "").toLowerCase();
+  if (!origin) {
+    return false;
   }
 
-  const isMetaProtected =
-    host === "lookaside.fbsbx.com" ||
-    host.endsWith(".lookaside.fbsbx.com") ||
-    host === "graph.facebook.com" ||
-    host.endsWith(".graph.facebook.com") ||
-    host.endsWith(".fbsbx.com");
-  return isMetaProtected;
+  const supabaseHost = String(supabase.hostname || "").toLowerCase();
+  const supabaseOrigin = `${String(supabase.protocol || "https:").toLowerCase()}//${String(
+    supabase.host || "",
+  ).toLowerCase()}`;
+
+  const originAllowed =
+    CANONICAL_ALLOWED_ORIGINS.has(origin) || (supabaseOrigin ? origin === supabaseOrigin : false);
+  const hostAllowed =
+    CANONICAL_ALLOWED_HOSTS.has(host) || (supabaseHost ? host === supabaseHost : false);
+
+  return originAllowed || hostAllowed;
 }
 
 function buildContentDisposition(fileName: string | null, previewable: boolean): string {
@@ -123,7 +128,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const upstream = await fetch(resolved.sourceUrl, {
+    const upstream = await fetch(parsedSourceUrl.toString(), {
       method: "GET",
       cache: "no-store",
     });

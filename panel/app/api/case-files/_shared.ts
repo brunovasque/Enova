@@ -2,23 +2,10 @@ import { createHash } from "node:crypto";
 
 export type EnovaDocRow = {
   wa_id: string | null;
-  tipo?: string | null;
-  participante?: string | null;
-  status?: string | null;
-  created_at?: string | null;
-  url?: string | null;
-  document_url?: string | null;
-  download_url?: string | null;
-  media_url?: string | null;
-  link?: string | null;
-  mime_type?: string | null;
-  mimetype?: string | null;
-  file_name?: string | null;
-  filename?: string | null;
-  size?: number | string | null;
-  file_size?: number | string | null;
-  bytes?: number | string | null;
-  tamanho?: number | string | null;
+  tipo: string | null;
+  participante: string | null;
+  created_at: string | null;
+  url: string | null;
 };
 
 export type CaseFileItem = {
@@ -34,22 +21,12 @@ export type CaseFileItem = {
 };
 
 function normalizeUrl(row: EnovaDocRow): string {
-  return String(
-    row.url || row.document_url || row.download_url || row.media_url || row.link || "",
-  ).trim();
+  return String(row.url || "").trim();
 }
 
 function normalizeMimeType(row: EnovaDocRow): string | null {
-  const explicit = String(row.mime_type || row.mimetype || "")
-    .trim()
-    .toLowerCase();
-  if (explicit) return explicit;
-
-  const fileName = String(row.file_name || row.filename || "")
-    .trim()
-    .toLowerCase();
   const url = normalizeUrl(row).toLowerCase();
-  const probe = `${fileName} ${url}`;
+  const probe = `${url}`;
   if (probe.includes(".pdf")) return "application/pdf";
   if (probe.match(/\.(png)\b/)) return "image/png";
   if (probe.match(/\.(jpe?g)\b/)) return "image/jpeg";
@@ -59,18 +36,6 @@ function normalizeMimeType(row: EnovaDocRow): string | null {
 }
 
 function normalizeSizeBytes(row: EnovaDocRow): number | null {
-  const candidates = [row.size, row.file_size, row.bytes, row.tamanho];
-  for (const value of candidates) {
-    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-      return value;
-    }
-    if (typeof value === "string") {
-      const parsed = Number.parseFloat(value);
-      if (Number.isFinite(parsed) && parsed >= 0) {
-        return Math.floor(parsed);
-      }
-    }
-  }
   return null;
 }
 
@@ -91,7 +56,6 @@ function buildStableFileId(
     row.created_at || "",
     row.tipo || "",
     row.participante || "",
-    row.file_name || row.filename || "",
     normalizedMimeType || "",
     normalizedUrl,
     String(index),
@@ -101,30 +65,27 @@ function buildStableFileId(
 
 export function normalizeCaseFiles(waId: string, rows: EnovaDocRow[]): CaseFileItem[] {
   if (!Array.isArray(rows)) return [];
-  return rows
-    .map((row, index) => {
-      const normalizedUrl = normalizeUrl(row);
-      const status = String(row.status || "")
-        .trim()
-        .toLowerCase();
-      if (!normalizedUrl || status === "pendente") {
-        return null;
-      }
+  const items: CaseFileItem[] = [];
+  rows.forEach((row, index) => {
+    const normalizedUrl = normalizeUrl(row);
+    if (!normalizedUrl) {
+      return;
+    }
 
-      const normalizedMimeType = normalizeMimeType(row);
-      return {
-        file_id: buildStableFileId(waId, row, normalizedUrl, normalizedMimeType, index),
-        wa_id: waId,
-        tipo: String(row.tipo || "documento").trim().toLowerCase(),
-        participante: String(row.participante || "").trim().toLowerCase() || null,
-        created_at: row.created_at || null,
-        mime_type: normalizedMimeType,
-        file_name: String(row.file_name || row.filename || "").trim() || null,
-        size_bytes: normalizeSizeBytes(row),
-        previewable: isPreviewable(normalizedMimeType),
-      } satisfies CaseFileItem;
-    })
-    .filter((item): item is CaseFileItem => Boolean(item));
+    const normalizedMimeType = normalizeMimeType(row);
+    items.push({
+      file_id: buildStableFileId(waId, row, normalizedUrl, normalizedMimeType, index),
+      wa_id: waId,
+      tipo: String(row.tipo || "documento").trim().toLowerCase(),
+      participante: String(row.participante || "").trim().toLowerCase() || null,
+      created_at: row.created_at || null,
+      mime_type: normalizedMimeType,
+      file_name: null,
+      size_bytes: normalizeSizeBytes(row),
+      previewable: isPreviewable(normalizedMimeType),
+    });
+  });
+  return items;
 }
 
 export function resolveCaseFileById(
@@ -138,11 +99,6 @@ export function resolveCaseFileById(
     const normalizedUrl = normalizeUrl(row);
     if (!normalizedUrl) continue;
 
-    const status = String(row.status || "")
-      .trim()
-      .toLowerCase();
-    if (status === "pendente") continue;
-
     const normalizedMimeType = normalizeMimeType(row);
     const candidateId = buildStableFileId(waId, row, normalizedUrl, normalizedMimeType, index);
     if (candidateId !== fileId) continue;
@@ -155,7 +111,7 @@ export function resolveCaseFileById(
         participante: String(row.participante || "").trim().toLowerCase() || null,
         created_at: row.created_at || null,
         mime_type: normalizedMimeType,
-        file_name: String(row.file_name || row.filename || "").trim() || null,
+        file_name: null,
         size_bytes: normalizeSizeBytes(row),
         previewable: isPreviewable(normalizedMimeType),
       },

@@ -974,7 +974,10 @@ export function ConversationUI() {
                   ) : caseFilesError ? (
                     <p className={styles.panelError}>Erro nos arquivos: {caseFilesError}</p>
                   ) : threadFiles.length === 0 ? (
-                    <p className={styles.filesHint}>Nenhum arquivo recebido para este caso.</p>
+                    <p className={styles.filesHint}>
+                      Nenhum arquivo encontrado em enova_docs para este caso no contrato atual de
+                      leitura.
+                    </p>
                   ) : (
                     <ul className={styles.filesList}>
                       {threadFiles.map((file) => (

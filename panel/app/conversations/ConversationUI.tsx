@@ -8,6 +8,7 @@ const POLL_INTERVAL_MS = 1000;
 const THREAD_BOTTOM_THRESHOLD_PX = 32;
 const MAX_THREAD_SCROLL_RETRIES = 24;
 const THREAD_SCROLL_STABLE_FRAMES = 3;
+const INLINE_DEBUG_WA_ID = "554185260518";
 
 type Conversation = {
   id: string;
@@ -61,6 +62,20 @@ type CaseFilesPayload = {
   files: CaseFile[];
   error: string | null;
 };
+
+type TimelineEntry =
+  | {
+      kind: "message";
+      key: string;
+      created_at: string | null;
+      message: Message;
+    }
+  | {
+      kind: "file";
+      key: string;
+      created_at: string | null;
+      file: CaseFile;
+    };
 
 function formatTime(input: string | null): string {
   if (!input) {
@@ -196,6 +211,7 @@ export function ConversationUI() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const selectedWaId = (searchParams.get("wa_id") ?? "").trim();
+  const inlineDebugEnabled = selectedWaId === INLINE_DEBUG_WA_ID;
   const selectedConversationWaId = useMemo(
     () => conversations.find((conversation) => conversation.wa_id === selectedWaId)?.wa_id ?? "",
     [conversations, selectedWaId]
@@ -332,6 +348,23 @@ export function ConversationUI() {
       const filesUrl = sameOriginApiUrl(`/api/case-files?wa_id=${encodeURIComponent(waId)}`);
       const response = await fetch(filesUrl, { cache: "no-store" });
       const data = (await response.json()) as CaseFilesPayload;
+      if (waId === INLINE_DEBUG_WA_ID) {
+        console.log("[INLINE_DEBUG][case-files-response]", {
+          waId,
+          status: response.status,
+          ok: response.ok,
+          payloadOk: data?.ok,
+          filesCount: Array.isArray(data?.files) ? data.files.length : 0,
+          files: Array.isArray(data?.files)
+            ? data.files.map((file) => ({
+                file_id: file.file_id,
+                tipo: file.tipo,
+                created_at: file.created_at,
+              }))
+            : [],
+          error: data?.error ?? null,
+        });
+      }
       if (!response.ok || !data.ok) {
         throw new Error(data.error || `Falha ao carregar arquivos (${response.status})`);
       }
@@ -373,8 +406,8 @@ export function ConversationUI() {
         await Promise.all([
           loadConversations(silent),
           activeWaId ? loadMessages(activeWaId, silent) : loadMessages("", silent),
-          selectedConversationWaId
-            ? loadCaseFiles(selectedConversationWaId, silent)
+          selectedWaId
+            ? loadCaseFiles(selectedWaId, silent)
             : loadCaseFiles("", silent),
         ]);
       } finally {
@@ -388,7 +421,7 @@ export function ConversationUI() {
         }
       }
     },
-    [loadCaseFiles, loadConversations, loadMessages, selectedConversationWaId]
+    [loadCaseFiles, loadConversations, loadMessages, selectedWaId]
   );
 
   const filteredConversations = useMemo(() => {
@@ -425,6 +458,68 @@ export function ConversationUI() {
       return t.length > 0;
     });
   }, [messages]);
+
+  const timelineEntries = useMemo<TimelineEntry[]>(() => {
+    const messageEntries: TimelineEntry[] = visibleMessages.map((message) => ({
+      kind: "message",
+      key: `msg:${message.id ?? buildMessageRenderKey(message)}`,
+      created_at: message.created_at ?? null,
+      message,
+    }));
+    const fileEntries: TimelineEntry[] = threadFiles.map((file) => ({
+      kind: "file",
+      key: `file:${file.file_id}`,
+      created_at: file.created_at ?? null,
+      file,
+    }));
+
+    return [...messageEntries, ...fileEntries].sort((a, b) => {
+      const aTs = Date.parse(a.created_at || "") || 0;
+      const bTs = Date.parse(b.created_at || "") || 0;
+      if (aTs === bTs) {
+        if (a.kind === b.kind) return a.key.localeCompare(b.key);
+        return a.kind === "message" ? -1 : 1;
+      }
+      return aTs - bTs;
+    });
+  }, [threadFiles, visibleMessages]);
+
+  useEffect(() => {
+    if (!inlineDebugEnabled) {
+      return;
+    }
+
+    console.log("[INLINE_DEBUG][threadFiles-state]", {
+      waId: selectedWaId,
+      count: threadFiles.length,
+      files: threadFiles.map((file) => ({
+        file_id: file.file_id,
+        tipo: file.tipo,
+        created_at: file.created_at,
+      })),
+    });
+  }, [inlineDebugEnabled, selectedWaId, threadFiles]);
+
+  useEffect(() => {
+    if (!inlineDebugEnabled) {
+      return;
+    }
+
+    const fileEntries = timelineEntries
+      .filter((entry) => entry.kind === "file")
+      .map((entry) => ({
+        key: entry.key,
+        created_at: entry.created_at,
+        file_id: entry.file.file_id,
+      }));
+
+    console.log("[INLINE_DEBUG][timelineEntries-render-collection]", {
+      waId: selectedWaId,
+      total: timelineEntries.length,
+      fileEntriesCount: fileEntries.length,
+      fileEntries,
+    });
+  }, [inlineDebugEnabled, selectedWaId, timelineEntries]);
 
   const markConversationAsSeen = useCallback((waId: string, activityKey: string) => {
     if (!waId) {
@@ -925,25 +1020,76 @@ export function ConversationUI() {
               <p className={styles.panelHint}>Carregando mensagens...</p>
             ) : threadError ? (
               <p className={styles.panelError}>Erro na thread: {threadError}</p>
-            ) : visibleMessages.length === 0 ? (
+            ) : timelineEntries.length === 0 ? (
               <p className={styles.panelHint}>Sem mensagens para esta conversa.</p>
             ) : (
               <>
-                {visibleMessages.map((message) => {
-                  const key = message.id ?? buildMessageRenderKey(message);
-                  const isOut = message.direction === "out";
-                  const text = (message.text ?? "").trim();
+                {caseFilesLoading && selectedWaId ? (
+                  <p className={styles.panelHint}>Carregando anexos da conversa...</p>
+                ) : null}
+                {timelineEntries.map((entry) => {
+                  if (inlineDebugEnabled) {
+                    console.log("[INLINE_DEBUG][attachment-card-condition]", {
+                      waId: selectedWaId,
+                      entryKey: entry.key,
+                      entryKind: entry.kind,
+                      shouldRenderAttachmentCard: entry.kind === "file",
+                    });
+                  }
+                  if (entry.kind === "message") {
+                    const message = entry.message;
+                    const isOut = message.direction === "out";
+                    const text = (message.text ?? "").trim();
+                    return (
+                      <div
+                        key={entry.key}
+                        className={`${styles.messageRow} ${
+                          isOut ? styles.messageRowOut : styles.messageRowIn
+                        }`}
+                      >
+                        <article className={`${styles.bubble} ${isOut ? styles.bubbleOut : styles.bubbleIn}`}>
+                          <p>{text}</p>
+                          <div className={styles.messageMeta}>{formatDateTime(message.created_at)}</div>
+                        </article>
+                      </div>
+                    );
+                  }
 
+                  const file = entry.file;
                   return (
-                    <div
-                      key={key}
-                      className={`${styles.messageRow} ${
-                        isOut ? styles.messageRowOut : styles.messageRowIn
-                      }`}
-                    >
-                      <article className={`${styles.bubble} ${isOut ? styles.bubbleOut : styles.bubbleIn}`}>
-                        <p>{text}</p>
-                        <div className={styles.messageMeta}>{formatDateTime(message.created_at)}</div>
+                    <div key={entry.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
+                      <article className={`${styles.bubble} ${styles.bubbleIn}`}>
+                        <div className={styles.inlineFileCard}>
+                          <div className={styles.inlineFileMeta}>
+                            <span className={styles.inlineFileType}>
+                              Tipo: {file.tipo || file.mime_type || "arquivo"}
+                            </span>
+                            <span className={styles.inlineFileInfo}>
+                              Participante: {file.participante || "--"} • data:{" "}
+                              {formatDateTime(file.created_at)}
+                            </span>
+                            <span className={styles.inlineFileInfo}>
+                              Formato: {file.mime_type || "--"} • Tamanho: {formatFileSize(file.size_bytes)}
+                            </span>
+                          </div>
+                          <div className={styles.inlineFileActions}>
+                            <button
+                              type="button"
+                              className={styles.fileOpenButton}
+                              onClick={() => handleOpenFile(file)}
+                            >
+                              Visualizar
+                            </button>
+                            <a
+                              href={`${openFileUrl(file)}&download=1`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.inlineFileDownloadLink}
+                            >
+                              Baixar
+                            </a>
+                          </div>
+                        </div>
                       </article>
                     </div>
                   );
@@ -953,59 +1099,9 @@ export function ConversationUI() {
           </div>
 
           <footer className={styles.threadFooter}>
-            <section
-              className={`${styles.filesSection} ${
-                selectedConversationWaId ? "" : styles.filesSectionIdle
-              }`}
-            >
-              {!selectedConversationWaId ? (
-                <p className={styles.filesHintDiscreet}>Selecione uma conversa para visualizar arquivos.</p>
-              ) : (
-                <>
-                  <div className={styles.filesHeader}>
-                    <strong>Arquivos recebidos da conversa atual</strong>
-                    <span className={styles.filesConversationInfo}>
-                      Caso atual — ID: {selectedConversationWaId}
-                    </span>
-                  </div>
-
-                  {caseFilesLoading ? (
-                    <p className={styles.filesHint}>Carregando arquivos...</p>
-                  ) : caseFilesError ? (
-                    <p className={styles.panelError}>Erro nos arquivos: {caseFilesError}</p>
-                  ) : threadFiles.length === 0 ? (
-                    <p className={styles.filesHint}>
-                      Nenhum arquivo encontrado em enova_docs para este caso no contrato atual de
-                      leitura.
-                    </p>
-                  ) : (
-                    <ul className={styles.filesList}>
-                      {threadFiles.map((file) => (
-                        <li key={file.file_id} className={styles.filesItem}>
-                          <div className={styles.filesItemMeta}>
-                            <span className={styles.filesName}>{formatFileDisplayName(file)}</span>
-                            <span className={styles.filesMetaLine}>
-                              tipo: {file.mime_type || "--"} • tamanho: {formatFileSize(file.size_bytes)}
-                            </span>
-                            <span className={styles.filesMetaLine}>
-                              participante: {file.participante || "--"} • data:{" "}
-                              {formatDateTime(file.created_at)}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            className={styles.fileOpenButton}
-                            onClick={() => handleOpenFile(file)}
-                          >
-                            Abrir
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              )}
-            </section>
+            {caseFilesError ? (
+              <p className={styles.panelError}>Erro nos arquivos: {caseFilesError}</p>
+            ) : null}
 
             {threadUnreadCount > 0 && !isThreadNearBottom ? (
               <div className={styles.threadUnreadWrap}>

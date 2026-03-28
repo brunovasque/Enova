@@ -6,6 +6,10 @@ export type EnovaDocRow = {
   participante: string | null;
   created_at: string | null;
   url: string | null;
+  document_url?: string | null;
+  download_url?: string | null;
+  media_url?: string | null;
+  link?: string | null;
 };
 
 export type CaseFileItem = {
@@ -22,8 +26,33 @@ export type CaseFileItem = {
   previewable: boolean;
 };
 
+type UrlField = (typeof CASE_FILE_URL_FIELDS)[number];
+
+const UNKNOWN_COLUMN_CODES = new Set(["42703", "PGRST204"]);
+
+export const CASE_FILE_URL_FIELDS = [
+  "url",
+  "document_url",
+  "download_url",
+  "media_url",
+  "link",
+] as const;
+
 function normalizeUrl(row: EnovaDocRow): string {
-  return String(row.url || "").trim();
+  const candidates = [
+    row.url,
+    row.document_url,
+    row.download_url,
+    row.media_url,
+    row.link,
+  ];
+  for (const candidate of candidates) {
+    const normalized = String(candidate || "").trim();
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return "";
 }
 
 function normalizeMimeType(row: EnovaDocRow): string | null {
@@ -168,4 +197,55 @@ export function resolveCaseFileByRef(
   }
 
   return null;
+}
+
+export async function resolveSelectableUrlFields(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  waId: string,
+): Promise<UrlField[]> {
+  const entries = await Promise.all(
+    CASE_FILE_URL_FIELDS.map(async (field) => {
+      const endpoint = new URL("/rest/v1/enova_docs", supabaseUrl);
+      endpoint.searchParams.set("select", field);
+      endpoint.searchParams.set("wa_id", `eq.${waId}`);
+      endpoint.searchParams.set("limit", "1");
+
+      const response = await fetch(endpoint, {
+        method: "GET",
+        headers: {
+          apikey: serviceRoleKey,
+          Authorization: `Bearer ${serviceRoleKey}`,
+        },
+        cache: "no-store",
+      });
+
+      if (response.ok) {
+        return [field, true] as const;
+      }
+
+      let parsedBody: unknown = null;
+      try {
+        parsedBody = await response.json();
+      } catch {
+        parsedBody = null;
+      }
+
+      const errorCode =
+        typeof parsedBody === "object" &&
+        parsedBody !== null &&
+        "code" in parsedBody &&
+        typeof (parsedBody as { code?: unknown }).code === "string"
+          ? (parsedBody as { code: string }).code
+          : "";
+
+      if (response.status === 400 && UNKNOWN_COLUMN_CODES.has(errorCode)) {
+        return [field, false] as const;
+      }
+
+      throw new Error(`failed to probe column ${field} (${response.status})`);
+    }),
+  );
+
+  return entries.filter(([, ok]) => ok).map(([field]) => field);
 }

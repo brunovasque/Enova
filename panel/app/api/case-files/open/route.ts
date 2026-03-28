@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
-import { resolveCaseFileById, resolveCaseFileByRef, type EnovaDocRow } from "../_shared";
+import {
+  resolveCaseFileById,
+  resolveCaseFileByRef,
+  resolveSelectableUrlFields,
+  type EnovaDocRow,
+} from "../_shared";
 
 const REQUIRED_ENVS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const;
 const CANONICAL_ALLOWED_ORIGINS = new Set([
@@ -78,10 +83,11 @@ export async function GET(request: Request) {
     const supabaseUrl = process.env.SUPABASE_URL as string;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE as string;
 
+    const selectableUrlFields = await resolveSelectableUrlFields(supabaseUrl, serviceRoleKey, waId);
     const endpoint = new URL("/rest/v1/enova_docs", supabaseUrl);
     endpoint.searchParams.set(
       "select",
-      "wa_id,tipo,participante,created_at,url",
+      ["wa_id", "tipo", "participante", "created_at", ...selectableUrlFields].join(","),
     );
     endpoint.searchParams.set("wa_id", `eq.${waId}`);
     endpoint.searchParams.set("order", "created_at.asc");

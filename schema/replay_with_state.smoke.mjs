@@ -103,8 +103,41 @@ const replayCaptureById = {
       messageId: "wamid.replay.state.seq.2",
       text: "evento sequencia 2"
     }))
+  },
+  replay_state_optional_cols_update: {
+    replay_id: "replay_state_optional_cols_update",
+    pathname: "/webhook/meta",
+    method: "POST",
+    headers_subset: { "content-type": "application/json" },
+    raw_body: JSON.stringify(buildTextWebhook({
+      waId: "5511980002003",
+      messageId: "wamid.replay.state.optional.cols.update",
+      text: "evento optional cols update"
+    }))
+  },
+  replay_state_optional_cols_insert: {
+    replay_id: "replay_state_optional_cols_insert",
+    pathname: "/webhook/meta",
+    method: "POST",
+    headers_subset: { "content-type": "application/json" },
+    raw_body: JSON.stringify(buildTextWebhook({
+      waId: "5511980002004",
+      messageId: "wamid.replay.state.optional.cols.insert",
+      text: "evento optional cols insert"
+    }))
   }
 };
+
+const missingColumnsByWaId = new Map();
+
+function buildMissingColumnResponse(column) {
+  return new Response(
+    JSON.stringify({
+      message: `Could not find the '${column}' column of 'enova_state' in the schema cache`
+    }),
+    { status: 400, headers: { "content-type": "application/json" } }
+  );
+}
 
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (input, init = {}) => {
@@ -130,6 +163,12 @@ globalThis.fetch = async (input, init = {}) => {
     const waEq = String(url.searchParams.get("wa_id") || "");
     const waId = waEq.startsWith("eq.") ? decodeURIComponent(waEq.slice(3)) : "";
     const patch = init.body ? JSON.parse(String(init.body)) : {};
+    const missingColumns = missingColumnsByWaId.get(waId) || [];
+    for (const missingColumn of missingColumns) {
+      if (Object.prototype.hasOwnProperty.call(patch || {}, missingColumn)) {
+        return buildMissingColumnResponse(missingColumn);
+      }
+    }
     const current = stateByWaId[waId] || { wa_id: waId };
     stateByWaId[waId] = { ...current, ...patch, wa_id: waId };
     return new Response(JSON.stringify([stateByWaId[waId]]), {
@@ -141,6 +180,12 @@ globalThis.fetch = async (input, init = {}) => {
   if (path === "/rest/v1/enova_state" && method === "POST") {
     const rows = init.body ? JSON.parse(String(init.body)) : [];
     const row = Array.isArray(rows) ? rows[0] : rows;
+    const missingColumns = missingColumnsByWaId.get(String(row?.wa_id || "")) || [];
+    for (const missingColumn of missingColumns) {
+      if (Object.prototype.hasOwnProperty.call(row || {}, missingColumn)) {
+        return buildMissingColumnResponse(missingColumn);
+      }
+    }
     if (row?.wa_id) {
       stateByWaId[row.wa_id] = { ...(stateByWaId[row.wa_id] || {}), ...row };
       return new Response(JSON.stringify([stateByWaId[row.wa_id]]), {
@@ -291,7 +336,68 @@ try {
     assert.equal(data.ok, false);
     assert.equal(data.error, "invalid_payload");
   }
+
+  // 6) admin replay-with-state (UPDATE): fallback de colunas opcionais ausentes em enova_state
+  {
+    const env = buildEnv();
+    stateByWaId["5511980002003"] = {
+      wa_id: "5511980002003",
+      fase_conversa: "inicio_nome",
+      funil_status: "ativo",
+      atendimento_manual: false
+    };
+    missingColumnsByWaId.set("5511980002003", [
+      "last_message_timestamp",
+      "dossie_sinais_persistidos_json"
+    ]);
+    const { resp, data } = await dispatchReplayWithState(env, {
+      wa_id: "5511980002003",
+      state_snapshot: {
+        atendimento_manual: true,
+        fase_conversa: "finalizacao_processo",
+        last_message_timestamp: "2026-03-27T23:00:00.000Z",
+        dossie_sinais_persistidos_json: "{\"score\":0.88}"
+      },
+      replay_id: "replay_state_optional_cols_update"
+    });
+
+    assert.equal(resp.status, 200);
+    assert.equal(data.ok, true);
+    assert.equal(data.snapshot_applied, true);
+    assert.equal(data.telemetry == null, true);
+    assert.equal(data.result.ok, true);
+    assert.equal(data.result.forward_body?.reason, "manual_mode_bypass");
+    assert.equal(Object.prototype.hasOwnProperty.call(stateByWaId["5511980002003"], "last_message_timestamp"), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(stateByWaId["5511980002003"], "dossie_sinais_persistidos_json"), false);
+    missingColumnsByWaId.delete("5511980002003");
+  }
+
+  // 7) admin replay-with-state (INSERT): fallback de coluna opcional ausente em enova_state
+  {
+    const env = buildEnv();
+    delete stateByWaId["5511980002004"];
+    missingColumnsByWaId.set("5511980002004", ["last_message_id_prev"]);
+    const { resp, data } = await dispatchReplayWithState(env, {
+      wa_id: "5511980002004",
+      state_snapshot: {
+        atendimento_manual: true,
+        fase_conversa: "finalizacao_processo",
+        last_message_id_prev: "wamid.prev.insert.2004"
+      },
+      replay_id: "replay_state_optional_cols_insert"
+    });
+
+    assert.equal(resp.status, 200);
+    assert.equal(data.ok, true);
+    assert.equal(data.snapshot_applied, true);
+    assert.equal(data.telemetry == null, true);
+    assert.equal(data.result.ok, true);
+    assert.equal(data.result.forward_body?.reason, "manual_mode_bypass");
+    assert.equal(Object.prototype.hasOwnProperty.call(stateByWaId["5511980002004"], "last_message_id_prev"), false);
+    missingColumnsByWaId.delete("5511980002004");
+  }
 } finally {
+  missingColumnsByWaId.clear();
   globalThis.fetch = originalFetch;
 }
 

@@ -23396,9 +23396,6 @@ case "autonomo_compor_renda": {
 // 🧩 C31 — CTPS 36 MESES (Titular)
 // =========================================================
 case "ctps_36": {
-  const cursoSuperiorInformativo = await maybeHandleTitularCursoSuperiorPreCtps(env, st, userText, "ctps_36");
-  if (cursoSuperiorInformativo) return cursoSuperiorInformativo;
-
   // ============================================================
   // 🛰 TELEMETRIA — Entrada na fase "ctps_36"
   // ============================================================
@@ -23468,6 +23465,15 @@ const tNorm = normalizeText(t);
       /(nao tem|nao possui|nao completo|nao completei)/i.test(tNorm) ||
       /(menos de\s*36|menos de\s*3 anos)/i.test(tNorm)
     );
+  
+  const respostaCtpsValida =
+    tNorm === "sim" ||
+    tNorm === "nao" ||
+    tNorm === "nao sei";
+  if (!respostaCtpsValida) {
+    const cursoSuperiorInformativo = await maybeHandleTitularCursoSuperiorPreCtps(env, st, userText, "ctps_36");
+    if (cursoSuperiorInformativo) return cursoSuperiorInformativo;
+  }
 
   const ehFinanciamentoConjunto = (
   st.financiamento_conjunto === true ||

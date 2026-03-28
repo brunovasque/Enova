@@ -124,56 +124,89 @@ function infoBag(data) {
   assert.equal(Object.prototype.hasOwnProperty.call(irSimMantemGate.writes, "docs_lista_enviada"), false);
 }
 
-// 2) Renda <= 3500: pergunta curso superior antes de CTPS, salva informativo e volta para CTPS.
+// 2) Renda <= 3500: respostas válidas de CTPS têm prioridade e não entram no informativo.
 {
   const env = buildEnv();
   const wa = "5541999300002";
   const base = {
+    regime: "clt",
     renda: 3200,
     renda_total_para_fluxo: 3200,
     financiamento_conjunto: false
   };
 
-  const perguntaCurso = await simulateFromState(env, wa, "ctps_36", "ok", base);
-  assert.equal(perguntaCurso.stage_after, "ctps_36");
-  assert.match(perguntaCurso.reply_text, /curso superior completo|est[aá] cursando/i);
-  assert.equal(Object.prototype.hasOwnProperty.call(infoBag(perguntaCurso), "titular_curso_superior_status"), false);
+  const ctpsSim = await simulateFromState(env, wa, "ctps_36", "sim", base);
+  assert.equal(ctpsSim.stage_after, "dependente");
+  assert.equal(ctpsSim.writes.ctps_36, true);
+  assert.doesNotMatch(ctpsSim.reply_text, /curso superior|cursando/i);
 
-  const salvaCurso = await simulateFromState(env, wa, "ctps_36", "não", base);
+  const ctpsNao = await simulateFromState(env, wa, "ctps_36", "não", base);
+  assert.equal(ctpsNao.stage_after, "dependente");
+  assert.equal(ctpsNao.writes.ctps_36, false);
+  assert.doesNotMatch(ctpsNao.reply_text, /curso superior|cursando/i);
+
+  const ctpsNaoSei = await simulateFromState(env, wa, "ctps_36", "não sei", base);
+  assert.equal(ctpsNaoSei.stage_after, "dependente");
+  assert.equal(ctpsNaoSei.writes.ctps_36, null);
+  assert.doesNotMatch(ctpsNaoSei.reply_text, /curso superior|cursando/i);
+}
+
+// 3) Renda <= 3500: entrada não-CTPS ligada ao informativo é capturada antes e retorna para CTPS.
+{
+  const env = buildEnv();
+  const wa = "5541999300003";
+  const base = {
+    regime: "clt",
+    renda: 3200,
+    renda_total_para_fluxo: 3200,
+    financiamento_conjunto: false
+  };
+
+  const salvaCurso = await simulateFromState(env, wa, "ctps_36", "não tenho, só ensino médio", base);
   assert.equal(salvaCurso.stage_after, "ctps_36");
   const cursoSalvo =
     infoBag(salvaCurso).titular_curso_superior_status ||
     env.__enovaSimulationCtx.stateByWaId[wa]?.controle?.etapa1_informativos?.titular_curso_superior_status;
   assert.equal(cursoSalvo, "nao");
   assert.match(salvaCurso.reply_text, /36 meses|ctps/i);
-}
 
-// 3) Renda > 3500: não pergunta curso superior e segue CTPS normal.
-{
-  const env = buildEnv();
-  const wa = "5541999300003";
-  const data = await simulateFromState(env, wa, "ctps_36", "sim", {
-    renda: 4500,
-    renda_total_para_fluxo: 4500,
-    financiamento_conjunto: false
+  const ctpsDepoisInformativo = await simulateFromState(env, wa, "ctps_36", "sim", {
+    ...base,
+    controle: {
+      etapa1_informativos: {
+        titular_curso_superior_status: "nao"
+      }
+    }
   });
-
-  assert.equal(data.stage_after, "restricao");
-  assert.equal(data.writes.ctps_36, true);
-  assert.doesNotMatch(data.reply_text, /curso superior|cursando/i);
+  assert.equal(ctpsDepoisInformativo.stage_after, "dependente");
+  assert.equal(ctpsDepoisInformativo.writes.ctps_36, true);
 }
 
-// 4) Não-gate / não-contaminação: composição <3000 e stage envio_docs permanecem intactos.
+// 4) Regressão rápida: ctps_36_parceiro mantém comportamento.
 {
   const env = buildEnv();
-  const waComposicao = "5541999300004";
+  const wa = "5541999300004";
+  const parceiro = await simulateFromState(env, wa, "ctps_36_parceiro", "sim", {
+    ctps_36: false,
+    p3_ctps_36: false,
+    somar_renda: true,
+    financiamento_conjunto: true
+  });
+  assert.equal(parceiro.stage_after, "restricao");
+  assert.equal(parceiro.writes.ctps_36_parceiro, true);
+}
+
+// 5) Não-gate / não-contaminação: composição <3000 e stage envio_docs permanecem intactos.
+{
+  const env = buildEnv();
+  const waComposicao = "5541999300005";
   const comp = await simulateFromState(env, waComposicao, "renda", "2500", {
     somar_renda: false
   });
   assert.equal(comp.stage_after, "quem_pode_somar");
   assert.equal(comp.writes.renda_total_para_fluxo, 2500);
 
-  const waDocs = "5541999300005";
+  const waDocs = "5541999300006";
   const docs = await simulateFromState(env, waDocs, "envio_docs", "ok", {
     dossie_status: "pronto",
     docs_lista_enviada: true,

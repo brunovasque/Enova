@@ -12412,7 +12412,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
               url: _cResolvedUrl,
               created_at: new Date().toISOString()
             });
-          } catch (_e) { console.error("handleDocumentUpload: save to enova_docs (confirmation) failed", _e); }
+          } catch (_e) { console.error("handleDocumentUpload: save to enova_docs (confirmation) failed", { wa_id: st?.wa_id, tipo: targetConfirmedByText?.tipo, participante: targetConfirmedByText?.participante, err: _e?.message || _e }); }
         }
       }
 
@@ -12897,7 +12897,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
                 url: _resolvedUrl,
                 created_at: new Date().toISOString()
               });
-            } catch (_e) { console.error("handleDocumentUpload: save to enova_docs failed", _e); }
+            } catch (_e) { console.error("handleDocumentUpload: save to enova_docs failed", { wa_id: st?.wa_id, tipo: matched?.tipo, participante: matched?.participante, err: _e?.message || _e }); }
           }
         }
         st.envio_docs_historico_json = _updatedHistorico;

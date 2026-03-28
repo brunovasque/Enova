@@ -5206,7 +5206,14 @@ async function handleMetaWebhook(request, env, ctx) {
     );
   }
 
-  const rawCaptureEnabled = isDebugOn(env.ENABLE_META_RAW_CAPTURE || env.ENOVA_META_RAW_CAPTURE);
+  const rawCaptureEnabled = isDebugOn(env.ENOVA_META_RAW_CAPTURE);
+  const RAW_CAPTURE_HEADER_NAMES = [
+    "content-type",
+    "user-agent",
+    "cf-ray",
+    "x-hub-signature",
+    "x-hub-signature-256"
+  ];
   const requestUrl = new URL(request.url);
   const requestPathname = requestUrl.pathname;
   const requestMethod = request.method;
@@ -5214,17 +5221,22 @@ async function handleMetaWebhook(request, env, ctx) {
   const buildReplayId = () => {
     try {
       if (globalThis?.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+      if (globalThis?.crypto?.getRandomValues) {
+        const bytes = new Uint8Array(16);
+        globalThis.crypto.getRandomValues(bytes);
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+      }
     } catch (_) {}
-    return `meta_raw_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    return `meta_raw_${Date.now()}_${Math.random().toString(36).slice(2, 12)}_${Math.random().toString(36).slice(2, 12)}`;
   };
 
-  const buildRawHeadersSubset = () => ({
-    "content-type": request.headers.get("content-type") || null,
-    "user-agent": request.headers.get("user-agent") || null,
-    "cf-ray": request.headers.get("cf-ray") || null,
-    "x-hub-signature": request.headers.get("x-hub-signature") || null,
-    "x-hub-signature-256": request.headers.get("x-hub-signature-256") || null
-  });
+  const buildRawHeadersSubset = () => RAW_CAPTURE_HEADER_NAMES.reduce((acc, key) => {
+    acc[key] = request.headers.get(key) || null;
+    return acc;
+  }, {});
 
   let rawBody = null;
   let body = null;
@@ -5233,7 +5245,6 @@ async function handleMetaWebhook(request, env, ctx) {
   // 1) Lê o body cru (para telemetria em caso de erro)
 try {
   rawBody = await request.text();
-  console.log("DEBUG-2: LEU rawBody");
 
   if (rawCaptureEnabled) {
     try {

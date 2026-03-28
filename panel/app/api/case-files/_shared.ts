@@ -26,16 +26,11 @@ function normalizeUrl(row: EnovaDocRow): string {
 
 function normalizeMimeType(row: EnovaDocRow): string | null {
   const url = normalizeUrl(row).toLowerCase();
-  const probe = `${url}`;
-  if (probe.includes(".pdf")) return "application/pdf";
-  if (probe.match(/\.(png)\b/)) return "image/png";
-  if (probe.match(/\.(jpe?g)\b/)) return "image/jpeg";
-  if (probe.match(/\.(webp)\b/)) return "image/webp";
-  if (probe.match(/\.(gif)\b/)) return "image/gif";
-  return null;
-}
-
-function normalizeSizeBytes(row: EnovaDocRow): number | null {
+  if (url.includes(".pdf")) return "application/pdf";
+  if (url.match(/\.(png)\b/)) return "image/png";
+  if (url.match(/\.(jpe?g)\b/)) return "image/jpeg";
+  if (url.match(/\.(webp)\b/)) return "image/webp";
+  if (url.match(/\.(gif)\b/)) return "image/gif";
   return null;
 }
 
@@ -81,7 +76,7 @@ export function normalizeCaseFiles(waId: string, rows: EnovaDocRow[]): CaseFileI
       created_at: row.created_at || null,
       mime_type: normalizedMimeType,
       file_name: null,
-      size_bytes: normalizeSizeBytes(row),
+      size_bytes: null,
       previewable: isPreviewable(normalizedMimeType),
     });
   });
@@ -112,7 +107,7 @@ export function resolveCaseFileById(
         created_at: row.created_at || null,
         mime_type: normalizedMimeType,
         file_name: null,
-        size_bytes: normalizeSizeBytes(row),
+        size_bytes: null,
         previewable: isPreviewable(normalizedMimeType),
       },
       sourceUrl: normalizedUrl,

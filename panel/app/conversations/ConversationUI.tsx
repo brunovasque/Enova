@@ -387,8 +387,8 @@ export function ConversationUI() {
         await Promise.all([
           loadConversations(silent),
           activeWaId ? loadMessages(activeWaId, silent) : loadMessages("", silent),
-          selectedConversationWaId
-            ? loadCaseFiles(selectedConversationWaId, silent)
+          selectedWaId
+            ? loadCaseFiles(selectedWaId, silent)
             : loadCaseFiles("", silent),
         ]);
       } finally {
@@ -402,7 +402,7 @@ export function ConversationUI() {
         }
       }
     },
-    [loadCaseFiles, loadConversations, loadMessages, selectedConversationWaId]
+    [loadCaseFiles, loadConversations, loadMessages, selectedWaId]
   );
 
   const filteredConversations = useMemo(() => {
@@ -968,7 +968,7 @@ export function ConversationUI() {
               <p className={styles.panelHint}>Sem mensagens para esta conversa.</p>
             ) : (
               <>
-                {caseFilesLoading && selectedConversationWaId ? (
+                {caseFilesLoading && selectedWaId ? (
                   <p className={styles.panelHint}>Carregando anexos da conversa...</p>
                 ) : null}
                 {timelineEntries.map((entry) => {

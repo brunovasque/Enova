@@ -6,6 +6,10 @@ export type EnovaDocRow = {
   participante: string | null;
   created_at: string | null;
   url: string | null;
+  document_url?: string | null;
+  download_url?: string | null;
+  media_url?: string | null;
+  link?: string | null;
 };
 
 export type CaseFileItem = {
@@ -20,8 +24,14 @@ export type CaseFileItem = {
   previewable: boolean;
 };
 
+const URL_FIELDS = ["url", "document_url", "download_url", "media_url", "link"] as const;
+
 function normalizeUrl(row: EnovaDocRow): string {
-  return String(row.url || "").trim();
+  for (const field of URL_FIELDS) {
+    const candidate = String(row[field] || "").trim();
+    if (candidate) return candidate;
+  }
+  return "";
 }
 
 function normalizeMimeType(row: EnovaDocRow): string | null {
@@ -115,4 +125,73 @@ export function resolveCaseFileById(
   }
 
   return null;
+}
+
+type CanonicalStateRow = {
+  pacote_documentos_anexados_json?: unknown;
+  envio_docs_historico_json?: unknown;
+};
+
+function normalizeCanonicalRow(waId: string, value: unknown): EnovaDocRow | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  const url = String(
+    row.url ||
+      row.document_url ||
+      row.download_url ||
+      row.media_url ||
+      row.link ||
+      "",
+  ).trim();
+  if (!url) return null;
+
+  const createdAtRaw = row.created_at || row.at || row.uploaded_at || row.timestamp || null;
+  const createdAt = createdAtRaw === null || createdAtRaw === undefined ? null : String(createdAtRaw);
+
+  return {
+    wa_id: waId,
+    tipo: String(row.tipo || row.document_type || row.tipo_documento || "documento").trim() || "documento",
+    participante: String(row.participante || row.owner || "").trim() || null,
+    created_at: createdAt,
+    url,
+    document_url: row.document_url ? String(row.document_url) : null,
+    download_url: row.download_url ? String(row.download_url) : null,
+    media_url: row.media_url ? String(row.media_url) : null,
+    link: row.link ? String(row.link) : null,
+  };
+}
+
+function parseCanonicalRows(waId: string, source: unknown): EnovaDocRow[] {
+  if (!Array.isArray(source)) return [];
+  const rows: EnovaDocRow[] = [];
+  for (const value of source) {
+    const normalized = normalizeCanonicalRow(waId, value);
+    if (normalized) rows.push(normalized);
+  }
+  return rows;
+}
+
+export function resolveRowsFromCanonicalState(
+  waId: string,
+  stateRow: CanonicalStateRow | null | undefined,
+): EnovaDocRow[] {
+  const pacoteRows = parseCanonicalRows(waId, stateRow?.pacote_documentos_anexados_json);
+  const historicoRows = parseCanonicalRows(waId, stateRow?.envio_docs_historico_json);
+  const merged = [...pacoteRows, ...historicoRows];
+  const deduped: EnovaDocRow[] = [];
+  const seen = new Set<string>();
+
+  for (const row of merged) {
+    const key = [
+      String(row.url || row.document_url || row.download_url || row.media_url || row.link || "").trim(),
+      String(row.tipo || "").trim().toLowerCase(),
+      String(row.participante || "").trim().toLowerCase(),
+      String(row.created_at || "").trim(),
+    ].join("|");
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(row);
+  }
+
+  return deduped;
 }

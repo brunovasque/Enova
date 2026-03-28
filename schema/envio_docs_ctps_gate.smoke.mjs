@@ -13,7 +13,7 @@ const pendente = "pendente";
 
 const baseReadyState = {
   pacote_status: "pronto",
-  analise_docs_status: "validada",
+  docs_status_geral: "completo",
   pacote_participantes_json: [{ participante: "p1", papel: "titular" }],
   pacote_documentos_anexados_json: [{ tipo: "rg", participante: "p1", status: recebido }],
   pacote_renda_resumo_json: { total_geral: 3500 },

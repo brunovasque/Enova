@@ -121,6 +121,18 @@ const replayCaptureById = {
   }
 };
 
+const replayCaptureByDetailsId = {
+  details: JSON.stringify({ replay_id: "replay_seq_details_only" }),
+  pathname: "/webhook/meta",
+  method: "POST",
+  headers_subset: { "content-type": "application/json" },
+  raw_body: JSON.stringify(buildTextWebhook({
+    waId: "5511980001003",
+    messageId: "wamid.replay.seq.details",
+    text: "evento details replay_id"
+  }))
+};
+
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (input, init = {}) => {
   const url = new URL(typeof input === "string" ? input : input.url);
@@ -134,8 +146,26 @@ globalThis.fetch = async (input, init = {}) => {
   if (path === "/rest/v1/enova_log" && method === "GET") {
     const replayEq = String(url.searchParams.get("replay_id") || "");
     const replayId = replayEq.startsWith("eq.") ? decodeURIComponent(replayEq.slice(3)) : "";
-    const row = replayCaptureById[replayId];
-    return new Response(JSON.stringify(row ? [row] : []), {
+    const hasDirectFilter = replayEq.length > 0;
+    if (hasDirectFilter) {
+      if (replayId === "replay_seq_details_only") {
+        return new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      const row = replayCaptureById[replayId];
+      return new Response(JSON.stringify(row ? [row] : []), {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      });
+    }
+
+    const rows = [
+      ...Object.values(replayCaptureById),
+      replayCaptureByDetailsId
+    ];
+    return new Response(JSON.stringify(rows), {
       status: 200,
       headers: { "content-type": "application/json" }
     });
@@ -173,6 +203,8 @@ try {
     assert.equal(data.results[1].replay_id, "replay_seq_ok_2");
     assert.equal(data.results[0].ok, true);
     assert.equal(data.results[1].ok, true);
+    assert.equal(data.results[0].lookup?.strategy, "direct_filter");
+    assert.equal(data.results[1].lookup?.strategy, "direct_filter");
   }
 
   // 2) sequência válida por events explícitos
@@ -266,6 +298,23 @@ try {
     assert.equal(data.results[1].index, 1);
     assert.equal(data.results[1].ok, false);
     assert.equal(data.results[1].forward_body?.reason, "webhook_parse_error");
+  }
+
+  // 5) fallback robusto quando replay_id direto não retorna linha materializada
+  {
+    const env = buildEnv();
+    const { resp, data } = await dispatchSequence(env, {
+      replay_ids: ["replay_seq_details_only"],
+      delay_ms: 0
+    });
+
+    assert.equal(resp.status, 200);
+    assert.equal(data.ok, true);
+    assert.equal(data.mode, "replay_ids");
+    assert.equal(data.results.length, 1);
+    assert.equal(data.results[0].replay_id, "replay_seq_details_only");
+    assert.equal(data.results[0].ok, true);
+    assert.equal(data.results[0].lookup?.strategy, "fallback_scan");
   }
 } finally {
   globalThis.fetch = originalFetch;

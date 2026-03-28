@@ -5008,6 +5008,73 @@ if (isAdminProdPath) {
         return replayId || null;
       };
 
+      const normalizeCaptureReplayId = (row) => {
+        if (!row || typeof row !== "object") return null;
+        const direct = String(row.replay_id || "").trim();
+        if (direct) return direct;
+        const detailsRaw = row.details;
+        let details = detailsRaw;
+        if (typeof detailsRaw === "string") {
+          try {
+            details = JSON.parse(detailsRaw);
+          } catch {
+            details = null;
+          }
+        }
+        if (details && typeof details === "object") {
+          const nested = String(details.replay_id || "").trim();
+          if (nested) return nested;
+        }
+        return null;
+      };
+
+      const findCaptureByReplayId = async (targetReplayId) => {
+        let directRows = [];
+        let directFilterSupported = true;
+        try {
+          directRows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_log", {
+            method: "GET",
+            query: {
+              select: "replay_id,raw_body,headers_subset,pathname,method,created_at,details",
+              tag: "eq.META_WEBHOOK_RAW_CAPTURE",
+              replay_id: `eq.${encodeURIComponent(targetReplayId)}`,
+              order: "created_at.asc",
+              limit: 1
+            }
+          }));
+        } catch {
+          directFilterSupported = false;
+          directRows = [];
+        }
+
+        const directCapture = directRows.find((row) => normalizeCaptureReplayId(row) === targetReplayId) || null;
+        if (directCapture) {
+          return {
+            capture: directCapture,
+            strategy: "direct_filter",
+            direct_filter_supported: directFilterSupported
+          };
+        }
+
+        const fallbackRows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_log", {
+          method: "GET",
+          query: {
+            select: "replay_id,raw_body,headers_subset,pathname,method,created_at,details",
+            tag: "eq.META_WEBHOOK_RAW_CAPTURE",
+            order: "created_at.desc",
+            limit: 200
+          }
+        }));
+        const fallbackCapture =
+          fallbackRows.find((row) => normalizeCaptureReplayId(row) === targetReplayId) || null;
+
+        return {
+          capture: fallbackCapture,
+          strategy: "fallback_scan",
+          direct_filter_supported: directFilterSupported
+        };
+      };
+
       const results = [];
       const count = sequenceItems.length;
       for (let index = 0; index < count; index++) {
@@ -5017,6 +5084,7 @@ if (isAdminProdPath) {
         let itemMethod = "POST";
         let rawBody = null;
         let headersSubset = {};
+        let replayLookup = null;
 
         try {
           if (mode === "replay_ids") {
@@ -5025,18 +5093,8 @@ if (isAdminProdPath) {
               throw new Error("invalid_replay_id");
             }
 
-            const rows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_log", {
-              method: "GET",
-              query: {
-                select: "replay_id,raw_body,headers_subset,pathname,method,created_at",
-                tag: "eq.META_WEBHOOK_RAW_CAPTURE",
-                replay_id: `eq.${encodeURIComponent(replayId)}`,
-                order: "created_at.asc",
-                limit: 1
-              }
-            }));
-
-            const capture = rows[0] || null;
+            replayLookup = await findCaptureByReplayId(replayId);
+            const capture = replayLookup.capture;
             if (!capture) {
               throw new Error("replay_id_not_found");
             }
@@ -5108,7 +5166,14 @@ if (isAdminProdPath) {
             method: itemMethod,
             forward_status: forwardStatus,
             forward_body: forwardBody,
-            ok: itemOk
+            ok: itemOk,
+            lookup:
+              mode === "replay_ids"
+                ? {
+                    strategy: replayLookup?.strategy || null,
+                    direct_filter_supported: replayLookup?.direct_filter_supported === true
+                  }
+                : null
           };
           results.push(resultItem);
 

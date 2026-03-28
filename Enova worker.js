@@ -2470,9 +2470,7 @@ async function resetTotal(env, wa_id) {
     envio_docs_total_ilegiveis: null,
     envio_docs_ultimo_pedido_em: null,
     envio_docs_lembrete_count: null,
-    envio_docs_itens_json: null,
     envio_docs_pendencias_json: null,
-    envio_docs_historico_json: null,
 
     pacote_status: null,
     pacote_destino: null,
@@ -2726,9 +2724,7 @@ function createSimulationState(wa_id, startStage) {
     envio_docs_total_ilegiveis: null,
     envio_docs_ultimo_pedido_em: null,
     envio_docs_lembrete_count: null,
-    envio_docs_itens_json: null,
     envio_docs_pendencias_json: null,
-    envio_docs_historico_json: null,
 
     pacote_status: null,
     pacote_destino: null,
@@ -3138,6 +3134,7 @@ function enovaV1FixturePatch(id) {
         nome: "JOAO TESTE",
         envio_docs_status: "completo",
         pacote_status: "pronto",
+        docs_status_geral: "completo",
         analise_docs_status: "validada",
         pacote_participantes_json: [{ participante: "p1", papel: "titular" }],
         pacote_documentos_anexados_json: [{ tipo: "rg", participante: "p1", status: "validado_basico" }],
@@ -3150,6 +3147,7 @@ function enovaV1FixturePatch(id) {
         nome: "JOAO TESTE",
         envio_docs_status: "completo",
         pacote_status: "pronto",
+        docs_status_geral: "completo",
         analise_docs_status: "validada",
         pacote_participantes_json: [{ participante: "p1", papel: "titular" }],
         pacote_documentos_anexados_json: [{ tipo: "rg", participante: "p1", status: "validado_basico" }],
@@ -3166,6 +3164,7 @@ function enovaV1FixturePatch(id) {
         estado_civil: "casado",
         envio_docs_status: "completo",
         pacote_status: "pronto",
+        docs_status_geral: "completo",
         analise_docs_status: "validada",
         dossie_participantes_json: [
           { id: "p1", role: "titular", regime_trabalho: "clt", renda: 3200 },
@@ -3191,6 +3190,7 @@ function enovaV1FixturePatch(id) {
         nome: "JOAO TESTE",
         envio_docs_status: "completo",
         pacote_status: "pronto",
+        docs_status_geral: "completo",
         analise_docs_status: "validada",
         dossie_participantes_json: [{ id: "p1", role: "titular", regime_trabalho: "clt", renda: 2800 }],
         pacote_participantes_json: [{ participante: "p1", papel: "titular", regime_trabalho: "clt" }],
@@ -3207,6 +3207,7 @@ function enovaV1FixturePatch(id) {
         nome: "JOAO TESTE",
         envio_docs_status: "parcial",
         pacote_status: "pronto",
+        docs_status_geral: "pendente",
         analise_docs_status: "pendencia_documental",
         dossie_participantes_json: [{ id: "p1", role: "titular", regime_trabalho: "autonomo", renda: 2600 }],
         pacote_participantes_json: [{ participante: "p1", papel: "titular", regime_trabalho: "autonomo" }],
@@ -8796,6 +8797,15 @@ function buildEnvioDocsLegacySummaryPatch(itens = [], progress = {}, options = {
   };
 }
 
+function mapAnaliseDocsStatusToLegacyStatus(analiseStatus) {
+  const raw = String(analiseStatus || "").trim().toLowerCase();
+  if (!raw) return null;
+  if (raw === "validada") return "completo";
+  if (raw === "em_analise") return "parcial";
+  if (raw === "pendente_ajuste") return "pendente";
+  return raw;
+}
+
 function pickEnvioDocsPersistedPacotePatch(pacotePayload = {}) {
   const base = pacotePayload && typeof pacotePayload === "object" ? pacotePayload : {};
   return {
@@ -12458,6 +12468,10 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       const legacyResumoPatch = buildEnvioDocsLegacySummaryPatch(itens, progress, {
         isPendingConfirmation: false
       });
+      const analiseStatusLegacy = mapAnaliseDocsStatusToLegacyStatus(analisePayload?.analise_docs_status);
+      if (analiseStatusLegacy) {
+        legacyResumoPatch.docs_status_geral = analiseStatusLegacy;
+      }
       Object.assign(patch, legacyResumoPatch, pickEnvioDocsPersistedPacotePatch(pacotePayload));
       await upsertState(env, st.wa_id, patch);
       Object.assign(st, patch, {
@@ -12968,6 +12982,10 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       isPendingConfirmation: uploadPendingConfirmation,
       pendingConfirmationRecord
     });
+    const analiseStatusLegacy = mapAnaliseDocsStatusToLegacyStatus(analisePayload?.analise_docs_status);
+    if (analiseStatusLegacy) {
+      legacyResumoPatch.docs_status_geral = analiseStatusLegacy;
+    }
     Object.assign(patch, legacyResumoPatch, pickEnvioDocsPersistedPacotePatch(pacotePayload));
     await upsertState(env, st.wa_id, patch);
     Object.assign(st, patch, {
@@ -13902,7 +13920,7 @@ function buildCorrespondentePrivateDossierFromState(st) {
     },
     documentos_pacote: {
       envio_docs_status: st?.envio_docs_status || null,
-      analise_docs_status: st?.analise_docs_status || null,
+      analise_docs_status: st?.docs_status_geral || null,
       pacote_status: st?.pacote_status || null,
       pacote_participantes_json: Array.isArray(st?.pacote_participantes_json) ? st.pacote_participantes_json : null,
       pacote_documentos_anexados_json: Array.isArray(st?.pacote_documentos_anexados_json) ? st.pacote_documentos_anexados_json : null,
@@ -17475,7 +17493,7 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
 function isCorrespondentePacoteReady(st) {
   const envioCompleto = String(st?.envio_docs_status || "").toLowerCase() === "completo";
   const pacotePronto = String(st?.pacote_status || "").toLowerCase() === "pronto";
-  const analiseDisponivel = typeof st?.analise_docs_status === "string" && st.analise_docs_status.length > 0;
+  const analiseDisponivel = typeof st?.docs_status_geral === "string" && st.docs_status_geral.length > 0;
   const pacoteEstrutural =
     Array.isArray(st?.pacote_participantes_json) &&
     Array.isArray(st?.pacote_documentos_anexados_json) &&
@@ -26174,6 +26192,10 @@ case "envio_docs": {
         }),
         ...pickEnvioDocsPersistedPacotePatch(pacotePayload)
       };
+      const analiseStatusLegacy = mapAnaliseDocsStatusToLegacyStatus(analisePayload?.analise_docs_status);
+      if (analiseStatusLegacy) {
+        consistencyPatch.docs_status_geral = analiseStatusLegacy;
+      }
       await upsertState(env, st.wa_id, consistencyPatch);
       Object.assign(st, consistencyPatch, {
         analise_docs_status: analisePayload?.analise_docs_status || null,

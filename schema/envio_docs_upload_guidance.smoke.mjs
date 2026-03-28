@@ -66,7 +66,7 @@ function markReceived(itens, tipo, participante = "p1") {
   const ready = isCorrespondentePacoteReady({
     envio_docs_status: progress.envio_docs_status,
     pacote_status: "pronto",
-    analise_docs_status: "validada",
+    docs_status_geral: "completo",
     pacote_participantes_json: [{ participante: "p1", papel: "titular" }],
     pacote_documentos_anexados_json: [{ tipo: "identidade_cpf", participante: "p1", status: recebido }],
     pacote_renda_resumo_json: { total_geral: 3500 },

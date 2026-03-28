@@ -62,6 +62,22 @@ type CaseFilesPayload = {
   error: string | null;
 };
 
+type ThreadItem =
+  | {
+      kind: "message";
+      key: string;
+      createdAtMs: number;
+      sourceIndex: number;
+      message: Message;
+    }
+  | {
+      kind: "file";
+      key: string;
+      createdAtMs: number;
+      sourceIndex: number;
+      file: CaseFile;
+    };
+
 function formatTime(input: string | null): string {
   if (!input) {
     return "--:--";
@@ -120,15 +136,6 @@ function sanitizePreview(text: string | null): string {
     .trim();
 }
 
-function formatFileSize(value: number | null): string {
-  if (value === null || !Number.isFinite(value) || value < 0) {
-    return "--";
-  }
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function formatFileDisplayName(file: Pick<CaseFile, "file_name" | "tipo" | "file_id">): string {
   const shortId = (file.file_id || "").trim().slice(0, 8);
   return file.file_name || file.tipo || (shortId ? `arquivo-${shortId}` : "arquivo");
@@ -141,6 +148,15 @@ function buildMessageRenderKey(message: Message): string {
     message.created_at ?? "",
     (message.text ?? "").trim(),
   ].join("|");
+}
+
+function toSortableTimestamp(input: string | null): number {
+  if (!input) {
+    return Number.MAX_SAFE_INTEGER;
+  }
+
+  const value = new Date(input).getTime();
+  return Number.isNaN(value) ? Number.MAX_SAFE_INTEGER : value;
 }
 
 function getConversationActivityKey(conversation: Pick<Conversation, "last_message_at" | "updated_at">) {
@@ -425,6 +441,30 @@ export function ConversationUI() {
       return t.length > 0;
     });
   }, [messages]);
+
+  const threadItems = useMemo<ThreadItem[]>(() => {
+    const messageItems: ThreadItem[] = visibleMessages.map((message, index) => ({
+      kind: "message",
+      key: message.id ?? buildMessageRenderKey(message),
+      createdAtMs: toSortableTimestamp(message.created_at),
+      sourceIndex: index,
+      message,
+    }));
+    const fileItems: ThreadItem[] = threadFiles.map((file, index) => ({
+      kind: "file",
+      key: file.file_id,
+      createdAtMs: toSortableTimestamp(file.created_at),
+      sourceIndex: visibleMessages.length + index,
+      file,
+    }));
+
+    return [...messageItems, ...fileItems].sort((a, b) => {
+      if (a.createdAtMs !== b.createdAtMs) {
+        return a.createdAtMs - b.createdAtMs;
+      }
+      return a.sourceIndex - b.sourceIndex;
+    });
+  }, [threadFiles, visibleMessages]);
 
   const markConversationAsSeen = useCallback((waId: string, activityKey: string) => {
     if (!waId) {
@@ -921,29 +961,61 @@ export function ConversationUI() {
             <div className={styles.threadWatermark} aria-hidden="true" />
             {!selectedWaId ? (
               <p className={styles.emptyState}>Selecione uma conversa</p>
-            ) : threadLoading && visibleMessages.length === 0 ? (
+            ) : threadLoading && threadItems.length === 0 ? (
               <p className={styles.panelHint}>Carregando mensagens...</p>
-            ) : threadError ? (
-              <p className={styles.panelError}>Erro na thread: {threadError}</p>
-            ) : visibleMessages.length === 0 ? (
+            ) : threadError || caseFilesError ? (
+              <p className={styles.panelError}>Erro na thread: {threadError || caseFilesError}</p>
+            ) : threadItems.length === 0 ? (
               <p className={styles.panelHint}>Sem mensagens para esta conversa.</p>
             ) : (
               <>
-                {visibleMessages.map((message) => {
-                  const key = message.id ?? buildMessageRenderKey(message);
-                  const isOut = message.direction === "out";
-                  const text = (message.text ?? "").trim();
+                {threadItems.map((item) => {
+                  if (item.kind === "message") {
+                    const isOut = item.message.direction === "out";
+                    const text = (item.message.text ?? "").trim();
+
+                    return (
+                      <div
+                        key={item.key}
+                        className={`${styles.messageRow} ${
+                          isOut ? styles.messageRowOut : styles.messageRowIn
+                        }`}
+                      >
+                        <article className={`${styles.bubble} ${isOut ? styles.bubbleOut : styles.bubbleIn}`}>
+                          <p>{text}</p>
+                          <div className={styles.messageMeta}>{formatDateTime(item.message.created_at)}</div>
+                        </article>
+                      </div>
+                    );
+                  }
 
                   return (
-                    <div
-                      key={key}
-                      className={`${styles.messageRow} ${
-                        isOut ? styles.messageRowOut : styles.messageRowIn
-                      }`}
-                    >
-                      <article className={`${styles.bubble} ${isOut ? styles.bubbleOut : styles.bubbleIn}`}>
-                        <p>{text}</p>
-                        <div className={styles.messageMeta}>{formatDateTime(message.created_at)}</div>
+                    <div key={item.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
+                      <article className={`${styles.bubble} ${styles.bubbleIn} ${styles.attachmentBubble}`}>
+                        <div className={styles.attachmentHeader}>
+                          <strong>{formatFileDisplayName(item.file)}</strong>
+                          <span>{formatDateTime(item.file.created_at)}</span>
+                        </div>
+                        <div className={styles.attachmentMeta}>
+                          <span>tipo: {item.file.tipo || "--"}</span>
+                          <span>participante: {item.file.participante || "--"}</span>
+                        </div>
+                        <div className={styles.attachmentActions}>
+                          <button
+                            type="button"
+                            className={styles.fileOpenButton}
+                            onClick={() => handleOpenFile(item.file)}
+                          >
+                            {item.file.previewable ? "Visualizar" : "Abrir"}
+                          </button>
+                          <a
+                            href={openFileUrl(item.file)}
+                            className={styles.fileDownloadButton}
+                            download={formatFileDisplayName(item.file)}
+                          >
+                            Baixar
+                          </a>
+                        </div>
                       </article>
                     </div>
                   );
@@ -953,60 +1025,6 @@ export function ConversationUI() {
           </div>
 
           <footer className={styles.threadFooter}>
-            <section
-              className={`${styles.filesSection} ${
-                selectedConversationWaId ? "" : styles.filesSectionIdle
-              }`}
-            >
-              {!selectedConversationWaId ? (
-                <p className={styles.filesHintDiscreet}>Selecione uma conversa para visualizar arquivos.</p>
-              ) : (
-                <>
-                  <div className={styles.filesHeader}>
-                    <strong>Arquivos recebidos da conversa atual</strong>
-                    <span className={styles.filesConversationInfo}>
-                      Caso atual — ID: {selectedConversationWaId}
-                    </span>
-                  </div>
-
-                  {caseFilesLoading ? (
-                    <p className={styles.filesHint}>Carregando arquivos...</p>
-                  ) : caseFilesError ? (
-                    <p className={styles.panelError}>Erro nos arquivos: {caseFilesError}</p>
-                  ) : threadFiles.length === 0 ? (
-                    <p className={styles.filesHint}>
-                      Nenhum arquivo encontrado em enova_docs para este caso no contrato atual de
-                      leitura.
-                    </p>
-                  ) : (
-                    <ul className={styles.filesList}>
-                      {threadFiles.map((file) => (
-                        <li key={file.file_id} className={styles.filesItem}>
-                          <div className={styles.filesItemMeta}>
-                            <span className={styles.filesName}>{formatFileDisplayName(file)}</span>
-                            <span className={styles.filesMetaLine}>
-                              tipo: {file.mime_type || "--"} • tamanho: {formatFileSize(file.size_bytes)}
-                            </span>
-                            <span className={styles.filesMetaLine}>
-                              participante: {file.participante || "--"} • data:{" "}
-                              {formatDateTime(file.created_at)}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            className={styles.fileOpenButton}
-                            onClick={() => handleOpenFile(file)}
-                          >
-                            Abrir
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              )}
-            </section>
-
             {threadUnreadCount > 0 && !isThreadNearBottom ? (
               <div className={styles.threadUnreadWrap}>
                 <button

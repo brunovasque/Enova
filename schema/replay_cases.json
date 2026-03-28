@@ -1,0 +1,147 @@
+{
+  "version": "1.0.0",
+  "updated_at": "2026-03-28",
+  "cases": [
+    {
+      "case_id": "validated_raw_unit_manual_mode",
+      "description": "Replay unitário de captura real para verificar bypass de atendimento manual sem envio externo.",
+      "status": "validated",
+      "wa_id": "5511980003001",
+      "mode": "replay_id",
+      "replay_id": "meta_raw_unit_manual_mode_20260320",
+      "expected": {
+        "ok": true,
+        "reason_contains": "manual_mode_bypass"
+      },
+      "notes": "Caso canônico de referência para replay unitário.",
+      "source": "META_WEBHOOK_RAW_CAPTURE replay_id=meta_raw_unit_manual_mode_20260320"
+    },
+    {
+      "case_id": "validated_sequence_happy_path",
+      "description": "Sequência validada de dois eventos reais para trilho estável sem falhas de lookup.",
+      "status": "validated",
+      "wa_id": "5511980003002",
+      "mode": "replay_ids",
+      "replay_ids": [
+        "meta_raw_seq_happy_20260320_1",
+        "meta_raw_seq_happy_20260320_2"
+      ],
+      "delay_ms": 100,
+      "expected": {
+        "ok": true,
+        "failed_index": null
+      },
+      "notes": "Referência canônica para replay de sequência curta.",
+      "source": "META_WEBHOOK_RAW_CAPTURE replay_ids de produção validados no smoke interno"
+    },
+    {
+      "case_id": "validated_with_state_restore",
+      "description": "Replay com snapshot de estado para validar bypass em atendimento_manual com restore obrigatório.",
+      "status": "validated",
+      "wa_id": "5511980003003",
+      "mode": "replay_id",
+      "replay_id": "meta_raw_state_restore_20260320",
+      "state_snapshot": {
+        "fase_conversa": "envio_docs",
+        "funil_status": "ativo",
+        "atendimento_manual": true
+      },
+      "restore_after": true,
+      "expected": {
+        "ok": true,
+        "restored": true
+      },
+      "notes": "Referência canônica para replay com contexto de estado.",
+      "source": "Replay com estado consolidado em smoke replay_with_state"
+    },
+    {
+      "case_id": "regression_sequence_details_fallback",
+      "description": "Regressão: replay_id armazenado em details.replay_id deve ser encontrado por fallback scan.",
+      "status": "regression",
+      "wa_id": "5511980003004",
+      "mode": "replay_ids",
+      "replay_ids": [
+        "meta_raw_seq_details_fallback_20260320"
+      ],
+      "expected": {
+        "ok": true,
+        "lookup_strategy": "fallback_scan"
+      },
+      "notes": "Bug real prévio de lookup direto sem details.replay_id.",
+      "source": "Cobertura existente em replay_webhook_sequence.smoke.mjs"
+    },
+    {
+      "case_id": "regression_sequence_missing_second_capture",
+      "description": "Regressão: segundo replay_id inexistente deve retornar falha no índice correto sem mascarar erro.",
+      "status": "regression",
+      "wa_id": "5511980003005",
+      "mode": "replay_ids",
+      "replay_ids": [
+        "meta_raw_seq_regression_existing_20260320",
+        "meta_raw_seq_regression_missing_20260320"
+      ],
+      "expected": {
+        "ok": false,
+        "failed_index": 1,
+        "reason_contains": "replay_not_found"
+      },
+      "notes": "Protege contra regressão de diagnóstico incorreto em sequência.",
+      "source": "Cenário equivalente já coberto em replay_webhook_sequence.smoke.mjs"
+    },
+    {
+      "case_id": "expected_failure_invalid_events_json",
+      "description": "Falha esperada: payload de evento com JSON inválido deve sinalizar erro de parsing.",
+      "status": "expected_failure",
+      "wa_id": "5511980003006",
+      "mode": "events",
+      "events": [
+        {
+          "pathname": "/webhook/meta",
+          "method": "POST",
+          "raw_body": "{\"object\":\"whatsapp_business_account\",invalid}",
+          "headers_subset": {
+            "content-type": "application/json"
+          }
+        }
+      ],
+      "expected": {
+        "ok": false,
+        "failed_index": 0,
+        "reason_contains": "forward_dispatch_error"
+      },
+      "notes": "Caso negativo canônico para validar tratamento de erro em evento bruto.",
+      "source": "Cobertura existente em replay_webhook_sequence.smoke.mjs"
+    },
+    {
+      "case_id": "expected_failure_missing_replay_id",
+      "description": "Falha esperada: replay_id inexistente deve retornar not found.",
+      "status": "expected_failure",
+      "wa_id": "5511980003007",
+      "mode": "replay_id",
+      "replay_id": "meta_raw_not_found_20260320",
+      "expected": {
+        "ok": false,
+        "reason_contains": "replay_not_found"
+      },
+      "notes": "Caso negativo canônico para garantir erro explícito de lookup.",
+      "source": "Falha real observada em execuções de replay unitário"
+    },
+    {
+      "case_id": "investigating_sequence_candidate",
+      "description": "Caso real recém-capturado ainda sem confiança para baseline canônica.",
+      "status": "investigating",
+      "wa_id": "5511980003008",
+      "mode": "replay_ids",
+      "replay_ids": [
+        "meta_raw_seq_investigating_20260328_1",
+        "meta_raw_seq_investigating_20260328_2"
+      ],
+      "delay_ms": 150,
+      "expected": {
+        "ok": true
+      },
+      "notes": "NÃO usar como referência de verdade até promoção explícita.",
+      "source": "Captura bruta de incidente em investigação"
+    }
+  ]
+}

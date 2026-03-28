@@ -5206,13 +5206,61 @@ async function handleMetaWebhook(request, env, ctx) {
     );
   }
 
+  const rawCaptureEnabled = isDebugOn(env.ENABLE_META_RAW_CAPTURE || env.ENOVA_META_RAW_CAPTURE);
+  const requestUrl = new URL(request.url);
+  const requestPathname = requestUrl.pathname;
+  const requestMethod = request.method;
+
+  const buildReplayId = () => {
+    try {
+      if (globalThis?.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+    } catch (_) {}
+    return `meta_raw_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  };
+
+  const buildRawHeadersSubset = () => ({
+    "content-type": request.headers.get("content-type") || null,
+    "user-agent": request.headers.get("user-agent") || null,
+    "cf-ray": request.headers.get("cf-ray") || null,
+    "x-hub-signature": request.headers.get("x-hub-signature") || null,
+    "x-hub-signature-256": request.headers.get("x-hub-signature-256") || null
+  });
+
   let rawBody = null;
   let body = null;
+  let rawCaptureReplayId = null;
 
   // 1) Lê o body cru (para telemetria em caso de erro)
 try {
   rawBody = await request.text();
   console.log("DEBUG-2: LEU rawBody");
+
+  if (rawCaptureEnabled) {
+    try {
+      const replayId = buildReplayId();
+      rawCaptureReplayId = replayId;
+      await logger(env, {
+        tag: "META_WEBHOOK_RAW_CAPTURE",
+        replay_id: replayId,
+        received_at: new Date().toISOString(),
+        pathname: requestPathname,
+        method: requestMethod,
+        raw_body: rawBody,
+        headers_subset: buildRawHeadersSubset()
+      });
+    } catch (captureErr) {
+      await telemetry(env, {
+        wa_id: null,
+        event: "meta_raw_capture_error",
+        stage: "meta_raw",
+        severity: "warning",
+        message: "Falha ao persistir captura bruta do webhook",
+        details: {
+          error: captureErr?.message || String(captureErr)
+        }
+      });
+    }
+  }
 
 // ============================================================
 // 0.5) CAPTURA O RAWBODY PARA DEBUG (PS e META)
@@ -5447,6 +5495,29 @@ if (waId && profileName) {
     stFromProfile = await upsertState(env, waId, { nome: profileName }) || { ...stFromProfile, nome: profileName };
   }
 }
+  if (rawCaptureEnabled && rawCaptureReplayId) {
+    try {
+      await logger(env, {
+        tag: "META_WEBHOOK_RAW_CAPTURE_ENRICH",
+        replay_id: rawCaptureReplayId,
+        wa_id: waId || null,
+        message_id: messageId || null,
+        message_type: type || null
+      });
+    } catch (captureErr) {
+      await telemetry(env, {
+        wa_id: waId || null,
+        event: "meta_raw_capture_enrich_error",
+        stage: "meta_message",
+        severity: "warning",
+        message: "Falha ao persistir metadados da captura bruta",
+        details: {
+          replay_id: rawCaptureReplayId,
+          error: captureErr?.message || String(captureErr)
+        }
+      });
+    }
+  }
   await telemetry(env, {
     wa_id: waId,
     event: "corr_route_probe_enter",

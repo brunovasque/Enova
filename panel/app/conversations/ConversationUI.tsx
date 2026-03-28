@@ -152,11 +152,11 @@ function buildMessageRenderKey(message: Message): string {
 
 function toSortableTimestamp(input: string | null): number {
   if (!input) {
-    return Number.MAX_SAFE_INTEGER;
+    return 0;
   }
 
   const value = new Date(input).getTime();
-  return Number.isNaN(value) ? Number.MAX_SAFE_INTEGER : value;
+  return Number.isNaN(value) ? 0 : value;
 }
 
 function getConversationActivityKey(conversation: Pick<Conversation, "last_message_at" | "updated_at">) {
@@ -1005,6 +1005,9 @@ export function ConversationUI() {
                             type="button"
                             className={styles.fileOpenButton}
                             onClick={() => handleOpenFile(item.file)}
+                            aria-label={`${
+                              item.file.previewable ? "Visualizar" : "Abrir"
+                            } ${formatFileDisplayName(item.file)}`}
                           >
                             {item.file.previewable ? "Visualizar" : "Abrir"}
                           </button>
@@ -1012,6 +1015,7 @@ export function ConversationUI() {
                             href={openFileUrl(item.file)}
                             className={styles.fileDownloadButton}
                             download={formatFileDisplayName(item.file)}
+                            aria-label={`Baixar ${formatFileDisplayName(item.file)}`}
                           >
                             Baixar
                           </a>

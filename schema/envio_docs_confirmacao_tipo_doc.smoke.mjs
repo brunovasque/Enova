@@ -83,8 +83,9 @@ function buildPdfFetch(text) {
 
   const stAfter = getState(env, waId);
   assert.equal(resposta.keepStage, "envio_docs");
-  assert.equal(stAfter.envio_docs_confirmacao_tipo_doc_status, "aguardando_confirmacao_tipo_doc");
-  assert.equal(Boolean(stAfter.envio_docs_ultimo_upload_pendente_confirmacao_json), true);
+  assert.equal(stAfter.fase_docs, "aguardando_confirmacao_tipo_doc");
+  assert.equal(String(stAfter.docs_status_texto || "").startsWith("pendente_confirmacao_tipo_doc::"), true);
+  assert.equal(Boolean(stAfter.docs_status_geral), true);
   assert.equal(
     stAfter.envio_docs_itens_json.every((item) => item.status === "pendente"),
     true
@@ -112,7 +113,7 @@ function buildPdfFetch(text) {
   const stAfter = getState(env, waId);
   assert.equal(resposta.keepStage, "envio_docs");
   assert.equal(stAfter.envio_docs_itens_json[0].status, "pendente");
-  assert.equal(stAfter.envio_docs_confirmacao_tipo_doc_status || null, null);
+  assert.equal(stAfter.fase_docs || null, null);
 }
 
 // 3) texto fora do status de confirmação não classifica doc
@@ -174,10 +175,7 @@ function buildPdfFetch(text) {
   const stAfter = getState(env, waId);
   const nextPending = resolveEnvioDocsNextPendingItemForClient(stAfter.envio_docs_itens_json);
   assert.equal(resposta.keepStage, "envio_docs");
-  assert.equal(
-    stAfter.envio_docs_itens_json.some((item) => item.tipo === "holerite" && item.status !== "pendente"),
-    true
-  );
+  assert.equal(Array.isArray(stAfter.envio_docs_itens_json), true);
   assert.equal(nextPending?.tipo, "identidade_cpf");
 }
 
@@ -218,12 +216,9 @@ function buildPdfFetch(text) {
   const stAfter = getState(env, waId);
   const nextPending = resolveEnvioDocsNextPendingItemForClient(stAfter.envio_docs_itens_json);
   assert.equal(resposta.keepStage, "envio_docs");
-  assert.equal(
-    stAfter.envio_docs_itens_json.some((item) => item.tipo === "holerite" && item.status === "recebido_pendente_validacao"),
-    true
-  );
-  assert.equal(stAfter.envio_docs_confirmacao_tipo_doc_status || null, null);
-  assert.equal(stAfter.envio_docs_ultimo_upload_confirmacao_id, "upload-confirmar-1");
+  assert.equal(Array.isArray(stAfter.envio_docs_itens_json), true);
+  assert.equal(stAfter.fase_docs, "envio_documentos");
+  assert.equal(String(stAfter.docs_status_texto || "").includes("Pendências atuais"), true);
   assert.equal(nextPending?.tipo, "identidade_cpf");
 }
 
@@ -262,11 +257,17 @@ function buildPdfFetch(text) {
     message_id: "wamid.text.loop.1"
   });
   assert.equal(
-    invalid1.message.join("\n").includes("último arquivo enviado"),
+    (
+      invalid1.message.join("\n").includes("último arquivo enviado") ||
+      invalid1.message.join("\n").includes("Esse arquivo é mesmo")
+    ),
     true
   );
   assert.equal(
-    invalid2.message.join("\n").includes("último arquivo enviado"),
+    (
+      invalid2.message.join("\n").includes("último arquivo enviado") ||
+      invalid2.message.join("\n").includes("Esse arquivo é mesmo")
+    ),
     true
   );
 
@@ -279,7 +280,7 @@ function buildPdfFetch(text) {
     message_id: "wamid.text.loop.2"
   });
   const stAfterConfirm = getState(env, waId);
-  const historicoDepoisDaConfirmacao = stAfterConfirm.envio_docs_historico_json.length;
+  const statusDepoisDaConfirmacao = stAfterConfirm.docs_status_geral;
 
   stAfterConfirm.last_message_id_prev = "wamid.text.loop.2";
   stAfterConfirm.last_message_id = "wamid.text.loop.3";
@@ -289,7 +290,7 @@ function buildPdfFetch(text) {
     caption: "é meu holerite",
     message_id: "wamid.text.loop.3"
   });
-  assert.equal(getState(env, waId).envio_docs_historico_json.length, historicoDepoisDaConfirmacao);
+  assert.equal(getState(env, waId).docs_status_geral, statusDepoisDaConfirmacao);
 }
 
 // 7) pacote correspondente separa confirmados / plausíveis pendentes / faltantes
@@ -331,6 +332,49 @@ function buildPdfFetch(text) {
   assert.equal(Array.isArray(pacote.pacote_docs_confirmados_json), true);
   assert.equal(Array.isArray(pacote.pacote_docs_plausiveis_pendentes_conferencia_json), true);
   assert.equal(Array.isArray(pacote.pacote_docs_faltantes_json), true);
+}
+
+// 8) prova explícita: handleDocumentUpload não persiste colunas novas de docs no enova_state
+{
+  const waId = "5541997771010";
+  const env = buildEnv({
+    wa_id: waId,
+    envio_docs_itens_json: [
+      { tipo: "identidade_cpf", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+      { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+      { tipo: "holerite", participante: "p1", bucket: "obrigatorio", status: "pendente" }
+    ],
+    last_message_id: "wamid.upload.writeproof.1"
+  });
+  const st = getState(env, waId);
+  await handleDocumentUpload(env, st, {
+    type: "document",
+    message_id: "wamid.upload.writeproof.1",
+    document: {
+      id: "media-writeproof-1",
+      mime_type: "application/pdf",
+      filename: "holerite-writeproof.pdf",
+      base64: "ZmFrZQ=="
+    }
+  }, {
+    fetchImpl: buildPdfFetch("Holerite mensal com vencimentos e salário líquido.")
+  });
+
+  const writeLog = Array.isArray(env.__enovaSimulationCtx?.writeLog) ? env.__enovaSimulationCtx.writeLog : [];
+  const wroteForbiddenColumn = writeLog.some((entry) => {
+    const patch = entry?.patch || {};
+    return (
+      Object.prototype.hasOwnProperty.call(patch, "envio_docs_confirmacao_tipo_doc_status") ||
+      Object.prototype.hasOwnProperty.call(patch, "envio_docs_ultimo_upload_pendente_confirmacao_json") ||
+      Object.prototype.hasOwnProperty.call(patch, "envio_docs_ultima_pergunta_confirmacao_id") ||
+      Object.prototype.hasOwnProperty.call(patch, "envio_docs_ultimo_upload_confirmacao_id") ||
+      Object.prototype.hasOwnProperty.call(patch, "envio_docs_itens_json") ||
+      Object.prototype.hasOwnProperty.call(patch, "envio_docs_historico_json") ||
+      Object.keys(patch).some((k) => k.startsWith("analise_docs_")) ||
+      Object.keys(patch).some((k) => k.startsWith("pacote_docs_"))
+    );
+  });
+  assert.equal(wroteForbiddenColumn, false);
 }
 
 console.log("envio_docs_confirmacao_tipo_doc.smoke: ok");

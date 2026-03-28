@@ -44,15 +44,13 @@ type MessagesPayload = {
 };
 
 type CaseFile = {
-  file_id: string;
+  file_id: string | null;
+  file_ref: string | null;
   wa_id: string;
   tipo: string;
   participante: string | null;
   created_at: string | null;
-  mime_type: string | null;
-  file_name: string | null;
-  size_bytes: number | null;
-  previewable: boolean;
+  url: string;
 };
 
 type CaseFilesPayload = {
@@ -61,6 +59,22 @@ type CaseFilesPayload = {
   files: CaseFile[];
   error: string | null;
 };
+
+type ThreadItem =
+  | {
+      kind: "message";
+      key: string;
+      createdAtMs: number;
+      sourceIndex: number;
+      message: Message;
+    }
+  | {
+      kind: "file";
+      key: string;
+      createdAtMs: number;
+      sourceIndex: number;
+      file: CaseFile;
+    };
 
 function formatTime(input: string | null): string {
   if (!input) {
@@ -120,18 +134,43 @@ function sanitizePreview(text: string | null): string {
     .trim();
 }
 
-function formatFileSize(value: number | null): string {
-  if (value === null || !Number.isFinite(value) || value < 0) {
-    return "--";
+function formatFileDisplayName(file: Pick<CaseFile, "tipo" | "created_at">): string {
+  const normalizedType = String(file.tipo || "").trim();
+  if (normalizedType) {
+    return normalizedType;
   }
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+
+  const date = file.created_at ? new Date(file.created_at) : null;
+  if (date && !Number.isNaN(date.getTime())) {
+    const compactDate = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(date);
+    return `arquivo-${compactDate}`;
+  }
+
+  return "arquivo";
 }
 
-function formatFileDisplayName(file: Pick<CaseFile, "file_name" | "tipo" | "file_id">): string {
-  const shortId = (file.file_id || "").trim().slice(0, 8);
-  return file.file_name || file.tipo || (shortId ? `arquivo-${shortId}` : "arquivo");
+function getStableFileReference(file: Pick<CaseFile, "file_ref" | "url" | "created_at" | "tipo" | "participante">): string {
+  if (file.file_ref) {
+    return file.file_ref;
+  }
+
+  return [
+    String(file.url || "").trim().toLowerCase(),
+    String(file.created_at || "").trim(),
+    String(file.tipo || "").trim().toLowerCase(),
+    String(file.participante || "").trim().toLowerCase(),
+  ].join("|");
+}
+
+function isPreviewableByUrl(url: string): boolean {
+  const normalized = String(url || "").toLowerCase();
+  return (
+    normalized.includes(".pdf") ||
+    /\.png\b/.test(normalized) ||
+    /\.(jpe?g)\b/.test(normalized) ||
+    /\.(webp)\b/.test(normalized) ||
+    /\.(gif)\b/.test(normalized)
+  );
 }
 
 function buildMessageRenderKey(message: Message): string {
@@ -141,6 +180,15 @@ function buildMessageRenderKey(message: Message): string {
     message.created_at ?? "",
     (message.text ?? "").trim(),
   ].join("|");
+}
+
+function toSortableTimestamp(input: string | null): number {
+  if (!input) {
+    return 0;
+  }
+
+  const value = new Date(input).getTime();
+  return Number.isNaN(value) ? 0 : value;
 }
 
 function getConversationActivityKey(conversation: Pick<Conversation, "last_message_at" | "updated_at">) {
@@ -373,9 +421,7 @@ export function ConversationUI() {
         await Promise.all([
           loadConversations(silent),
           activeWaId ? loadMessages(activeWaId, silent) : loadMessages("", silent),
-          selectedConversationWaId
-            ? loadCaseFiles(selectedConversationWaId, silent)
-            : loadCaseFiles("", silent),
+          activeWaId ? loadCaseFiles(activeWaId, silent) : loadCaseFiles("", silent),
         ]);
       } finally {
         refreshStateRef.current.inFlight = false;
@@ -388,7 +434,7 @@ export function ConversationUI() {
         }
       }
     },
-    [loadCaseFiles, loadConversations, loadMessages, selectedConversationWaId]
+    [loadCaseFiles, loadConversations, loadMessages]
   );
 
   const filteredConversations = useMemo(() => {
@@ -425,6 +471,30 @@ export function ConversationUI() {
       return t.length > 0;
     });
   }, [messages]);
+
+  const threadItems = useMemo<ThreadItem[]>(() => {
+    const messageItems: ThreadItem[] = visibleMessages.map((message, index) => ({
+      kind: "message",
+      key: message.id ?? buildMessageRenderKey(message),
+      createdAtMs: toSortableTimestamp(message.created_at),
+      sourceIndex: index,
+      message,
+    }));
+    const fileItems: ThreadItem[] = threadFiles.map((file, index) => ({
+      kind: "file",
+      key: getStableFileReference(file),
+      createdAtMs: toSortableTimestamp(file.created_at),
+      sourceIndex: visibleMessages.length + index,
+      file,
+    }));
+
+    return [...messageItems, ...fileItems].sort((a, b) => {
+      if (a.createdAtMs !== b.createdAtMs) {
+        return a.createdAtMs - b.createdAtMs;
+      }
+      return a.sourceIndex - b.sourceIndex;
+    });
+  }, [threadFiles, visibleMessages]);
 
   const markConversationAsSeen = useCallback((waId: string, activityKey: string) => {
     if (!waId) {
@@ -741,16 +811,17 @@ export function ConversationUI() {
   };
 
   const openFileUrl = useCallback((file: CaseFile) => {
+    const fileRef = getStableFileReference(file);
     return sameOriginApiUrl(
-      `/api/case-files/open?wa_id=${encodeURIComponent(file.wa_id)}&file_id=${encodeURIComponent(
-        file.file_id
+      `/api/case-files/open?wa_id=${encodeURIComponent(file.wa_id)}&file_ref=${encodeURIComponent(
+        fileRef
       )}`
     );
   }, []);
 
   const handleOpenFile = useCallback(
     (file: CaseFile) => {
-      if (!file.previewable) {
+      if (!isPreviewableByUrl(file.url)) {
         window.open(openFileUrl(file), "_blank", "noopener,noreferrer");
         return;
       }
@@ -921,29 +992,65 @@ export function ConversationUI() {
             <div className={styles.threadWatermark} aria-hidden="true" />
             {!selectedWaId ? (
               <p className={styles.emptyState}>Selecione uma conversa</p>
-            ) : threadLoading && visibleMessages.length === 0 ? (
+            ) : threadLoading && threadItems.length === 0 ? (
               <p className={styles.panelHint}>Carregando mensagens...</p>
-            ) : threadError ? (
-              <p className={styles.panelError}>Erro na thread: {threadError}</p>
-            ) : visibleMessages.length === 0 ? (
+            ) : threadError || caseFilesError ? (
+              <p className={styles.panelError}>Erro na thread: {threadError || caseFilesError}</p>
+            ) : threadItems.length === 0 ? (
               <p className={styles.panelHint}>Sem mensagens para esta conversa.</p>
             ) : (
               <>
-                {visibleMessages.map((message) => {
-                  const key = message.id ?? buildMessageRenderKey(message);
-                  const isOut = message.direction === "out";
-                  const text = (message.text ?? "").trim();
+                {threadItems.map((item) => {
+                  if (item.kind === "message") {
+                    const isOut = item.message.direction === "out";
+                    const text = (item.message.text ?? "").trim();
+
+                    return (
+                      <div
+                        key={item.key}
+                        className={`${styles.messageRow} ${
+                          isOut ? styles.messageRowOut : styles.messageRowIn
+                        }`}
+                      >
+                        <article className={`${styles.bubble} ${isOut ? styles.bubbleOut : styles.bubbleIn}`}>
+                          <p>{text}</p>
+                          <div className={styles.messageMeta}>{formatDateTime(item.message.created_at)}</div>
+                        </article>
+                      </div>
+                    );
+                  }
 
                   return (
-                    <div
-                      key={key}
-                      className={`${styles.messageRow} ${
-                        isOut ? styles.messageRowOut : styles.messageRowIn
-                      }`}
-                    >
-                      <article className={`${styles.bubble} ${isOut ? styles.bubbleOut : styles.bubbleIn}`}>
-                        <p>{text}</p>
-                        <div className={styles.messageMeta}>{formatDateTime(message.created_at)}</div>
+                    <div key={item.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
+                      <article className={`${styles.bubble} ${styles.bubbleIn} ${styles.attachmentBubble}`}>
+                        <div className={styles.attachmentHeader}>
+                          <strong>{formatFileDisplayName(item.file)}</strong>
+                          <span>{formatDateTime(item.file.created_at)}</span>
+                        </div>
+                        <div className={styles.attachmentMeta}>
+                          <span>tipo: {item.file.tipo || "--"}</span>
+                          <span>participante: {item.file.participante || "--"}</span>
+                        </div>
+                        <div className={styles.attachmentActions}>
+                          <button
+                            type="button"
+                            className={styles.fileOpenButton}
+                            onClick={() => handleOpenFile(item.file)}
+                            aria-label={`${
+                              isPreviewableByUrl(item.file.url) ? "Visualizar" : "Abrir"
+                            } ${formatFileDisplayName(item.file)}`}
+                          >
+                            {isPreviewableByUrl(item.file.url) ? "Visualizar" : "Abrir"}
+                          </button>
+                          <a
+                            href={openFileUrl(item.file)}
+                            className={styles.fileDownloadButton}
+                            download={formatFileDisplayName(item.file)}
+                            aria-label={`Baixar ${formatFileDisplayName(item.file)}`}
+                          >
+                            Baixar
+                          </a>
+                        </div>
                       </article>
                     </div>
                   );
@@ -953,60 +1060,6 @@ export function ConversationUI() {
           </div>
 
           <footer className={styles.threadFooter}>
-            <section
-              className={`${styles.filesSection} ${
-                selectedConversationWaId ? "" : styles.filesSectionIdle
-              }`}
-            >
-              {!selectedConversationWaId ? (
-                <p className={styles.filesHintDiscreet}>Selecione uma conversa para visualizar arquivos.</p>
-              ) : (
-                <>
-                  <div className={styles.filesHeader}>
-                    <strong>Arquivos recebidos da conversa atual</strong>
-                    <span className={styles.filesConversationInfo}>
-                      Caso atual — ID: {selectedConversationWaId}
-                    </span>
-                  </div>
-
-                  {caseFilesLoading ? (
-                    <p className={styles.filesHint}>Carregando arquivos...</p>
-                  ) : caseFilesError ? (
-                    <p className={styles.panelError}>Erro nos arquivos: {caseFilesError}</p>
-                  ) : threadFiles.length === 0 ? (
-                    <p className={styles.filesHint}>
-                      Nenhum arquivo encontrado em enova_docs para este caso no contrato atual de
-                      leitura.
-                    </p>
-                  ) : (
-                    <ul className={styles.filesList}>
-                      {threadFiles.map((file) => (
-                        <li key={file.file_id} className={styles.filesItem}>
-                          <div className={styles.filesItemMeta}>
-                            <span className={styles.filesName}>{formatFileDisplayName(file)}</span>
-                            <span className={styles.filesMetaLine}>
-                              tipo: {file.mime_type || "--"} • tamanho: {formatFileSize(file.size_bytes)}
-                            </span>
-                            <span className={styles.filesMetaLine}>
-                              participante: {file.participante || "--"} • data:{" "}
-                              {formatDateTime(file.created_at)}
-                            </span>
-                          </div>
-                          <button
-                            type="button"
-                            className={styles.fileOpenButton}
-                            onClick={() => handleOpenFile(file)}
-                          >
-                            Abrir
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </>
-              )}
-            </section>
-
             {threadUnreadCount > 0 && !isThreadNearBottom ? (
               <div className={styles.threadUnreadWrap}>
                 <button
@@ -1080,7 +1133,7 @@ export function ConversationUI() {
               </button>
             </div>
             <div className={styles.previewBody}>
-              {previewFile.mime_type === "application/pdf" ? (
+              {String(previewFile.url || "").toLowerCase().includes(".pdf") ? (
                 <iframe
                   title={formatFileDisplayName(previewFile)}
                   src={openFileUrl(previewFile)}

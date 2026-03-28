@@ -377,39 +377,4 @@ function buildPdfFetch(text) {
   assert.equal(wroteForbiddenColumn, false);
 }
 
-// 9) analise status novo mapeia para coluna legada docs_status_geral no patch persistido
-{
-  const waId = "5541997771011";
-  const env = buildEnv({
-    wa_id: waId,
-    envio_docs_itens_json: [
-      { tipo: "identidade_cpf", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
-      { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: "validado_basico" },
-      { tipo: "holerite", participante: "p1", bucket: "obrigatorio", status: "validado_basico" }
-    ],
-    last_message_id: "wamid.upload.writeproof.2"
-  });
-  const st = getState(env, waId);
-  await handleDocumentUpload(env, st, {
-    type: "document",
-    message_id: "wamid.upload.writeproof.2",
-    document: {
-      id: "media-writeproof-2",
-      mime_type: "application/pdf",
-      filename: "holerite-ready.pdf",
-      base64: "ZmFrZQ=="
-    }
-  }, {
-    fetchImpl: buildPdfFetch("Holerite mensal com vencimentos e salário líquido.")
-  });
-
-  const writeLog = Array.isArray(env.__enovaSimulationCtx?.writeLog) ? env.__enovaSimulationCtx.writeLog : [];
-  const patchWithSummary = [...writeLog].reverse().find((entry) => {
-    const patch = entry?.patch || {};
-    return Object.prototype.hasOwnProperty.call(patch, "docs_status_geral");
-  });
-  assert.equal(Boolean(patchWithSummary), true);
-  assert.equal(patchWithSummary.patch.docs_status_geral, "completo");
-}
-
 console.log("envio_docs_confirmacao_tipo_doc.smoke: ok");

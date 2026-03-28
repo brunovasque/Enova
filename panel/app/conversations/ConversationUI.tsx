@@ -8,6 +8,7 @@ const POLL_INTERVAL_MS = 1000;
 const THREAD_BOTTOM_THRESHOLD_PX = 32;
 const MAX_THREAD_SCROLL_RETRIES = 24;
 const THREAD_SCROLL_STABLE_FRAMES = 3;
+const INLINE_DEBUG_WA_ID = "554185260518";
 
 type Conversation = {
   id: string;
@@ -210,6 +211,7 @@ export function ConversationUI() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const selectedWaId = (searchParams.get("wa_id") ?? "").trim();
+  const inlineDebugEnabled = selectedWaId === INLINE_DEBUG_WA_ID;
   const selectedConversationWaId = useMemo(
     () => conversations.find((conversation) => conversation.wa_id === selectedWaId)?.wa_id ?? "",
     [conversations, selectedWaId]
@@ -346,6 +348,23 @@ export function ConversationUI() {
       const filesUrl = sameOriginApiUrl(`/api/case-files?wa_id=${encodeURIComponent(waId)}`);
       const response = await fetch(filesUrl, { cache: "no-store" });
       const data = (await response.json()) as CaseFilesPayload;
+      if (waId === INLINE_DEBUG_WA_ID) {
+        console.log("[INLINE_DEBUG][case-files-response]", {
+          waId,
+          status: response.status,
+          ok: response.ok,
+          payloadOk: data?.ok,
+          filesCount: Array.isArray(data?.files) ? data.files.length : 0,
+          files: Array.isArray(data?.files)
+            ? data.files.map((file) => ({
+                file_id: file.file_id,
+                tipo: file.tipo,
+                created_at: file.created_at,
+              }))
+            : [],
+          error: data?.error ?? null,
+        });
+      }
       if (!response.ok || !data.ok) {
         throw new Error(data.error || `Falha ao carregar arquivos (${response.status})`);
       }
@@ -464,6 +483,43 @@ export function ConversationUI() {
       return aTs - bTs;
     });
   }, [threadFiles, visibleMessages]);
+
+  useEffect(() => {
+    if (!inlineDebugEnabled) {
+      return;
+    }
+
+    console.log("[INLINE_DEBUG][threadFiles-state]", {
+      waId: selectedWaId,
+      count: threadFiles.length,
+      files: threadFiles.map((file) => ({
+        file_id: file.file_id,
+        tipo: file.tipo,
+        created_at: file.created_at,
+      })),
+    });
+  }, [inlineDebugEnabled, selectedWaId, threadFiles]);
+
+  useEffect(() => {
+    if (!inlineDebugEnabled) {
+      return;
+    }
+
+    const fileEntries = timelineEntries
+      .filter((entry) => entry.kind === "file")
+      .map((entry) => ({
+        key: entry.key,
+        created_at: entry.created_at,
+        file_id: entry.file.file_id,
+      }));
+
+    console.log("[INLINE_DEBUG][timelineEntries-render-collection]", {
+      waId: selectedWaId,
+      total: timelineEntries.length,
+      fileEntriesCount: fileEntries.length,
+      fileEntries,
+    });
+  }, [inlineDebugEnabled, selectedWaId, timelineEntries]);
 
   const markConversationAsSeen = useCallback((waId: string, activityKey: string) => {
     if (!waId) {
@@ -972,6 +1028,14 @@ export function ConversationUI() {
                   <p className={styles.panelHint}>Carregando anexos da conversa...</p>
                 ) : null}
                 {timelineEntries.map((entry) => {
+                  if (inlineDebugEnabled) {
+                    console.log("[INLINE_DEBUG][attachment-card-condition]", {
+                      waId: selectedWaId,
+                      entryKey: entry.key,
+                      entryKind: entry.kind,
+                      shouldRenderAttachmentCard: entry.kind === "file",
+                    });
+                  }
                   if (entry.kind === "message") {
                     const message = entry.message;
                     const isOut = message.direction === "out";

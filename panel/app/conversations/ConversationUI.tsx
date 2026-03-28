@@ -196,8 +196,10 @@ export function ConversationUI() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const selectedWaId = (searchParams.get("wa_id") ?? "").trim();
-  const selectedConversationWaId =
-    conversations.find((conversation) => conversation.wa_id === selectedWaId)?.wa_id ?? "";
+  const selectedConversationWaId = useMemo(
+    () => conversations.find((conversation) => conversation.wa_id === selectedWaId)?.wa_id ?? "",
+    [conversations, selectedWaId]
+  );
   const selectedWaIdRef = useRef(selectedWaId);
   const latestMessagesRequestRef = useRef(0);
   const refreshStateRef = useRef({ inFlight: false, queued: false, queuedSilent: true });
@@ -963,7 +965,7 @@ export function ConversationUI() {
                   <div className={styles.filesHeader}>
                     <strong>Arquivos recebidos da conversa atual</strong>
                     <span className={styles.filesConversationInfo}>
-                      Caso (wa_id): {selectedConversationWaId}
+                      Caso atual — ID: {selectedConversationWaId}
                     </span>
                   </div>
 

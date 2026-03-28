@@ -196,6 +196,8 @@ export function ConversationUI() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const selectedWaId = (searchParams.get("wa_id") ?? "").trim();
+  const selectedConversationWaId =
+    conversations.find((conversation) => conversation.wa_id === selectedWaId)?.wa_id ?? "";
   const selectedWaIdRef = useRef(selectedWaId);
   const latestMessagesRequestRef = useRef(0);
   const refreshStateRef = useRef({ inFlight: false, queued: false, queuedSilent: true });
@@ -369,7 +371,9 @@ export function ConversationUI() {
         await Promise.all([
           loadConversations(silent),
           activeWaId ? loadMessages(activeWaId, silent) : loadMessages("", silent),
-          activeWaId ? loadCaseFiles(activeWaId, silent) : loadCaseFiles("", silent),
+          selectedConversationWaId
+            ? loadCaseFiles(selectedConversationWaId, silent)
+            : loadCaseFiles("", silent),
         ]);
       } finally {
         refreshStateRef.current.inFlight = false;
@@ -382,7 +386,7 @@ export function ConversationUI() {
         }
       }
     },
-    [loadCaseFiles, loadConversations, loadMessages]
+    [loadCaseFiles, loadConversations, loadMessages, selectedConversationWaId]
   );
 
   const filteredConversations = useMemo(() => {
@@ -947,43 +951,54 @@ export function ConversationUI() {
           </div>
 
           <footer className={styles.threadFooter}>
-            <section className={styles.filesSection}>
-              <div className={styles.filesHeader}>
-                <strong>Arquivos recebidos</strong>
-              </div>
-
-              {!selectedWaId ? (
-                <p className={styles.filesHint}>Selecione uma conversa para visualizar arquivos.</p>
-              ) : caseFilesLoading ? (
-                <p className={styles.filesHint}>Carregando arquivos...</p>
-              ) : caseFilesError ? (
-                <p className={styles.panelError}>Erro nos arquivos: {caseFilesError}</p>
-              ) : threadFiles.length === 0 ? (
-                <p className={styles.filesHint}>Nenhum arquivo recebido para este caso.</p>
+            <section
+              className={`${styles.filesSection} ${
+                selectedConversationWaId ? "" : styles.filesSectionIdle
+              }`}
+            >
+              {!selectedConversationWaId ? (
+                <p className={styles.filesHintDiscreet}>Selecione uma conversa para visualizar arquivos.</p>
               ) : (
-                <ul className={styles.filesList}>
-                  {threadFiles.map((file) => (
-                    <li key={file.file_id} className={styles.filesItem}>
-                      <div className={styles.filesItemMeta}>
-                        <span className={styles.filesName}>{formatFileDisplayName(file)}</span>
-                        <span className={styles.filesMetaLine}>
-                          tipo: {file.mime_type || "--"} • tamanho: {formatFileSize(file.size_bytes)}
-                        </span>
-                        <span className={styles.filesMetaLine}>
-                          participante: {file.participante || "--"} • data:{" "}
-                          {formatDateTime(file.created_at)}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        className={styles.fileOpenButton}
-                        onClick={() => handleOpenFile(file)}
-                      >
-                        Abrir
-                      </button>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  <div className={styles.filesHeader}>
+                    <strong>Arquivos recebidos da conversa atual</strong>
+                    <span className={styles.filesConversationInfo}>
+                      Caso (wa_id): {selectedConversationWaId}
+                    </span>
+                  </div>
+
+                  {caseFilesLoading ? (
+                    <p className={styles.filesHint}>Carregando arquivos...</p>
+                  ) : caseFilesError ? (
+                    <p className={styles.panelError}>Erro nos arquivos: {caseFilesError}</p>
+                  ) : threadFiles.length === 0 ? (
+                    <p className={styles.filesHint}>Nenhum arquivo recebido para este caso.</p>
+                  ) : (
+                    <ul className={styles.filesList}>
+                      {threadFiles.map((file) => (
+                        <li key={file.file_id} className={styles.filesItem}>
+                          <div className={styles.filesItemMeta}>
+                            <span className={styles.filesName}>{formatFileDisplayName(file)}</span>
+                            <span className={styles.filesMetaLine}>
+                              tipo: {file.mime_type || "--"} • tamanho: {formatFileSize(file.size_bytes)}
+                            </span>
+                            <span className={styles.filesMetaLine}>
+                              participante: {file.participante || "--"} • data:{" "}
+                              {formatDateTime(file.created_at)}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            className={styles.fileOpenButton}
+                            onClick={() => handleOpenFile(file)}
+                          >
+                            Abrir
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
               )}
             </section>
 

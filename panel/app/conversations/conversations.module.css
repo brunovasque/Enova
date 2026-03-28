@@ -308,14 +308,36 @@
   background: #121212;
 }
 
+.filesSectionIdle {
+  border-style: dashed;
+  border-color: #262626;
+  background: transparent;
+}
+
 .filesHeader {
   margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.filesConversationInfo {
+  color: #96abc0;
+  font-size: 0.76rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
 }
 
 .filesHint {
   margin: 0;
   color: #afbfce;
   font-size: 0.85rem;
+}
+
+.filesHintDiscreet {
+  margin: 0;
+  color: #7d8d9c;
+  font-size: 0.8rem;
 }
 
 .filesList {

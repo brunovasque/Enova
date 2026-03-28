@@ -57,6 +57,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const waId = (searchParams.get("wa_id") || "").trim();
   const fileId = (searchParams.get("file_id") || "").trim();
+  const forceDownload = (searchParams.get("download") || "").trim() === "1";
 
   if (!waId || !fileId) {
     return NextResponse.json(
@@ -181,7 +182,7 @@ export async function GET(request: Request) {
     headers.set("Content-Type", contentType);
     headers.set(
       "Content-Disposition",
-      buildContentDisposition(resolved.item.file_name, resolved.item.previewable),
+      buildContentDisposition(resolved.item.file_name, resolved.item.previewable && !forceDownload),
     );
     if (contentLength) headers.set("Content-Length", contentLength);
     headers.set("X-Content-Type-Options", "nosniff");

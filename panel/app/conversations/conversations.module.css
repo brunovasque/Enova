@@ -394,6 +394,48 @@
   cursor: pointer;
 }
 
+.inlineFileCard {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.inlineFileMeta {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.inlineFileType {
+  font-size: 0.83rem;
+  color: #e7edf3;
+  font-weight: 600;
+}
+
+.inlineFileInfo {
+  font-size: 0.76rem;
+  color: #aebdcb;
+}
+
+.inlineFileActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.inlineFileDownloadLink {
+  border-radius: 8px;
+  border: 1px solid #3a3a3a;
+  background: #1d1d1d;
+  color: #dbe7f3;
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
 .previewOverlay {
   position: fixed;
   inset: 0;

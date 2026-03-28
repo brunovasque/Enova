@@ -670,21 +670,13 @@ async function getState(env, wa_id) {
 // =============================================================
 async function upsertState(env, wa_id, payload) {
   const simCtx = getSimulationContext(env);
-  const OPTIONAL_MISSING_COLUMNS_ALLOWLIST = new Set([
+  const optionalMissingEnovaStateColumns = new Set([
     "last_message_id_prev",
     "last_message_timestamp",
-    "dossie_sinais_persistidos_json",
-    "envio_docs_confirmacao_tipo_doc_status"
+    "dossie_sinais_persistidos_json"
   ]);
   // Initial attempt + one retry for each optional allowlisted column that may need removal.
-  const MAX_OPTIONAL_FALLBACK_RETRIES = OPTIONAL_MISSING_COLUMNS_ALLOWLIST.size + 1;
-  const stripMissingOptionalColumnFromPatch = (targetPatch, err) => {
-    const missingColumn = extractMissingEnovaStateColumnFromSupabaseError(err);
-    if (!OPTIONAL_MISSING_COLUMNS_ALLOWLIST.has(missingColumn)) return null;
-    if (!Object.prototype.hasOwnProperty.call(targetPatch, missingColumn)) return null;
-    const { [missingColumn]: _ignoredMissingOptionalColumn, ...nextPatch } = targetPatch;
-    return nextPatch;
-  };
+  const MAX_OPTIONAL_FALLBACK_RETRIES = optionalMissingEnovaStateColumns.size + 1;
 
   // Sempre atualizamos o updated_at no Worker
   const patch = {
@@ -734,9 +726,13 @@ async function upsertState(env, wa_id, payload) {
           }
           return insertResult || null;
         } catch (err) {
-          const nextInsertPatch = stripMissingOptionalColumnFromPatch(rowInsert, err);
-          if (nextInsertPatch) {
-            rowInsert = nextInsertPatch;
+          const missingColumn = extractMissingEnovaStateColumnFromSupabaseError(err);
+          if (
+            optionalMissingEnovaStateColumns.has(missingColumn) &&
+            Object.prototype.hasOwnProperty.call(rowInsert, missingColumn)
+          ) {
+            const { [missingColumn]: _ignoredMissingColumn, ...fallbackPatch } = rowInsert;
+            rowInsert = fallbackPatch;
             continue;
           }
           // Se bater 409 aqui, significa que alguém inseriu
@@ -761,9 +757,13 @@ async function upsertState(env, wa_id, payload) {
                 }
                 return updateResult || null;
               } catch (updateErr) {
-                const nextUpdatePatch = stripMissingOptionalColumnFromPatch(updatePatch, updateErr);
-                if (nextUpdatePatch) {
-                  updatePatch = nextUpdatePatch;
+                const missingColumn = extractMissingEnovaStateColumnFromSupabaseError(updateErr);
+                if (
+                  optionalMissingEnovaStateColumns.has(missingColumn) &&
+                  Object.prototype.hasOwnProperty.call(updatePatch, missingColumn)
+                ) {
+                  const { [missingColumn]: _ignoredMissingColumn, ...fallbackPatch } = updatePatch;
+                  updatePatch = fallbackPatch;
                   continue;
                 }
                 throw updateErr;
@@ -801,9 +801,13 @@ async function upsertState(env, wa_id, payload) {
         }
         return updateResult || null;
       } catch (err) {
-        const nextUpdatePatch = stripMissingOptionalColumnFromPatch(updatePatch, err);
-        if (nextUpdatePatch) {
-          updatePatch = nextUpdatePatch;
+        const missingColumn = extractMissingEnovaStateColumnFromSupabaseError(err);
+        if (
+          optionalMissingEnovaStateColumns.has(missingColumn) &&
+          Object.prototype.hasOwnProperty.call(updatePatch, missingColumn)
+        ) {
+          const { [missingColumn]: _ignoredMissingColumn, ...fallbackPatch } = updatePatch;
+          updatePatch = fallbackPatch;
           continue;
         }
         throw err;

@@ -12381,6 +12381,41 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         };
       }
 
+      // ── Persist confirmed upload to enova_docs + update in-memory historico ──
+      {
+        const _cMediaRef = pendingUpload?.media_ref && typeof pendingUpload.media_ref === "object" ? pendingUpload.media_ref : {};
+        const _cMetaVer = String(env?.META_API_VERSION || "v20.0");
+        const _cResolvedUrl = String(
+          _cMediaRef?.url || _cMediaRef?.link ||
+          _cMediaRef?.document_url || _cMediaRef?.download_url ||
+          _cMediaRef?.media_url || ""
+        ).trim() || (_cMediaRef?.media_id ? `https://graph.facebook.com/${_cMetaVer}/${_cMediaRef.media_id}` : null);
+        const _cUploadMediaRef = {
+          media_id: _cMediaRef?.media_id || null,
+          mime_type: _cMediaRef?.mime_type || null,
+          file_name: _cMediaRef?.file_name || null,
+          url: _cResolvedUrl
+        };
+        const _cUpdatedHistorico = Array.isArray(st?.envio_docs_historico_json) ? [...st.envio_docs_historico_json] : [];
+        _cUpdatedHistorico.push({
+          origem: "confirmacao_textual",
+          at: new Date().toISOString(),
+          associado: { tipo: targetConfirmedByText?.tipo || null, participante: targetConfirmedByText?.participante || null },
+          media_ref: _cUploadMediaRef
+        });
+        st.envio_docs_historico_json = _cUpdatedHistorico;
+        if (_cResolvedUrl) {
+          try {
+            await saveDocumentToSupabase(env, st.wa_id, {
+              participante: targetConfirmedByText?.participante || null,
+              tipo: targetConfirmedByText?.tipo || null,
+              url: _cResolvedUrl,
+              created_at: new Date().toISOString()
+            });
+          } catch (_e) { console.error("handleDocumentUpload: save to enova_docs (confirmation) failed", _e); }
+        }
+      }
+
       const progress = recomputeEnvioDocsProgress(itens);
       const pendingClearedState = {
         ...st,
@@ -12830,6 +12865,42 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
             validacao_basica_motivo: validation.reason
           };
         }
+      }
+
+      // ── Persist upload to enova_docs + update in-memory historico ──
+      if (matchedItems.length > 0 && mediaObject) {
+        const _metaVer = String(env?.META_API_VERSION || "v20.0");
+        const _resolvedUrl = String(
+          mediaObject?.url || mediaObject?.link ||
+          mediaObject?.document_url || mediaObject?.download_url ||
+          mediaObject?.media_url || ""
+        ).trim() || (mediaObject?.id ? `https://graph.facebook.com/${_metaVer}/${mediaObject.id}` : null);
+        const _uploadMediaRef = {
+          media_id: mediaObject?.id || null,
+          mime_type: mediaObject?.mime_type || null,
+          file_name: mediaObject?.filename || mediaObject?.file_name || null,
+          url: _resolvedUrl
+        };
+        const _updatedHistorico = Array.isArray(st?.envio_docs_historico_json) ? [...st.envio_docs_historico_json] : [];
+        for (const matched of matchedItems) {
+          _updatedHistorico.push({
+            origem: "upload",
+            at: new Date().toISOString(),
+            associado: { tipo: matched?.tipo || null, participante: matched?.participante || null },
+            media_ref: _uploadMediaRef
+          });
+          if (_resolvedUrl) {
+            try {
+              await saveDocumentToSupabase(env, st.wa_id, {
+                participante: matched?.participante || null,
+                tipo: matched?.tipo || null,
+                url: _resolvedUrl,
+                created_at: new Date().toISOString()
+              });
+            } catch (_e) { console.error("handleDocumentUpload: save to enova_docs failed", _e); }
+          }
+        }
+        st.envio_docs_historico_json = _updatedHistorico;
       }
     }
 

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveCaseFileById, type EnovaDocRow } from "../_shared";
+import { resolveCaseFileById, resolveCaseFileByRef, type EnovaDocRow } from "../_shared";
 
 const REQUIRED_ENVS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const;
 const CANONICAL_ALLOWED_ORIGINS = new Set([
@@ -57,10 +57,11 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const waId = (searchParams.get("wa_id") || "").trim();
   const fileId = (searchParams.get("file_id") || "").trim();
+  const fileRef = (searchParams.get("file_ref") || "").trim();
 
-  if (!waId || !fileId) {
+  if (!waId || (!fileId && !fileRef)) {
     return NextResponse.json(
-      { ok: false, error: "wa_id e file_id são obrigatórios" },
+      { ok: false, error: "wa_id e (file_id ou file_ref) são obrigatórios" },
       { status: 400, headers: { "Cache-Control": "no-store" } },
     );
   }
@@ -103,7 +104,9 @@ export async function GET(request: Request) {
     }
 
     const rows = (await response.json()) as EnovaDocRow[];
-    const resolved = resolveCaseFileById(waId, fileId, rows);
+    const resolved = fileId
+      ? resolveCaseFileById(waId, fileId, rows)
+      : resolveCaseFileByRef(waId, fileRef, rows);
     if (!resolved) {
       return NextResponse.json(
         { ok: false, error: "arquivo não encontrado" },

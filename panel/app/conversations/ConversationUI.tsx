@@ -44,15 +44,13 @@ type MessagesPayload = {
 };
 
 type CaseFile = {
-  file_id: string;
+  file_id: string | null;
+  file_ref: string | null;
   wa_id: string;
   tipo: string;
   participante: string | null;
   created_at: string | null;
-  mime_type: string | null;
-  file_name: string | null;
-  size_bytes: number | null;
-  previewable: boolean;
+  url: string;
 };
 
 type CaseFilesPayload = {
@@ -136,9 +134,43 @@ function sanitizePreview(text: string | null): string {
     .trim();
 }
 
-function formatFileDisplayName(file: Pick<CaseFile, "file_name" | "tipo" | "file_id">): string {
-  const shortId = (file.file_id || "").trim().slice(0, 8);
-  return file.file_name || file.tipo || (shortId ? `arquivo-${shortId}` : "arquivo");
+function formatFileDisplayName(file: Pick<CaseFile, "tipo" | "created_at">): string {
+  const normalizedType = String(file.tipo || "").trim();
+  if (normalizedType) {
+    return normalizedType;
+  }
+
+  const date = file.created_at ? new Date(file.created_at) : null;
+  if (date && !Number.isNaN(date.getTime())) {
+    const compactDate = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short" }).format(date);
+    return `arquivo-${compactDate}`;
+  }
+
+  return "arquivo";
+}
+
+function getStableFileReference(file: Pick<CaseFile, "file_ref" | "url" | "created_at" | "tipo" | "participante">): string {
+  if (file.file_ref) {
+    return file.file_ref;
+  }
+
+  return [
+    String(file.url || "").trim().toLowerCase(),
+    String(file.created_at || "").trim(),
+    String(file.tipo || "").trim().toLowerCase(),
+    String(file.participante || "").trim().toLowerCase(),
+  ].join("|");
+}
+
+function isPreviewableByUrl(url: string): boolean {
+  const normalized = String(url || "").toLowerCase();
+  return (
+    normalized.includes(".pdf") ||
+    /\.png\b/.test(normalized) ||
+    /\.(jpe?g)\b/.test(normalized) ||
+    /\.(webp)\b/.test(normalized) ||
+    /\.(gif)\b/.test(normalized)
+  );
 }
 
 function buildMessageRenderKey(message: Message): string {
@@ -452,7 +484,7 @@ export function ConversationUI() {
     }));
     const fileItems: ThreadItem[] = threadFiles.map((file, index) => ({
       kind: "file",
-      key: file.file_id,
+      key: getStableFileReference(file),
       createdAtMs: toSortableTimestamp(file.created_at),
       sourceIndex: visibleMessages.length + index,
       file,
@@ -781,16 +813,17 @@ export function ConversationUI() {
   };
 
   const openFileUrl = useCallback((file: CaseFile) => {
+    const fileRef = getStableFileReference(file);
     return sameOriginApiUrl(
-      `/api/case-files/open?wa_id=${encodeURIComponent(file.wa_id)}&file_id=${encodeURIComponent(
-        file.file_id
+      `/api/case-files/open?wa_id=${encodeURIComponent(file.wa_id)}&file_ref=${encodeURIComponent(
+        fileRef
       )}`
     );
   }, []);
 
   const handleOpenFile = useCallback(
     (file: CaseFile) => {
-      if (!file.previewable) {
+      if (!isPreviewableByUrl(file.url)) {
         window.open(openFileUrl(file), "_blank", "noopener,noreferrer");
         return;
       }
@@ -1006,10 +1039,10 @@ export function ConversationUI() {
                             className={styles.fileOpenButton}
                             onClick={() => handleOpenFile(item.file)}
                             aria-label={`${
-                              item.file.previewable ? "Visualizar" : "Abrir"
+                              isPreviewableByUrl(item.file.url) ? "Visualizar" : "Abrir"
                             } ${formatFileDisplayName(item.file)}`}
                           >
-                            {item.file.previewable ? "Visualizar" : "Abrir"}
+                            {isPreviewableByUrl(item.file.url) ? "Visualizar" : "Abrir"}
                           </button>
                           <a
                             href={openFileUrl(item.file)}
@@ -1102,7 +1135,7 @@ export function ConversationUI() {
               </button>
             </div>
             <div className={styles.previewBody}>
-              {previewFile.mime_type === "application/pdf" ? (
+              {String(previewFile.url || "").toLowerCase().includes(".pdf") ? (
                 <iframe
                   title={formatFileDisplayName(previewFile)}
                   src={openFileUrl(previewFile)}

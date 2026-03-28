@@ -9,11 +9,13 @@ export type EnovaDocRow = {
 };
 
 export type CaseFileItem = {
-  file_id: string;
+  file_id: string | null;
+  file_ref: string;
   wa_id: string;
   tipo: string;
   participante: string | null;
   created_at: string | null;
+  url: string;
   mime_type: string | null;
   file_name: string | null;
   size_bytes: number | null;
@@ -58,6 +60,17 @@ function buildStableFileId(
   return createHash("sha256").update(raw).digest("hex").slice(0, 24);
 }
 
+function buildStableFileRef(waId: string, row: EnovaDocRow, normalizedUrl: string): string {
+  const raw = [
+    waId,
+    normalizedUrl,
+    row.created_at || "",
+    row.tipo || "",
+    row.participante || "",
+  ].join("|");
+  return createHash("sha256").update(raw).digest("hex").slice(0, 24);
+}
+
 export function normalizeCaseFiles(waId: string, rows: EnovaDocRow[]): CaseFileItem[] {
   if (!Array.isArray(rows)) return [];
   const items: CaseFileItem[] = [];
@@ -70,10 +83,12 @@ export function normalizeCaseFiles(waId: string, rows: EnovaDocRow[]): CaseFileI
     const normalizedMimeType = normalizeMimeType(row);
     items.push({
       file_id: buildStableFileId(waId, row, normalizedUrl, normalizedMimeType, index),
+      file_ref: buildStableFileRef(waId, row, normalizedUrl),
       wa_id: waId,
       tipo: String(row.tipo || "documento").trim().toLowerCase(),
       participante: String(row.participante || "").trim().toLowerCase() || null,
       created_at: row.created_at || null,
+      url: normalizedUrl,
       mime_type: normalizedMimeType,
       file_name: null,
       size_bytes: null,
@@ -101,10 +116,48 @@ export function resolveCaseFileById(
     return {
       item: {
         file_id: candidateId,
+        file_ref: buildStableFileRef(waId, row, normalizedUrl),
         wa_id: waId,
         tipo: String(row.tipo || "documento").trim().toLowerCase(),
         participante: String(row.participante || "").trim().toLowerCase() || null,
         created_at: row.created_at || null,
+        url: normalizedUrl,
+        mime_type: normalizedMimeType,
+        file_name: null,
+        size_bytes: null,
+        previewable: isPreviewable(normalizedMimeType),
+      },
+      sourceUrl: normalizedUrl,
+    };
+  }
+
+  return null;
+}
+
+export function resolveCaseFileByRef(
+  waId: string,
+  fileRef: string,
+  rows: EnovaDocRow[],
+): { item: CaseFileItem; sourceUrl: string } | null {
+  if (!Array.isArray(rows) || !waId || !fileRef) return null;
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const normalizedUrl = normalizeUrl(row);
+    if (!normalizedUrl) continue;
+
+    const normalizedMimeType = normalizeMimeType(row);
+    const candidateRef = buildStableFileRef(waId, row, normalizedUrl);
+    if (candidateRef !== fileRef) continue;
+
+    return {
+      item: {
+        file_id: buildStableFileId(waId, row, normalizedUrl, normalizedMimeType, index),
+        file_ref: candidateRef,
+        wa_id: waId,
+        tipo: String(row.tipo || "documento").trim().toLowerCase(),
+        participante: String(row.participante || "").trim().toLowerCase() || null,
+        created_at: row.created_at || null,
+        url: normalizedUrl,
         mime_type: normalizedMimeType,
         file_name: null,
         size_bytes: null,

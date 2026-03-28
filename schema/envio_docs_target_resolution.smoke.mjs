@@ -491,4 +491,44 @@ const matchCtpsParticipanteAtivoP2 = matchEnvioDocsClassificationToChecklist(
 assert.equal(matchCtpsParticipanteAtivoP2.match_status, "matched_safe");
 assert.deepEqual(matchCtpsParticipanteAtivoP2.matched_items, [{ tipo: "ctps_completa", participante: "p2" }]);
 
+// ──────────────────────────────────────────────────────────────────
+// Regression: CNH detected with high confidence must match
+// identidade_cpf pending items (covers both rg and cpf).
+// Previously this would fail with "no_pending_item_for_doc_type"
+// when envio_docs_itens_json was populated but the matching
+// function did not see identidade_cpf as compatible with cnh.
+// ──────────────────────────────────────────────────────────────────
+const itensIdentidadePendente = [
+  { tipo: "identidade_cpf", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+  { tipo: "comprovante_residencia", participante: "p1", bucket: "obrigatorio", status: "pendente" },
+  { tipo: "ctps_completa", participante: "p1", bucket: "obrigatorio", status: "pendente" }
+];
+
+const matchCnhToIdentidade = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "cnh", classification_confidence: 0.94 },
+  { detected_participant: "p1", participant_confidence: 0.85 },
+  { envio_docs_itens_json: itensIdentidadePendente }
+);
+assert.equal(matchCnhToIdentidade.match_status, "matched_safe",
+  "CNH should match identidade_cpf pending item");
+assert.ok(matchCnhToIdentidade.matched_items.length >= 1,
+  "CNH should resolve at least one matched item");
+assert.ok(
+  matchCnhToIdentidade.matched_items.some(
+    (item) => item.participante === "p1"
+  ),
+  "CNH matched item should target p1"
+);
+
+// Same test without participant confidence (unknown participant)
+const matchCnhUnknownParticipant = matchEnvioDocsClassificationToChecklist(
+  { detected_doc_type: "cnh", classification_confidence: 0.94 },
+  { detected_participant: "desconhecido", participant_confidence: 0.3 },
+  { envio_docs_itens_json: itensIdentidadePendente }
+);
+assert.equal(matchCnhUnknownParticipant.match_status, "matched_safe",
+  "CNH with unknown participant should still match identidade_cpf");
+assert.ok(matchCnhUnknownParticipant.matched_items.length >= 1,
+  "CNH with unknown participant should resolve at least one matched item");
+
 console.log("envio_docs_target_resolution.smoke: ok");

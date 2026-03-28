@@ -4919,6 +4919,250 @@ if (isAdminProdPath) {
       });
     }
 
+    if (request.method === "POST" && pathname === "/__admin__/replay-webhook-sequence") {
+      if (!isAdminAuthorized()) {
+        return adminJson(401, {
+          ok: false,
+          error: "unauthorized",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_json",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const replayIds = Array.isArray(payload?.replay_ids) ? payload.replay_ids : null;
+      const events = Array.isArray(payload?.events) ? payload.events : null;
+      const mode = replayIds ? "replay_ids" : (events ? "events" : null);
+      const delayMsRaw = payload?.delay_ms;
+      const delayMs =
+        delayMsRaw === undefined || delayMsRaw === null || delayMsRaw === ""
+          ? 0
+          : Number(delayMsRaw);
+
+      if (!mode) {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_payload",
+          details: "Envie replay_ids[] ou events[]",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const sequenceItems = mode === "replay_ids" ? replayIds : events;
+      if (!Array.isArray(sequenceItems) || sequenceItems.length === 0) {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_payload",
+          details: `${mode} precisa ter ao menos 1 item`,
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      if (!Number.isFinite(delayMs) || delayMs < 0) {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_payload",
+          details: "delay_ms deve ser número >= 0",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const summarizeForwardBody = (raw) => {
+        if (typeof raw !== "string") return null;
+        const trimmed = raw.trim();
+        if (!trimmed) return null;
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+            return {
+              ok: parsed.ok === false ? false : true,
+              reason: parsed.reason || null,
+              error: parsed.error || null
+            };
+          }
+        } catch {}
+        return trimmed.length > 220 ? `${trimmed.slice(0, 220)}…` : trimmed;
+      };
+
+      const normalizeReplayInput = (value) => {
+        if (typeof value === "string") {
+          const trimmed = value.trim();
+          return trimmed || null;
+        }
+        if (!value || typeof value !== "object") return null;
+        const replayId = String(value.replay_id || value.id || "").trim();
+        return replayId || null;
+      };
+
+      const results = [];
+      const count = sequenceItems.length;
+      for (let index = 0; index < count; index++) {
+        const item = sequenceItems[index];
+        let replayId = null;
+        let itemPathname = "/webhook/meta";
+        let itemMethod = "POST";
+        let rawBody = null;
+        let headersSubset = {};
+
+        try {
+          if (mode === "replay_ids") {
+            replayId = normalizeReplayInput(item);
+            if (!replayId) {
+              throw new Error("invalid_replay_id");
+            }
+
+            const rows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_log", {
+              method: "GET",
+              query: {
+                select: "replay_id,raw_body,headers_subset,pathname,method,created_at",
+                tag: "eq.META_WEBHOOK_RAW_CAPTURE",
+                replay_id: `eq.${encodeURIComponent(replayId)}`,
+                order: "created_at.asc",
+                limit: 1
+              }
+            }));
+
+            const capture = rows[0] || null;
+            if (!capture) {
+              throw new Error("replay_id_not_found");
+            }
+            rawBody = typeof capture.raw_body === "string" ? capture.raw_body : null;
+            if (!rawBody) {
+              throw new Error("capture_without_raw_body");
+            }
+            itemPathname = String(capture.pathname || "/webhook/meta").trim() || "/webhook/meta";
+            itemMethod = String(capture.method || "POST").trim().toUpperCase() || "POST";
+            headersSubset =
+              capture.headers_subset &&
+              typeof capture.headers_subset === "object" &&
+              !Array.isArray(capture.headers_subset)
+                ? capture.headers_subset
+                : {};
+          } else {
+            if (!item || typeof item !== "object" || Array.isArray(item)) {
+              throw new Error("invalid_event_item");
+            }
+            rawBody = typeof item.raw_body === "string" ? item.raw_body : null;
+            if (!rawBody) {
+              throw new Error("missing_raw_body");
+            }
+            itemPathname = String(item.pathname || "/webhook/meta").trim() || "/webhook/meta";
+            itemMethod = String(item.method || "POST").trim().toUpperCase() || "POST";
+            headersSubset =
+              item.headers_subset &&
+              typeof item.headers_subset === "object" &&
+              !Array.isArray(item.headers_subset)
+                ? item.headers_subset
+                : {};
+          }
+
+          if (!itemPathname.startsWith("/")) {
+            itemPathname = `/${itemPathname}`;
+          }
+          if (!/^[A-Z]+$/.test(itemMethod)) {
+            throw new Error("invalid_method");
+          }
+
+          const replayHeaders = { "content-type": "application/json" };
+          for (const [headerKey, headerValue] of Object.entries(headersSubset || {})) {
+            if (!headerKey) continue;
+            const key = String(headerKey).trim();
+            if (!key) continue;
+            if (!/^[-A-Za-z0-9]+$/.test(key)) continue;
+            if (headerValue === null || headerValue === undefined) continue;
+            replayHeaders[key.toLowerCase()] = String(headerValue);
+          }
+
+          const replayReq = new Request(`https://enova.local${itemPathname}`, {
+            method: itemMethod,
+            headers: replayHeaders,
+            body: rawBody
+          });
+
+          const replayResp = await handleMetaWebhook(replayReq, env, ctx);
+          const forwardStatus = Number(replayResp?.status) || null;
+          const forwardRawBody = replayResp ? await replayResp.text() : "";
+          const forwardBody = summarizeForwardBody(forwardRawBody);
+          const forwardBodyReason =
+            forwardBody && typeof forwardBody === "object" ? forwardBody.reason : null;
+          const itemOk = Boolean(replayResp?.ok) && forwardBodyReason !== "webhook_parse_error";
+
+          const resultItem = {
+            index,
+            replay_id: replayId,
+            pathname: itemPathname,
+            method: itemMethod,
+            forward_status: forwardStatus,
+            forward_body: forwardBody,
+            ok: itemOk
+          };
+          results.push(resultItem);
+
+          if (!itemOk) {
+            return adminJson(400, {
+              ok: false,
+              mode,
+              count,
+              failed_index: index,
+              error: "sequence_item_failed",
+              results,
+              build: ENOVA_BUILD,
+              ts: new Date().toISOString()
+            });
+          }
+        } catch (err) {
+          results.push({
+            index,
+            replay_id: replayId,
+            pathname: itemPathname,
+            method: itemMethod,
+            forward_status: null,
+            forward_body: null,
+            ok: false,
+            error: err?.message || String(err)
+          });
+          const notFound = String(err?.message || "") === "replay_id_not_found";
+          return adminJson(notFound ? 404 : 400, {
+            ok: false,
+            mode,
+            count,
+            failed_index: index,
+            error: err?.message || "sequence_item_failed",
+            results,
+            build: ENOVA_BUILD,
+            ts: new Date().toISOString()
+          });
+        }
+
+        if (delayMs > 0 && index < count - 1) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
+
+      return adminJson(200, {
+        ok: true,
+        mode,
+        count,
+        results,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
+
     // ---------------------------------------------
     // 🌐 Entrada pública correspondente (capa + assunção)
     // ---------------------------------------------

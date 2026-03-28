@@ -12382,7 +12382,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       }
 
       // ── Persist confirmed upload to enova_docs + update in-memory historico ──
-      {
+      if (idxConfirmedByText >= 0) {
         const _cMediaRef = pendingUpload?.media_ref && typeof pendingUpload.media_ref === "object" ? pendingUpload.media_ref : {};
         const _cMetaVer = String(env?.META_API_VERSION || "v20.0");
         const _cResolvedUrl = String(
@@ -12406,12 +12406,31 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         st.envio_docs_historico_json = _cUpdatedHistorico;
         if (_cResolvedUrl) {
           try {
-            await saveDocumentToSupabase(env, st.wa_id, {
-              participante: targetConfirmedByText?.participante || null,
-              tipo: targetConfirmedByText?.tipo || null,
-              url: _cResolvedUrl,
-              created_at: new Date().toISOString()
-            });
+            const _cTipo = String(targetConfirmedByText?.tipo || "").trim();
+            const _cParticipante = String(targetConfirmedByText?.participante || "").trim();
+            let _cAlreadySaved = false;
+            if (_cTipo && _cParticipante && st?.wa_id) {
+              const _cExistingRows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_docs", {
+                method: "GET",
+                query: {
+                  select: "id",
+                  wa_id: `eq.${st.wa_id}`,
+                  tipo: `eq.${encodeURIComponent(_cTipo)}`,
+                  participante: `eq.${encodeURIComponent(_cParticipante)}`,
+                  url: `eq.${encodeURIComponent(_cResolvedUrl)}`,
+                  limit: 1
+                }
+              }));
+              _cAlreadySaved = _cExistingRows.length > 0;
+            }
+            if (!_cAlreadySaved) {
+              await saveDocumentToSupabase(env, st.wa_id, {
+                participante: targetConfirmedByText?.participante || null,
+                tipo: targetConfirmedByText?.tipo || null,
+                url: _cResolvedUrl,
+                created_at: new Date().toISOString()
+              });
+            }
           } catch (_e) { console.error("handleDocumentUpload: save to enova_docs (confirmation) failed", { wa_id: st?.wa_id, tipo: targetConfirmedByText?.tipo, participante: targetConfirmedByText?.participante, err: _e?.message || _e }); }
         }
       }
@@ -12891,12 +12910,31 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
           });
           if (_resolvedUrl) {
             try {
-              await saveDocumentToSupabase(env, st.wa_id, {
-                participante: matched?.participante || null,
-                tipo: matched?.tipo || null,
-                url: _resolvedUrl,
-                created_at: new Date().toISOString()
-              });
+              const _tipo = String(matched?.tipo || "").trim();
+              const _participante = String(matched?.participante || "").trim();
+              let _alreadySaved = false;
+              if (_tipo && _participante && st?.wa_id) {
+                const _existingRows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_docs", {
+                  method: "GET",
+                  query: {
+                    select: "id",
+                    wa_id: `eq.${st.wa_id}`,
+                    tipo: `eq.${encodeURIComponent(_tipo)}`,
+                    participante: `eq.${encodeURIComponent(_participante)}`,
+                    url: `eq.${encodeURIComponent(_resolvedUrl)}`,
+                    limit: 1
+                  }
+                }));
+                _alreadySaved = _existingRows.length > 0;
+              }
+              if (!_alreadySaved) {
+                await saveDocumentToSupabase(env, st.wa_id, {
+                  participante: matched?.participante || null,
+                  tipo: matched?.tipo || null,
+                  url: _resolvedUrl,
+                  created_at: new Date().toISOString()
+                });
+              }
             } catch (_e) { console.error("handleDocumentUpload: save to enova_docs failed", { wa_id: st?.wa_id, tipo: matched?.tipo, participante: matched?.participante, err: _e?.message || _e }); }
           }
         }

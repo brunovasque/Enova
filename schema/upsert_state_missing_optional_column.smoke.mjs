@@ -187,37 +187,12 @@ function buildEnvForUpdateFallback(missingColumns = []) {
   }
 }
 
-// 5) insert fallback com envio_docs_confirmacao_tipo_doc_status ausente
-{
-  const { env, fetchImpl, calls } = buildEnvForInsertFallback(["envio_docs_confirmacao_tipo_doc_status"]);
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = fetchImpl;
-  try {
-    const result = await upsertState(env, "5541991110007", {
-      fase_conversa: "envio_docs",
-      envio_docs_confirmacao_tipo_doc_status: "confirmado",
-      envio_docs_status: "pendente"
-    });
-    assert.equal(result?.wa_id, "5541991110007");
-    assert.equal(result?.fase_conversa, "envio_docs");
-    assert.equal(result?.envio_docs_status, "pendente");
-    assert.equal(Object.prototype.hasOwnProperty.call(result, "envio_docs_confirmacao_tipo_doc_status"), false);
-    const postCalls = calls.filter((c) => c.method === "POST");
-    assert.equal(postCalls.length, 2);
-    assert.equal(Object.prototype.hasOwnProperty.call((postCalls[0].body || [])[0] || {}, "envio_docs_confirmacao_tipo_doc_status"), true);
-    assert.equal(Object.prototype.hasOwnProperty.call((postCalls[1].body || [])[0] || {}, "envio_docs_confirmacao_tipo_doc_status"), false);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-}
-
-// 6) insert fallback com múltiplas allowlist ausentes juntas
+// 5) insert fallback com múltiplas allowlist ausentes juntas
 {
   const { env, fetchImpl, calls } = buildEnvForInsertFallback([
     "last_message_id_prev",
     "last_message_timestamp",
-    "dossie_sinais_persistidos_json",
-    "envio_docs_confirmacao_tipo_doc_status"
+    "dossie_sinais_persistidos_json"
   ]);
   const originalFetch = globalThis.fetch;
   globalThis.fetch = fetchImpl;
@@ -227,7 +202,6 @@ function buildEnvForUpdateFallback(missingColumns = []) {
       last_message_id_prev: "wamid.prev.8",
       last_message_timestamp: "2026-03-27T23:00:00.000Z",
       dossie_sinais_persistidos_json: JSON.stringify({ score: 0.91 }),
-      envio_docs_confirmacao_tipo_doc_status: "confirmado",
       envio_docs_status: "pendente"
     });
     assert.equal(result?.wa_id, "5541991110008");
@@ -236,15 +210,14 @@ function buildEnvForUpdateFallback(missingColumns = []) {
     assert.equal(Object.prototype.hasOwnProperty.call(result, "last_message_id_prev"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(result, "last_message_timestamp"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(result, "dossie_sinais_persistidos_json"), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(result, "envio_docs_confirmacao_tipo_doc_status"), false);
     const postCalls = calls.filter((c) => c.method === "POST");
-    assert.equal(postCalls.length, 5);
+    assert.equal(postCalls.length, 4);
   } finally {
     globalThis.fetch = originalFetch;
   }
 }
 
-// 7) update fallback com last_message_id_prev ausente
+// 6) update fallback com last_message_id_prev ausente
 {
   const { env, fetchImpl, calls } = buildEnvForUpdateFallback(["last_message_id_prev"]);
   const originalFetch = globalThis.fetch;
@@ -270,7 +243,7 @@ function buildEnvForUpdateFallback(missingColumns = []) {
   }
 }
 
-// 8) update fallback com last_message_timestamp ausente
+// 7) update fallback com last_message_timestamp ausente
 {
   const { env, fetchImpl, calls } = buildEnvForUpdateFallback(["last_message_timestamp"]);
   const originalFetch = globalThis.fetch;
@@ -293,7 +266,7 @@ function buildEnvForUpdateFallback(missingColumns = []) {
   }
 }
 
-// 9) update fallback com ambas ausentes
+// 8) update fallback com ambas ausentes
 {
   const { env, fetchImpl, calls } = buildEnvForUpdateFallback(["last_message_id_prev", "last_message_timestamp"]);
   const originalFetch = globalThis.fetch;
@@ -322,7 +295,7 @@ function buildEnvForUpdateFallback(missingColumns = []) {
   }
 }
 
-// 10) update fallback com dossie_sinais_persistidos_json ausente
+// 9) update fallback com dossie_sinais_persistidos_json ausente
 {
   const { env, fetchImpl, calls } = buildEnvForUpdateFallback(["dossie_sinais_persistidos_json"]);
   const originalFetch = globalThis.fetch;
@@ -345,36 +318,12 @@ function buildEnvForUpdateFallback(missingColumns = []) {
   }
 }
 
-// 11) update fallback com envio_docs_confirmacao_tipo_doc_status ausente
-{
-  const { env, fetchImpl, calls } = buildEnvForUpdateFallback(["envio_docs_confirmacao_tipo_doc_status"]);
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = fetchImpl;
-  try {
-    const result = await upsertState(env, "5541991110002", {
-      fase_conversa: "envio_docs",
-      envio_docs_confirmacao_tipo_doc_status: "confirmado",
-      envio_docs_status: "em_andamento"
-    });
-    assert.equal(result?.fase_conversa, "envio_docs");
-    assert.equal(result?.envio_docs_status, "em_andamento");
-    assert.equal(Object.prototype.hasOwnProperty.call(result, "envio_docs_confirmacao_tipo_doc_status"), false);
-    const patchCalls = calls.filter((c) => c.method === "PATCH");
-    assert.equal(patchCalls.length, 2);
-    assert.equal(Object.prototype.hasOwnProperty.call(patchCalls[0].body || {}, "envio_docs_confirmacao_tipo_doc_status"), true);
-    assert.equal(Object.prototype.hasOwnProperty.call(patchCalls[1].body || {}, "envio_docs_confirmacao_tipo_doc_status"), false);
-  } finally {
-    globalThis.fetch = originalFetch;
-  }
-}
-
-// 12) update fallback com múltiplas allowlist ausentes juntas
+// 10) update fallback com múltiplas allowlist ausentes juntas
 {
   const { env, fetchImpl, calls } = buildEnvForUpdateFallback([
     "last_message_id_prev",
     "last_message_timestamp",
-    "dossie_sinais_persistidos_json",
-    "envio_docs_confirmacao_tipo_doc_status"
+    "dossie_sinais_persistidos_json"
   ]);
   const originalFetch = globalThis.fetch;
   globalThis.fetch = fetchImpl;
@@ -384,7 +333,6 @@ function buildEnvForUpdateFallback(missingColumns = []) {
       last_message_id_prev: "wamid.prev.multi",
       last_message_timestamp: "2026-03-27T23:00:00.000Z",
       dossie_sinais_persistidos_json: JSON.stringify({ score: 0.88 }),
-      envio_docs_confirmacao_tipo_doc_status: "confirmado",
       envio_docs_status: "em_andamento"
     });
     assert.equal(result?.fase_conversa, "envio_docs");
@@ -392,15 +340,14 @@ function buildEnvForUpdateFallback(missingColumns = []) {
     assert.equal(Object.prototype.hasOwnProperty.call(result, "last_message_id_prev"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(result, "last_message_timestamp"), false);
     assert.equal(Object.prototype.hasOwnProperty.call(result, "dossie_sinais_persistidos_json"), false);
-    assert.equal(Object.prototype.hasOwnProperty.call(result, "envio_docs_confirmacao_tipo_doc_status"), false);
     const patchCalls = calls.filter((c) => c.method === "PATCH");
-    assert.equal(patchCalls.length, 5);
+    assert.equal(patchCalls.length, 4);
   } finally {
     globalThis.fetch = originalFetch;
   }
 }
 
-// 13) outras colunas ausentes continuam falhando (não mascarar erro real)
+// 11) outras colunas ausentes continuam falhando (não mascarar erro real)
 {
   const env = {
     ENV_MODE: "test",

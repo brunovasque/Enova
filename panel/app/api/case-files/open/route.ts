@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveCaseFileById, type EnovaDocRow } from "../_shared";
+import { fetchCaseFileRows, resolveCaseFileById } from "../_shared";
 
 const REQUIRED_ENVS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const;
 const CANONICAL_ALLOWED_ORIGINS = new Set([
@@ -77,32 +77,7 @@ export async function GET(request: Request) {
     const supabaseUrl = process.env.SUPABASE_URL as string;
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE as string;
 
-    const endpoint = new URL("/rest/v1/enova_docs", supabaseUrl);
-    endpoint.searchParams.set(
-      "select",
-      "wa_id,tipo,participante,created_at,url",
-    );
-    endpoint.searchParams.set("wa_id", `eq.${waId}`);
-    endpoint.searchParams.set("order", "created_at.asc");
-    endpoint.searchParams.set("limit", "200");
-
-    const response = await fetch(endpoint, {
-      method: "GET",
-      headers: {
-        apikey: serviceRoleKey,
-        Authorization: `Bearer ${serviceRoleKey}`,
-      },
-      cache: "no-store",
-    });
-
-    if (!response.ok) {
-      return NextResponse.json(
-        { ok: false, error: `failed to load files (${response.status})` },
-        { status: 500, headers: { "Cache-Control": "no-store" } },
-      );
-    }
-
-    const rows = (await response.json()) as EnovaDocRow[];
+    const rows = await fetchCaseFileRows(supabaseUrl, serviceRoleKey, waId);
     const resolved = resolveCaseFileById(waId, fileId, rows);
     if (!resolved) {
       return NextResponse.json(

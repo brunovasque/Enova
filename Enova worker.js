@@ -7551,8 +7551,28 @@ function buildDocumentDossierFromState(st) {
 
 async function persistDocumentDossier(env, st, dossier) {
   if (!dossier) return;
-  await upsertState(env, st.wa_id, dossier);
-  Object.assign(st, dossier);
+  const persistedDossier = {
+    ...dossier,
+    docs_status: "pendente",
+    docs_status_geral: "pendente",
+    docs_status_completo: false,
+    docs_status_parcial: true,
+    docs_completos: false,
+    docs_faltantes: Array.isArray(dossier?.dossie_pendencias_json) ? dossier.dossie_pendencias_json : [],
+    docs_itens_pendentes: Array.isArray(dossier?.dossie_pendencias_json) ? dossier.dossie_pendencias_json : [],
+    docs_itens_recebidos: [],
+    docs_pendentes: Array.isArray(dossier?.dossie_pendencias_json) ? dossier.dossie_pendencias_json.length : 0,
+    fase_docs: "envio_documentos",
+    docs_status_texto: "Checklist documental iniciado.",
+    docs_validacao_atualizada: new Date().toISOString(),
+    ultima_interacao_docs: new Date().toISOString()
+  };
+  delete persistedDossier.envio_docs_itens_json;
+  delete persistedDossier.envio_docs_historico_json;
+  await upsertState(env, st.wa_id, persistedDossier);
+  Object.assign(st, persistedDossier, {
+    envio_docs_itens_json: Array.isArray(dossier?.envio_docs_itens_json) ? dossier.envio_docs_itens_json : []
+  });
 }
 
 // =============================================================
@@ -8161,9 +8181,123 @@ function recomputeEnvioDocsProgress(itens = []) {
   };
 }
 
+const ENVIO_DOCS_LEGACY_PENDING_CONFIRMATION_PREFIX = "pendente_confirmacao_tipo_doc::";
+
+function encodeEnvioDocsLegacyPendingConfirmation(record = null) {
+  if (!record || typeof record !== "object") return null;
+  const compact = {
+    upload_id: record?.upload_id || null,
+    upload_message_id: record?.upload_message_id || null,
+    detected_doc_type: record?.detected_doc_type || null,
+    detected_doc_category: record?.detected_doc_category || null,
+    detected_participant: record?.detected_participant || null,
+    candidate_items: Array.isArray(record?.candidate_items)
+      ? record.candidate_items.map((item) => ({
+          tipo: item?.tipo || null,
+          participante: item?.participante || null
+        }))
+      : [],
+    pergunta_confirmacao: record?.pergunta_confirmacao || null,
+    recebido_em: record?.recebido_em || record?.at || null
+  };
+  try {
+    return `${ENVIO_DOCS_LEGACY_PENDING_CONFIRMATION_PREFIX}${JSON.stringify(compact)}`;
+  } catch {
+    return null;
+  }
+}
+
+function decodeEnvioDocsLegacyPendingConfirmation(st = {}) {
+  const raw = String(st?.docs_status_texto || "").trim();
+  if (!raw.startsWith(ENVIO_DOCS_LEGACY_PENDING_CONFIRMATION_PREFIX)) return null;
+  const payloadRaw = raw.slice(ENVIO_DOCS_LEGACY_PENDING_CONFIRMATION_PREFIX.length);
+  if (!payloadRaw) return null;
+  try {
+    const parsed = JSON.parse(payloadRaw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeEnvioDocsLegacyStatus(progressStatus) {
+  const raw = String(progressStatus || "").trim().toLowerCase();
+  if (raw === "completo") return "completo";
+  if (raw === "parcial") return "parcial";
+  return "pendente";
+}
+
+function buildEnvioDocsLegacySummaryPatch(itens = [], progress = {}, options = {}) {
+  const nowIso = new Date().toISOString();
+  const recebidos = itens
+    .filter((item) => isEnvioDocsItemReceived(item))
+    .map((item) => ({ tipo: item?.tipo || null, participante: item?.participante || null }));
+  const faltantes = itens
+    .filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item))
+    .map((item) => ({ tipo: item?.tipo || null, participante: item?.participante || null }));
+  const legacyStatus = normalizeEnvioDocsLegacyStatus(progress?.envio_docs_status);
+  const isPendingConfirmation = options?.isPendingConfirmation === true;
+  const pendingSummaryText = isPendingConfirmation
+    ? encodeEnvioDocsLegacyPendingConfirmation(options?.pendingConfirmationRecord || null)
+    : null;
+  const resumoPendencias = envioDocsResumoPendencias(itens, { includeNonBlocking: true, limit: 0 });
+  const summaryText = pendingSummaryText || (
+    legacyStatus === "completo"
+      ? "Pasta documental completa e pronta para análise."
+      : resumoPendencias.length
+        ? `Pendências atuais: ${resumoPendencias.join(" | ")}`
+        : "Pasta em atualização documental."
+  );
+  return {
+    docs_status: legacyStatus,
+    docs_status_geral: legacyStatus,
+    docs_status_completo: legacyStatus === "completo",
+    docs_status_parcial: legacyStatus === "parcial",
+    docs_completos: legacyStatus === "completo",
+    docs_faltantes: faltantes,
+    docs_itens_pendentes: faltantes,
+    docs_itens_recebidos: recebidos,
+    docs_pendentes: Number(progress?.envio_docs_total_pendentes || faltantes.length) || 0,
+    fase_docs: isPendingConfirmation ? "aguardando_confirmacao_tipo_doc" : "envio_documentos",
+    docs_status_texto: summaryText,
+    docs_validacao_atualizada: nowIso,
+    ultima_interacao_docs: nowIso
+  };
+}
+
+function pickEnvioDocsPersistedPacotePatch(pacotePayload = {}) {
+  const base = pacotePayload && typeof pacotePayload === "object" ? pacotePayload : {};
+  return {
+    pacote_status: base?.pacote_status || null,
+    pacote_destino: base?.pacote_destino || null,
+    pacote_resumo_caso: base?.pacote_resumo_caso || null,
+    pacote_enviado_em: base?.pacote_enviado_em || null,
+    pacote_participantes_json: Array.isArray(base?.pacote_participantes_json) ? base.pacote_participantes_json : null,
+    pacote_renda_resumo_json: base?.pacote_renda_resumo_json && typeof base.pacote_renda_resumo_json === "object" ? base.pacote_renda_resumo_json : null,
+    pacote_restricoes_json: base?.pacote_restricoes_json && typeof base.pacote_restricoes_json === "object" ? base.pacote_restricoes_json : null,
+    pacote_pendencias_json: Array.isArray(base?.pacote_pendencias_json) ? base.pacote_pendencias_json : null,
+    pacote_documentos_anexados_json: Array.isArray(base?.pacote_documentos_anexados_json) ? base.pacote_documentos_anexados_json : null,
+    pacote_observacoes_json: Array.isArray(base?.pacote_observacoes_json) ? base.pacote_observacoes_json : null,
+    pacote_sinais_persistidos_json: base?.pacote_sinais_persistidos_json && typeof base.pacote_sinais_persistidos_json === "object" ? base.pacote_sinais_persistidos_json : null
+  };
+}
+
 function buildEnvioDocsPlausiveisPendentesConferenciaFromState(st = {}) {
-  const pendingStatus = String(st?.envio_docs_confirmacao_tipo_doc_status || "").trim().toLowerCase();
-  const pendingUpload = st?.envio_docs_ultimo_upload_pendente_confirmacao_json;
+  const pendingStatusRaw = String(
+    st?.envio_docs_confirmacao_tipo_doc_status ||
+    st?.fase_docs ||
+    ""
+  ).trim().toLowerCase();
+  const pendingStatus = pendingStatusRaw === "aguardando_confirmacao_tipo_doc"
+    ? "aguardando_confirmacao_tipo_doc"
+    : "";
+  const pendingUpload = (
+    st?.envio_docs_ultimo_upload_pendente_confirmacao_json &&
+    typeof st.envio_docs_ultimo_upload_pendente_confirmacao_json === "object"
+  )
+    ? st.envio_docs_ultimo_upload_pendente_confirmacao_json
+    : decodeEnvioDocsLegacyPendingConfirmation(st);
   if (pendingStatus !== "aguardando_confirmacao_tipo_doc" || !pendingUpload || typeof pendingUpload !== "object") {
     return [];
   }
@@ -11201,16 +11335,17 @@ function isEnvioDocsTextualUploadSignal(texto) {
 
 function clearEnvioDocsPendingTypeConfirmationPatch(extra = {}) {
   return {
-    envio_docs_confirmacao_tipo_doc_status: null,
-    envio_docs_ultimo_upload_pendente_confirmacao_json: null,
+    fase_docs: "envio_documentos",
+    docs_status_texto: null,
     ...extra
   };
 }
 
 function isEnvioDocsAwaitingTypeConfirmation(st = {}) {
+  const legacyPending = decodeEnvioDocsLegacyPendingConfirmation(st);
   return (
-    String(st?.envio_docs_confirmacao_tipo_doc_status || "").trim().toLowerCase() === "aguardando_confirmacao_tipo_doc" &&
-    !!st?.envio_docs_ultimo_upload_pendente_confirmacao_json
+    String(st?.envio_docs_confirmacao_tipo_doc_status || st?.fase_docs || "").trim().toLowerCase() === "aguardando_confirmacao_tipo_doc" &&
+    (!!st?.envio_docs_ultimo_upload_pendente_confirmacao_json || !!legacyPending)
   );
 }
 
@@ -11627,9 +11762,16 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       normalizedMsg?.caption ||
       "";
     const hintText = mediaCaption;
-    const itensBase = Array.isArray(st.envio_docs_itens_json) ? [...st.envio_docs_itens_json] : [];
+    const itensBase = Array.isArray(st.envio_docs_itens_json) && st.envio_docs_itens_json.length
+      ? [...st.envio_docs_itens_json]
+      : generateChecklistForDocs(st);
     const itens = reconcileEnvioDocsItensWithSavedDossier(st, itensBase);
-    const pendingUpload = st?.envio_docs_ultimo_upload_pendente_confirmacao_json;
+    const pendingUpload = (
+      st?.envio_docs_ultimo_upload_pendente_confirmacao_json &&
+      typeof st.envio_docs_ultimo_upload_pendente_confirmacao_json === "object"
+    )
+      ? st.envio_docs_ultimo_upload_pendente_confirmacao_json
+      : decodeEnvioDocsLegacyPendingConfirmation(st);
 
     if (isTextSignal) {
       const progressAtual = recomputeEnvioDocsProgress(itens);
@@ -11646,7 +11788,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       }
 
       const uploadId = String(pendingUpload?.upload_id || "").trim() || null;
-      const alreadyConfirmed = uploadId && st?.envio_docs_ultimo_upload_confirmacao_id === uploadId;
+      const alreadyConfirmed = false;
       const immediatelyAfterUpload =
         !!pendingUpload?.upload_message_id &&
         !!st?.last_message_id_prev &&
@@ -11680,9 +11822,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         hintText || normalizedMsg?.caption || ""
       );
       if (!confirmationResolution.ok || !confirmationResolution.target) {
-        const alreadyAskedSameUpload =
-          uploadId &&
-          st?.envio_docs_ultima_pergunta_confirmacao_id === uploadId;
+        const alreadyAskedSameUpload = false;
         return {
           ok: true,
           message: alreadyAskedSameUpload
@@ -11712,64 +11852,35 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       }
 
       const progress = recomputeEnvioDocsProgress(itens);
-      const historicoBase = Array.isArray(st.envio_docs_historico_json) ? st.envio_docs_historico_json : [];
       const pendingClearedState = {
         ...st,
         ...clearEnvioDocsPendingTypeConfirmationPatch({
-          envio_docs_ultimo_upload_confirmacao_id: uploadId,
-          envio_docs_ultima_pergunta_confirmacao_id: uploadId
+          fase_docs: "envio_documentos"
         })
       };
       const plausiveisPendentes = buildEnvioDocsPlausiveisPendentesConferenciaFromState(pendingClearedState);
       const patch = {
-        envio_docs_itens_json: itens,
         ...progress,
         ...clearEnvioDocsPendingTypeConfirmationPatch({
-          envio_docs_ultimo_upload_confirmacao_id: uploadId,
-          envio_docs_ultima_pergunta_confirmacao_id: uploadId
-        }),
-        envio_docs_historico_json: [
-          ...historicoBase.slice(-19),
-          {
-            at: new Date().toISOString(),
-            origem: "confirmacao_textual",
-            canal_origem: st.canal_docs_escolhido || "whatsapp",
-            associado: { tipo: targetConfirmedByText.tipo, participante: targetConfirmedByText.participante },
-            recognition_source: "confirmacao_textual",
-            final_target_source: "confirmacao_textual",
-            fallback_used: false,
-            detected_doc_type: confirmationResolution.hinted_tipo_raw || pendingUpload?.detected_doc_type || null,
-            checklist_match_status: "matched_safe",
-            matched_checklist_item: { tipo: targetConfirmedByText.tipo, participante: targetConfirmedByText.participante },
-            matched_checklist_items: [{ tipo: targetConfirmedByText.tipo, participante: targetConfirmedByText.participante }],
-            validacao_basica: {
-              status: "recebido_pendente_validacao",
-              reason: "confirmacao_textual_tipo_doc",
-              details: { sourceType: "text_signal", upload_id: uploadId }
-            },
-            document_classification: {
-              detected_doc_type: confirmationResolution.hinted_tipo_raw || pendingUpload?.detected_doc_type || null,
-              classification_reason: "confirmacao_textual_valida",
-              classification_confidence: 0.75
-            },
-            media_ref: pendingUpload?.media_ref || null,
-            upload_ref: {
-              upload_id: uploadId,
-              upload_message_id: pendingUpload?.upload_message_id || null
-            },
-            orquestracao_documental_status: "confirmado"
-          }
-        ]
+          fase_docs: "envio_documentos",
+          docs_status_texto: null
+        })
       };
       let analisePayload = null;
       if (progress.envio_docs_status === "completo" || plausiveisPendentes.length > 0) {
         analisePayload = buildAnaliseDocsPayloadFromEnvio(itens, { plausiveisPendentes });
-        Object.assign(patch, analisePayload);
       }
       const pacotePayload = buildPacoteCorrespondentePayloadFromState({ ...st, ...patch }, itens, analisePayload);
-      Object.assign(patch, pacotePayload);
+      const legacyResumoPatch = buildEnvioDocsLegacySummaryPatch(itens, progress, {
+        isPendingConfirmation: false
+      });
+      Object.assign(patch, legacyResumoPatch, pickEnvioDocsPersistedPacotePatch(pacotePayload));
       await upsertState(env, st.wa_id, patch);
-      Object.assign(st, patch);
+      Object.assign(st, patch, {
+        envio_docs_itens_json: itens,
+        analise_docs_status: analisePayload?.analise_docs_status || null,
+        pacote_status: pacotePayload?.pacote_status || st?.pacote_status || null
+      });
 
       return {
         ok: true,
@@ -12196,69 +12307,35 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
     const expectedPendingItemsAfter = itens
       .filter((item) => isEnvioDocsBlockingItem(item) && !isEnvioDocsItemReceived(item))
       .map((item) => `${item.tipo}:${item.participante}`);
-    const historicoBase = Array.isArray(st.envio_docs_historico_json) ? st.envio_docs_historico_json : [];
     const patch = {
-      envio_docs_itens_json: itens,
       ...progress,
       ...(uploadPendingConfirmation
         ? {
-            envio_docs_confirmacao_tipo_doc_status: "aguardando_confirmacao_tipo_doc",
-            envio_docs_ultimo_upload_pendente_confirmacao_json: pendingConfirmationRecord,
-            envio_docs_ultima_pergunta_confirmacao_id: pendingConfirmationRecord?.upload_id || null
+            fase_docs: "aguardando_confirmacao_tipo_doc",
+            docs_status_texto: encodeEnvioDocsLegacyPendingConfirmation(pendingConfirmationRecord)
           }
-        : clearEnvioDocsPendingTypeConfirmationPatch()),
-      envio_docs_historico_json: [
-        ...historicoBase.slice(-19),
-        {
-          at: new Date().toISOString(),
-          origem: "upload",
-          canal_origem: st.canal_docs_escolhido || "whatsapp",
-          associado: target ? { tipo: target.tipo, participante: target.participante } : null,
-          recognition_source: recognitionSource,
-          final_target_source: finalTargetSource,
-          fallback_used: fallbackUsed,
-          detected_doc_type: documentClassification?.detected_doc_type || selectionDebug.detected_doc_type || null,
-          covers_checklist_types: Array.isArray(selectionDebug.covers_checklist_types) ? selectionDebug.covers_checklist_types : [],
-          detected_participant: participantInference?.detected_participant || selectionDebug.detected_participant || null,
-          checklist_match_status: checklistMatch?.match_status || null,
-          matched_checklist_item: target ? { tipo: target.tipo, participante: target.participante } : null,
-          matched_checklist_items: mapEnvioDocsItemRefs(matchedItems),
-          validacao_basica: validation,
-          document_classification: documentClassification,
-          participant_inference: participantInference,
-          checklist_match: checklistMatch,
-          pending_confirmation_candidates: pendingConfirmationCandidates,
-          media_ref: {
-            media_id: mediaObject?.id || null,
-            mime_type: mediaObject?.mime_type || null,
-            file_name: mediaObject?.filename || mediaObject?.file_name || null,
-            url: String(
-              mediaObject?.url ||
-              mediaObject?.link ||
-              mediaObject?.document_url ||
-              mediaObject?.download_url ||
-              mediaObject?.media_url ||
-              ""
-            ).trim() || null
-          },
-          upload_ref: {
-            upload_id: pendingConfirmationRecord?.upload_id || String(normalizedMsg?.message_id || mediaObject?.id || "").trim() || null,
-            upload_message_id: String(normalizedMsg?.message_id || "").trim() || null
-          },
-          orquestracao_documental_status: orchestrationStatus
-        }
-      ]
+        : clearEnvioDocsPendingTypeConfirmationPatch({
+            fase_docs: "envio_documentos",
+            docs_status_texto: null
+          }))
     };
     const plausiveisPendentes = buildEnvioDocsPlausiveisPendentesConferenciaFromState({ ...st, ...patch });
     let analisePayload = null;
     if (progress.envio_docs_status === "completo" || plausiveisPendentes.length > 0) {
       analisePayload = buildAnaliseDocsPayloadFromEnvio(itens, { plausiveisPendentes });
-      Object.assign(patch, analisePayload);
     }
     const pacotePayload = buildPacoteCorrespondentePayloadFromState({ ...st, ...patch }, itens, analisePayload);
-    Object.assign(patch, pacotePayload);
+    const legacyResumoPatch = buildEnvioDocsLegacySummaryPatch(itens, progress, {
+      isPendingConfirmation: uploadPendingConfirmation,
+      pendingConfirmationRecord
+    });
+    Object.assign(patch, legacyResumoPatch, pickEnvioDocsPersistedPacotePatch(pacotePayload));
     await upsertState(env, st.wa_id, patch);
-    Object.assign(st, patch);
+    Object.assign(st, patch, {
+      envio_docs_itens_json: itens,
+      analise_docs_status: analisePayload?.analise_docs_status || null,
+      pacote_status: pacotePayload?.pacote_status || st?.pacote_status || null
+    });
 
     await telemetry(env, {
       wa_id: st.wa_id,
@@ -25428,7 +25505,6 @@ case "envio_docs": {
     const itensReconciliados = reconcileEnvioDocsItensWithSavedDossier(st, st.envio_docs_itens_json);
     const itensChanged = JSON.stringify(itensReconciliados) !== JSON.stringify(st.envio_docs_itens_json);
     if (itensChanged) {
-      await upsertState(env, st.wa_id, { envio_docs_itens_json: itensReconciliados });
       st.envio_docs_itens_json = itensReconciliados;
     }
     const progressSeed = recomputeEnvioDocsProgress(st.envio_docs_itens_json);
@@ -25453,11 +25529,17 @@ case "envio_docs": {
         analisePayload
       );
       const consistencyPatch = {
-        ...analisePayload,
-        ...pacotePayload
+        ...buildEnvioDocsLegacySummaryPatch(st.envio_docs_itens_json, progressSeed, {
+          isPendingConfirmation: isEnvioDocsAwaitingTypeConfirmation(st),
+          pendingConfirmationRecord: decodeEnvioDocsLegacyPendingConfirmation(st)
+        }),
+        ...pickEnvioDocsPersistedPacotePatch(pacotePayload)
       };
       await upsertState(env, st.wa_id, consistencyPatch);
-      Object.assign(st, consistencyPatch);
+      Object.assign(st, consistencyPatch, {
+        analise_docs_status: analisePayload?.analise_docs_status || null,
+        pacote_status: pacotePayload?.pacote_status || st?.pacote_status || null
+      });
     }
   }
 
@@ -25720,6 +25802,7 @@ case "envio_docs": {
         ? st.envio_docs_itens_json
         : generateChecklistForDocs(st)
     );
+    st.envio_docs_itens_json = itensAtualizados;
     const pendenciasResumo = envioDocsResumoPendencias(itensAtualizados, { includeNonBlocking: true, limit: 0 });
     if (!pendenciasResumo.length) {
       return step(env, st, [
@@ -25757,6 +25840,7 @@ case "envio_docs": {
         ? st.envio_docs_itens_json
         : generateChecklistForDocs(st)
     );
+    st.envio_docs_itens_json = itensEnvioDocs;
     const mensagemLista = buildEnvioDocsListaMensagens(itensEnvioDocs);
 
 const patchCanal = {
@@ -25860,6 +25944,7 @@ const patchCanal = {
         ? st.envio_docs_itens_json
         : generateChecklistForDocs(st)
     );
+    st.envio_docs_itens_json = itensAtualizados;
     const pendenciasResumo = envioDocsResumoPendencias(itensAtualizados, { includeNonBlocking: true, limit: 0 });
     if (pendenciasResumo.length) {
       return step(env, st, [

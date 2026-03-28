@@ -5675,13 +5675,18 @@ async function handleMediaEnvelope(env, waId, msg, type) {
     });
   }
 
-  const messageMetadataPatch = {
+  // Persist only columns that exist in enova_state schema
+  const messageMetadataPersist = {
+    last_message_id: msg?.id || null,
+  };
+  // Keep full metadata in-memory for downstream logic (e.g. doc upload detection)
+  const messageMetadataInMemory = {
     last_message_id_prev: st?.last_message_id || null,
     last_message_id: msg?.id || null,
-    last_message_timestamp: msg?.timestamp || null
+    last_message_timestamp: msg?.timestamp || null,
   };
-  await upsertState(env, waId, { _incoming_media: mediaPayload, ...messageMetadataPatch });
-  st = { ...st, _incoming_media: mediaPayload, ...messageMetadataPatch };
+  await upsertState(env, waId, { _incoming_media: mediaPayload, ...messageMetadataPersist });
+  st = { ...st, _incoming_media: mediaPayload, ...messageMetadataInMemory };
   await runFunnel(env, st, mediaPayload.caption || "");
 
   return new Response(JSON.stringify({
@@ -6555,13 +6560,18 @@ try {
       });
     }
 
-    const messageMetadataPatch = {
+    // Persist only columns that exist in enova_state schema
+    const messageMetadataPersist = {
+      last_message_id: messageId || null,
+    };
+    // Keep full metadata in-memory for downstream logic (e.g. doc upload detection)
+    const messageMetadataInMemory = {
       last_message_id_prev: st?.last_message_id || null,
       last_message_id: messageId || null,
-      last_message_timestamp: msg?.timestamp || null
+      last_message_timestamp: msg?.timestamp || null,
     };
-    await upsertState(env, waId, messageMetadataPatch);
-    st = { ...st, ...messageMetadataPatch };
+    await upsertState(env, waId, messageMetadataPersist);
+    st = { ...st, ...messageMetadataInMemory };
 
     await runFunnel(env, st, userText);
 
@@ -18164,7 +18174,6 @@ async function runFunnel(env, st, userText) {
       last_user_text: null,
       last_processed_text: null,
       last_message_id: null,
-      last_message_id_prev: null,
       updated_at: new Date().toISOString()
     });
 

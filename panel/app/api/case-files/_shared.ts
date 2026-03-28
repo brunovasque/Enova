@@ -182,13 +182,14 @@ export function resolveRowsFromCanonicalState(
   const seen = new Set<string>();
 
   for (const row of merged) {
+    const normalizedUrl = normalizeUrl(row);
     const key = [
-      String(row.url || row.document_url || row.download_url || row.media_url || row.link || "").trim(),
+      normalizedUrl,
       String(row.tipo || "").trim().toLowerCase(),
       String(row.participante || "").trim().toLowerCase(),
       String(row.created_at || "").trim(),
     ].join("|");
-    if (!key || seen.has(key)) continue;
+    if (!normalizedUrl || seen.has(key)) continue;
     seen.add(key);
     deduped.push(row);
   }

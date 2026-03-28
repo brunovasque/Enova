@@ -4083,9 +4083,10 @@ const RAW_REPLAY_HEADER_NAMES = [
   "x-hub-signature",
   "x-hub-signature-256"
 ];
+const MAX_REPLAY_LOOKUP_ROWS = 200;
 
 function maybeParseJsonObject(value) {
-  if (!value) return null;
+  if (value === null || value === undefined) return null;
   if (typeof value === "object" && !Array.isArray(value)) return value;
   if (typeof value !== "string") return null;
   try {
@@ -4100,7 +4101,8 @@ function normalizeReplayHeadersSubset(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return {};
   return RAW_REPLAY_HEADER_NAMES.reduce((acc, key) => {
     const value = input[key];
-    acc[key] = typeof value === "string" && value.trim() ? value.trim() : null;
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    acc[key] = trimmed || null;
     return acc;
   }, {});
 }
@@ -4145,6 +4147,10 @@ function normalizeReplayMethod(method) {
   return normalized || "POST";
 }
 
+/**
+ * Gera preview curto da resposta reenviada para payload admin.
+ * Mantém visibilidade de diagnóstico sem retornar corpo grande completo.
+ */
 function summarizeForwardBody(rawText, maxLen = 800) {
   const text = typeof rawText === "string" ? rawText : "";
   if (text.length <= maxLen) return text;
@@ -4161,7 +4167,7 @@ async function findMetaRawCaptureByReplayId(env, replayId) {
       select: "id,tag,details,created_at",
       tag: "eq.META_WEBHOOK_RAW_CAPTURE",
       order: "created_at.desc",
-      limit: 200
+      limit: MAX_REPLAY_LOOKUP_ROWS
     }
   });
 

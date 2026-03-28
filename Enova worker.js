@@ -4076,6 +4076,109 @@ function extractWaIdFromWebhookEvent(event) {
   return String(msgWa || statusWa || "").trim() || null;
 }
 
+const RAW_REPLAY_HEADER_NAMES = [
+  "content-type",
+  "user-agent",
+  "cf-ray",
+  "x-hub-signature",
+  "x-hub-signature-256"
+];
+const MAX_REPLAY_LOOKUP_ROWS = 200;
+
+function maybeParseJsonObject(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "object" && !Array.isArray(value)) return value;
+  if (typeof value !== "string") return null;
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function normalizeReplayHeadersSubset(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return {};
+  return RAW_REPLAY_HEADER_NAMES.reduce((acc, key) => {
+    const value = input[key];
+    const trimmed = typeof value === "string" ? value.trim() : "";
+    acc[key] = trimmed || null;
+    return acc;
+  }, {});
+}
+
+function normalizeReplayRawCaptureRow(row) {
+  const detailsObj = maybeParseJsonObject(row?.details);
+  const replayId = String(
+    row?.replay_id ||
+    detailsObj?.replay_id ||
+    ""
+  ).trim() || null;
+  const rawBody = typeof row?.raw_body === "string"
+    ? row.raw_body
+    : typeof detailsObj?.raw_body === "string"
+      ? detailsObj.raw_body
+      : null;
+  const headersSubset = normalizeReplayHeadersSubset(
+    row?.headers_subset ||
+    detailsObj?.headers_subset
+  );
+  const pathname = String(row?.pathname || detailsObj?.pathname || "").trim() || null;
+  const method = String(row?.method || detailsObj?.method || "").trim() || null;
+
+  return {
+    replay_id: replayId,
+    raw_body: rawBody,
+    headers_subset: headersSubset,
+    pathname,
+    method
+  };
+}
+
+function normalizeReplayPathname(pathname) {
+  const normalized = String(pathname || "").trim();
+  if (!normalized) return "/webhook/meta";
+  if (normalized.startsWith("/")) return normalized;
+  return `/${normalized}`;
+}
+
+function normalizeReplayMethod(method) {
+  const normalized = String(method || "").trim().toUpperCase();
+  return normalized || "POST";
+}
+
+/**
+ * Gera preview curto da resposta reenviada para payload admin.
+ * Mantém visibilidade de diagnóstico sem retornar corpo grande completo.
+ */
+function summarizeForwardBody(rawText, maxLen = 800) {
+  const text = typeof rawText === "string" ? rawText : "";
+  if (text.length <= maxLen) return text;
+  return `${text.slice(0, maxLen)}…[truncated ${text.length - maxLen} chars]`;
+}
+
+async function findMetaRawCaptureByReplayId(env, replayId) {
+  const targetReplayId = String(replayId || "").trim();
+  if (!targetReplayId) return null;
+
+  const rowsRaw = await sbFetch(env, "/rest/v1/enova_log", {
+    method: "GET",
+    query: {
+      select: "id,tag,details,created_at",
+      tag: "eq.META_WEBHOOK_RAW_CAPTURE",
+      order: "created_at.desc",
+      limit: MAX_REPLAY_LOOKUP_ROWS
+    }
+  });
+
+  const rows = normalizeSupabaseRows(rowsRaw);
+  for (const row of rows) {
+    const normalized = normalizeReplayRawCaptureRow(row);
+    if (normalized.replay_id === targetReplayId) return normalized;
+  }
+  return null;
+}
+
 // =============================================================
 // 🧱 A4 — Router do Worker (GET/POST META) — VERSÃO BLINDADA
 // =============================================================
@@ -4914,6 +5017,158 @@ if (isAdminProdPath) {
         would_send: wouldSend,
         send_payload_preview: sendPayloadPreview,
         dry_run: dryRun,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
+
+    if (request.method === "POST" && pathname === "/__admin__/replay-webhook-raw") {
+      if (!isAdminAuthorized()) {
+        return adminJson(401, {
+          ok: false,
+          error: "unauthorized",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_json",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const requestedReplayId = String(payload?.replay_id || "").trim() || null;
+      const source = requestedReplayId ? "replay_id" : "explicit";
+      let replaySource = null;
+
+      if (requestedReplayId) {
+        try {
+          replaySource = await findMetaRawCaptureByReplayId(env, requestedReplayId);
+        } catch (lookupErr) {
+          return adminJson(500, {
+            ok: false,
+            error: "replay_lookup_failed",
+            details: lookupErr?.message || String(lookupErr),
+            replay_id: requestedReplayId,
+            build: ENOVA_BUILD,
+            ts: new Date().toISOString()
+          });
+        }
+
+        if (!replaySource) {
+          return adminJson(404, {
+            ok: false,
+            error: "replay_not_found",
+            replay_id: requestedReplayId,
+            build: ENOVA_BUILD,
+            ts: new Date().toISOString()
+          });
+        }
+      } else {
+        replaySource = {
+          replay_id: null,
+          raw_body: payload?.raw_body,
+          headers_subset: payload?.headers_subset,
+          pathname: payload?.pathname,
+          method: payload?.method
+        };
+      }
+
+      const rawBody = typeof replaySource?.raw_body === "string" ? replaySource.raw_body : null;
+      if (!rawBody || !rawBody.trim()) {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_raw_body",
+          details: "raw_body ausente ou inválido",
+          source,
+          replay_id: requestedReplayId || replaySource?.replay_id || null,
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const headersSubset = normalizeReplayHeadersSubset(replaySource?.headers_subset);
+      const pathnameUsed = normalizeReplayPathname(replaySource?.pathname);
+      const methodUsed = normalizeReplayMethod(replaySource?.method);
+      const replayHeaders = new Headers();
+
+      for (const headerName of RAW_REPLAY_HEADER_NAMES) {
+        const headerValue = headersSubset[headerName];
+        if (headerValue) replayHeaders.set(headerName, headerValue);
+      }
+
+      const replayReqInit = {
+        method: methodUsed,
+        headers: replayHeaders
+      };
+      if (methodUsed !== "GET" && methodUsed !== "HEAD") {
+        replayReqInit.body = rawBody;
+      }
+      const replayReq = new Request(`https://enova.local${pathnameUsed}`, replayReqInit);
+
+      let forwardResp;
+      try {
+        forwardResp = await handleMetaWebhook(replayReq, env, ctx);
+      } catch (err) {
+        return adminJson(500, {
+          ok: false,
+          error: "replay_forward_failed",
+          details: err?.message || String(err),
+          source,
+          replay_id: requestedReplayId || replaySource?.replay_id || null,
+          pathname: pathnameUsed,
+          method: methodUsed,
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const forwardStatus = typeof forwardResp?.status === "number" ? forwardResp.status : null;
+      let forwardRawText = "";
+      try {
+        forwardRawText = forwardResp ? await forwardResp.clone().text() : "";
+      } catch (_) {
+        forwardRawText = "";
+      }
+
+      let forwardJson = null;
+      try {
+        forwardJson = forwardRawText ? JSON.parse(forwardRawText) : null;
+      } catch (_) {
+        forwardJson = null;
+      }
+
+      if (forwardJson?.reason === "webhook_parse_error") {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_raw_body",
+          details: "raw_body malformado para o parser real do webhook",
+          source,
+          replay_id: requestedReplayId || replaySource?.replay_id || null,
+          pathname: pathnameUsed,
+          method: methodUsed,
+          forward_status: forwardStatus,
+          forward_body: summarizeForwardBody(forwardRawText),
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      return adminJson(200, {
+        ok: forwardResp?.ok !== false,
+        source,
+        replay_id: requestedReplayId || replaySource?.replay_id || null,
+        pathname: pathnameUsed,
+        method: methodUsed,
+        forward_status: forwardStatus,
+        forward_body: summarizeForwardBody(forwardRawText),
         build: ENOVA_BUILD,
         ts: new Date().toISOString()
       });

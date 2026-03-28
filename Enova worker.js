@@ -4919,31 +4919,106 @@ if (isAdminProdPath) {
       });
     }
 
-    if (request.method === "POST" && pathname === "/__admin__/replay-webhook-sequence") {
-      if (!isAdminAuthorized()) {
-        return adminJson(401, {
-          ok: false,
-          error: "unauthorized",
-          build: ENOVA_BUILD,
-          ts: new Date().toISOString()
-        });
+    const normalizeReplayInput = (value) => {
+      if (typeof value === "string") {
+        const trimmed = value.trim();
+        return trimmed || null;
       }
+      if (!value || typeof value !== "object") return null;
+      const replayId = String(value.replay_id || value.id || "").trim();
+      return replayId || null;
+    };
 
-      let payload;
+    const summarizeForwardBody = (raw) => {
+      if (typeof raw !== "string") return null;
+      const trimmed = raw.trim();
+      if (!trimmed) return null;
       try {
-        payload = await request.json();
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          return {
+            ok: parsed.ok === false ? false : true,
+            reason: parsed.reason || null,
+            error: parsed.error || null
+          };
+        }
+      } catch {}
+      return trimmed.length > 220 ? `${trimmed.slice(0, 220)}…` : trimmed;
+    };
+
+    const normalizeCaptureReplayId = (row) => {
+      if (!row || typeof row !== "object") return null;
+      const direct = String(row.replay_id || "").trim();
+      if (direct) return direct;
+      const detailsRaw = row.details;
+      let details = detailsRaw;
+      if (typeof detailsRaw === "string") {
+        try {
+          details = JSON.parse(detailsRaw);
+        } catch {
+          details = null;
+        }
+      }
+      if (details && typeof details === "object") {
+        const nested = String(details.replay_id || "").trim();
+        if (nested) return nested;
+      }
+      return null;
+    };
+
+    const findCaptureByReplayId = async (targetReplayId) => {
+      let directRows = [];
+      let directFilterSupported = true;
+      try {
+        directRows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_log", {
+          method: "GET",
+          query: {
+            select: "replay_id,raw_body,headers_subset,pathname,method,created_at,details",
+            tag: "eq.META_WEBHOOK_RAW_CAPTURE",
+            replay_id: `eq.${encodeURIComponent(targetReplayId)}`,
+            order: "created_at.asc",
+            limit: 1
+          }
+        }));
       } catch {
-        return adminJson(400, {
-          ok: false,
-          error: "invalid_json",
-          build: ENOVA_BUILD,
-          ts: new Date().toISOString()
-        });
+        directFilterSupported = false;
+        directRows = [];
       }
 
+      const directCapture = directRows.find((row) => normalizeCaptureReplayId(row) === targetReplayId) || null;
+      if (directCapture) {
+        return {
+          capture: directCapture,
+          strategy: "direct_filter",
+          direct_filter_supported: directFilterSupported
+        };
+      }
+
+      const fallbackRows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_log", {
+        method: "GET",
+        query: {
+          select: "replay_id,raw_body,headers_subset,pathname,method,created_at,details",
+          tag: "eq.META_WEBHOOK_RAW_CAPTURE",
+          order: "created_at.desc",
+          limit: 200
+        }
+      }));
+      const fallbackCapture =
+        fallbackRows.find((row) => normalizeCaptureReplayId(row) === targetReplayId) || null;
+
+      return {
+        capture: fallbackCapture,
+        strategy: "fallback_scan",
+        direct_filter_supported: directFilterSupported
+      };
+    };
+
+    async function executeReplayWebhookSequence(payload, options = {}) {
+      const allowSingleReplayId = options?.allowSingleReplayId === true;
+      const singleReplayId = allowSingleReplayId ? normalizeReplayInput(payload?.replay_id) : null;
       const replayIds = Array.isArray(payload?.replay_ids) ? payload.replay_ids : null;
       const events = Array.isArray(payload?.events) ? payload.events : null;
-      const mode = replayIds ? "replay_ids" : (events ? "events" : null);
+      const mode = singleReplayId ? "replay_id" : (replayIds ? "replay_ids" : (events ? "events" : null));
       const delayMsRaw = payload?.delay_ms;
       const delayMs =
         delayMsRaw === undefined || delayMsRaw === null || delayMsRaw === ""
@@ -4951,129 +5026,45 @@ if (isAdminProdPath) {
           : Number(delayMsRaw);
 
       if (!mode) {
-        return adminJson(400, {
-          ok: false,
-          error: "invalid_payload",
-          details: "Envie replay_ids[] ou events[]",
-          build: ENOVA_BUILD,
-          ts: new Date().toISOString()
-        });
+        return {
+          status: 400,
+          body: {
+            ok: false,
+            error: "invalid_payload",
+            details: allowSingleReplayId
+              ? "Envie replay_id ou replay_ids[] ou events[]"
+              : "Envie replay_ids[] ou events[]"
+          }
+        };
       }
 
-      const sequenceItems = mode === "replay_ids" ? replayIds : events;
+      const sequenceMode = mode === "replay_id" ? "replay_ids" : mode;
+      const sequenceItems =
+        mode === "replay_id"
+          ? [singleReplayId]
+          : (sequenceMode === "replay_ids" ? replayIds : events);
+
       if (!Array.isArray(sequenceItems) || sequenceItems.length === 0) {
-        return adminJson(400, {
-          ok: false,
-          error: "invalid_payload",
-          details: `${mode} precisa ter ao menos 1 item`,
-          build: ENOVA_BUILD,
-          ts: new Date().toISOString()
-        });
+        return {
+          status: 400,
+          body: {
+            ok: false,
+            error: "invalid_payload",
+            details: `${mode} precisa ter ao menos 1 item`
+          }
+        };
       }
 
       if (!Number.isFinite(delayMs) || delayMs < 0) {
-        return adminJson(400, {
-          ok: false,
-          error: "invalid_payload",
-          details: "delay_ms deve ser número >= 0",
-          build: ENOVA_BUILD,
-          ts: new Date().toISOString()
-        });
-      }
-
-      const summarizeForwardBody = (raw) => {
-        if (typeof raw !== "string") return null;
-        const trimmed = raw.trim();
-        if (!trimmed) return null;
-        try {
-          const parsed = JSON.parse(trimmed);
-          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            return {
-              ok: parsed.ok === false ? false : true,
-              reason: parsed.reason || null,
-              error: parsed.error || null
-            };
-          }
-        } catch {}
-        return trimmed.length > 220 ? `${trimmed.slice(0, 220)}…` : trimmed;
-      };
-
-      const normalizeReplayInput = (value) => {
-        if (typeof value === "string") {
-          const trimmed = value.trim();
-          return trimmed || null;
-        }
-        if (!value || typeof value !== "object") return null;
-        const replayId = String(value.replay_id || value.id || "").trim();
-        return replayId || null;
-      };
-
-      const normalizeCaptureReplayId = (row) => {
-        if (!row || typeof row !== "object") return null;
-        const direct = String(row.replay_id || "").trim();
-        if (direct) return direct;
-        const detailsRaw = row.details;
-        let details = detailsRaw;
-        if (typeof detailsRaw === "string") {
-          try {
-            details = JSON.parse(detailsRaw);
-          } catch {
-            details = null;
-          }
-        }
-        if (details && typeof details === "object") {
-          const nested = String(details.replay_id || "").trim();
-          if (nested) return nested;
-        }
-        return null;
-      };
-
-      const findCaptureByReplayId = async (targetReplayId) => {
-        let directRows = [];
-        let directFilterSupported = true;
-        try {
-          directRows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_log", {
-            method: "GET",
-            query: {
-              select: "replay_id,raw_body,headers_subset,pathname,method,created_at,details",
-              tag: "eq.META_WEBHOOK_RAW_CAPTURE",
-              replay_id: `eq.${encodeURIComponent(targetReplayId)}`,
-              order: "created_at.asc",
-              limit: 1
-            }
-          }));
-        } catch {
-          directFilterSupported = false;
-          directRows = [];
-        }
-
-        const directCapture = directRows.find((row) => normalizeCaptureReplayId(row) === targetReplayId) || null;
-        if (directCapture) {
-          return {
-            capture: directCapture,
-            strategy: "direct_filter",
-            direct_filter_supported: directFilterSupported
-          };
-        }
-
-        const fallbackRows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_log", {
-          method: "GET",
-          query: {
-            select: "replay_id,raw_body,headers_subset,pathname,method,created_at,details",
-            tag: "eq.META_WEBHOOK_RAW_CAPTURE",
-            order: "created_at.desc",
-            limit: 200
-          }
-        }));
-        const fallbackCapture =
-          fallbackRows.find((row) => normalizeCaptureReplayId(row) === targetReplayId) || null;
-
         return {
-          capture: fallbackCapture,
-          strategy: "fallback_scan",
-          direct_filter_supported: directFilterSupported
+          status: 400,
+          body: {
+            ok: false,
+            error: "invalid_payload",
+            details: "delay_ms deve ser número >= 0"
+          }
         };
-      };
+      }
 
       const results = [];
       const count = sequenceItems.length;
@@ -5087,7 +5078,7 @@ if (isAdminProdPath) {
         let replayLookup = null;
 
         try {
-          if (mode === "replay_ids") {
+          if (sequenceMode === "replay_ids") {
             replayId = normalizeReplayInput(item);
             if (!replayId) {
               throw new Error("invalid_replay_id");
@@ -5168,7 +5159,7 @@ if (isAdminProdPath) {
             forward_body: forwardBody,
             ok: itemOk,
             lookup:
-              mode === "replay_ids"
+              sequenceMode === "replay_ids"
                 ? {
                     strategy: replayLookup?.strategy || null,
                     direct_filter_supported: replayLookup?.direct_filter_supported === true
@@ -5178,16 +5169,17 @@ if (isAdminProdPath) {
           results.push(resultItem);
 
           if (!itemOk) {
-            return adminJson(400, {
-              ok: false,
-              mode,
-              count,
-              failed_index: index,
-              error: "sequence_item_failed",
-              results,
-              build: ENOVA_BUILD,
-              ts: new Date().toISOString()
-            });
+            return {
+              status: 400,
+              body: {
+                ok: false,
+                mode: sequenceMode,
+                count,
+                failed_index: index,
+                error: "sequence_item_failed",
+                results
+              }
+            };
           }
         } catch (err) {
           results.push({
@@ -5201,16 +5193,17 @@ if (isAdminProdPath) {
             error: err?.message || String(err)
           });
           const notFound = String(err?.message || "") === "replay_id_not_found";
-          return adminJson(notFound ? 404 : 400, {
-            ok: false,
-            mode,
-            count,
-            failed_index: index,
-            error: err?.message || "sequence_item_failed",
-            results,
-            build: ENOVA_BUILD,
-            ts: new Date().toISOString()
-          });
+          return {
+            status: notFound ? 404 : 400,
+            body: {
+              ok: false,
+              mode: sequenceMode,
+              count,
+              failed_index: index,
+              error: err?.message || "sequence_item_failed",
+              results
+            }
+          };
         }
 
         if (delayMs > 0 && index < count - 1) {
@@ -5218,11 +5211,235 @@ if (isAdminProdPath) {
         }
       }
 
-      return adminJson(200, {
-        ok: true,
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          mode: sequenceMode,
+          count,
+          results
+        }
+      };
+    }
+
+    const summarizeReplayState = (state) => ({
+      has_state: Boolean(state),
+      fase_conversa: state?.fase_conversa || null,
+      funil_status: state?.funil_status || null,
+      atendimento_manual: state?.atendimento_manual === true
+    });
+
+    const normalizeAdminWaId = (value) => {
+      const waId = String(value || "").trim();
+      if (!waId) return null;
+      if (!/^[0-9]{8,20}$/.test(waId)) return null;
+      return waId;
+    };
+
+    const restoreStateSnapshot = async (wa_id, originalState) => {
+      if (originalState && typeof originalState === "object") {
+        const restorePatch = { ...originalState };
+        delete restorePatch.wa_id;
+        await upsertState(env, wa_id, restorePatch);
+        return;
+      }
+
+      const simCtx = getSimulationContext(env);
+      if (simCtx?.active && simCtx.stateByWaId && Object.prototype.hasOwnProperty.call(simCtx.stateByWaId, wa_id)) {
+        delete simCtx.stateByWaId[wa_id];
+      }
+
+      await supabaseProxyFetch(env, {
+        path: "/rest/v1/enova_state",
+        method: "DELETE",
+        query: {
+          wa_id: `eq.${wa_id}`
+        },
+        headers: {
+          Accept: "application/json"
+        }
+      });
+    };
+
+    if (request.method === "POST" && pathname === "/__admin__/replay-webhook-sequence") {
+      if (!isAdminAuthorized()) {
+        return adminJson(401, {
+          ok: false,
+          error: "unauthorized",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_json",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const sequenceResult = await executeReplayWebhookSequence(payload, { allowSingleReplayId: false });
+      return adminJson(sequenceResult.status, {
+        ...sequenceResult.body,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
+
+    if (request.method === "POST" && pathname === "/__admin__/replay-with-state") {
+      if (!isAdminAuthorized()) {
+        return adminJson(401, {
+          ok: false,
+          error: "unauthorized",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      let payload;
+      try {
+        payload = await request.json();
+      } catch {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_json",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const wa_id = normalizeAdminWaId(payload?.wa_id);
+      if (!wa_id) {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_payload",
+          details: "wa_id é obrigatório e deve conter apenas dígitos",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const stateSnapshot =
+        payload?.state_snapshot &&
+        typeof payload.state_snapshot === "object" &&
+        !Array.isArray(payload.state_snapshot)
+          ? payload.state_snapshot
+          : null;
+      if (!stateSnapshot) {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_payload",
+          details: "state_snapshot é obrigatório e deve ser objeto",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const hasReplayId = normalizeReplayInput(payload?.replay_id) !== null;
+      const hasReplayIds = Array.isArray(payload?.replay_ids);
+      const hasEvents = Array.isArray(payload?.events);
+      const mode = hasReplayId ? "replay_id" : (hasReplayIds ? "replay_ids" : (hasEvents ? "events" : null));
+      if (!mode) {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_payload",
+          details: "Envie replay_id ou replay_ids[] ou events[]",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const restoreAfter = payload?.restore_after === true;
+      const stateBefore = await getState(env, wa_id);
+      const originalStateForRestore = restoreAfter ? stateBefore : null;
+
+      const snapshotPatch = { ...stateSnapshot };
+      delete snapshotPatch.wa_id;
+
+      let snapshotApplied = false;
+      let replayExecution = null;
+      let replayExecutionError = null;
+      let restored = false;
+      let restoreError = null;
+      let stateAfter = null;
+
+      try {
+        await upsertState(env, wa_id, snapshotPatch);
+        snapshotApplied = true;
+        replayExecution = await executeReplayWebhookSequence(
+          mode === "replay_id"
+            ? { replay_id: payload?.replay_id, delay_ms: payload?.delay_ms }
+            : mode === "replay_ids"
+              ? { replay_ids: payload?.replay_ids, delay_ms: payload?.delay_ms }
+              : { events: payload?.events, delay_ms: payload?.delay_ms },
+          { allowSingleReplayId: true }
+        );
+      } catch (err) {
+        replayExecutionError = err;
+      } finally {
+        if (restoreAfter) {
+          try {
+            await restoreStateSnapshot(wa_id, originalStateForRestore);
+            restored = true;
+          } catch (restoreErr) {
+            restoreError = restoreErr;
+          }
+        }
+        stateAfter = await getState(env, wa_id);
+      }
+
+      if (replayExecutionError) {
+        return adminJson(500, {
+          ok: false,
+          wa_id,
+          mode,
+          snapshot_applied: snapshotApplied,
+          restore_after: restoreAfter,
+          restored,
+          error: "replay_with_state_failed",
+          details: replayExecutionError?.message || String(replayExecutionError),
+          restore_error: restoreError ? (restoreError?.message || String(restoreError)) : null,
+          state_before: summarizeReplayState(stateBefore),
+          state_after: summarizeReplayState(stateAfter),
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+
+      const replayBody = replayExecution?.body || {};
+      const replayStatus = Number(replayExecution?.status) || 500;
+      const status = restoreError ? 500 : replayStatus;
+      const ok = replayBody.ok === true && !restoreError;
+      const responseBody = {
+        ok,
+        wa_id,
         mode,
-        count,
-        results,
+        snapshot_applied: snapshotApplied,
+        restore_after: restoreAfter,
+        restored,
+        failed_index: replayBody.failed_index ?? null,
+        state_before: summarizeReplayState(stateBefore),
+        state_after: summarizeReplayState(stateAfter),
+        restore_error: restoreError ? (restoreError?.message || String(restoreError)) : null
+      };
+
+      if (mode === "replay_id") {
+        responseBody.result = Array.isArray(replayBody.results) ? (replayBody.results[0] || null) : null;
+      } else {
+        responseBody.results = Array.isArray(replayBody.results) ? replayBody.results : [];
+      }
+
+      if (replayBody.error) {
+        responseBody.error = replayBody.error;
+      }
+
+      return adminJson(status, {
+        ...responseBody,
         build: ENOVA_BUILD,
         ts: new Date().toISOString()
       });

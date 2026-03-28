@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 
 const REQUIRED_ENVS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE", "ENOVA_ADMIN_KEY"] as const;
 const URL_FIELDS = ["url", "document_url", "download_url", "media_url", "link"] as const;
+const MAX_DIAGNOSTIC_ROWS = 500;
+const MAX_ERROR_MESSAGE_LENGTH = 160;
+const UNKNOWN_COLUMN_CODES = new Set(["42703", "PGRST204"]);
 
 type UrlField = (typeof URL_FIELDS)[number];
 
@@ -54,8 +58,20 @@ async function columnExists(
     return true;
   }
 
-  const body = await response.text().catch(() => "");
-  if (response.status === 400 && body.toLowerCase().includes("does not exist")) {
+  let parsedBody: unknown = null;
+  try {
+    parsedBody = await response.json();
+  } catch {
+    parsedBody = null;
+  }
+  const errorCode =
+    typeof parsedBody === "object" &&
+    parsedBody !== null &&
+    "code" in parsedBody &&
+    typeof (parsedBody as { code?: unknown }).code === "string"
+      ? (parsedBody as { code: string }).code
+      : "";
+  if (response.status === 400 && UNKNOWN_COLUMN_CODES.has(errorCode)) {
     return false;
   }
 
@@ -63,7 +79,16 @@ async function columnExists(
 }
 
 function isFilled(value: unknown): boolean {
-  return String(value || "").trim().length > 0;
+  return typeof value === "string" ? value.trim().length > 0 : false;
+}
+
+function hasValidAdminKey(receivedAdminKey: string, adminKey: string): boolean {
+  const receivedBuffer = Buffer.from(receivedAdminKey);
+  const expectedBuffer = Buffer.from(adminKey);
+  if (receivedBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+  return timingSafeEqual(receivedBuffer, expectedBuffer);
 }
 
 export async function GET(request: Request) {
@@ -125,7 +150,7 @@ export async function GET(request: Request) {
       401,
     );
   }
-  if (receivedAdminKey !== adminKey) {
+  if (!hasValidAdminKey(receivedAdminKey, adminKey)) {
     return jsonResponse(
       {
         ok: false,
@@ -197,7 +222,7 @@ export async function GET(request: Request) {
     endpoint.searchParams.set("select", ["wa_id", "created_at", ...selectableFields].join(","));
     endpoint.searchParams.set("wa_id", `eq.${waId}`);
     endpoint.searchParams.set("order", "created_at.asc");
-    endpoint.searchParams.set("limit", "500");
+    endpoint.searchParams.set("limit", String(MAX_DIAGNOSTIC_ROWS));
 
     const response = await fetch(endpoint, {
       method: "GET",
@@ -225,7 +250,7 @@ export async function GET(request: Request) {
             link: null,
           },
           rows: [],
-          error: `failed to load diagnostics (${response.status}) ${body.slice(0, 160)}`,
+          error: `failed to load diagnostics (${response.status}) ${body.slice(0, MAX_ERROR_MESSAGE_LENGTH)}`,
         },
         500,
       );
@@ -234,7 +259,7 @@ export async function GET(request: Request) {
     const rowsRaw = (await response.json()) as Array<Record<string, unknown>>;
     const rows: DiagnosticRow[] = rowsRaw.map((row, index) => {
       const rowWaId = row.wa_id === null || row.wa_id === undefined ? null : String(row.wa_id);
-      const exactWaIdMatch = String(rowWaId || "").trim() === waId;
+      const exactWaIdMatch = (rowWaId ?? "").trim() === waId;
       const filled = Object.fromEntries(
         URL_FIELDS.map((field) => [
           field,
@@ -275,11 +300,12 @@ export async function GET(request: Request) {
       200,
     );
   } catch (error) {
-    console.error("case-files diagnostic internal error", error);
+    const safeMessage = error instanceof Error ? error.message : "unknown error";
+    console.error("case-files diagnostic internal error:", safeMessage);
     return jsonResponse(
       {
         ok: false,
-        wa_id: waId,
+        wa_id: null,
         row_count: 0,
         exact_wa_id_match_all: false,
         column_availability: {

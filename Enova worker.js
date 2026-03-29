@@ -9434,6 +9434,20 @@ function envioDocsHintTipoMatchesItemTipo(hintedTipoRaw, itemTipo) {
   return false;
 }
 
+// Checks if two CANONICAL/checklist types can both be covered by the same raw upload type.
+// Needed for dossier projection when docs are stored with matched checklist types.
+function canSameUploadCoverBothChecklistTypes(tipoA, tipoB) {
+  const a = String(tipoA || "").trim().toLowerCase();
+  const b = String(tipoB || "").trim().toLowerCase();
+  if (!a || !b || a === b) return false;
+  for (const rawType of Object.keys(ENVIO_DOCS_COVERAGE_MAP)) {
+    if (envioDocsHintTipoMatchesItemTipo(rawType, a) && envioDocsHintTipoMatchesItemTipo(rawType, b)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function inferEnvioDocsCategoriaBasica({ hintText = "", filename = "", mimeType = "" } = {}) {
   const tipoFromHint = guessEnvioDocsTipoFromText(`${hintText || ""} ${filename || ""}`);
   const categoriaFromTipo = envioDocsCategoriaFromTipo(tipoFromHint);
@@ -15379,11 +15393,14 @@ function buildCorrespondenteDocsForUi(docs = [], st = null, options = {}) {
     for (const doc of receivedDocs) {
       const docParticipante = normalizeDocUiParticipant(doc?.participante);
       if (docParticipante !== itemParticipante) continue;
-      if (!envioDocsHintTipoMatchesItemTipo(doc?.tipo, itemTipo)) continue;
+      const directMatch = envioDocsHintTipoMatchesItemTipo(doc?.tipo, itemTipo);
+      const siblingMatch = !directMatch && canSameUploadCoverBothChecklistTypes(doc?.tipo, itemTipo);
+      if (!directMatch && !siblingMatch) continue;
       let score = 1;
       if (normalizeDocUiType(doc?.tipo) === itemTipo) score += 100;
       if (normalizeEnvioDocsTipoForChecklist(doc?.tipo) === itemTipo) score += 50;
-      if (String(doc?.received_access_id || "").trim()) score += 10;
+      if (siblingMatch && !directMatch) score += 3;
+      if (String(doc?.received_access_id || "").trim()) score += 150;
       if (score > bestScore) {
         best = doc;
         bestScore = score;
@@ -15404,9 +15421,29 @@ function buildCorrespondenteDocsForUi(docs = [], st = null, options = {}) {
     });
   }
 
+  const matchedDocUrls = new Set();
+  for (const doc of receivedDocs) {
+    const docKey = String(doc?.stable_doc_id || doc?.received_access_id || "").trim();
+    if (docKey && matchedReceivedIds.has(docKey)) {
+      const url = resolveCorrespondenteDocumentUrl(doc);
+      if (url) matchedDocUrls.add(url);
+    }
+  }
+  const linkedChecklistPairs = new Set(
+    docsForUi
+      .filter((d) => String(d?.access_link || "").trim())
+      .map((d) => `${normalizeDocUiType(d?.tipo)}|${normalizeDocUiParticipant(d?.participante)}`)
+  );
   for (const doc of receivedDocs) {
     const docKey = String(doc?.stable_doc_id || doc?.received_access_id || "").trim();
     if (docKey && matchedReceivedIds.has(docKey)) continue;
+    const docUrl = resolveCorrespondenteDocumentUrl(doc);
+    if (docUrl && matchedDocUrls.has(docUrl)) continue;
+    const hasOwnLink = Boolean(String(doc?.received_access_id || "").trim());
+    if (!hasOwnLink) {
+      const docPair = `${normalizeDocUiType(doc?.tipo)}|${normalizeDocUiParticipant(doc?.participante)}`;
+      if (linkedChecklistPairs.has(docPair)) continue;
+    }
     docsForUi.push({
       tipo: doc?.tipo || null,
       participante: doc?.participante || null,
@@ -17433,7 +17470,7 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
         if (participanteReceived !== pendingParticipante) return false;
         const tipoReceived = String(received?.tipo || "").trim().toLowerCase();
         if (!tipoReceived) return false;
-        return envioDocsHintTipoMatchesItemTipo(tipoReceived, pendingTipo);
+        return envioDocsHintTipoMatchesItemTipo(tipoReceived, pendingTipo) || canSameUploadCoverBothChecklistTypes(tipoReceived, pendingTipo);
       });
       return !covered;
     });

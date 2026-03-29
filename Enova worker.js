@@ -7437,21 +7437,11 @@ function validateDocumentQuality(docType, txt) {
  * Salva documento no Supabase (tabela enova_docs)
  */
 async function saveDocumentForParticipant(env, st, participant, docType, url) {
-
-  await fetch(`${env.SUPABASE_URL}/rest/v1/enova_docs`, {
-    method: "POST",
-    headers: {
-      "apikey": env.SUPABASE_KEY,
-      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      wa_id: st.wa_id,
-      participante: participant,
-      tipo: docType,
-      url: url,
-      created_at: new Date().toISOString()
-    })
+  await saveDocumentToSupabase(env, st.wa_id, {
+    participante: participant,
+    tipo: docType,
+    url,
+    created_at: new Date().toISOString()
   });
 }
 
@@ -7866,18 +7856,26 @@ function validateDocumentReadable(docType, txt) {
 // ======================================================================
 async function saveDocumentToSupabase(env, wa_id, data) {
   const participante = data?.participante || data?.participant || null;
-  const payload = { ...data, participante };
+  const payload = { ...data, wa_id, participante };
   delete payload.participant;
+  try {
+    await sbFetch(env, "/rest/v1/enova_docs", {
+      method: "POST",
+      body: payload
+    });
+  } catch (err) {
+    err.enova_docs_payload = payload;
+    throw err;
+  }
+}
 
-  await fetch(`${env.SUPABASE_URL}/rest/v1/enova_docs`, {
-    method: "POST",
-    headers: {
-      "apikey": env.SUPABASE_KEY,
-      "Authorization": `Bearer ${env.SUPABASE_KEY}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ wa_id, ...payload })
-  });
+function getSupabaseErrorDebugInfo(err) {
+  const status = Number(err?.status);
+  return {
+    err: err?.message || String(err),
+    status: Number.isFinite(status) ? status : null,
+    response_body: err?.data ?? null
+  };
 }
 
 // ======================================================================
@@ -12619,33 +12617,59 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         });
         st.envio_docs_historico_json = _cUpdatedHistorico;
         if (_cResolvedUrl) {
-          try {
-            const _cTipo = String(targetConfirmedByText?.tipo || "").trim();
-            const _cParticipante = String(targetConfirmedByText?.participante || "").trim();
-            let _cAlreadySaved = false;
-            if (_cTipo && _cParticipante && st?.wa_id) {
+          const _cTipo = String(targetConfirmedByText?.tipo || "").trim();
+          const _cParticipante = String(targetConfirmedByText?.participante || "").trim();
+          const _cSavePayload = {
+            participante: targetConfirmedByText?.participante || null,
+            tipo: targetConfirmedByText?.tipo || null,
+            url: _cResolvedUrl,
+            created_at: new Date().toISOString()
+          };
+          let _cAlreadySaved = false;
+          let _cPrecheckFailed = false;
+          if (_cTipo && _cParticipante && st?.wa_id) {
+            const _cPrecheckQuery = {
+              select: "id",
+              wa_id: `eq.${st.wa_id}`,
+              tipo: `eq.${encodeURIComponent(_cTipo)}`,
+              participante: `eq.${encodeURIComponent(_cParticipante)}`,
+              url: `eq.${encodeURIComponent(_cResolvedUrl)}`,
+              limit: 1
+            };
+            try {
               const _cExistingRows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_docs", {
                 method: "GET",
-                query: {
-                  select: "id",
-                  wa_id: `eq.${st.wa_id}`,
-                  tipo: `eq.${encodeURIComponent(_cTipo)}`,
-                  participante: `eq.${encodeURIComponent(_cParticipante)}`,
-                  url: `eq.${encodeURIComponent(_cResolvedUrl)}`,
-                  limit: 1
-                }
+                query: _cPrecheckQuery
               }));
               _cAlreadySaved = _cExistingRows.length > 0;
-            }
-            if (!_cAlreadySaved) {
-              await saveDocumentToSupabase(env, st.wa_id, {
-                participante: targetConfirmedByText?.participante || null,
-                tipo: targetConfirmedByText?.tipo || null,
-                url: _cResolvedUrl,
-                created_at: new Date().toISOString()
+            } catch (_e) {
+              _cPrecheckFailed = true;
+              const _cErrorDebug = getSupabaseErrorDebugInfo(_e);
+              console.error("handleDocumentUpload: enova_docs precheck failed", {
+                wa_id: st?.wa_id,
+                tipo: targetConfirmedByText?.tipo,
+                participante: targetConfirmedByText?.participante,
+                phase: "precheck",
+                query: _cPrecheckQuery,
+                ..._cErrorDebug
               });
             }
-          } catch (_e) { console.error("handleDocumentUpload: save to enova_docs (confirmation) failed", { wa_id: st?.wa_id, tipo: targetConfirmedByText?.tipo, participante: targetConfirmedByText?.participante, err: _e?.message || _e }); }
+          }
+          if (!_cPrecheckFailed && !_cAlreadySaved) {
+            try {
+              await saveDocumentToSupabase(env, st.wa_id, _cSavePayload);
+            } catch (_e) {
+              const _cErrorDebug = getSupabaseErrorDebugInfo(_e);
+              console.error("handleDocumentUpload: enova_docs insert failed", {
+                wa_id: st?.wa_id,
+                tipo: targetConfirmedByText?.tipo,
+                participante: targetConfirmedByText?.participante,
+                phase: "insert",
+                payload: _e?.enova_docs_payload || { ..._cSavePayload, wa_id: st?.wa_id || null },
+                ..._cErrorDebug
+              });
+            }
+          }
         }
       }
 
@@ -13128,33 +13152,59 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
             media_ref: _uploadMediaRef
           });
           if (_resolvedUrl) {
-            try {
-              const _tipo = String(matched?.tipo || "").trim();
-              const _participante = String(matched?.participante || "").trim();
-              let _alreadySaved = false;
-              if (_tipo && _participante && st?.wa_id) {
+            const _tipo = String(matched?.tipo || "").trim();
+            const _participante = String(matched?.participante || "").trim();
+            const _savePayload = {
+              participante: matched?.participante || null,
+              tipo: matched?.tipo || null,
+              url: _resolvedUrl,
+              created_at: new Date().toISOString()
+            };
+            let _alreadySaved = false;
+            let _precheckFailed = false;
+            if (_tipo && _participante && st?.wa_id) {
+              const _precheckQuery = {
+                select: "id",
+                wa_id: `eq.${st.wa_id}`,
+                tipo: `eq.${encodeURIComponent(_tipo)}`,
+                participante: `eq.${encodeURIComponent(_participante)}`,
+                url: `eq.${encodeURIComponent(_resolvedUrl)}`,
+                limit: 1
+              };
+              try {
                 const _existingRows = normalizeSupabaseRows(await sbFetch(env, "/rest/v1/enova_docs", {
                   method: "GET",
-                  query: {
-                    select: "id",
-                    wa_id: `eq.${st.wa_id}`,
-                    tipo: `eq.${encodeURIComponent(_tipo)}`,
-                    participante: `eq.${encodeURIComponent(_participante)}`,
-                    url: `eq.${encodeURIComponent(_resolvedUrl)}`,
-                    limit: 1
-                  }
+                  query: _precheckQuery
                 }));
                 _alreadySaved = _existingRows.length > 0;
-              }
-              if (!_alreadySaved) {
-                await saveDocumentToSupabase(env, st.wa_id, {
-                  participante: matched?.participante || null,
-                  tipo: matched?.tipo || null,
-                  url: _resolvedUrl,
-                  created_at: new Date().toISOString()
+              } catch (_e) {
+                _precheckFailed = true;
+                const _errorDebug = getSupabaseErrorDebugInfo(_e);
+                console.error("handleDocumentUpload: enova_docs precheck failed", {
+                  wa_id: st?.wa_id,
+                  tipo: matched?.tipo,
+                  participante: matched?.participante,
+                  phase: "precheck",
+                  query: _precheckQuery,
+                  ..._errorDebug
                 });
               }
-            } catch (_e) { console.error("handleDocumentUpload: save to enova_docs failed", { wa_id: st?.wa_id, tipo: matched?.tipo, participante: matched?.participante, err: _e?.message || _e }); }
+            }
+            if (!_precheckFailed && !_alreadySaved) {
+              try {
+                await saveDocumentToSupabase(env, st.wa_id, _savePayload);
+              } catch (_e) {
+                const _errorDebug = getSupabaseErrorDebugInfo(_e);
+                console.error("handleDocumentUpload: enova_docs insert failed", {
+                  wa_id: st?.wa_id,
+                  tipo: matched?.tipo,
+                  participante: matched?.participante,
+                  phase: "insert",
+                  payload: _e?.enova_docs_payload || { ..._savePayload, wa_id: st?.wa_id || null },
+                  ..._errorDebug
+                });
+              }
+            }
           }
         }
         st.envio_docs_historico_json = _updatedHistorico;

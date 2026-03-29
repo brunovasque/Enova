@@ -1392,7 +1392,7 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(body.includes("abrir documento"), false);
 }
 
-// 3.8k) CNH enviada deve aparecer como upload real (sem sumir por cobertura de checklist).
+// 3.8k) CNH enviada deve projetar o link no item final equivalente do dossiê.
 {
   const env = buildEnvWithState();
   const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
@@ -1414,8 +1414,8 @@ function getLastStepMessagesForWa(env, waId) {
   const res = await worker.fetch(req, env, {});
   const body = await res.text();
   assert.equal(res.status, 200);
-  assert.equal(body.includes("cnh — Titular"), true);
-  assert.equal(body.includes("identidade_cpf — Titular"), false);
+  assert.equal(body.includes("cnh — Titular"), false);
+  assert.equal(body.includes("identidade_cpf — Titular"), true);
   const openDocMatches = body.match(/>abrir documento</g) || [];
   assert.equal(openDocMatches.length, 1);
 }
@@ -1552,6 +1552,54 @@ function getLastStepMessagesForWa(env, waId) {
   const resCpf = await worker.fetch(reqCpf, env, {});
   assert.equal(resCpf.status, 302);
   assert.equal(String(resCpf.headers.get("location") || ""), "https://docs.example.com/cpf-b.pdf");
+}
+
+// 3.8n.1) Rota /correspondente/doc deve resolver URL Meta protegida antes de servir o arquivo real.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.corr_lock_correspondente_wa_id = correspondenteWa;
+  st.processo_enviado_correspondente = true;
+  st.corr_publicacao_status = "entregue_privado_aguardando_retorno";
+  st.pacote_documentos_anexados_json = [];
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      {
+        doc_id: "doc-meta-1",
+        tipo: "rg",
+        participante: "p1",
+        status: "recebido",
+        url: "https://graph.facebook.com/v20.0/mid-rg-meta-1",
+        file_name: "rg-meta.pdf"
+      }
+    ]
+  };
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input, init = {}) => {
+    const asString = String(input || "");
+    if (asString === "https://graph.facebook.com/v20.0/mid-rg-meta-1") {
+      assert.equal(String(init?.headers?.Authorization || ""), `Bearer ${env.WHATS_TOKEN}`);
+      return new Response(
+        JSON.stringify({ url: "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=rg-meta-real" }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    if (asString === "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=rg-meta-real") {
+      assert.equal(String(init?.headers?.Authorization || ""), `Bearer ${env.WHATS_TOKEN}`);
+      return new Response("RG META OK", { status: 200, headers: { "content-type": "application/pdf" } });
+    }
+    return originalFetch(input, init);
+  };
+  try {
+    const req = new Request(`https://worker.local/correspondente/doc?pre=000001&t=${token}&doc=doc_doc-meta-1`, { method: "GET" });
+    const res = await worker.fetch(req, env, {});
+    const body = await res.text();
+    assert.equal(res.status, 200);
+    assert.equal(String(res.headers.get("content-type") || ""), "application/pdf");
+    assert.equal(body, "RG META OK");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 }
 
 // 3.8o) Upload real sem URL válida aparece como recebido, mas sem CTA quebrado; pendência coexistente permanece.

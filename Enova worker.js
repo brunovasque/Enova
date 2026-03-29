@@ -15186,18 +15186,11 @@ async function buildCorrespondenteWebDossierSourceOfTruth(env, caso, options = {
   let docsForUi = [];
   try {
     const docs = await getCaseDocumentLinks(env, stFinal?.wa_id || baseCase?.wa_id, stFinal);
-    const docsModel = buildCorrespondenteWebDocsModel(docs);
-    docsForUi = docsModel.normalizedDocs.map((doc) => {
-      const accessLink = String(doc?.received_access_id || "").trim()
-        ? (buildCorrespondenteDocumentAccessLink(env, tokenResolved, caseRefResolved, doc.received_access_id) || "")
-        : "";
-      return {
-        tipo: doc?.tipo || null,
-        participante: doc?.participante || null,
-        status: doc?.status || null,
-        access_link: accessLink
-      };
-    });
+    docsForUi = buildCorrespondenteDocsForUi(docs, stFinal, {
+      env,
+      token: tokenResolved,
+      caseRef: caseRefResolved
+    }).docsForUi;
   } catch {
     docsForUi = [];
   }
@@ -15340,6 +15333,91 @@ function buildCorrespondenteWebDocsModel(docs) {
   };
 }
 
+function buildCorrespondenteDocsForUi(docs = [], st = null, options = {}) {
+  const docsModel = buildCorrespondenteWebDocsModel(docs);
+  const env = options?.env || null;
+  const token = normalizeAssumirToken(options?.token || st?.corr_assumir_token || "");
+  const caseRef = normalizeCorrespondenteCaseRefInput(options?.caseRef || buildCorrespondenteCaseRef(st));
+  const buildAccessLink = (receivedAccessId) => {
+    const safeId = String(receivedAccessId || "").trim();
+    if (!safeId) return "";
+    return buildCorrespondenteDocumentAccessLink(env, token, caseRef, safeId) || "";
+  };
+  const normalizeDocUiStatus = (value) => {
+    const txt = String(value || "").trim().toLowerCase();
+    if (!txt) return "recebido";
+    return txt === "pendente" ? "pendente" : "recebido";
+  };
+  const normalizeDocUiType = (value) => String(value || "").trim().toLowerCase() || "documento";
+  const normalizeDocUiParticipant = (value) => String(value || "").trim().toLowerCase() || "-";
+  const receivedDocs = Array.isArray(docsModel?.normalizedDocs)
+    ? docsModel.normalizedDocs.filter((doc) => normalizeDocUiStatus(doc?.status) !== "pendente")
+    : [];
+  const checklistItems = Array.isArray(st?.envio_docs_itens_json)
+    ? st.envio_docs_itens_json.filter((item) => String(item?.bucket || "").trim().toLowerCase() !== "recomendado")
+    : [];
+
+  if (!checklistItems.length) {
+    return {
+      docsModel,
+      docsForUi: (Array.isArray(docsModel?.normalizedDocs) ? docsModel.normalizedDocs : []).map((doc) => ({
+        tipo: doc?.tipo || null,
+        participante: doc?.participante || null,
+        status: doc?.status || null,
+        access_link: buildAccessLink(doc?.received_access_id || null)
+      }))
+    };
+  }
+
+  const matchedReceivedIds = new Set();
+  const docsForUi = [];
+  const findBestReceivedDocForChecklistItem = (item) => {
+    const itemTipo = normalizeDocUiType(item?.tipo);
+    const itemParticipante = normalizeDocUiParticipant(item?.participante);
+    let best = null;
+    let bestScore = -1;
+    for (const doc of receivedDocs) {
+      const docParticipante = normalizeDocUiParticipant(doc?.participante);
+      if (docParticipante !== itemParticipante) continue;
+      if (!envioDocsHintTipoMatchesItemTipo(doc?.tipo, itemTipo)) continue;
+      let score = 1;
+      if (normalizeDocUiType(doc?.tipo) === itemTipo) score += 100;
+      if (normalizeEnvioDocsTipoForChecklist(doc?.tipo) === itemTipo) score += 50;
+      if (String(doc?.received_access_id || "").trim()) score += 10;
+      if (score > bestScore) {
+        best = doc;
+        bestScore = score;
+      }
+    }
+    return best;
+  };
+
+  for (const item of checklistItems) {
+    const matchedDoc = findBestReceivedDocForChecklistItem(item);
+    const matchedDocKey = String(matchedDoc?.stable_doc_id || matchedDoc?.received_access_id || "").trim();
+    if (matchedDocKey) matchedReceivedIds.add(matchedDocKey);
+    docsForUi.push({
+      tipo: normalizeDocUiType(item?.tipo),
+      participante: normalizeDocUiParticipant(item?.participante),
+      status: matchedDoc ? "recebido" : normalizeDocUiStatus(item?.status),
+      access_link: buildAccessLink(matchedDoc?.received_access_id || null)
+    });
+  }
+
+  for (const doc of receivedDocs) {
+    const docKey = String(doc?.stable_doc_id || doc?.received_access_id || "").trim();
+    if (docKey && matchedReceivedIds.has(docKey)) continue;
+    docsForUi.push({
+      tipo: doc?.tipo || null,
+      participante: doc?.participante || null,
+      status: doc?.status || null,
+      access_link: buildAccessLink(doc?.received_access_id || null)
+    });
+  }
+
+  return { docsModel, docsForUi };
+}
+
 function isMetaProtectedDocumentUrl(rawUrl) {
   const value = String(rawUrl || "").trim();
   if (!value) return false;
@@ -15357,6 +15435,37 @@ function isMetaProtectedDocumentUrl(rawUrl) {
   } catch {
     return false;
   }
+}
+
+async function resolveCorrespondenteMetaProtectedFetchTarget(env, rawUrl, options = {}) {
+  const targetUrl = String(rawUrl || "").trim();
+  const fetchImpl = options?.fetchImpl || fetch;
+  const headers = {};
+  if (env?.WHATS_TOKEN) headers.Authorization = `Bearer ${env.WHATS_TOKEN}`;
+  if (!targetUrl) return { url: "", headers };
+  if (!isMetaProtectedDocumentUrl(targetUrl)) return { url: targetUrl, headers: {} };
+  try {
+    const parsed = new URL(targetUrl);
+    const host = String(parsed.hostname || "").trim().toLowerCase();
+    const isGraphHost = host === "graph.facebook.com" || host.endsWith(".graph.facebook.com");
+    if (isGraphHost && env?.WHATS_TOKEN) {
+      const metaResp = await fetchImpl(targetUrl, { headers });
+      const contentType = String(metaResp?.headers?.get("content-type") || "").trim().toLowerCase();
+      if (metaResp?.ok && contentType.includes("application/json")) {
+        const metaJson = await metaResp.json().catch(() => null);
+        const resolvedDownloadUrl = String(
+          metaJson?.url ||
+          metaJson?.download_url ||
+          metaJson?.link ||
+          metaJson?.document_url ||
+          metaJson?.media_url ||
+          ""
+        ).trim();
+        if (resolvedDownloadUrl) return { url: resolvedDownloadUrl, headers };
+      }
+    }
+  } catch {}
+  return { url: targetUrl, headers };
 }
 
 async function handleCorrespondenteDocumentAccess(request, env) {
@@ -15401,11 +15510,13 @@ async function handleCorrespondenteDocumentAccess(request, env) {
     return Response.redirect(targetUrl, 302);
   }
 
-  const headers = {};
-  if (env?.WHATS_TOKEN) headers.Authorization = `Bearer ${env.WHATS_TOKEN}`;
+  const { url: fetchTargetUrl, headers } = await resolveCorrespondenteMetaProtectedFetchTarget(env, targetUrl);
+  if (!fetchTargetUrl) {
+    return new Response("Falha ao carregar documento.", { status: 502 });
+  }
   let upstream;
   try {
-    upstream = await fetch(targetUrl, { headers });
+    upstream = await fetch(fetchTargetUrl, { headers });
   } catch {
     return new Response("Falha ao carregar documento.", { status: 502 });
   }
@@ -15432,8 +15543,7 @@ async function handleCorrespondenteDocumentAccess(request, env) {
 
 function buildCorrespondentePrivateDocsLinksText(docs = [], st = null, options = {}) {
   const docsList = Array.isArray(docs) ? docs : [];
-  const docsModel = buildCorrespondenteWebDocsModel(docsList);
-  const receivedDocs = Array.isArray(docsModel?.receivedWithUrl) ? docsModel.receivedWithUrl : [];
+  const docsForUi = buildCorrespondenteDocsForUi(docsList, st, options).docsForUi;
   const pendingItems = Array.isArray(st?.envio_docs_itens_json)
     ? st.envio_docs_itens_json
       .filter((item) => !isEnvioDocsItemReceived(item))
@@ -15450,19 +15560,6 @@ function buildCorrespondentePrivateDocsLinksText(docs = [], st = null, options =
     comprovante_renda: "Comprovante de renda"
   };
   const docLabel = (tipo) => docLabelMap[tipo] || prettyDocLabel(tipo);
-  const env = options?.env || null;
-  const caseRef = normalizeCorrespondenteCaseRefInput(options?.caseRef || buildCorrespondenteCaseRef(st));
-  const token = normalizeAssumirToken(options?.token || st?.corr_assumir_token || "");
-  const resolveDocumentUrl = (doc, docIndex) => {
-    const rawUrl = resolveCorrespondenteDocumentUrl(doc);
-    if (!rawUrl) return "";
-    const controlledLink = buildCorrespondenteDocumentAccessLink(env, token, caseRef, docIndex);
-    if (controlledLink) return controlledLink;
-    if (rawUrl && env?.DEBUG_META_WEBHOOK === "1") {
-      console.warn("correspondente_docs_link_without_controlled_url", { caseRef, docIndex });
-    }
-    return "";
-  };
   const formatDocName = (tipo, participanteRaw = null) => {
     const participant = String(participanteRaw || "").trim().toLowerCase();
     const participantSuffix = participant ? ` (${participant.toUpperCase()})` : "";
@@ -15470,7 +15567,7 @@ function buildCorrespondentePrivateDocsLinksText(docs = [], st = null, options =
   };
 
   const grouped = new Map();
-  for (const doc of receivedDocs) {
+  for (const doc of docsForUi.filter((entry) => String(entry?.status || "").trim().toLowerCase() !== "pendente")) {
     const tipo = normalizeDocType(doc?.tipo);
     const participant = String(doc?.participante || "").trim().toLowerCase();
     const key = `${tipo}|${participant}`;
@@ -15483,7 +15580,7 @@ function buildCorrespondentePrivateDocsLinksText(docs = [], st = null, options =
       });
     }
     const group = grouped.get(key);
-    const resolvedUrl = resolveDocumentUrl(doc, doc?.received_access_id || null);
+    const resolvedUrl = String(doc?.access_link || "").trim();
     if (resolvedUrl) group.links.push(resolvedUrl);
   }
 

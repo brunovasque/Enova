@@ -63,7 +63,7 @@ async function simulateFromState(env, waId, stage, text, stOverrides = {}) {
 }
 
 function infoBag(data) {
-  return data?.writes?.controle?.etapa1_informativos || {};
+  return data.writes?.controle?.etapa1_informativos || {};
 }
 
 // 1) Mini-bloco do autônomo: coleta informativos no stage certo e retorna para IR sem alterar gate estrutural.
@@ -75,7 +75,7 @@ function infoBag(data) {
   const perguntaProfissao = await simulateFromState(env, wa, "autonomo_ir_pergunta", "sim", base);
   assert.equal(perguntaProfissao.stage_after, "autonomo_ir_pergunta");
   assert.match(perguntaProfissao.reply_text, /profiss[aã]o|atividade principal/i);
-  assert.equal(Object.prototype.hasOwnProperty.call(infoBag(perguntaProfissao), "titular_autonomo_profissao_atividade"), false);
+  assert.equal(Object.hasOwn(infoBag(perguntaProfissao), "titular_autonomo_profissao_atividade"), false);
 
   const salvaProfissao = await simulateFromState(env, wa, "autonomo_ir_pergunta", "motorista de app", {
     ...base
@@ -121,10 +121,10 @@ function infoBag(data) {
   });
   assert.equal(irSimMantemGate.stage_after, "renda");
   assert.equal(irSimMantemGate.writes.autonomo_ir, true);
-  assert.equal(Object.prototype.hasOwnProperty.call(irSimMantemGate.writes, "docs_lista_enviada"), false);
+  assert.equal(Object.hasOwn(irSimMantemGate.writes, "docs_lista_enviada"), false);
 }
 
-// 2) Renda <= 3500: respostas válidas de CTPS têm prioridade e não entram no informativo.
+// 2) Renda <= 3500: respostas válidas de CTPS seguem sem interrupção por escolaridade.
 {
   const env = buildEnv();
   const wa = "5541999300002";
@@ -138,20 +138,20 @@ function infoBag(data) {
   const ctpsSim = await simulateFromState(env, wa, "ctps_36", "sim", base);
   assert.equal(ctpsSim.stage_after, "dependente");
   assert.equal(ctpsSim.writes.ctps_36, true);
-  assert.doesNotMatch(ctpsSim.reply_text, /curso superior|cursando/i);
+  assert.equal(Object.hasOwn(infoBag(ctpsSim), "titular_curso_superior_status"), false);
 
   const ctpsNao = await simulateFromState(env, wa, "ctps_36", "não", base);
   assert.equal(ctpsNao.stage_after, "dependente");
   assert.equal(ctpsNao.writes.ctps_36, false);
-  assert.doesNotMatch(ctpsNao.reply_text, /curso superior|cursando/i);
+  assert.equal(Object.hasOwn(infoBag(ctpsNao), "titular_curso_superior_status"), false);
 
   const ctpsNaoSei = await simulateFromState(env, wa, "ctps_36", "não sei", base);
   assert.equal(ctpsNaoSei.stage_after, "dependente");
   assert.equal(ctpsNaoSei.writes.ctps_36, null);
-  assert.doesNotMatch(ctpsNaoSei.reply_text, /curso superior|cursando/i);
+  assert.equal(Object.hasOwn(infoBag(ctpsNaoSei), "titular_curso_superior_status"), false);
 }
 
-// 3) Renda <= 3500: entrada não-CTPS ligada ao informativo é capturada antes e retorna para CTPS.
+// 3) Escolaridade migra para bloco pré-docs e não fica mais em ctps_36.
 {
   const env = buildEnv();
   const wa = "5541999300003";
@@ -162,24 +162,42 @@ function infoBag(data) {
     financiamento_conjunto: false
   };
 
-  const salvaCurso = await simulateFromState(env, wa, "ctps_36", "não tenho, só ensino médio", base);
-  assert.equal(salvaCurso.stage_after, "ctps_36");
-  const cursoSalvo =
-    infoBag(salvaCurso).titular_curso_superior_status ||
-    env.__enovaSimulationCtx.stateByWaId[wa]?.controle?.etapa1_informativos?.titular_curso_superior_status;
-  assert.equal(cursoSalvo, "nao");
-  assert.match(salvaCurso.reply_text, /36 meses|ctps/i);
+  const ctpsSemHook = await simulateFromState(env, wa, "ctps_36", "não tenho, só ensino médio", base);
+  assert.equal(ctpsSemHook.stage_after, "dependente");
+  assert.equal(ctpsSemHook.writes.ctps_36, false);
+  assert.equal(Object.hasOwn(infoBag(ctpsSemHook), "titular_curso_superior_status"), false);
 
-  const ctpsDepoisInformativo = await simulateFromState(env, wa, "ctps_36", "sim", {
+  const escolaridadePreDocs = await simulateFromState(env, wa, "regularizacao_restricao", "sim", {
     ...base,
+    restricao: false,
+    regularizacao_restricao: "em_andamento",
     controle: {
       etapa1_informativos: {
-        titular_curso_superior_status: "nao"
+        informativo_moradia_p1: "Centro",
+        informativo_trabalho_p1: "Batel",
+        visita_reserva_entrada_tem: true,
+        visita_fgts_disponivel: true
       }
     }
   });
-  assert.equal(ctpsDepoisInformativo.stage_after, "dependente");
-  assert.equal(ctpsDepoisInformativo.writes.ctps_36, true);
+  assert.equal(escolaridadePreDocs.stage_after, "regularizacao_restricao");
+  assert.match(escolaridadePreDocs.reply_text, /curso superior|cursando|incompleto/i);
+
+  const escolaridadeIncompleto = await simulateFromState(env, wa, "regularizacao_restricao", "incompleto", {
+    ...base,
+    restricao: false,
+    regularizacao_restricao: "em_andamento",
+    controle: {
+      etapa1_informativos: {
+        informativo_moradia_p1: "Centro",
+        informativo_trabalho_p1: "Batel",
+        visita_reserva_entrada_tem: true,
+        visita_fgts_disponivel: true
+      }
+    }
+  });
+  assert.equal(escolaridadeIncompleto.stage_after, "regularizacao_restricao");
+  assert.doesNotMatch(escolaridadeIncompleto.reply_text, /curso superior|cursando|incompleto/i);
 }
 
 // 4) Regressão rápida: ctps_36_parceiro mantém comportamento.
@@ -216,8 +234,8 @@ function infoBag(data) {
     regularizacao_restricao: "em_andamento"
   });
   assert.equal(docs.stage_after, "envio_docs");
-  assert.equal(Object.prototype.hasOwnProperty.call(infoBag(docs), "titular_autonomo_profissao_atividade"), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(infoBag(docs), "titular_curso_superior_status"), false);
+  assert.equal(Object.hasOwn(infoBag(docs), "titular_autonomo_profissao_atividade"), false);
+  assert.equal(Object.hasOwn(infoBag(docs), "titular_curso_superior_status"), false);
 }
 
 console.log("autonomo_informativos_ctps_predocs.smoke: ok");

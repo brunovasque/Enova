@@ -1356,6 +1356,16 @@ function getNextInformativoPreDocsSlot(st = {}) {
       }
     }
   }
+  if (!hasStateValue(getEtapa1InformativoValue(st, "visita_reserva_entrada_tem"))) {
+    return { topic: "reserva" };
+  }
+  if (!hasStateValue(getEtapa1InformativoValue(st, "visita_fgts_disponivel"))) {
+    return { topic: "fgts" };
+  }
+  const rendaTitular = resolveRendaTitularParaCursoSuperior(st);
+  if (Number.isFinite(rendaTitular) && rendaTitular <= 3500 && !hasStateValue(getEtapa1InformativoValue(st, "titular_curso_superior_status"))) {
+    return { topic: "escolaridade" };
+  }
   return null;
 }
 
@@ -1366,6 +1376,25 @@ function buildInformativoPreDocsQuestion(slot) {
       `Antes de te passar os documentos, me conta rapidinho o local de moradia ${slot.label}.`,
       "Pode ser bairro, região ou uma referência simples.",
       "Depois você pode enviar qualquer comprovante de residência atualizado."
+    ];
+  }
+  if (slot.topic === "reserva") {
+    return [
+      "Antes de liberar os documentos, só mais um ponto rápido:",
+      "Você tem alguma reserva para entrada?",
+      "Responda *sim* ou *não*."
+    ];
+  }
+  if (slot.topic === "fgts") {
+    return [
+      "Perfeito. E você tem FGTS disponível hoje?",
+      "Responda *sim* ou *não*."
+    ];
+  }
+  if (slot.topic === "escolaridade") {
+    return [
+      "Último ponto informativo antes dos documentos:",
+      "Você tem curso superior completo, incompleto, está cursando ou não tem curso superior?"
     ];
   }
   return [
@@ -1404,12 +1433,30 @@ async function maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt)
   if (!shouldCollectInformativosPreDocs(st)) return null;
   const infoSlot = getNextInformativoPreDocsSlot(st);
   if (!infoSlot) return null;
-  const infoField = informativoPreDocsField(infoSlot.topic, infoSlot.id);
   const userProvidedInfo = String(userText || "").trim();
-  if (!isGenericAckText(userProvidedInfo) && !hasStateValue(getEtapa1InformativoValue(st, infoField))) {
-    const patchInfo = buildEtapa1InformativosPatch(st, { [infoField]: userProvidedInfo });
-    await upsertState(env, st.wa_id, patchInfo);
-    Object.assign(st, patchInfo);
+  if (!isGenericAckText(userProvidedInfo)) {
+    let updates = null;
+    if (infoSlot.topic === "moradia" || infoSlot.topic === "trabalho") {
+      const infoField = informativoPreDocsField(infoSlot.topic, infoSlot.id);
+      if (!hasStateValue(getEtapa1InformativoValue(st, infoField))) {
+        updates = { [infoField]: userProvidedInfo };
+      }
+    } else if (infoSlot.topic === "reserva") {
+      const parsed = parseInformativoBoolean(userProvidedInfo);
+      if (parsed !== null) updates = { visita_reserva_entrada_tem: parsed };
+    } else if (infoSlot.topic === "fgts") {
+      const parsed = parseInformativoBoolean(userProvidedInfo);
+      if (parsed !== null) updates = { visita_fgts_disponivel: parsed };
+    } else if (infoSlot.topic === "escolaridade") {
+      const parsed = parseTitularCursoSuperiorStatus(userProvidedInfo);
+      if (parsed !== null) updates = { titular_curso_superior_status: parsed };
+    }
+
+    if (updates) {
+      const patchInfo = buildEtapa1InformativosPatch(st, updates);
+      await upsertState(env, st.wa_id, patchInfo);
+      Object.assign(st, patchInfo);
+    }
   }
   const remainingSlot = getNextInformativoPreDocsSlot(st);
   if (remainingSlot) {
@@ -1517,6 +1564,7 @@ function parseTitularCursoSuperiorStatus(text) {
   if (!nt) return null;
   if (/cursando|faculdade|universidade|graduacao em andamento|graduação em andamento/.test(nt)) return "cursando";
   if (/concluid|formad|completei|tenho curso superior/.test(nt)) return "concluido";
+  if (/incomplet/.test(nt)) return "incompleto";
   if (/nao|não|sem|medio|fundamental/.test(nt)) return "nao";
   return null;
 }
@@ -22538,6 +22586,8 @@ case "regularizacao_restricao_p3": {
       (st.renda_total_para_fluxo != null);
 
     if (titularFechado) {
+      const infoStepP3 = await maybeCaptureEtapa1PreDocsInput(env, st, userText, stage);
+      if (infoStepP3) return infoStepP3;
       return step(env, st,
         [
           "Ótimo! 👏",
@@ -24295,15 +24345,6 @@ const tNorm = normalizeText(t);
       /(menos de\s*36|menos de\s*3 anos)/i.test(tNorm)
     );
   
-  const respostaCtpsValida =
-    tNorm === "sim" ||
-    tNorm === "nao" ||
-    tNorm === "nao sei";
-  if (!respostaCtpsValida) {
-    const cursoSuperiorInformativo = await maybeHandleTitularCursoSuperiorPreCtps(env, st, userText, "ctps_36");
-    if (cursoSuperiorInformativo) return cursoSuperiorInformativo;
-  }
-
   const ehFinanciamentoConjunto = (
   st.financiamento_conjunto === true ||
   st.somar_renda === true
@@ -25233,6 +25274,8 @@ const modoFamiliar =
 
   // Se já tenho restrição do familiar e (se precisar) do P3, finaliza
   if (familiarJa && (!p3Precisa || p3Ja)) {
+    const infoStepModoFamiliar = await maybeCaptureEtapa1PreDocsInput(env, st, userText, stage);
+    if (infoStepModoFamiliar) return infoStepModoFamiliar;
     return step(env, st,
       [
         "Perfeito! 👌",
@@ -25665,6 +25708,9 @@ if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restric
   );
 }
 
+    const infoStepSemRestricao = await maybeCaptureEtapa1PreDocsInput(env, st, userText, stage);
+    if (infoStepSemRestricao) return infoStepSemRestricao;
+
     return step(env, st,
   [
   "Perfeito! 👌",
@@ -25710,6 +25756,9 @@ if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restric
     "restricao_parceiro_p3"
   );
 }
+
+    const infoStepIncerto = await maybeCaptureEtapa1PreDocsInput(env, st, userText, stage);
+    if (infoStepIncerto) return infoStepIncerto;
 
     return step(env, st,
   [
@@ -26152,11 +26201,6 @@ case "envio_docs": {
       incoming_media: !!st._incoming_media
     }
   });
-
-  if (!st._incoming_media) {
-    const infoStepPreDocs = await maybeCaptureEtapa1PreDocsInput(env, st, userText, "envio_docs");
-    if (infoStepPreDocs) return infoStepPreDocs;
-  }
 
   if (!st.canal_docs_status) {
     const seedCanal = {

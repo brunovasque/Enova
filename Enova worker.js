@@ -14799,10 +14799,14 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
     if (txt === "familiar" || txt === "familiar_p3") return "Familiar";
     return txt ? txt : "participante";
   };
-  const docsRecebidosUi = docsForUi.filter((doc) => String(doc?.status || "").trim().toLowerCase() !== "pendente");
+  const docsRecebidosUi = docsForUi.filter((doc) => String(doc?.access_link || "").trim());
+  const docsDocumentaisSemVinculoUi = docsForUi.filter((doc) => {
+    const status = String(doc?.status || "").trim().toLowerCase();
+    if (status === "pendente") return false;
+    return !String(doc?.access_link || "").trim();
+  });
   const docsPendentesUi = docsForUi.filter((doc) => String(doc?.status || "").trim().toLowerCase() === "pendente");
   const linksOperacionaisUi = docsRecebidosUi
-    .filter((doc) => String(doc?.access_link || "").trim())
     .map((doc) => ({
       tipo: String(doc?.tipo || "documento").trim() || "documento",
       participante: String(doc?.participante || "").trim().toLowerCase(),
@@ -14984,6 +14988,10 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
       ${docsRecebidosUi.length
         ? `<ul class="list">${docsRecebidosUi.map((doc) => `<li>${escapeHtml(String(doc?.tipo || "documento"))} — ${escapeHtml(formatRoleName(doc?.participante))}</li>`).join("")}</ul>`
         : "<div class=\"row muted\">Sem documentos recebidos mapeados.</div>"
+      }
+      ${docsDocumentaisSemVinculoUi.length
+        ? `<div class="warn"><strong>Registros documentais sem vínculo operacional:</strong> ${docsDocumentaisSemVinculoUi.map((doc) => `${escapeHtml(String(doc?.tipo || "documento"))} — ${escapeHtml(formatRoleName(doc?.participante))}`).join(" · ")}</div>`
+        : ""
       }
       <h2 class="section-kicker">Documentos Pendentes</h2>
       ${docsPendentesUi.length
@@ -15424,6 +15432,8 @@ async function handleCorrespondenteDocumentAccess(request, env) {
 
 function buildCorrespondentePrivateDocsLinksText(docs = [], st = null, options = {}) {
   const docsList = Array.isArray(docs) ? docs : [];
+  const docsModel = buildCorrespondenteWebDocsModel(docsList);
+  const receivedDocs = Array.isArray(docsModel?.receivedWithUrl) ? docsModel.receivedWithUrl : [];
   const pendingItems = Array.isArray(st?.envio_docs_itens_json)
     ? st.envio_docs_itens_json
       .filter((item) => !isEnvioDocsItemReceived(item))
@@ -15453,12 +15463,6 @@ function buildCorrespondentePrivateDocsLinksText(docs = [], st = null, options =
     }
     return "";
   };
-  const resolveStatus = (doc) => String(doc?.status || "").trim().toLowerCase();
-  const isReceivedDoc = (doc) => {
-    const status = resolveStatus(doc);
-    if (!status) return true;
-    return status !== "pendente";
-  };
   const formatDocName = (tipo, participanteRaw = null) => {
     const participant = String(participanteRaw || "").trim().toLowerCase();
     const participantSuffix = participant ? ` (${participant.toUpperCase()})` : "";
@@ -15466,8 +15470,7 @@ function buildCorrespondentePrivateDocsLinksText(docs = [], st = null, options =
   };
 
   const grouped = new Map();
-  let receivedDocIndex = 0;
-  for (const doc of docsList.filter(isReceivedDoc)) {
+  for (const doc of receivedDocs) {
     const tipo = normalizeDocType(doc?.tipo);
     const participant = String(doc?.participante || "").trim().toLowerCase();
     const key = `${tipo}|${participant}`;
@@ -15476,15 +15479,12 @@ function buildCorrespondentePrivateDocsLinksText(docs = [], st = null, options =
         tipo,
         participante: participant || null,
         display: formatDocName(tipo, participant),
-        links: [],
-        semLink: false
+        links: []
       });
     }
     const group = grouped.get(key);
-    const resolvedUrl = resolveDocumentUrl(doc, receivedDocIndex);
-    receivedDocIndex += 1;
+    const resolvedUrl = resolveDocumentUrl(doc, doc?.received_access_id || null);
     if (resolvedUrl) group.links.push(resolvedUrl);
-    else group.semLink = true;
   }
 
   const receivedLines = grouped.size
@@ -15504,8 +15504,6 @@ function buildCorrespondentePrivateDocsLinksText(docs = [], st = null, options =
     const uniqueLinks = [...new Set(entry.links)];
     if (uniqueLinks.length) {
       linkLines.push(`- ${entry.display}: ${uniqueLinks.join(" | ")}`);
-    } else if (entry.semLink) {
-      linkLines.push(`- ${entry.display}: link não disponível no arquivo enviado.`);
     }
   }
   if (!linkLines.length) linkLines.push("- Nenhum link disponível no momento.");
@@ -17225,7 +17223,24 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
   const historicoUploads = Array.isArray(stateFallback?.envio_docs_historico_json)
     ? stateFallback.envio_docs_historico_json
     : [];
+  const metaApiVersion = String(env?.META_API_VERSION || "v20.0").trim() || "v20.0";
   const resolveUrl = (doc) => resolveCorrespondenteDocumentUrl(doc);
+  const resolveOperationalUrl = (doc) => {
+    const directUrl = resolveUrl(doc);
+    if (directUrl) return directUrl;
+    const mediaRef = doc?.media_ref && typeof doc.media_ref === "object" ? doc.media_ref : null;
+    const mediaRefUrl = mediaRef ? resolveUrl(mediaRef) : "";
+    if (mediaRefUrl) return mediaRefUrl;
+    const mediaId = String(
+      doc?.media_id ||
+      doc?.mediaId ||
+      doc?.mid ||
+      mediaRef?.media_id ||
+      mediaRef?.mediaId ||
+      ""
+    ).trim();
+    return mediaId ? `https://graph.facebook.com/${metaApiVersion}/${mediaId}` : "";
+  };
   const toLower = (value) => String(value || "").trim().toLowerCase();
   const pickDocId = (...values) => {
     for (const value of values) {
@@ -17247,12 +17262,12 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
     );
     if (intrinsicId) return intrinsicId;
     const fingerprint = [
-      toLower(doc?.tipo),
-      toLower(doc?.participante),
-      String(resolveUrl(doc) || "").trim(),
-      String(doc?.file_name || doc?.filename || "").trim(),
-      String(doc?.created_at || doc?.at || "").trim(),
-      String(doc?.mime_type || doc?.mimetype || "").trim()
+        toLower(doc?.tipo),
+        toLower(doc?.participante),
+        String(resolveOperationalUrl(doc) || "").trim(),
+        String(doc?.file_name || doc?.filename || "").trim(),
+        String(doc?.created_at || doc?.at || "").trim(),
+        String(doc?.mime_type || doc?.mimetype || "").trim()
     ].join("|");
     const normalized = normalizeText(fingerprint).replace(/[^a-z0-9]+/g, "_").slice(0, 180);
     if (normalized) return `${prefix}_${normalized}`;
@@ -17270,7 +17285,7 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
     const participante = toLower(doc?.participante) || "desconhecido";
     const statusRaw = toLower(doc?.status);
     const status = statusRaw && statusRaw !== "pendente" ? statusRaw : "recebido";
-    const url = resolveUrl(doc);
+    const url = resolveOperationalUrl(doc);
     const normalizedDoc = {
       ...doc,
       doc_id: buildUploadFingerprintId(doc, prefix),
@@ -17301,8 +17316,8 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
         merged.set(key, doc);
         continue;
       }
-      const currentUrl = resolveUrl(current);
-      const nextUrl = resolveUrl(doc);
+      const currentUrl = resolveOperationalUrl(current);
+      const nextUrl = resolveOperationalUrl(doc);
       const pickNext =
         (!currentUrl && nextUrl) ||
         (toLower(current?.status) === "pendente" && toLower(doc?.status) !== "pendente");
@@ -17329,33 +17344,37 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
   const latestUploadByKey = new Map();
   for (let idx = historicoUploads.length - 1; idx >= 0; idx -= 1) {
     const row = historicoUploads[idx];
-    if (String(row?.origem || "").toLowerCase() !== "upload") continue;
+    if (!["upload", "confirmacao_textual"].includes(String(row?.origem || "").toLowerCase())) continue;
     const tipo = String(row?.associado?.tipo || row?.matched_checklist_item?.tipo || "").trim().toLowerCase();
     const participante = String(row?.associado?.participante || row?.matched_checklist_item?.participante || "").trim().toLowerCase();
     if (!tipo || !participante) continue;
+    if (!resolveOperationalUrl(row?.media_ref || row)) continue;
     const key = `${tipo}:${participante}`;
     if (!latestUploadByKey.has(key)) latestUploadByKey.set(key, row);
   }
   const withHistoryFallbackUrl = (doc) => {
-    const urlAtual = resolveUrl(doc);
+    const urlAtual = resolveOperationalUrl(doc);
     if (urlAtual) return doc;
     const tipo = String(doc?.tipo || "").trim().toLowerCase();
     const participante = String(doc?.participante || "").trim().toLowerCase();
     if (!tipo || !participante) return doc;
     const uploadRef = latestUploadByKey.get(`${tipo}:${participante}`);
     const mediaRef = uploadRef?.media_ref && typeof uploadRef.media_ref === "object" ? uploadRef.media_ref : {};
-    const fallbackUrl = resolveUrl(mediaRef);
+    const fallbackUrl = resolveOperationalUrl(mediaRef);
     return fallbackUrl ? { ...doc, url: fallbackUrl } : doc;
   };
   const stateReceivedDocs = stateDocsRaw
     .map(withHistoryFallbackUrl)
+    .filter((doc) => toLower(doc?.status) !== "pendente")
     .map((doc, idx) => normalizeRealUploadDoc({ ...doc, __source_idx: idx }, "state"));
   const historyReceivedDocs = historicoUploads
     .map((row, idx) => {
-      if (toLower(row?.origem) !== "upload") return null;
+      if (!["upload", "confirmacao_textual"].includes(toLower(row?.origem))) return null;
       const mediaRef = row?.media_ref && typeof row.media_ref === "object" ? row.media_ref : {};
       const tipo = toLower(row?.associado?.tipo || row?.matched_checklist_item?.tipo || row?.detected_doc_type || "") || "documento";
       const participante = toLower(row?.associado?.participante || row?.matched_checklist_item?.participante || "") || "desconhecido";
+      const materializedUrl = resolveOperationalUrl(mediaRef);
+      if (!materializedUrl) return null;
       return normalizeRealUploadDoc({
         doc_id: pickDocId(row?.upload_id, row?.doc_id, mediaRef?.media_id, row?.message_id),
         tipo,
@@ -17364,14 +17383,7 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
         media_id: mediaRef?.media_id || null,
         mime_type: mediaRef?.mime_type || null,
         file_name: mediaRef?.file_name || null,
-        url: String(
-          mediaRef?.url ||
-          mediaRef?.link ||
-          mediaRef?.document_url ||
-          mediaRef?.download_url ||
-          mediaRef?.media_url ||
-          ""
-        ).trim() || null,
+        url: materializedUrl || null,
         created_at: row?.at || null,
         __source_idx: idx
       }, "hist");

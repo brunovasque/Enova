@@ -120,4 +120,46 @@ async function fetchEntryHtml(env) {
   assert.equal(body.includes("Nenhum link operacional disponível no momento."), false);
 }
 
+// 4) Equivalências documentais do upload real devem projetar links operacionais para os itens finais do dossiê.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_itens_json = [
+    { tipo: "rg", participante: "p1", status: "recebido_pendente_validacao", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true },
+    { tipo: "cpf", participante: "p1", status: "recebido_pendente_validacao", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true },
+    { tipo: "comprovante_residencia", participante: "p1", status: "recebido_pendente_validacao", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true },
+    { tipo: "comprovante_renda", participante: "p1", status: "recebido_pendente_validacao", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true },
+    { tipo: "holerite_ultimo", participante: "p1", status: "recebido_pendente_validacao", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true },
+    { tipo: "ctps_completa", participante: "p1", status: "recebido_pendente_validacao", bucket: "obrigatorio", obrigatorio: false, bloqueante_operacional: false },
+  ];
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      { doc_id: "doc-cnh", tipo: "cnh", participante: "p1", status: "recebido", url: "https://docs.example.com/cnh.pdf" },
+      { doc_id: "doc-res", tipo: "comprovante_residencia", participante: "p1", status: "recebido", url: "https://docs.example.com/res.pdf" },
+      { doc_id: "doc-hol", tipo: "holerite", participante: "p1", status: "recebido", url: "https://docs.example.com/holerite.pdf" },
+      { doc_id: "doc-ctps", tipo: "ctps", participante: "p1", status: "recebido", url: "https://docs.example.com/ctps.pdf" },
+    ],
+  };
+
+  const body = await fetchEntryHtml(env);
+  assert.equal(body.includes("rg — Titular"), true);
+  assert.equal(body.includes("cpf — Titular"), true);
+  assert.equal(body.includes("comprovante_residencia — Titular"), true);
+  assert.equal(body.includes("comprovante_renda — Titular"), true);
+  assert.equal(body.includes("holerite_ultimo — Titular"), true);
+  assert.equal(body.includes("ctps_completa — Titular"), true);
+  assert.equal(body.includes("cnh — Titular"), false);
+  assert.equal(body.includes("holerite — Titular"), false);
+  assert.equal(body.includes("ctps — Titular"), false);
+  const openDocMatches = body.match(/>abrir documento</g) || [];
+  assert.equal(openDocMatches.length, 6);
+  const cnhProjectedLinks = body.match(/doc=doc_doc-cnh/g) || [];
+  const resLinks = body.match(/doc=doc_doc-res/g) || [];
+  const holeriteProjectedLinks = body.match(/doc=doc_doc-hol/g) || [];
+  const ctpsProjectedLinks = body.match(/doc=doc_doc-ctps/g) || [];
+  assert.equal(cnhProjectedLinks.length, 2);
+  assert.equal(resLinks.length, 1);
+  assert.equal(holeriteProjectedLinks.length, 2);
+  assert.equal(ctpsProjectedLinks.length, 1);
+}
+
 console.log("correspondente_operational_docs.smoke: ok");

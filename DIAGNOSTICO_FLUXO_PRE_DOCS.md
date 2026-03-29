@@ -314,10 +314,10 @@ A escolaridade deve migrar para o **bloco pré-docs informativo**. Razões:
 | 6 | L26031 | `regularizacao_restricao` | "não" + valor ≤ 1000 | ✅ Sim (L26021) |
 | 7 | L26065 | `regularizacao_restricao` | "talvez" | ✅ Sim (L26056) |
 | 8 | L22546 | `regularizacao_restricao_p3` | titular já fechado | ❌ **NÃO** |
-| 9 | L2537 | seed/init | Estado inicial semeado | N/A (bootstrap) |
-| 10 | L3093–3120 | test fixtures | Fixtures de teste | N/A (teste) |
 
-**Resultado:** 4 caminhos reais (#1, #2, #3, #8) chegam em `envio_docs` **sem passar por informativos**. Os caminhos #4–#7 passam, mas a chamada está no lugar errado (retorna com `stageForPrompt = stage` — ou seja, o informativo roda com o stage de regularizacao, não de envio_docs, e potencialmente re-entra em loop).
+> **Nota:** Existem também referências a `fase_conversa: "envio_docs"` em bootstrap/seed (L2537) e em test fixtures (L3093–3120), mas **não são caminhos de produção** e estão excluídos desta análise de cobertura.
+
+**Resultado:** Dos 8 caminhos de produção, **4 caminhos** (#1, #2, #3, #8) chegam em `envio_docs` **sem passar por informativos**. Os caminhos #4–#7 passam, mas a chamada está no lugar errado (retorna com `stageForPrompt = stage` — ou seja, o informativo roda com o stage de regularizacao, não de envio_docs, e potencialmente re-entra em loop).
 
 ### 5.3 Caminhos internos (loop em envio_docs)
 
@@ -518,7 +518,17 @@ if (!st._incoming_media) {
 **Risco:** Baixo — adiciona cobertura onde não existia.  
 **Impacto se falhar:** Leads destes caminhos ficam sem informativos (mesmo comportamento de hoje). Reversível.
 
-### Etapa 3 — Migrar escolaridade
+### Etapa 3 — Validação
+
+**Ação:**
+1. Testar fluxo: restricao → informativos → envio_docs → confirmação → lista → upload
+2. Cenários: com restrição (titular), com restrição (parceiro), sem restrição, modo familiar, modo conjunto, P3
+3. Confirmar que envio_docs **não** chama funções informativas
+4. Confirmar que todos os 8 entry points passam por informativos
+
+**Risco:** Zero (é validação).
+
+### Etapa 4 — Migrar escolaridade
 
 **Ação:**
 1. Adicionar `titular_curso_superior_status` à sequência de `getNextInformativoPreDocsSlot` (L1348–1360), com condição `renda ≤ 3500`
@@ -528,16 +538,6 @@ if (!st._incoming_media) {
 
 **Risco:** Médio — muda o ponto onde escolaridade é perguntada.  
 **Impacto se falhar:** Escolaridade para de ser capturada temporariamente. Reversível.
-
-### Etapa 4 — Validação completa
-
-**Ação:**
-1. Testar fluxo: restricao → informativos → envio_docs → confirmação → lista → upload
-2. Cenários: com restrição (titular), com restrição (parceiro), sem restrição, modo familiar, modo conjunto, P3
-3. Confirmar que envio_docs **não** chama funções informativas
-4. Confirmar que todos os 8 entry points passam por informativos
-
-**Risco:** Zero (é validação).
 
 ### Etapa 5 — Tratar bugs técnicos de docs (independente)
 
@@ -553,14 +553,16 @@ if (!st._incoming_media) {
 ### Ordem segura
 
 ```
-Etapa 1 (remover intruso) → Etapa 2 (cobrir caminhos) → Etapa 4 (validar) → Etapa 3 (escolaridade) → Etapa 5 (bugs)
+Etapa 1 (remover intruso) → Etapa 2 (cobrir caminhos) → Etapa 3 (validar) → Etapa 4 (escolaridade) → Etapa 5 (bugs)
 ```
+
+> **Nota:** A numeração segue a ordem de execução recomendada. Validação (Etapa 3) vem antes de migrar escolaridade (Etapa 4) porque é mais seguro confirmar que a remoção do intruso e cobertura dos caminhos funcionam antes de mexer num ponto diferente do funil.
 
 **Por que esta ordem:**
 - Etapa 1 é cirúrgica (4 linhas removidas) e de menor risco
 - Etapa 2 fecha a cobertura antes que qualquer lead fique sem informativos
-- Etapa 4 valida que o ciclo quebrado sumiu
-- Etapa 3 é de risco médio e pode esperar a validação
+- Etapa 3 valida que o ciclo quebrado sumiu
+- Etapa 4 é de risco médio e pode esperar a validação
 - Etapa 5 é independente e pode ser feita em paralelo
 
 ---

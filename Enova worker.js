@@ -673,7 +673,8 @@ async function upsertState(env, wa_id, payload) {
   const optionalMissingEnovaStateColumns = new Set([
     "last_message_id_prev",
     "last_message_timestamp",
-    "dossie_sinais_persistidos_json"
+    "dossie_sinais_persistidos_json",
+    "envio_docs_itens_json"
   ]);
   // Initial attempt + one retry for each optional allowlisted column that may need removal.
   const MAX_OPTIONAL_FALLBACK_RETRIES = optionalMissingEnovaStateColumns.size + 1;
@@ -8233,7 +8234,6 @@ async function persistDocumentDossier(env, st, dossier) {
     docs_validacao_atualizada: new Date().toISOString(),
     ultima_interacao_docs: new Date().toISOString()
   };
-  delete persistedDossier.envio_docs_itens_json;
   delete persistedDossier.envio_docs_historico_json;
   await upsertState(env, st.wa_id, persistedDossier);
   Object.assign(st, persistedDossier, {
@@ -9374,6 +9374,7 @@ function envioDocsHintTipoMatchesItemTipo(hintedTipoRaw, itemTipo) {
   const hinted = String(hintedTipoRaw || "").trim().toLowerCase();
   const item = String(itemTipo || "").trim().toLowerCase();
   if (!hinted || !item) return false;
+  if (hinted === item) return true;
   const coveredTypes = getEnvioDocsCoveredChecklistTypes(hinted);
   if (coveredTypes.length && coveredTypes.some((coveredType) => envioDocsCoveredTypeMatchesItemType(coveredType, item))) return true;
   if (normalizeEnvioDocsTipoForChecklist(hinted) === item) return true;
@@ -12612,6 +12613,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
         legacyResumoPatch.docs_status_geral = analiseStatusLegacy;
       }
       Object.assign(patch, legacyResumoPatch, pickEnvioDocsPersistedPacotePatch(pacotePayload));
+      patch.envio_docs_itens_json = itens;
       await upsertState(env, st.wa_id, patch);
       Object.assign(st, patch, {
         envio_docs_itens_json: itens,
@@ -13126,6 +13128,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       legacyResumoPatch.docs_status_geral = analiseStatusLegacy;
     }
     Object.assign(patch, legacyResumoPatch, pickEnvioDocsPersistedPacotePatch(pacotePayload));
+    patch.envio_docs_itens_json = itens;
     await upsertState(env, st.wa_id, patch);
     Object.assign(st, patch, {
       envio_docs_itens_json: itens,
@@ -26289,8 +26292,9 @@ case "envio_docs": {
       st.envio_docs_status !== progressSeed.envio_docs_status ||
       st.envio_docs_total_pendentes !== progressSeed.envio_docs_total_pendentes ||
       st.envio_docs_total_recebidos !== progressSeed.envio_docs_total_recebidos;
-    if (progressChanged) {
-      await upsertState(env, st.wa_id, progressSeed);
+    if (itensChanged || progressChanged) {
+      const reconPatch = { ...progressSeed, envio_docs_itens_json: st.envio_docs_itens_json };
+      await upsertState(env, st.wa_id, reconPatch);
       Object.assign(st, progressSeed);
     }
     const pacoteIncoerente =
@@ -26638,7 +26642,8 @@ const patchCanal = {
     principal: "whatsapp",
     alternativas_digitais: ["site"],
     visita: "reativa"
-  }
+  },
+  envio_docs_itens_json: itensEnvioDocs
 };
     await upsertState(env, st.wa_id, patchCanal);
     Object.assign(st, patchCanal);

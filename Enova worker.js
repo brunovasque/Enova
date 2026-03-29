@@ -12316,6 +12316,10 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
       ? [...st.envio_docs_itens_json]
       : generateChecklistForDocs(st);
     const itens = reconcileEnvioDocsItensWithSavedDossier(st, itensBase);
+    // Sync in-memory state so downstream functions (matchEnvioDocsClassificationToChecklist,
+    // selectEnvioDocsItemForUpload) see the generated/reconciled checklist when reading
+    // st.envio_docs_itens_json directly — prevents empty-checklist false "no_pending_item" matches.
+    st.envio_docs_itens_json = itens;
     const pendingUpload = (
       st?.envio_docs_ultimo_upload_pendente_confirmacao_json &&
       typeof st.envio_docs_ultimo_upload_pendente_confirmacao_json === "object"

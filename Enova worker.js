@@ -1496,7 +1496,8 @@ async function maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt)
   const infoSlot = getNextInformativoPreDocsSlot(st);
   if (!infoSlot) return null;
   const userProvidedInfo = String(userText || "").trim();
-  if (!isGenericAckText(userProvidedInfo)) {
+  const requiresNonGenericText = infoSlot.topic === "moradia" || infoSlot.topic === "trabalho";
+  if (!requiresNonGenericText || !isGenericAckText(userProvidedInfo)) {
     let updates = null;
     if (infoSlot.topic === "moradia" || infoSlot.topic === "trabalho") {
       const infoField = informativoPreDocsField(infoSlot.topic, infoSlot.id);

@@ -1,48 +1,193 @@
-# DIAGNÓSTICO ABSOLUTO + PLANO DE REORGANIZAÇÃO CIRÚRGICA
-## Fluxo pré-docs / envio_docs
+# DIAGNÓSTICO ABSOLUTO — INVENTÁRIO COMPLETO DO `envio_docs`
+## Pente fino total + Plano de reorganização cirúrgica
 
 > **Data:** 2026-03-29  
-> **Modo:** READ-ONLY — sem patch, sem implementação  
-> **Escopo:** Pente fino completo do fluxo, separação de problemas, proposta de arquitetura
+> **Modo:** READ-ONLY — sem patch, sem implementação, sem refatoração  
+> **Premissa:** `envio_docs` NÃO é "só docs" — contém partes canônicas que devem ficar
 
 ---
 
 ## 1. RESUMO EXECUTIVO
 
-### Problema central
-O `envio_docs` está contaminado por perguntas puramente informativas (local de moradia, local de trabalho) que são interceptadas **antes** de qualquer lógica de confirmação ou exibição de lista de documentos. Isso causa o seguinte ciclo quebrado:
+O stage `envio_docs` (linhas 26095–26708) acumula **20 responsabilidades distintas** dentro de um único case block de ~613 linhas. A grande maioria dessas responsabilidades é **canônica** e **deve permanecer**. Apenas **1 bloco** é intruso comprovado (linhas 26156–26159).
 
-```
-1. Usuário chega em envio_docs
-2. Sistema intercepta com pergunta informativa (moradia/trabalho)
-3. Usuário responde
-4. Sistema re-entra em envio_docs e faz nova pergunta informativa
-5. Só depois de todas informativas, sistema mostra confirmação ("Me confirma com sim que já libero a lista")
-6. Usuário diz "sim"
-7. Sistema re-entra em envio_docs → informativos já respondidos → finalmente libera lista
-```
+### O que está errado
+- A função `maybeCaptureEtapa1PreDocsInput` (L26156–26159) intercepta toda entrada de texto **antes** de qualquer lógica documental, gerando o ciclo: confirmação → pergunta informativa → re-confirmação.
+- Essa é a **única contaminação** dentro de `envio_docs`. Todo o resto é responsabilidade legítima do stage.
 
-O problema piora porque a mesma função `maybeCaptureEtapa1PreDocsInput` é chamada **também** dentro de `regularizacao_restricao`/`regularizacao_restricao_parceiro`, o que significa que em alguns fluxos as perguntas já foram feitas antes de chegar em `envio_docs`, mas em outros não.
+### O que precisa existir antes
+- Um novo bloco lógico pré-docs informativo por onde **todo caminho** que desemboca em `envio_docs` deve passar antes.
+- Esse bloco deve coletar moradia/trabalho/escolaridade **antes** da transição para `envio_docs`, e não dentro dele.
 
-### Segundo problema: escolaridade (curso superior)
-A pergunta de escolaridade (`titular_curso_superior_status`) existe **exclusivamente** no stage `ctps_36`, chamada via `maybeHandleTitularCursoSuperiorPreCtps`. Ela:
-- Só é ativada para renda ≤ R$ 3.500
-- Só é disparada quando a resposta do usuário **não** casa com padrões válidos de CTPS
-- Está **viva em runtime** mas com trigger frágil (depende de resposta não-reconhecida)
-- **NÃO** está duplicada em outro lugar do funil
-- **NÃO** está dentro de `envio_docs`
-
-### Terceiro problema: bug técnico de docs
-O bug técnico de docs (target/checklist/pending) é **independente** da contaminação informativa. São dois problemas separados que se manifestam no mesmo stage mas por razões diferentes.
+### O que continua dentro
+- Todo o ciclo de dossiê, canal, checklist, upload, reconciliação, pacote, análise, correspondente, visita documental, status — tudo canônico.
 
 ---
 
-## 2. ONDE O `envio_docs` FOI CONTAMINADO
+## 2. INVENTÁRIO COMPLETO DO `envio_docs`
 
-### 2.1 Ponto exato da contaminação
+### Limites do case block
+- **Início:** Linha 26095 (`case "envio_docs": {`)
+- **Fim:** Linha 26708 (closing `}`)
+- **Próximo case:** `agendamento_visita` na linha 26717
+- **Total:** ~613 linhas
 
-**Arquivo:** `Enova worker.js`  
-**Linha:** 26156-26159
+### Seção por seção
+
+#### SEÇÃO 1 — Helper: parseEnvioDocsCanal (L26096–26120)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Função pura local que classifica o texto do usuário em 7 flags booleanas: `pediuVisita`, `objecaoOnlineForte`, `recusaWhatsapp`, `recusaSite`, `pediuSite`, `pediuResumoPendencias`, `pediuAcompanhamentoStatus` |
+| **State lido** | Nenhum (função pura sobre texto) |
+| **State escrito** | Nenhum |
+| **Canônico?** | ✅ Sim — parseia intenção do canal de envio |
+| **Depende de envio_docs?** | ✅ Sim — só faz sentido neste stage |
+
+#### SEÇÃO 2 — Build/persistência de dossiê na entrada (L26122–26136)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Se `dossie_status !== "pronto"`, chama `buildDocumentDossierFromState(st)` + `persistDocumentDossier(env, st, dossier)`. Try-catch com telemetria de erro (`dossie_build_error`). |
+| **State lido** | `st.dossie_status` |
+| **State escrito** | Side-effect via persistDocumentDossier |
+| **Canônico?** | ✅ Sim — montagem do dossiê é pré-requisito documental |
+| **Depende de envio_docs?** | ✅ Sim |
+
+#### SEÇÃO 3 — Computação de `listaEnviada` (L26137–26139)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | `listaEnviada = st.envio_docs_lista_enviada === true \|\| st.docs_lista_enviada === true` |
+| **State lido** | `envio_docs_lista_enviada`, `docs_lista_enviada` |
+| **Canônico?** | ✅ Sim — gate central do fluxo de docs |
+
+#### SEÇÃO 4 — Telemetria de entrada (L26141–26154)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Emite evento `enter_phase` com `docs_lista_enviada` e `incoming_media` |
+| **Canônico?** | ✅ Sim — observabilidade |
+
+#### SEÇÃO 5 — ⚠️ CONTAMINAÇÃO: maybeCaptureEtapa1PreDocsInput (L26156–26159)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Se não há mídia, chama `maybeCaptureEtapa1PreDocsInput(env, st, userText, "envio_docs")`. Se retorna truthy → **return imediato**, saindo do handler antes de qualquer lógica documental. |
+| **State lido** | `st._incoming_media`, `st.restricao`, `st.regularizacao_restricao`, `st.restricao_parceiro`, campos de `controle.etapa1_informativos` |
+| **State escrito** | `controle.etapa1_informativos.informativo_moradia_*`, `controle.etapa1_informativos.informativo_trabalho_*` |
+| **Canônico?** | ❌ **INTRUSO** — perguntas informativas não pertencem à fase documental |
+| **Depende de envio_docs?** | ❌ Não — é coleta informativa de dossiê que deve ocorrer antes |
+
+#### SEÇÃO 6 — Inicialização do canal docs (L26161–26172)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Se `!st.canal_docs_status`, seed com `canal_docs_status: "pendente"` e opções de canal (whatsapp/site/visita reativa) |
+| **State escrito** | `canal_docs_status`, `canal_docs_opcoes_liberadas_json` |
+| **Canônico?** | ✅ Sim — setup do canal de envio |
+
+#### SEÇÃO 7 — Reconciliação de itens + recompute de progresso + consistency de pacote (L26174–26218)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | 3 sub-blocos: (A) reconcilia itens com dossiê via `reconcileEnvioDocsItensWithSavedDossier`, (B) recomputa progresso via `recomputeEnvioDocsProgress`, (C) se status = "completo" mas pacote incoerente → rebuild completo de análise + pacote correspondente |
+| **State lido** | `envio_docs_itens_json`, `envio_docs_status`, `pacote_status`, `pacote_participantes_json`, `pacote_documentos_anexados_json` |
+| **State escrito** | `envio_docs_itens_json`, `envio_docs_status`, `envio_docs_total_pendentes`, `envio_docs_total_recebidos`, `docs_status_geral`, `analise_docs_status`, `pacote_status` e campos do pacote |
+| **Funções chamadas** | `reconcileEnvioDocsItensWithSavedDossier`, `recomputeEnvioDocsProgress`, `buildEnvioDocsPlausiveisPendentesConferenciaFromState`, `buildAnaliseDocsPayloadFromEnvio`, `buildPacoteCorrespondentePayloadFromState`, `buildEnvioDocsLegacySummaryPatch`, `isEnvioDocsAwaitingTypeConfirmation`, `decodeEnvioDocsLegacyPendingConfirmation`, `pickEnvioDocsPersistedPacotePatch`, `mapAnaliseDocsStatusToLegacyStatus` |
+| **Canônico?** | ✅ Sim — motor central de reconciliação documental |
+| **Bug técnico presente?** | ⚠️ Sim — comparação via `JSON.stringify` (L26176) é frágil |
+
+#### SEÇÃO 8 — Handling de mídia/upload (L26220–26346)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Se `st._incoming_media` existe: (A) extrai e limpa flag, (B) chama `handleDocumentUpload(env, st, midia, {silent: true})`, (C) telemetria, (D) se erro → retorna com keepStage, (E) se silent mode → build resposta consolidada com matched/unmatched items + guidance, (F) se sem nextStage → computa se pacote ready para avançar para `finalizacao_processo`, (G) se tem nextStage → telemetria exit + step |
+| **Funções chamadas** | `handleDocumentUpload`, `buildEnvioDocsUploadGuidanceLines`, `prettyDocLabel`, `envioDocsParticipanteLabel`, `isCorrespondentePacoteReady` |
+| **Canônico?** | ✅ Sim — core do upload de documentos |
+| **Depende de envio_docs?** | ✅ Absolutamente |
+
+#### SEÇÃO 9 — Parse de texto (L26348–26354)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Normaliza texto, chama `parseEnvioDocsCanal`, computa `pronto` (aceitação) e `negar` (rejeição) |
+| **Canônico?** | ✅ Sim — classificação de intenção textual |
+
+#### SEÇÃO 10 — Elegibilidade de visita documental (L26356–26384)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Computa `elegivelVisitaDocumental` com 6 condições: contexto ativo, não enviado, não confirmou visita, não encerrado, mínimo 2 lembretes, sinal compatível com visita |
+| **State lido** | `fase_conversa`, `envio_docs_status`, `processo_enviado_correspondente`, `visita_confirmada`, `envio_docs_lembrete_count` |
+| **Funções chamadas** | `getOfficialFollowupCounters`, `getPersistedEtapaSignals`, `hasStateValue` |
+| **Canônico?** | ✅ Sim — gate para rota presencial de documentos |
+
+#### SEÇÃO 11 — Roteamento para visita (L26386–26442)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Se `elegivelVisitaDocumental`: monta patch de canal com `visita`, inicializa campos de visita, seta `visita_informativos_etapa1: true`, telemetria exit, retorna `step → "agendamento_visita"` |
+| **State escrito** | `canal_docs_*`, `visita_*`, `controle.etapa1_informativos.visita_informativos_etapa1` |
+| **Canônico?** | ✅ Sim — rota presencial é parte do fluxo documental |
+
+#### SEÇÃO 12 — Canal site (L26445–26470)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Se `pediuSite` ou `recusaWhatsapp`: monta patch com `canal_docs_escolhido: "site"`, persiste, responde com orientação. Fica em `envio_docs`. |
+| **State escrito** | `canal_docs_*` |
+| **Canônico?** | ✅ Sim — rota digital alternativa |
+
+#### SEÇÃO 13 — Resumo de pendências (L26472–26490)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Se `pediuResumoPendencias`: reconcilia itens, chama `envioDocsResumoPendencias`, responde com lista. Fica em `envio_docs`. |
+| **Funções chamadas** | `reconcileEnvioDocsItensWithSavedDossier`, `generateChecklistForDocs`, `envioDocsResumoPendencias` |
+| **Canônico?** | ✅ Sim — auto-serviço do cliente sobre pendências |
+
+#### SEÇÃO 14 — Confirmação de tipo de documento (text signal) (L26492–26505)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Se `isEnvioDocsAwaitingTypeConfirmation(st)` e lista já enviada: trata texto como `text_signal` para `handleDocumentUpload`. Avança para `finalizacao_processo` se pacote ready. |
+| **Canônico?** | ✅ Sim — confirmação de classificação de doc |
+
+#### SEÇÃO 15 — Cliente aceita receber lista (L26507–26549)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Se `pronto && !listaEnviada`: reconcilia/gera checklist, chama `buildEnvioDocsListaMensagens`, seta `docs_lista_enviada: true`, `envio_docs_lista_enviada: true`, `canal_docs_escolhido: "whatsapp"`. Fica em `envio_docs`. |
+| **State escrito** | `docs_lista_enviada`, `envio_docs_lista_enviada`, `envio_docs_lembrete_count`, `envio_docs_ultimo_pedido_em`, `canal_docs_*`, `envio_docs_itens_json` |
+| **Funções chamadas** | `reconcileEnvioDocsItensWithSavedDossier`, `generateChecklistForDocs`, `buildEnvioDocsListaMensagens` |
+| **Canônico?** | ✅ Sim — momento central do envio da lista |
+
+#### SEÇÃO 16 — Cliente adia (L26551–26573)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Se `negar`: seta `docs_lista_enviada: false`, telemetria, responde "Sem problema". Fica em `envio_docs`. |
+| **Canônico?** | ✅ Sim — tratamento de adiamento |
+
+#### SEÇÃO 17 — Primeira vez no stage (L26575–26593)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Se `!listaEnviada` (e não casou com nenhum path anterior): telemetria `prompt_first_time`, responde "Me confirma com *sim* que já libero a lista objetiva dos documentos." |
+| **Canônico?** | ✅ Sim — prompt de abertura |
+
+#### SEÇÃO 18 — Telemetria de texto sem mídia + lembrete (L26595–26612)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Emite `text_without_media`, incrementa `envio_docs_lembrete_count`, atualiza `envio_docs_ultimo_pedido_em` |
+| **State escrito** | `envio_docs_lembrete_count`, `envio_docs_ultimo_pedido_em` |
+| **Canônico?** | ✅ Sim — contagem de interações / observabilidade |
+
+#### SEÇÃO 19 — Acompanhamento de status (L26614–26702)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Se `pediuAcompanhamentoStatus`: reconcilia itens, verifica pendências. Se sem pendências → verifica status de correspondente/retorno. Branches: (A) docs em análise, (B) aguardando correspondente, (C) aprovado → `agendamento_visita`, (D) reprovado, (E) pendência documental, (F) pendência risco, (G) status genérico |
+| **State lido** | `envio_docs_itens_json`, `corr_publicacao_status`, `retorno_correspondente_status`, `retorno_correspondente_motivo`, `processo_enviado_correspondente`, `aguardando_retorno_correspondente` |
+| **State escrito** | Campos de visita (só no branch C - aprovado) |
+| **Canônico?** | ✅ Sim — auto-serviço de status + integração com correspondente |
+
+#### SEÇÃO 20 — Fallback (L26704–26708)
+| Aspecto | Detalhe |
+|---------|---------|
+| **O que faz** | Catch-all: "Pode me enviar os documentos por aqui mesmo". Fica em `envio_docs`. |
+| **Canônico?** | ✅ Sim — fallback obrigatório |
+
+---
+
+## 3. CONTAMINAÇÕES COMPROVADAS
+
+### 3.1 Contaminação única confirmada
+
+**Onde:** Linhas 26156–26159
 
 ```javascript
 if (!st._incoming_media) {
@@ -51,496 +196,403 @@ if (!st._incoming_media) {
 }
 ```
 
-Este bloco é executado **em TODA entrada de texto** no stage `envio_docs`, **antes de qualquer lógica de documentos**. É a primeira coisa que roda depois da telemetria de entrada (linha 26144) e da verificação de `listaEnviada` (linha 26137).
+**Por que contamina:**
+1. É executada **em toda entrada de texto** no stage `envio_docs`
+2. Roda **antes** de: seed de canal (S6), reconciliação (S7), parse de texto (S9), confirmação de lista (S15), primeiro prompt (S17)
+3. Se `shouldCollectInformativosPreDocs(st)` retorna `true` (tem restrição/regularização) e há slots pendentes → **retorna cedo**, o handler inteiro é abortado
+4. O `"sim"` do usuário (que deveria acionar S15 ou já acionar S17 na vez anterior) nunca chega ao parse — é interpretado como `isGenericAckText` e pula o slot, mas na próxima mensagem volta ao loop
 
-### 2.2 Cadeia exata de execução
-
+**Cadeia de execução do ciclo quebrado:**
 ```
-MENSAGEM DO USUÁRIO CHEGA → case "envio_docs" (L26095)
-  ↓
-  Monta dossiê se necessário (L26122-26135)
-  ↓
-  Verifica listaEnviada (L26137-26139)
-  ↓
-  Telemetria de entrada (L26144-26154)
-  ↓
-  *** INTERCEPTAÇÃO INFORMATIVA *** (L26156-26159)
-  if (!st._incoming_media) {
-    const infoStepPreDocs = await maybeCaptureEtapa1PreDocsInput(...)
-    if (infoStepPreDocs) return infoStepPreDocs  ← SAIR CEDO, NÃO CHEGA AOS DOCS
-  }
-  ↓  (só chega aqui se informativos estão completos ou inativos)
-  Seed canal docs se necessário (L26161-26172)
-  ↓
-  Reconcilia itens e progresso (L26174-26218)
-  ↓
-  Se mídia → handleDocumentUpload (L26223-26346)
-  ↓
-  Se texto → parse canal/pronto/negar (L26348-26354)
-  ↓
-  Se pronto && !listaEnviada → gera e envia lista (L26510-26548)
-  ↓
-  Se !listaEnviada → prompt de confirmação (L26578-26592)
+1. Usuário chega em envio_docs (vindo de regularizacao ou restricao)
+2. L26157: maybeCaptureEtapa1PreDocsInput → retorna pergunta de moradia
+3. Usuário responde com texto (ex: "Zona Sul")
+4. Re-entra em envio_docs → L26157 → retorna pergunta de trabalho
+5. Usuário responde com texto (ex: "Centro")
+6. Re-entra em envio_docs → L26157 → retorna null (slots preenchidos)
+7. Cai em S17 (prompt "Me confirma com sim...")
+8. Usuário responde "sim"
+9. Re-entra em envio_docs → L26157 → retorna null → cai em S15 → lista enviada
 ```
 
-### 2.3 O bug em cenário real
+**Resultado:** 3–4 mensagens extras antes de ver os documentos.
 
-**Cenário:** Usuário com restrição (`st.restricao = true`) que chega em `envio_docs` SEM ter respondido informativos na fase anterior.
+### 3.2 Existe outra interceptação informativa indevida?
 
-```
-Passo 1: regularizacao_restricao diz "sim" → nextStage = "envio_docs"
-Passo 2: Entra em envio_docs
-         L26157: maybeCaptureEtapa1PreDocsInput → retorna pergunta de moradia
-         Sistema: "Antes de te passar os documentos, me conta rapidinho o local de moradia seu."
-Passo 3: Usuário responde "Zona Sul"
-         Entra em envio_docs novamente
-         L26157: maybeCaptureEtapa1PreDocsInput → retorna pergunta de trabalho
-         Sistema: "Perfeito. Agora me conta o local de trabalho seu."
-Passo 4: Usuário responde "Centro"
-         Entra em envio_docs novamente
-         L26157: maybeCaptureEtapa1PreDocsInput → retorna null (tudo preenchido)
-         L26578: !listaEnviada → mostra confirmação
-         Sistema: "Me confirma com sim que já libero a lista objetiva dos documentos."
-Passo 5: Usuário responde "sim"
-         Entra em envio_docs novamente
-         L26157: maybeCaptureEtapa1PreDocsInput → retorna null (já preenchido)
-         L26510: pronto && !listaEnviada → finalmente envia a lista
-```
+**Não.** Fora do bloco L26156–26159, não há nenhuma outra chamada a funções informativas dentro do case `envio_docs`. As demais chamadas a `buildEtapa1InformativosPatch` dentro de `envio_docs` (linhas 26409, 26669) são para setar a flag `visita_informativos_etapa1: true` — o que é **canônico** (ativa informativos de visita no `agendamento_visita`, não aqui).
 
-**Resultado:** 3 mensagens extras antes de ver os documentos. O usuário esperava docs e recebeu perguntas sobre moradia/trabalho.
+### 3.3 Localização da mesma função nos stages corretos
 
-### 2.4 Segundo ponto de chamada: regularizacao_restricao
+`maybeCaptureEtapa1PreDocsInput` também é chamada em `regularizacao_restricao` / `regularizacao_restricao_parceiro`:
 
-**Linhas:** 25767, 25770-25771, 25931-25932, 25945-25946, 26021-26022, 26056-26057
+| Linha | Contexto | Quando chama |
+|-------|----------|-------------|
+| L25770 | `regularizacao_restricao` entry, se `regularizacao_restricao` já respondida | Antes de qualquer branch |
+| L25931 | Caso "sim" (parceiro sem restrição do titular) | Após gateAntesEnvioDocs() |
+| L25945 | Caso "sim" (default) | Após gateAntesEnvioDocs() |
+| L26021 | Caso "não" | Após gateAntesEnvioDocs() |
+| L26056 | Caso "talvez" | Após gateAntesEnvioDocs() |
 
-```javascript
-// L25767
-const maybeAskInformativosPreDocs = async () => maybeCaptureEtapa1PreDocsInput(env, st, userText, stage);
-
-// L25770-25771 (quando regularizacao_restricao já foi respondida)
-const infoStepAtual = await maybeAskInformativosPreDocs();
-if (infoStepAtual) return infoStepAtual;
-
-// L25931-25932 (caso "sim", parceiro sem restrição)
-const infoStepParceiro = await maybeAskInformativosPreDocs();
-if (infoStepParceiro) return infoStepParceiro;
-
-// L25945-25946 (caso "sim", default)
-const infoStepSim = await maybeAskInformativosPreDocs();
-if (infoStepSim) return infoStepSim;
-
-// L26021-26022 (caso "não")
-const infoStepNao = await maybeAskInformativosPreDocs();
-if (infoStepNao) return infoStepNao;
-
-// L26056-26057 (caso "talvez")
-const infoStepTalvez = await maybeAskInformativosPreDocs();
-if (infoStepTalvez) return infoStepTalvez;
-```
-
-### 2.5 Cenários de duplicidade de captura
-
-| Cenário | Perguntado em regularizacao? | Perguntado em envio_docs? | Resultado |
-|---------|:---:|:---:|---|
-| Tem restrição, responde sim/não/talvez e informativos completam na mesma fase | ✅ | ❌ (null) | OK mas misturado com regularização |
-| Tem restrição, responde sim e ainda falta informativo | ✅ parcial | ✅ resíduo | Ruim — re-pergunta em envio_docs |
-| Sem restrição (vai direto de restricao → envio_docs) | ❌ | ❌ | OK — shouldCollect retorna false |
-| Tem restrição mas informativos nunca perguntados | ❌ | ✅ total | Péssimo — contamina envio_docs inteiro |
-
-### 2.6 Flags/campos causadores
-
-| Campo | Onde causa | Efeito |
-|-------|-----------|--------|
-| `st.restricao` | `shouldCollectInformativosPreDocs` (L1379) | Se tem valor → habilita informativos |
-| `st.regularizacao_restricao` | `shouldCollectInformativosPreDocs` (L1380) | Se tem valor → habilita informativos |
-| `st.restricao_parceiro` | `shouldCollectInformativosPreDocs` (L1381) | Se tem valor → habilita informativos |
-| `controle.etapa1_informativos.informativo_moradia_p1` | `getNextInformativoPreDocsSlot` (L1354) | Se vazio → pendente |
-| `controle.etapa1_informativos.informativo_trabalho_p1` | `getNextInformativoPreDocsSlot` (L1354) | Se vazio → pendente |
+Estes pontos são **parcialmente corretos** — estão no lugar certo do funil (pós-gate, pré-envio_docs), mas nem todos os caminhos para envio_docs passam por eles (ver Bloco 5).
 
 ---
 
-## 3. INVENTÁRIO COMPLETO DAS PERGUNTAS INFORMATIVAS
-
-### 3.1 Perguntas pré-docs (moradia/trabalho)
-
-| # | Pergunta | Campo no state | Stage(s) onde é feita | Viva em runtime? | Decisória? | Lugar correto? |
-|---|----------|---------------|----------------------|:---:|:---:|:---:|
-| 1 | Local de moradia (titular) | `informativo_moradia_p1` | `regularizacao_restricao`, `envio_docs` | ✅ | ❌ Informativa | ❌ Errado em envio_docs |
-| 2 | Local de trabalho (titular) | `informativo_trabalho_p1` | `regularizacao_restricao`, `envio_docs` | ✅ | ❌ Informativa | ❌ Errado em envio_docs |
-| 3 | Local de moradia (parceiro) | `informativo_moradia_p2` | `regularizacao_restricao`, `envio_docs` | ✅ | ❌ Informativa | ❌ Errado em envio_docs |
-| 4 | Local de trabalho (parceiro) | `informativo_trabalho_p2` | `regularizacao_restricao`, `envio_docs` | ✅ | ❌ Informativa | ❌ Errado em envio_docs |
-| 5 | Local de moradia (P3) | `informativo_moradia_p3` | `regularizacao_restricao`, `envio_docs` | ✅ (se p3) | ❌ Informativa | ❌ Errado em envio_docs |
-| 6 | Local de trabalho (P3) | `informativo_trabalho_p3` | `regularizacao_restricao`, `envio_docs` | ✅ (se p3) | ❌ Informativa | ❌ Errado em envio_docs |
-
-**Persistência:** Todas em `controle.etapa1_informativos` (via `buildEtapa1InformativosPatch`).  
-**Uso:** Dossiê/correspondente apenas. Não afetam gates.  
-**Condição de ativação:** `shouldCollectInformativosPreDocs(st)` — requer pelo menos um de: `restricao`, `regularizacao_restricao`, `restricao_parceiro` com valor.
-
-### 3.2 Perguntas de visita (agendamento_visita)
-
-| # | Pergunta | Campo no state | Stage | Viva? | Decisória? | Lugar correto? |
-|---|----------|---------------|-------|:---:|:---:|:---:|
-| 7 | Reserva para entrada | `visita_reserva_entrada_tem` | `agendamento_visita` | ✅ | ❌ Informativa | ✅ Correto |
-| 8 | FGTS disponível | `visita_fgts_disponivel` | `agendamento_visita` | ✅ | ❌ Informativa | ✅ Correto |
-| 9 | Decisor adicional | `visita_decisor_adicional_visita` | `agendamento_visita` | ✅ | ❌ Informativa | ✅ Correto |
-| 10 | Nome do decisor | `visita_decisor_adicional_nome` | `agendamento_visita` | ✅ (se decisor=true) | ❌ Informativa | ✅ Correto |
-
-**Persistência:** Todas em `controle.etapa1_informativos`.  
-**Condição:** `visita_informativos_etapa1 === true` (flag setada quando visita é ativada, L26409).  
-**Nota:** Estas estão no lugar correto (agendamento_visita). Não contaminam envio_docs.
-
-### 3.3 Perguntas de autônomo
-
-| # | Pergunta | Campo no state | Stage | Viva? | Decisória? | Lugar correto? |
-|---|----------|---------------|-------|:---:|:---:|:---:|
-| 11 | Profissão/atividade | `titular_autonomo_profissao_atividade` | `autonomo_ir_pergunta` | ✅ | ❌ Informativa | ✅ Correto |
-| 12 | MEI/PJ status | `titular_autonomo_mei_pj_status` | `autonomo_ir_pergunta` | ✅ | ❌ Informativa | ✅ Correto |
-| 13 | Estabilidade da renda | `titular_autonomo_renda_estabilidade` | `autonomo_ir_pergunta` | ✅ | ❌ Informativa | ✅ Correto |
-
-**Persistência:** Todas em `controle.etapa1_informativos`.  
-**Nota:** Estas estão no lugar correto (autonomo_ir_pergunta). Não contaminam envio_docs.
-
-### 3.4 Pergunta de escolaridade
-
-| # | Pergunta | Campo no state | Stage | Viva? | Decisória? | Lugar correto? |
-|---|----------|---------------|-------|:---:|:---:|:---:|
-| 14 | Curso superior status | `titular_curso_superior_status` | `ctps_36` | ⚠️ Parcialmente | ❌ Informativa | ⚠️ Ver Bloco 4 |
-
-**Detalhamento no Bloco 4 abaixo.**
-
----
-
-## 4. MAPA COMPLETO DA ESCOLARIDADE NO FUNIL
+## 4. MAPA COMPLETO DA ESCOLARIDADE
 
 ### 4.1 Único ponto de existência
 
-**Arquivo:** `Enova worker.js`  
-**Função:** `maybeHandleTitularCursoSuperiorPreCtps` — Linhas 1524-1552  
-**Chamada em:** Stage `ctps_36` — Linha 24303  
-**Campo:** `titular_curso_superior_status`  
-**Armazenamento:** `controle.etapa1_informativos`
+| Aspecto | Detalhe |
+|---------|---------|
+| **Função** | `maybeHandleTitularCursoSuperiorPreCtps` (L1524–1552) |
+| **Parser** | `parseTitularCursoSuperiorStatus` (L1515–1522) |
+| **Renda resolver** | `resolveRendaTitularParaCursoSuperior` (L1499–1513) |
+| **Chamada em** | Stage `ctps_36` (L24302–24304) |
+| **Campo** | `titular_curso_superior_status` em `controle.etapa1_informativos` |
+| **Valores** | `"concluido"`, `"cursando"`, `"nao"` |
 
-### 4.2 Condições para disparo
+### 4.2 Condições de disparo
 
 ```javascript
-// L1524-1527
-const rendaTitular = resolveRendaTitularParaCursoSuperior(st);  // st.renda ou st.renda_total_para_fluxo
-const jaCapturado = hasStateValue(getEtapa1InformativoValue(st, "titular_curso_superior_status"));
+// L24302-24304 (dentro de ctps_36)
+if (!respostaCtpsValida) {
+  const cursoSuperiorInformativo = await maybeHandleTitularCursoSuperiorPreCtps(env, st, userText, "ctps_36");
+  if (cursoSuperiorInformativo) return cursoSuperiorInformativo;
+}
+
+// L1527 (dentro da função)
 if (!Number.isFinite(rendaTitular) || rendaTitular > 3500 || jaCapturado) return null;
 ```
 
-**Condições necessárias para perguntar:**
-1. `renda` ou `renda_total_para_fluxo` deve ser numérica e finita
-2. Valor da renda ≤ R$ 3.500
+**Trigger triplo:**
+1. Resposta do usuário **não** casa com `"sim"` / `"nao"` / `"nao sei"` (respostas válidas de CTPS)
+2. Renda do titular ≤ R$ 3.500
 3. Ainda não capturado
 
-**Condição adicional no caller (L24302):**
-```javascript
-if (!respostaCtpsValida) {
-  const cursoSuperiorInformativo = await maybeHandleTitularCursoSuperiorPreCtps(...);
-```
+### 4.3 Status
 
-A pergunta **SÓ é feita quando a resposta do usuário NÃO casa com as respostas válidas de CTPS** (que são exatamente `"sim"`, `"nao"`, `"nao sei"`). Isso significa:
-- Se o usuário responde "sim" à pergunta CTPS → escolaridade NUNCA é perguntada
-- Se o usuário responde "não" → escolaridade NUNCA é perguntada
-- Se o usuário responde "não sei" → escolaridade NUNCA é perguntada
-- Se o usuário responde qualquer outra coisa (texto livre) → aí sim é perguntada
-
-### 4.3 Status da escolaridade
-
-| Aspecto | Status |
-|---------|--------|
+| Verificação | Resultado |
+|-------------|-----------|
 | Existe no código? | ✅ Sim, em `ctps_36` |
-| Está viva em runtime? | ⚠️ **Parcialmente** — só dispara para renda ≤ 3500 E resposta não-válida de CTPS |
-| Está duplicada? | ❌ Não há outro ponto no código |
-| Está morta/fantasma? | ⚠️ **Quase morta** — o trigger é tão restritivo que na maioria dos casos não dispara |
-| Persiste no state? | ✅ Quando capturada, vai para `controle.etapa1_informativos.titular_curso_superior_status` |
-| É lida pelo dossiê? | ✅ Sim, em `getPersistedEtapaSignals` (L1255) |
+| Está viva em runtime? | ⚠️ **Parcialmente** — trigger muito restritivo |
+| Está duplicada? | ❌ Não existe em nenhum outro lugar |
+| Está em lugar errado? | ⚠️ Está em lugar **frágil** — depende de resposta inválida de CTPS |
+| Persiste no state? | ✅ Via `buildEtapa1InformativosPatch` |
+| É lida pelo dossiê? | ✅ Via `getPersistedEtapaSignals` (L1255) |
 
-### 4.4 Análise de risco
+### 4.4 Problema real
 
-**Risco 1: Ponto quase-morto.** A escolaridade depende de:
-- Renda ≤ R$ 3.500 (condição de faixa)
-- Resposta do usuário não ser "sim"/"nao"/"nao sei" no contexto de CTPS
-- A maioria dos usuários responde "sim" ou "não" à pergunta CTPS, então a escolaridade quase nunca é perguntada
+A escolaridade quase nunca é perguntada porque:
+- A maioria dos usuários responde "sim", "não" ou "não sei" à pergunta CTPS → `respostaCtpsValida = true` → escolaridade nem é tentada
+- Mesmo se resposta inválida, precisa de renda ≤ 3500
+- É efetivamente um **ponto quase-morto** no funil
 
-**Risco 2: Não está no lugar errado, mas está no lugar frágil.** Estar dentro de `ctps_36` como fallback de resposta não-reconhecida faz sentido contextual (se o usuário está confuso e o sistema aproveita para perguntar), mas é arquiteturalmente fraco.
+### 4.5 Onde deve ficar na nova arquitetura
 
-**Risco 3: Sem duplicidade.** Não há outro ponto no funil que pergunte sobre escolaridade. A pergunta existe **apenas** em `ctps_36`.
-
-### 4.5 Lugar correto para escolaridade na nova arquitetura
-
-A escolaridade deve migrar para o **trilho pré-docs informativo** proposto no Bloco 5. Razões:
-- É puramente informativa (não bloqueia gates)
-- Enriquece o dossiê
-- Atualmente quase nunca é perguntada (trigger frágil)
-- No trilho próprio, terá trigger confiável e previsível
+A escolaridade deve migrar para o **bloco pré-docs informativo**. Razões:
+- É puramente informativa (não bloqueia gates, não afeta decisão)
+- Enriquece dossiê/correspondente
+- No bloco próprio terá trigger confiável (não depende de resposta inválida)
+- Pode ter condição simplificada: perguntar quando renda ≤ 3500 (sem depender de CTPS)
 
 ---
 
-## 5. ARQUITETURA CORRETA DO NOVO TRILHO PRÉ-DOCS INFORMATIVO
+## 5. ARQUITETURA CORRETA DO NOVO BLOCO PRÉ-DOCS
 
-### 5.1 Princípio
+### 5.1 Requisito obrigatório
 
-Criar um **bloco lógico** (não necessariamente um novo stage) que:
-- Executa DEPOIS de todos os gates decisórios (restrição, regularização, parceiro, P3)
-- Executa ANTES da confirmação da lista de documentos
-- É transparente para o trilho mecânico (não muda nextStage, não muda gates)
-- Captura informações **somente informativas** para dossiê/correspondente
+**Todo caminho que hoje desemboca em `envio_docs` deve primeiro passar pelo bloco informativo.** Não apenas os que vêm de regularização/restrição.
 
-### 5.2 Posição exata no funil
+### 5.2 Mapa completo de TODOS os entry points em `envio_docs` (externos)
+
+| # | Linha | Stage de origem | Condição | Passa por informativos hoje? |
+|---|-------|----------------|----------|:---:|
+| 1 | L25242 | `restricao` | Modo familiar + restrições coletadas | ❌ **NÃO** |
+| 2 | L25674 | `restricao_parceiro` | Parceiro sem restrição (nao) | ❌ **NÃO** |
+| 3 | L25720 | `restricao_parceiro` | Parceiro incerto | ❌ **NÃO** |
+| 4 | L25939 | `regularizacao_restricao_parceiro` | "sim" + titular sem restrição | ✅ Sim (L25931) |
+| 5 | L25954 | `regularizacao_restricao` | "sim" (default) | ✅ Sim (L25945) |
+| 6 | L26031 | `regularizacao_restricao` | "não" + valor ≤ 1000 | ✅ Sim (L26021) |
+| 7 | L26065 | `regularizacao_restricao` | "talvez" | ✅ Sim (L26056) |
+| 8 | L22546 | `regularizacao_restricao_p3` | titular já fechado | ❌ **NÃO** |
+| 9 | L2537 | seed/init | Estado inicial semeado | N/A (bootstrap) |
+| 10 | L3093–3120 | test fixtures | Fixtures de teste | N/A (teste) |
+
+**Resultado:** 4 caminhos reais (#1, #2, #3, #8) chegam em `envio_docs` **sem passar por informativos**. Os caminhos #4–#7 passam, mas a chamada está no lugar errado (retorna com `stageForPrompt = stage` — ou seja, o informativo roda com o stage de regularizacao, não de envio_docs, e potencialmente re-entra em loop).
+
+### 5.3 Caminhos internos (loop em envio_docs)
+
+Estes são step() calls que mantêm o usuário em `envio_docs`:
+
+| Linha | Contexto | Detalhe |
+|-------|----------|---------|
+| L26245 | Upload falhou | `resposta.keepStage \|\| "envio_docs"` |
+| L26323 | Upload OK, pacote não ready | Fica em envio_docs |
+| L26332 | Upload OK, sem nextStage | Fica em envio_docs |
+| L26469 | Canal site definido | Fica em envio_docs |
+| L26484/26489 | Resumo pendências | Fica em envio_docs |
+| L26504 | Type confirmation | Fica em envio_docs (ou finalizacao) |
+| L26548 | Lista aceita | Fica em envio_docs |
+| L26572 | Adiado | Fica em envio_docs |
+| L26592 | Primeiro prompt | Fica em envio_docs |
+| L26627/46/53 | Status pendente | Fica em envio_docs |
+| L26683/89/96/700 | Retorno correspondente | Fica em envio_docs |
+| L26707 | Fallback | Fica em envio_docs |
+
+Estes NÃO precisam de bloco pré-docs — o usuário já está dentro da fase documental.
+
+### 5.4 Arquitetura proposta
+
+**Implementação recomendada:** Sub-bloco nos pontos de saída, não um novo stage.
 
 ```
-... 
-→ restricao (decisório ✅)
-→ restricao_parceiro (decisório ✅)
-→ regularizacao_restricao (decisório ✅)
-→ regularizacao_restricao_parceiro (decisório ✅)
-→ regularizacao_restricao_p3 (decisório ✅)
-───────────────────────────────────
-│                                 │
-│  ★ TRILHO PRÉ-DOCS INFORMATIVO │  ← AQUI
-│     (moradia, trabalho,         │
-│      escolaridade, FGTS,        │
-│      reserva entrada)           │
-│                                 │
-───────────────────────────────────
-→ envio_docs: confirmação da lista (mecânico ✅)
-→ envio_docs: exibição da lista (mecânico ✅)
-→ envio_docs: upload de documentos (mecânico ✅)
-→ finalizacao_processo / agendamento_visita
+ANTES (hoje):
+  regularizacao_restricao → [informativos misturados] → step("envio_docs")
+  restricao (familiar)    → step("envio_docs")  // SEM informativos
+  restricao_parceiro      → step("envio_docs")  // SEM informativos
+  regularizacao_p3        → step("envio_docs")  // SEM informativos
+
+DEPOIS (proposta):
+  regularizacao_restricao → [informativos no gate de saída] → step("envio_docs")
+  restricao (familiar)    → [informativos no gate de saída] → step("envio_docs")
+  restricao_parceiro      → [informativos no gate de saída] → step("envio_docs")
+  regularizacao_p3        → [informativos no gate de saída] → step("envio_docs")
+  
+  envio_docs              → [SEM informativos — apenas docs]
 ```
 
-### 5.3 Perguntas que entram no trilho informativo
+### 5.5 Perguntas do bloco pré-docs
 
 | # | Pergunta | Campo | Obrigatória? | Condição |
 |---|----------|-------|:---:|----------|
 | 1 | Local de moradia (titular) | `informativo_moradia_p1` | Sim | Sempre |
 | 2 | Local de trabalho (titular) | `informativo_trabalho_p1` | Sim | Sempre |
-| 3 | Local de moradia (parceiro/P2) | `informativo_moradia_p2` | Condicional | Se `financiamento_conjunto` ou `somar_renda` |
-| 4 | Local de trabalho (parceiro/P2) | `informativo_trabalho_p2` | Condicional | Se `financiamento_conjunto` ou `somar_renda` |
-| 5 | Local de moradia (P3) | `informativo_moradia_p3` | Condicional | Se `p3_required && p3_done` |
-| 6 | Local de trabalho (P3) | `informativo_trabalho_p3` | Condicional | Se `p3_required && p3_done` |
-| 7 | Escolaridade (titular) | `titular_curso_superior_status` | Condicional | Se renda ≤ R$ 3.500 |
-| 8 | FGTS disponível | `fgts_disponivel_pre_docs` | Opcional | Sempre (se não capturado em visita) |
-| 9 | Reserva para entrada | `reserva_entrada_tem_pre_docs` | Opcional | Sempre (se não capturado em visita) |
+| 3 | Local de moradia (P2) | `informativo_moradia_p2` | Cond. | Se composição conjunta/familiar |
+| 4 | Local de trabalho (P2) | `informativo_trabalho_p2` | Cond. | Se composição conjunta/familiar |
+| 5 | Local de moradia (P3) | `informativo_moradia_p3` | Cond. | Se `p3_required && p3_done` |
+| 6 | Local de trabalho (P3) | `informativo_trabalho_p3` | Cond. | Se `p3_required && p3_done` |
+| 7 | Escolaridade (titular) | `titular_curso_superior_status` | Cond. | Se renda ≤ R$ 3.500 |
 
-### 5.4 Ordem de execução
+### 5.6 Pontos exatos que precisam de injeção do bloco
 
+| # | Linha | Stage | Ação necessária |
+|---|-------|-------|-----------------|
+| 1 | L25242 | `restricao` | Adicionar chamada informativa ANTES do `step("envio_docs")` |
+| 2 | L25674 | `restricao_parceiro` (não) | Adicionar chamada informativa ANTES do `step("envio_docs")` |
+| 3 | L25720 | `restricao_parceiro` (incerto) | Adicionar chamada informativa ANTES do `step("envio_docs")` |
+| 4 | L25939 | `regularizacao_restricao_parceiro` (sim) | **Já tem** (L25931) — manter |
+| 5 | L25954 | `regularizacao_restricao` (sim) | **Já tem** (L25945) — manter |
+| 6 | L26031 | `regularizacao_restricao` (não) | **Já tem** (L26021) — manter |
+| 7 | L26065 | `regularizacao_restricao` (talvez) | **Já tem** (L26056) — manter |
+| 8 | L22546 | `regularizacao_restricao_p3` | Adicionar chamada informativa ANTES do `step("envio_docs")` |
+
+### 5.7 Condição `shouldCollectInformativosPreDocs`
+
+Hoje (L1377–1383):
+```javascript
+function shouldCollectInformativosPreDocs(st = {}) {
+  return (
+    hasStateValue(st.restricao) ||
+    hasStateValue(st.regularizacao_restricao) ||
+    hasStateValue(st.restricao_parceiro)
+  );
+}
 ```
-1. moradia_p1 → trabalho_p1
-2. moradia_p2 → trabalho_p2 (se aplicável)
-3. moradia_p3 → trabalho_p3 (se aplicável)
-4. escolaridade (se renda ≤ 3500)
-5. reserva_entrada (se não capturado em agendamento_visita)
-6. fgts_disponivel (se não capturado em agendamento_visita)
-```
 
-### 5.5 Detalhes de implementação (conceitual)
-
-**Opção A: Novo stage `pre_docs_informativos`**
-- Mais limpo, mais isolado
-- Requer ajustar nextStage de `regularizacao_restricao` → `pre_docs_informativos` → `envio_docs`
-- Impacto médio nos gates
-
-**Opção B: Sub-bloco dentro de `regularizacao_restricao` (antes do envio para envio_docs)**
-- Menos invasivo
-- Já existe parcialmente (linhas 25770, 25931, 25945, 26021, 26056)
-- Bastaria:
-  1. Remover os informativos de dentro de `envio_docs` (L26156-26159)
-  2. Garantir que `regularizacao_restricao` sempre pergunta os informativos antes de transicionar para `envio_docs`
-  3. Mover escolaridade para o mesmo bloco
-
-**Recomendação:** Opção B (sub-bloco no gate de saída de regularizacao/restricao). Razões:
-- Já existe parcialmente implementado
-- Não cria novo stage (menos risco de quebrar routing)
-- Mantém o trilho mecânico inalterado
-- `envio_docs` fica limpo
-
-### 5.6 Condição crítica: fluxo SEM restrição
-
-Hoje, `shouldCollectInformativosPreDocs` só retorna `true` se o usuário **tem** restrição. Usuários sem restrição passam direto para `envio_docs` sem informativos.
-
-**Na nova arquitetura**, se quisermos que TODOS os usuários respondam informativos:
-- Remover a condição `shouldCollectInformativosPreDocs` ou torná-la `true` sempre
-- OU criar um gate explícito antes de `envio_docs` para todos os caminhos
-
-Se quisermos manter apenas para usuários com restrição:
-- A lógica atual de `shouldCollectInformativosPreDocs` já serve
-- Basta mover a chamada para FORA de `envio_docs`
-
-### 5.7 O que NÃO pode mais ficar dentro de `envio_docs`
-
-| O que remover | Linha atual | Motivo |
-|---------------|-------------|--------|
-| `maybeCaptureEtapa1PreDocsInput` | L26156-26159 | Contamina a fase de documentos com perguntas informativas |
-
-**Soberano em `envio_docs` (deve permanecer):**
-- Toda lógica de canal docs (L26096-26120, L26161-26172)
-- Reconciliação de itens (L26174-26218)
-- handleDocumentUpload (L26223-26346)
-- Parse de texto/confirmação (L26348-26592)
-- Lógica de visita documental (L26356-26442)
-- Status/pendências/acompanhamento (L26444-26708)
+**Decisão de design:**
+- Se informativos devem ser perguntados para **TODOS** os leads → mudar para `return true;`
+- Se devem ser perguntados apenas para leads com restrição → manter como está
+- **Recomendação:** Manter como está inicialmente (menor risco). Se necessário ampliar, fazer em etapa separada.
 
 ---
 
-## 6. SEPARAÇÃO ENTRE ARQUITETURA ERRADA E BUG TÉCNICO DE DOCS
+## 6. TABELA: FICA / SAI / MIGRA
+
+### Responsabilidades do `envio_docs`
+
+| # | Responsabilidade | Seção | Linhas | Veredicto | Justificativa |
+|---|-----------------|-------|--------|:---------:|---------------|
+| 1 | Helper parseEnvioDocsCanal | S1 | 26096–26120 | **FICA** | Parseia intenção de canal — exclusivo de envio_docs |
+| 2 | Build/persist dossiê | S2 | 26122–26136 | **FICA** | Pré-requisito documental |
+| 3 | Computação listaEnviada | S3 | 26137–26139 | **FICA** | Gate central do fluxo |
+| 4 | Telemetria de entrada | S4 | 26141–26154 | **FICA** | Observabilidade |
+| 5 | maybeCaptureEtapa1PreDocsInput | S5 | 26156–26159 | **SAI** | ❌ Intruso — perguntas informativas não são docs |
+| 6 | Seed canal docs | S6 | 26161–26172 | **FICA** | Setup de canal |
+| 7 | Reconciliação + progresso + pacote | S7 | 26174–26218 | **FICA** | Motor de reconciliação documental |
+| 8 | Handling de mídia/upload | S8 | 26220–26346 | **FICA** | Core do upload |
+| 9 | Parse de texto | S9 | 26348–26354 | **FICA** | Classificação de intenção |
+| 10 | Elegibilidade visita documental | S10 | 26356–26384 | **FICA** | Gate de rota presencial |
+| 11 | Roteamento para visita | S11 | 26386–26442 | **FICA** | Transição canônica para agendamento |
+| 12 | Canal site | S12 | 26445–26470 | **FICA** | Rota digital alternativa |
+| 13 | Resumo pendências | S13 | 26472–26490 | **FICA** | Auto-serviço do cliente |
+| 14 | Confirmação tipo doc | S14 | 26492–26505 | **FICA** | Classificação de doc |
+| 15 | Aceitar lista | S15 | 26507–26549 | **FICA** | Momento central do envio |
+| 16 | Adiar lista | S16 | 26551–26573 | **FICA** | Tratamento de rejeição |
+| 17 | Primeiro prompt | S17 | 26575–26593 | **FICA** | Prompt de abertura |
+| 18 | Telemetria texto + lembrete | S18 | 26595–26612 | **FICA** | Observabilidade + contagem |
+| 19 | Acompanhamento status | S19 | 26614–26702 | **FICA** | Auto-serviço + correspondente |
+| 20 | Fallback | S20 | 26704–26708 | **FICA** | Catch-all obrigatório |
+
+### Resumo
+
+| Veredicto | Contagem | Itens |
+|-----------|:--------:|-------|
+| **FICA** em envio_docs | 19 | Seções 1–4, 6–20 |
+| **SAI** de envio_docs | 1 | Seção 5 (L26156–26159) |
+| **MIGRA** para bloco pré-docs | 0 | Nada migra — a chamada que sai (S5) já existe nos stages anteriores |
+
+### O que vai para o bloco pré-docs
+
+| Item | Onde está hoje | Para onde vai |
+|------|---------------|---------------|
+| `maybeCaptureEtapa1PreDocsInput` | L26156–26159 em `envio_docs` | REMOVIDO daqui. Já existe em `regularizacao_restricao` (L25770, 25931, 25945, 26021, 26056) |
+| Cobertura dos caminhos sem informativos | Não existe | ADICIONADO em `restricao` (L25242), `restricao_parceiro` (L25674, L25720), `regularizacao_restricao_p3` (L22546) |
+| Escolaridade | L24302–24304 em `ctps_36` | MIGRADO para `getNextInformativoPreDocsSlot` (adicionado à sequência) |
+
+---
+
+## 7. SEPARAÇÃO ENTRE ARQUITETURA E BUG TÉCNICO DE DOCS
 
 ### Problema A — Arquitetura errada (contaminação informativa)
 
 | Aspecto | Detalhe |
 |---------|---------|
-| **O que é** | Perguntas informativas (moradia/trabalho) dentro de `envio_docs` |
-| **Onde está** | L26156-26159 (call site em envio_docs) |
-| **O que causa** | Usuário diz "sim" para ver docs → recebe pergunta de moradia em vez de lista |
-| **Quem afeta** | Todos os usuários com restrição que chegam em envio_docs sem ter respondido informativos |
+| **O que é** | `maybeCaptureEtapa1PreDocsInput` dentro de `envio_docs` (L26156–26159) |
+| **Efeito** | Perguntas de moradia/trabalho interceptam antes da lógica documental |
+| **Quem afeta** | Leads com restrição que chegam em envio_docs sem informativos preenchidos |
 | **Gravidade** | Alta — experiência quebrada, impressão de loop |
-| **Independente do bug B?** | ✅ Totalmente independente |
+| **Solução** | Remover de envio_docs, garantir cobertura nos 8 entry points |
 
-### Problema B — Bug técnico de docs (target/checklist/pending)
+### Problema B — Bugs técnicos de docs
 
-| Aspecto | Detalhe |
-|---------|---------|
-| **O que é** | Problemas na reconciliação de checklist, target resolution, e status de pendentes |
-| **Onde está** | L26174-26218 (reconciliação), L12256+ (handleDocumentUpload), L8441+ (reconcile function) |
-| **Manifestações conhecidas** | |
-| B.1 | `JSON.stringify` comparison (L26176) — frágil a ordem de propriedades |
-| B.2 | Target pode ser null em `handleDocumentUpload` (L12803) |
-| B.3 | Sync in-memory de `envio_docs_itens_json` acontece dentro de `handleDocumentUpload` (L12321-12322), criando timing issue |
-| B.4 | `pacote_status` incoerente quando `envio_docs_status === "completo"` mas pacote não está montado (L26189-26217) |
-| **Quem afeta** | Todos os usuários na fase de upload de documentos |
-| **Gravidade** | Média-alta — docs podem parecer não recebidos ou lista inconsistente |
-| **Independente do problema A?** | ✅ Totalmente independente |
+| Sub-bug | Onde | O que | Gravidade |
+|---------|------|-------|-----------|
+| B.1 | L26176 | `JSON.stringify` comparison para detectar mudança em itens reconciliados — frágil a ordem de propriedades | Média |
+| B.2 | L12803 (dentro de `handleDocumentUpload`) | `target?.tipo` pode ser null se target não resolvido | Média |
+| B.3 | L12321–12322 (dentro de `handleDocumentUpload`) | Sync in-memory de `envio_docs_itens_json` acontece dentro da função, criando timing issue se chamada múltiplas vezes | Média |
+| B.4 | L26189–26217 | Quando `envio_docs_status === "completo"` mas pacote incoerente → rebuild completo. Pode mascarar inconsistências | Baixa |
 
-### Problema A é agravado por B?
+### São independentes?
 
-**Não diretamente**, mas a contaminação informativa **atrasa** a entrada real na lógica de docs, o que pode mascarar quando o bug B se manifesta. Se o usuário passa 3-4 mensagens respondendo informativos antes de ver a lista, e depois encontra um bug de checklist, a experiência total é muito pior.
+| Pergunta | Resposta |
+|----------|---------|
+| A causa B? | ❌ Não — a contaminação não causa bugs de checklist |
+| B causa A? | ❌ Não — bugs de docs não causam perguntas informativas |
+| A agrava B? | ⚠️ **Indiretamente** — o informativo intercepta antes da reconciliação (S7), então o usuário pode entrar e sair de envio_docs sem que reconciliação execute |
+| B agrava A? | ❌ Não |
+| Podem ser tratados separadamente? | ✅ **Sim** — são completamente independentes |
 
-### Problema B é agravado por A?
+### Recomendação
 
-**Sim, indiretamente.** Como o informativo intercepta ANTES da reconciliação de itens (L26174), o usuário pode entrar e sair de `envio_docs` múltiplas vezes sem que a reconciliação seja executada com contexto atualizado. Isso não causa o bug B diretamente, mas pode expor edge cases.
-
----
-
-## 7. PLANO CIRÚRGICO DE IMPLEMENTAÇÃO POSTERIOR (sem aplicar)
-
-### Etapa 1: Mover perguntas informativas para trilho próprio
-
-**Ação:**
-1. **REMOVER** a chamada `maybeCaptureEtapa1PreDocsInput` de dentro de `envio_docs` (L26156-26159)
-2. **GARANTIR** que todas as saídas de `regularizacao_restricao`/`regularizacao_restricao_parceiro` para `envio_docs` passam pelo informativo antes de transicionar
-3. Nos caminhos que vão direto de `restricao` → `envio_docs` (sem regularização), adicionar a chamada informativa antes da transição
-
-**Locais a modificar:**
-- L26156-26159: **REMOVER** (envio_docs)
-- L25770-25771: **MANTER** (já está no lugar certo — regularizacao_restricao quando já respondida)
-- L25931-25932: **MANTER** (caso sim, parceiro)
-- L25945-25946: **MANTER** (caso sim, default)
-- L26021-26022: **MANTER** (caso não)
-- L26056-26057: **MANTER** (caso talvez)
-- Caminhos diretos restricao → envio_docs: **ADICIONAR** chamada informativa
-
-**Risco:** Baixo. O trilho mecânico não muda. Apenas muda onde as perguntas são feitas.
-**Impacto:** Usuários com restrição respondem informativos ANTES de chegar em envio_docs. Envio_docs fica limpo.
-
-**Cuidado crítico:**
-- Verificar TODOS os caminhos que levam a `envio_docs`:
-  - De `restricao` (L25242 — modo familiar, restrição coletada)
-  - De `restricao_parceiro` (L25674, L25720 — sem restrição/incerto)
-  - De `regularizacao_restricao`/`regularizacao_restricao_parceiro` (L25939, L25954, L26031, L26065)
-  - De `regularizacao_restricao_p3` (L22546)
-- Em cada caminho, garantir que os informativos são perguntados ANTES do `step(..., "envio_docs")`
-
-### Etapa 2: Limpar duplicidades (incluindo escolaridade)
-
-**Ação:**
-1. **MOVER** `maybeHandleTitularCursoSuperiorPreCtps` de `ctps_36` para o trilho informativo pré-docs
-2. **REMOVER** a chamada em `ctps_36` (L24302-24304)
-3. **AJUSTAR** `getNextInformativoPreDocsSlot` para incluir escolaridade na sequência
-4. **AJUSTAR** `shouldCollectInformativosPreDocs` se necessário (escolaridade não depende de restrição, depende de renda)
-5. **VERIFICAR** que `getPersistedEtapaSignals` (L1255) continua lendo o campo corretamente
-
-**Risco:** Médio. Mudar o ponto onde escolaridade é perguntada requer testar:
-- Que não há efeito colateral em `ctps_36` (a pergunta de CTPS deve funcionar sem o fallback de escolaridade)
-- Que o campo persiste corretamente no novo ponto
-
-**Impacto:** Escolaridade passa a ser perguntada de forma confiável (não mais dependente de resposta inválida de CTPS).
-
-### Etapa 3: Validar que `envio_docs` volta a ser só docs
-
-**Ação:**
-1. Confirmar que `envio_docs` **não** chama nenhuma função informativa
-2. Testar o fluxo completo:
-   - restricao → regularizacao → informativos → envio_docs → confirmação → lista → upload
-3. Testar cenários:
-   - Com restrição (titular)
-   - Com restrição (parceiro)
-   - Sem restrição
-   - Modo familiar
-   - Modo conjunto
-
-**Risco:** Baixo (é validação).
-**Impacto:** Garantia de que a reorganização não quebrou nada.
-
-### Etapa 4: Tratar bug técnico de docs restante
-
-**Ação (independente das etapas 1-3):**
-1. Substituir `JSON.stringify` comparison (L26176) por comparação estrutural robusta
-2. Tratar target null em `handleDocumentUpload` (L12803)
-3. Avaliar timing de sync de `envio_docs_itens_json` (L12321-12322)
-4. Testar reconciliação de checklist com cenários de edge (itens fora de ordem, participantes removidos)
-
-**Risco:** Médio (mexe na lógica de docs).
-**Impacto:** Resolve bugs de checklist/upload que são independentes da contaminação.
-
-### Ordem segura de execução
-
-```
-Etapa 1 → Etapa 3 → Etapa 2 → Etapa 4
-```
-
-**Por quê esta ordem:**
-- Etapa 1 (mover informativos) é a mais urgente e de menor risco
-- Etapa 3 (validação) confirma que Etapa 1 funcionou
-- Etapa 2 (escolaridade) é de risco médio e pode ser feita depois da validação
-- Etapa 4 (bug técnico) é independente e pode ser paralelizada com Etapa 2
-
-### Resumo de risco por etapa
-
-| Etapa | Risco | Impacto se falhar | Reversível? |
-|-------|-------|-------------------|:-----------:|
-| 1: Mover informativos | Baixo | Informativos param de ser perguntados | ✅ |
-| 2: Escolaridade | Médio | Escolaridade para de ser capturada temporariamente | ✅ |
-| 3: Validação | Zero | N/A | N/A |
-| 4: Bug técnico | Médio | Upload pode falhar em edge cases | ✅ |
+Resolver A primeiro (arquitetura), validar, depois resolver B (bugs técnicos). Não misturar.
 
 ---
 
-## APÊNDICE: Funções e linhas-chave referenciadas
+## 8. PLANO CIRÚRGICO POSTERIOR (sem aplicar)
 
-| Função | Linha | Propósito |
-|--------|-------|-----------|
-| `shouldCollectInformativosPreDocs` | 1377-1383 | Decide se informativos devem ser coletados |
-| `getNextInformativoPreDocsSlot` | 1348-1360 | Retorna próximo slot informativo pendente |
-| `getComposicaoParticipantesInformativos` | 1325-1340 | Lista participantes do informativo |
-| `informativoPreDocsField` | 1342-1346 | Gera nome do campo no state |
-| `buildInformativoPreDocsQuestion` | 1362-1375 | Monta mensagem da pergunta |
-| `maybeCaptureEtapa1PreDocsInput` | 1403-1419 | Orquestra captura de informativo |
-| `isGenericAckText` | 1395-1401 | Filtra respostas genéricas |
-| `parseInformativoBoolean` | 1385-1393 | Parse sim/não |
-| `maybeHandleTitularCursoSuperiorPreCtps` | 1524-1552 | Pergunta escolaridade |
-| `parseTitularCursoSuperiorStatus` | 1515-1522 | Parse resposta escolaridade |
-| `resolveRendaTitularParaCursoSuperior` | 1499-1513 | Resolve renda para condição escolaridade |
-| `nextVisitaInformativoPendente` | 1554-1563 | Retorna próximo informativo de visita |
-| `buildVisitaInformativoQuestion` | 1565-1594 | Monta pergunta de visita |
-| `maybeHandleEtapa1VisitaInformativoInput` | 1596-1623 | Orquestra captura de informativo de visita |
-| `getEtapa1InformativosBag` | 1204-1209 | Acessa bag de informativos |
-| `getEtapa1InformativoValue` | 1301-1305 | Lê valor de informativo |
-| `buildEtapa1InformativosPatch` | 1307-1319 | Monta patch para persistência |
-| `getPersistedEtapaSignals` | 1231-1270 | Lê todos sinais persistidos (dossiê) |
-| `reconcileEnvioDocsItensWithSavedDossier` | 8441-8465 | Reconcilia checklist com dossiê |
-| `generateChecklistForDocs` | 8341-8393 | Gera checklist baseado no perfil |
-| `recomputeEnvioDocsProgress` | 8707-8730 | Recalcula progresso de docs |
+### Etapa 1 — Remover intruso de envio_docs
+
+**Ação:** Deletar linhas 26156–26159 de `envio_docs`
+
+```javascript
+// REMOVER ESTAS 4 LINHAS:
+if (!st._incoming_media) {
+  const infoStepPreDocs = await maybeCaptureEtapa1PreDocsInput(env, st, userText, "envio_docs");
+  if (infoStepPreDocs) return infoStepPreDocs;
+}
+```
+
+**Risco:** Baixo — os 5 call sites em regularizacao_restricao já cobrem a maioria dos caminhos.  
+**Impacto se falhar:** Informativos param de ser perguntados para leads que passam por regularizacao sem ter respondido. Reversível.
+
+### Etapa 2 — Cobrir caminhos sem informativos
+
+**Ação:** Adicionar `maybeCaptureEtapa1PreDocsInput` antes de cada `step("envio_docs")` nos 4 caminhos descobertos:
+
+| # | Linha | Stage | O que adicionar |
+|---|-------|-------|-----------------|
+| 1 | Antes de L25242 | `restricao` | `const infoStep = await maybeCaptureEtapa1PreDocsInput(env, st, userText, stage); if (infoStep) return infoStep;` |
+| 2 | Antes de L25674 | `restricao_parceiro` (não) | Idem |
+| 3 | Antes de L25720 | `restricao_parceiro` (incerto) | Idem |
+| 4 | Antes de L22546 | `regularizacao_restricao_p3` | Idem |
+
+**Risco:** Baixo — adiciona cobertura onde não existia.  
+**Impacto se falhar:** Leads destes caminhos ficam sem informativos (mesmo comportamento de hoje). Reversível.
+
+### Etapa 3 — Migrar escolaridade
+
+**Ação:**
+1. Adicionar `titular_curso_superior_status` à sequência de `getNextInformativoPreDocsSlot` (L1348–1360), com condição `renda ≤ 3500`
+2. Adicionar builder de pergunta em `buildInformativoPreDocsQuestion` (L1362–1375)
+3. Remover chamada em `ctps_36` (L24302–24304)
+4. Manter parser `parseTitularCursoSuperiorStatus` intacto
+
+**Risco:** Médio — muda o ponto onde escolaridade é perguntada.  
+**Impacto se falhar:** Escolaridade para de ser capturada temporariamente. Reversível.
+
+### Etapa 4 — Validação completa
+
+**Ação:**
+1. Testar fluxo: restricao → informativos → envio_docs → confirmação → lista → upload
+2. Cenários: com restrição (titular), com restrição (parceiro), sem restrição, modo familiar, modo conjunto, P3
+3. Confirmar que envio_docs **não** chama funções informativas
+4. Confirmar que todos os 8 entry points passam por informativos
+
+**Risco:** Zero (é validação).
+
+### Etapa 5 — Tratar bugs técnicos de docs (independente)
+
+**Ação:**
+1. B.1: Substituir `JSON.stringify` comparison (L26176) por comparação estrutural
+2. B.2: Tratar target null em handleDocumentUpload
+3. B.3: Avaliar timing de sync
+4. B.4: Avaliar rebuild de pacote
+
+**Risco:** Médio — mexe na lógica de docs.  
+**Ordem:** Pode ser paralelizado com Etapas 1–3.
+
+### Ordem segura
+
+```
+Etapa 1 (remover intruso) → Etapa 2 (cobrir caminhos) → Etapa 4 (validar) → Etapa 3 (escolaridade) → Etapa 5 (bugs)
+```
+
+**Por que esta ordem:**
+- Etapa 1 é cirúrgica (4 linhas removidas) e de menor risco
+- Etapa 2 fecha a cobertura antes que qualquer lead fique sem informativos
+- Etapa 4 valida que o ciclo quebrado sumiu
+- Etapa 3 é de risco médio e pode esperar a validação
+- Etapa 5 é independente e pode ser feita em paralelo
+
+---
+
+## APÊNDICE: Referência rápida de funções
+
+| Função | Linha | Papel |
+|--------|-------|-------|
+| `shouldCollectInformativosPreDocs` | 1377–1383 | Gate: decide se informativos devem ser coletados |
+| `getNextInformativoPreDocsSlot` | 1348–1360 | Retorna próximo slot pendente (moradia/trabalho) |
+| `getComposicaoParticipantesInformativos` | 1325–1340 | Lista participantes do informativo |
+| `informativoPreDocsField` | 1342–1346 | Gera nome do campo |
+| `buildInformativoPreDocsQuestion` | 1362–1375 | Monta mensagem da pergunta |
+| `maybeCaptureEtapa1PreDocsInput` | 1403–1419 | Orquestra captura de informativo |
+| `isGenericAckText` | 1395–1401 | Filtra respostas genéricas |
+| `maybeHandleTitularCursoSuperiorPreCtps` | 1524–1552 | Pergunta escolaridade |
+| `parseTitularCursoSuperiorStatus` | 1515–1522 | Parse resposta escolaridade |
+| `resolveRendaTitularParaCursoSuperior` | 1499–1513 | Resolve renda para condição escolaridade |
+| `getEtapa1InformativosBag` | 1204–1209 | Acessa bag de informativos |
+| `getEtapa1InformativoValue` | 1301–1305 | Lê valor de informativo |
+| `buildEtapa1InformativosPatch` | 1307–1319 | Monta patch para persistência |
+| `getPersistedEtapaSignals` | 1231–1270 | Lê todos sinais persistidos (dossiê) |
+| `parseEnvioDocsCanal` | 26096–26120 | Classifica intenção de canal (local a envio_docs) |
+| `reconcileEnvioDocsItensWithSavedDossier` | 8441+ | Reconcilia checklist com dossiê |
+| `generateChecklistForDocs` | 8341+ | Gera checklist baseado no perfil |
+| `recomputeEnvioDocsProgress` | 8707–8730 | Recalcula progresso de docs |
 | `handleDocumentUpload` | 12256+ | Processa upload de documento |
-| `gateAntesEnvioDocs` | 25845-25897 | Gate único antes de envio_docs |
+| `buildEnvioDocsListaMensagens` | 8243+ | Formata lista de docs para envio |
+| `envioDocsResumoPendencias` | — | Gera resumo de pendências |
+| `isCorrespondentePacoteReady` | — | Verifica se pacote pronto para correspondente |
+| `isEnvioDocsAwaitingTypeConfirmation` | — | Verifica se aguarda confirmação de tipo |
+| `isEnvioDocsConversationalFlowComplete` | — | Verifica completude semântica |
+| `gateAntesEnvioDocs` | 25845–25897 | Gate único antes de envio_docs (em regularizacao) |
+| `buildDocumentDossierFromState` | — | Monta dossiê a partir do state |
+| `persistDocumentDossier` | — | Persiste dossiê |

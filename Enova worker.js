@@ -1407,6 +1407,72 @@ function shouldCollectInformativosPreDocs(st = {}) {
   return getNextInformativoPreDocsSlot(st) !== null;
 }
 
+function getDefaultPreDocsEnvioDocsMessage() {
+  return [
+    "Perfeito! 👌",
+    "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+    "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
+  ];
+}
+
+function isActivePreDocsQuestionMessage(st = {}, lastBotMessage) {
+  const text = String(lastBotMessage || "");
+  if (!text.trim()) return false;
+  const slot = getNextInformativoPreDocsSlot(st);
+  if (!slot) return false;
+  const normalizedText = normalizeText(text);
+  if (!normalizedText) return false;
+  const promptLines = buildInformativoPreDocsQuestion(slot)
+    .map((line) => normalizeText(line))
+    .filter(Boolean);
+  return promptLines.some((line) => normalizedText.includes(line));
+}
+
+function getPreDocsRoutingContext(st = {}) {
+  const active = getEtapa1InformativoValue(st, "predocs_routing_active") === true;
+  if (!active) return null;
+  const stageForPromptRaw = getEtapa1InformativoValue(st, "predocs_routing_stage");
+  const stageForPrompt = typeof stageForPromptRaw === "string" && stageForPromptRaw.trim()
+    ? stageForPromptRaw.trim()
+    : String(st?.fase_conversa || "regularizacao_restricao");
+  const rawEnvioDocsMessage = getEtapa1InformativoValue(st, "predocs_routing_envio_docs_message");
+  const envioDocsMessage = Array.isArray(rawEnvioDocsMessage) && rawEnvioDocsMessage.length
+    ? rawEnvioDocsMessage
+    : getDefaultPreDocsEnvioDocsMessage();
+  return { stageForPrompt, envioDocsMessage };
+}
+
+async function setPreDocsRoutingContext(env, st, stageForPrompt, envioDocsMessage) {
+  const normalizedEnvioDocsMessage = Array.isArray(envioDocsMessage)
+    ? envioDocsMessage
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)
+    : typeof envioDocsMessage === "string" && envioDocsMessage.trim()
+      ? [envioDocsMessage.trim()]
+      : [];
+  const patch = buildEtapa1InformativosPatch(st, {
+    predocs_routing_active: true,
+    predocs_routing_stage: stageForPrompt,
+    predocs_routing_envio_docs_message: normalizedEnvioDocsMessage.length
+      ? normalizedEnvioDocsMessage
+      : getDefaultPreDocsEnvioDocsMessage()
+  });
+  await upsertState(env, st.wa_id, patch);
+  Object.assign(st, patch);
+}
+
+async function clearPreDocsRoutingContext(env, st) {
+  const current = getPreDocsRoutingContext(st);
+  if (!current) return;
+  const patch = buildEtapa1InformativosPatch(st, {
+    predocs_routing_active: false,
+    predocs_routing_stage: null,
+    predocs_routing_envio_docs_message: null
+  });
+  await upsertState(env, st.wa_id, patch);
+  Object.assign(st, patch);
+}
+
 function parseInformativoBoolean(text) {
   if (isYes(text)) return true;
   if (isNo(text)) return false;
@@ -1462,8 +1528,16 @@ async function maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt)
 }
 
 async function routeToEnvioDocsViaPreDocs(env, st, userText, stageForPrompt, envioDocsMessage) {
+  if (shouldCollectInformativosPreDocs(st)) {
+    await setPreDocsRoutingContext(env, st, stageForPrompt, envioDocsMessage);
+  } else {
+    // Limpeza defensiva: se não há slots pendentes, não deve sobrar contexto de roteamento PRÉ-DOCS.
+    await clearPreDocsRoutingContext(env, st);
+  }
   const infoStep = await maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt);
   if (infoStep) return infoStep;
+  // Com PRÉ-DOCS concluído, remove o contexto antes de transicionar para envio documental.
+  await clearPreDocsRoutingContext(env, st);
   return step(env, st, envioDocsMessage, "envio_docs");
 }
 
@@ -18262,6 +18336,25 @@ async function runFunnel(env, st, userText) {
       ],
       "inicio_programa"
     );
+  }
+
+  const preDocsRoutingContext =
+    getPreDocsRoutingContext(st) ||
+    (
+      shouldCollectInformativosPreDocs(st) && isActivePreDocsQuestionMessage(st, st?.last_bot_msg)
+        ? { stageForPrompt: stage, envioDocsMessage: getDefaultPreDocsEnvioDocsMessage() }
+        : null
+    );
+  if (preDocsRoutingContext) {
+    const preDocsStep = await maybeCaptureEtapa1PreDocsInput(
+      env,
+      st,
+      userText,
+      preDocsRoutingContext.stageForPrompt
+    );
+    if (preDocsStep) return preDocsStep;
+    await clearPreDocsRoutingContext(env, st);
+    return step(env, st, preDocsRoutingContext.envioDocsMessage, "envio_docs");
   }
 
   // ============================================================

@@ -99,8 +99,8 @@ function buildStateBase(overrides = {}) {
   assert.equal(sinais?.trabalho?.p1, "Centro");
   assert.equal(sinais?.visita?.reserva_entrada_tem, true);
   assert.equal(sinais?.visita?.fgts_disponivel, true);
-  assert.equal(sinais?.visita?.decisor_adicional_visita, true);
-  assert.equal(sinais?.visita?.decisor_adicional_nome, "Maria");
+  assert.equal("decisor_adicional_visita" in (sinais?.visita || {}), false);
+  assert.equal("decisor_adicional_nome" in (sinais?.visita || {}), false);
   assert.equal(sinais?.autonomo?.profissao_atividade, "Motorista de app");
   assert.equal(sinais?.autonomo?.mei_pj_status, "mei");
   assert.equal(sinais?.autonomo?.renda_estabilidade, "variavel");
@@ -108,7 +108,7 @@ function buildStateBase(overrides = {}) {
   assert.equal(sinais?.renda?.multi_renda, true);
   assert.equal(sinais?.renda?.multi_regime, true);
   assert.equal(sinais?.trabalho_clt?.titular_tipo_renda, "variavel");
-  assert.equal(sinais?.reprovacao?.categoria, "documental");
+  assert.equal("reprovacao" in sinais, false);
 }
 
 // 2) Enriquecimento do pacote do correspondente com os mesmos sinais (via trilho existente).
@@ -121,9 +121,12 @@ function buildStateBase(overrides = {}) {
   assert.equal(sinais?.moradia?.p1, "Bairro Alto");
   assert.equal(sinais?.trabalho?.p1, "Centro");
   assert.equal(sinais?.visita?.reserva_entrada_tem, true);
+  assert.equal(sinais?.visita?.fgts_disponivel, true);
   assert.equal(sinais?.autonomo?.mei_pj_status, "mei");
   assert.equal(sinais?.renda?.multi_regime, true);
-  assert.equal(sinais?.reprovacao?.categoria, "documental");
+  assert.equal("decisor_adicional_visita" in (sinais?.visita || {}), false);
+  assert.equal("decisor_adicional_nome" in (sinais?.visita || {}), false);
+  assert.equal("reprovacao" in sinais, false);
 }
 
 async function simulateFromState(env, waId, stage, text, stOverrides = {}) {

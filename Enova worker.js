@@ -1272,6 +1272,56 @@ function getPersistedEtapaSignals(st = {}) {
   };
 }
 
+function buildCorrespondenteDossierPredocsSignals(rawSignals = {}) {
+  const raw = rawSignals && typeof rawSignals === "object" ? rawSignals : {};
+  return {
+    moradia: {
+      p1: raw?.moradia?.p1 ?? null,
+      p2: raw?.moradia?.p2 ?? null,
+      p3: raw?.moradia?.p3 ?? null
+    },
+    trabalho: {
+      p1: raw?.trabalho?.p1 ?? null,
+      p2: raw?.trabalho?.p2 ?? null,
+      p3: raw?.trabalho?.p3 ?? null
+    },
+    visita: {
+      reserva_entrada_tem: raw?.visita?.reserva_entrada_tem ?? null,
+      fgts_disponivel: raw?.visita?.fgts_disponivel ?? null
+    },
+    autonomo: {
+      profissao_atividade: raw?.autonomo?.profissao_atividade ?? null,
+      mei_pj_status: raw?.autonomo?.mei_pj_status ?? null,
+      renda_estabilidade: raw?.autonomo?.renda_estabilidade ?? null
+    },
+    titular: {
+      curso_superior_status: raw?.titular?.curso_superior_status ?? null
+    },
+    trabalho_clt: {
+      titular_tipo_renda: raw?.trabalho_clt?.titular_tipo_renda ?? null,
+      parceiro_tipo_renda: raw?.trabalho_clt?.parceiro_tipo_renda ?? null,
+      p3_tipo_renda: raw?.trabalho_clt?.p3_tipo_renda ?? null
+    },
+    renda: {
+      renda_extra_entra: raw?.renda?.renda_extra_entra ?? null,
+      multi_renda: raw?.renda?.multi_renda ?? null,
+      multi_regime: raw?.renda?.multi_regime ?? null
+    }
+  };
+}
+
+function getCorrespondenteDossierPredocsSignals(st = {}) {
+  const persistedDossierSignals = st?.dossie_sinais_persistidos_json;
+  if (persistedDossierSignals && typeof persistedDossierSignals === "object" && !Array.isArray(persistedDossierSignals)) {
+    return buildCorrespondenteDossierPredocsSignals(persistedDossierSignals);
+  }
+  const persistedPacoteSignals = st?.pacote_sinais_persistidos_json;
+  if (persistedPacoteSignals && typeof persistedPacoteSignals === "object" && !Array.isArray(persistedPacoteSignals)) {
+    return buildCorrespondenteDossierPredocsSignals(persistedPacoteSignals);
+  }
+  return buildCorrespondenteDossierPredocsSignals(getPersistedEtapaSignals(st));
+}
+
 function buildEtapa2EstruturalPatch(st = {}, updates = {}) {
   const controle = getControleObject(st);
   const atual = getEtapa2EstruturalBag(st);
@@ -8063,7 +8113,7 @@ function dossieRendaVariavel(st, participanteId) {
 }
 
 function buildDocumentDossierFromState(st) {
-  const sinaisPersistidos = getPersistedEtapaSignals(st);
+  const sinaisPersistidos = getCorrespondenteDossierPredocsSignals(st);
   const participantesCanonicos = resolveDossierCanonicalParticipantsFromState(st);
   const hasP2 = participantesCanonicos.some((p) => p.id === "p2");
   const hasP3 = participantesCanonicos.some((p) => p.id === "p3");
@@ -9184,7 +9234,7 @@ function buildPacoteDocumentosAnexadosResumo(itens = [], analiseBase = {}, histo
 }
 
 function buildPacoteCorrespondentePayloadFromState(st, itens = [], analisePayload = null) {
-  const sinaisPersistidos = getPersistedEtapaSignals(st);
+  const sinaisPersistidos = getCorrespondenteDossierPredocsSignals(st);
   const participantes = Array.isArray(st?.dossie_participantes_json) ? st.dossie_participantes_json : [];
   const baseMinimaCoerente = participantes.length > 0;
   const envioCompleto = String(st?.envio_docs_status || "").toLowerCase() === "completo";
@@ -13504,7 +13554,7 @@ function sanitizeCorrespondentePrivateWhatsAppMessage(text, st = {}, canonical =
 }
 
 function buildCorrespondentePrivateDossierFromState(st) {
-  const sinaisPersistidos = getPersistedEtapaSignals(st);
+  const sinaisPersistidos = getCorrespondenteDossierPredocsSignals(st);
   const participantes = Array.isArray(st?.dossie_participantes_json) ? st.dossie_participantes_json : [];
   const pacoteRenda = st?.pacote_renda_resumo_json && typeof st.pacote_renda_resumo_json === "object" ? st.pacote_renda_resumo_json : {};
   const pacoteRestricoes = st?.pacote_restricoes_json && typeof st.pacote_restricoes_json === "object" ? st.pacote_restricoes_json : {};
@@ -14494,6 +14544,9 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
   const envioDocsStatusCanonico = remanescentesCanonicos > 0
     ? (envioDocsStatusRaw === "parcial" ? "parcial" : "pendente")
     : "completo";
+  const sinaisPersistidos = canonical?.dossie_privado_canonico_json?.sinais_persistidos && typeof canonical.dossie_privado_canonico_json.sinais_persistidos === "object"
+    ? canonical.dossie_privado_canonico_json.sinais_persistidos
+    : {};
 
   return {
     meta: {
@@ -14531,6 +14584,7 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
       multi_regime: renda.multi_regime === true,
       participantes: participantesPerfil
     },
+    sinais_persistidos: sinaisPersistidos,
     documentos_por_participante: Object.values(documentosPorParticipante),
     pendencias: {
       bloqueantes: Number(documental.pendencias_bloqueantes) || 0,
@@ -14672,6 +14726,9 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   const meta = dossierPayload?.meta && typeof dossierPayload.meta === "object"
     ? dossierPayload.meta
     : null;
+  const sinaisPersistidos = dossierPayload?.sinais_persistidos && typeof dossierPayload.sinais_persistidos === "object"
+    ? dossierPayload.sinais_persistidos
+    : null;
   const resumoHumano = String(options?.resumoHumano || "").trim();
   const retornoCorrespondente = options?.retornoCorrespondente && typeof options.retornoCorrespondente === "object"
     ? options.retornoCorrespondente
@@ -14701,6 +14758,40 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   };
   const formatMultiline = (value) => escapeHtml(String(value || "").trim()).replace(/\n/g, "<br />");
   const boolLabel = (value) => value === true ? "sim" : value === false ? "não" : "não informado";
+  const signalTextLabel = (value) => {
+    if (value === true || value === false) return boolLabel(value);
+    if (value === null || value === undefined) return "não informado";
+    const txt = String(value).trim();
+    return txt || "não informado";
+  };
+  const hasTechnicalSignalValue = (value) => {
+    if (value === true || value === false) return true;
+    if (typeof value === "number") return Number.isFinite(value);
+    return typeof value === "string" ? value.trim() !== "" : false;
+  };
+  const technicalSignalEntries = [];
+  const pushTechnicalSignal = (label, value) => {
+    if (!hasTechnicalSignalValue(value)) return;
+    technicalSignalEntries.push({ label, value: signalTextLabel(value) });
+  };
+  pushTechnicalSignal("Moradia P1", sinaisPersistidos?.moradia?.p1);
+  pushTechnicalSignal("Moradia P2", sinaisPersistidos?.moradia?.p2);
+  pushTechnicalSignal("Moradia P3", sinaisPersistidos?.moradia?.p3);
+  pushTechnicalSignal("Trabalho P1", sinaisPersistidos?.trabalho?.p1);
+  pushTechnicalSignal("Trabalho P2", sinaisPersistidos?.trabalho?.p2);
+  pushTechnicalSignal("Trabalho P3", sinaisPersistidos?.trabalho?.p3);
+  pushTechnicalSignal("Reserva para entrada", sinaisPersistidos?.visita?.reserva_entrada_tem);
+  pushTechnicalSignal("FGTS disponível", sinaisPersistidos?.visita?.fgts_disponivel);
+  pushTechnicalSignal("Curso superior", sinaisPersistidos?.titular?.curso_superior_status);
+  pushTechnicalSignal("Autônomo - atividade", sinaisPersistidos?.autonomo?.profissao_atividade);
+  pushTechnicalSignal("Autônomo - MEI/PJ", sinaisPersistidos?.autonomo?.mei_pj_status);
+  pushTechnicalSignal("Autônomo - estabilidade de renda", sinaisPersistidos?.autonomo?.renda_estabilidade);
+  pushTechnicalSignal("CLT titular - tipo de renda", sinaisPersistidos?.trabalho_clt?.titular_tipo_renda);
+  pushTechnicalSignal("CLT parceiro - tipo de renda", sinaisPersistidos?.trabalho_clt?.parceiro_tipo_renda);
+  pushTechnicalSignal("CLT P3 - tipo de renda", sinaisPersistidos?.trabalho_clt?.p3_tipo_renda);
+  pushTechnicalSignal("Renda extra entra", sinaisPersistidos?.renda?.renda_extra_entra);
+  pushTechnicalSignal("Multi-renda", sinaisPersistidos?.renda?.multi_renda);
+  pushTechnicalSignal("Multi-regime", sinaisPersistidos?.renda?.multi_regime);
   const participantRoleLabel = (value) => {
     const txt = String(value || "").trim().toLowerCase();
     if (txt === "titular") return "Titular";
@@ -14873,6 +14964,16 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
               ${item?.dependente === true || item?.dependente === false ? `<div class="v">Dependente: ${escapeHtml(item?.dependente === true ? "sim" : "não")}</div>` : ""}
               ${item?.ir_autonomo === true || item?.ir_autonomo === false ? `<div class="v">IR autônomo: ${escapeHtml(item?.ir_autonomo === true ? "sim" : "não")}</div>` : ""}
               ${item?.tem_restricao === true || item?.tem_restricao === false ? `<div class="v">Restrição: ${escapeHtml(item?.tem_restricao === true ? "sim" : "não")}</div>` : ""}
+            </article>`).join("")}
+          </div>`
+        : ""
+      }
+      ${technicalSignalEntries.length
+        ? `<h2 class="section-kicker">Sinais técnicos PRÉ-DOCS</h2>
+          <div class="grid2">
+            ${technicalSignalEntries.map((entry) => `<article class="mini">
+              <div class="k">${escapeHtml(entry.label)}</div>
+              <div class="v">${escapeHtml(entry.value)}</div>
             </article>`).join("")}
           </div>`
         : ""

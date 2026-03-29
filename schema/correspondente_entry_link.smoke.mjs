@@ -187,6 +187,50 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(bundle.structured?.perfil?.ctps_36, null);
 }
 
+// 1.1c) Structured expõe apenas sinais PRÉ-DOCS do dossiê técnico.
+{
+  const structured = buildCorrespondenteDossierPayloadFromState({
+    nome: "JOAO TESTE",
+    renda: 5000,
+    controle: {
+      etapa1_informativos: {
+        informativo_moradia_p1: "Bairro Alto",
+        informativo_trabalho_p1: "Centro",
+        visita_reserva_entrada_tem: true,
+        visita_fgts_disponivel: false,
+        visita_decisor_adicional_visita: true,
+        visita_decisor_adicional_nome: "MARIA",
+        titular_autonomo_profissao_atividade: "Motorista",
+        titular_autonomo_mei_pj_status: "mei",
+        titular_autonomo_renda_estabilidade: "variavel",
+        titular_curso_superior_status: "cursando"
+      },
+      etapa2_estrutural: {
+        inicio_multi_renda_coletar: true,
+        inicio_multi_regime_coletar: true,
+        titular_tipo_renda_clt: "variavel",
+        reprovacao_categoria_caso: "documental"
+      }
+    },
+    dossie_participantes_json: [
+      { id: "p1", role: "titular", regime_trabalho: "clt", renda: 5000 }
+    ]
+  });
+  const sinais = structured?.sinais_persistidos || {};
+  assert.equal(sinais?.moradia?.p1, "Bairro Alto");
+  assert.equal(sinais?.trabalho?.p1, "Centro");
+  assert.equal(sinais?.visita?.reserva_entrada_tem, true);
+  assert.equal(sinais?.visita?.fgts_disponivel, false);
+  assert.equal(sinais?.autonomo?.profissao_atividade, "Motorista");
+  assert.equal(sinais?.titular?.curso_superior_status, "cursando");
+  assert.equal(sinais?.trabalho_clt?.titular_tipo_renda, "variavel");
+  assert.equal(sinais?.renda?.multi_renda, true);
+  assert.equal(sinais?.renda?.multi_regime, true);
+  assert.equal("decisor_adicional_visita" in (sinais?.visita || {}), false);
+  assert.equal("decisor_adicional_nome" in (sinais?.visita || {}), false);
+  assert.equal("reprovacao" in sinais, false);
+}
+
 // 1.1b) Perfil técnico deve refletir parceiro vindo do state/funil quando houver.
 {
   const env = buildEnvWithState();
@@ -610,6 +654,23 @@ function getLastStepMessagesForWa(env, waId) {
       media_ref: { url: "https://docs.example.com/ctps-p1.pdf" }
     }
   ];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].controle = {
+    etapa1_informativos: {
+      informativo_moradia_p1: "Bairro Alto",
+      informativo_trabalho_p1: "Centro",
+      visita_reserva_entrada_tem: true,
+      visita_fgts_disponivel: false,
+      visita_decisor_adicional_visita: true,
+      visita_decisor_adicional_nome: "MARIA",
+      titular_curso_superior_status: "cursando"
+    },
+    etapa2_estrutural: {
+      titular_tipo_renda_clt: "variavel",
+      inicio_multi_renda_coletar: true,
+      inicio_multi_regime_coletar: true,
+      reprovacao_categoria_caso: "documental"
+    }
+  };
   const assumirReq = new Request("https://worker.local/correspondente/entrada?pre=000001", {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -638,6 +699,20 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(assumirHtml.includes("Status documental:</span> completo"), true);
   assert.equal(assumirHtml.includes("Renda total:</span> R$ 8900.00"), true);
   assert.equal(assumirHtml.includes("Sem pendências documentais ativas."), true);
+  assert.equal(assumirHtml.includes("Sinais técnicos PRÉ-DOCS"), true);
+  assert.equal(assumirHtml.includes("Moradia P1"), true);
+  assert.equal(assumirHtml.includes("Bairro Alto"), true);
+  assert.equal(assumirHtml.includes("Trabalho P1"), true);
+  assert.equal(assumirHtml.includes("Centro"), true);
+  assert.equal(assumirHtml.includes("Reserva para entrada"), true);
+  assert.equal(assumirHtml.includes("FGTS disponível"), true);
+  assert.equal(assumirHtml.includes("Curso superior"), true);
+  assert.equal(assumirHtml.includes("CLT titular - tipo de renda"), true);
+  assert.equal(assumirHtml.includes("Multi-renda"), true);
+  assert.equal(assumirHtml.includes("Multi-regime"), true);
+  assert.equal(assumirHtml.includes("decisor adicional"), false);
+  assert.equal(assumirHtml.includes("MARIA"), false);
+  assert.equal(/>documental</.test(assumirHtml), false);
 
   const atualizado = env.__enovaSimulationCtx.stateByWaId[waCaso];
   assert.equal(atualizado.corr_lock_correspondente_wa_id, correspondenteWa);

@@ -184,4 +184,37 @@ const preDocsBase = {
   assert.doesNotMatch(result.reply_text, /local de moradia|local de trabalho|curso superior|fgts|reserva/i);
 }
 
+// 4) resposta livre no pré-docs não pode cair no guard sim/não do stage original.
+{
+  const env = buildEnv();
+  const wa = "5541999200120";
+  const first = await simulateFromState(env, wa, "restricao", "não", {
+    ...preDocsBase,
+    financiamento_conjunto: false,
+    somar_renda: false,
+    p3_required: false
+  });
+  assert.equal(first.stage_after, "restricao");
+  assert.match(first.reply_text, /local de moradia|local de trabalho|reserva|fgts|curso superior/i);
+
+  const second = await simulateFromState(env, wa, "restricao", "merces", {
+    ...(env.__enovaSimulationCtx.stateByWaId[wa] || {}),
+    controle: {
+      etapa1_informativos: {
+        ...(preDocsBase.controle?.etapa1_informativos || {}),
+        predocs_routing_active: true,
+        predocs_routing_stage: "restricao",
+        predocs_routing_envio_docs_message: [
+          "Perfeito! 👌",
+          "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+          "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
+        ]
+      }
+    }
+  });
+  assert.equal(second.stage_after, "restricao");
+  assert.doesNotMatch(second.reply_text, /Pra eu seguir aqui, me responde só a pergunta anterior direitinho/i);
+  assert.match(second.reply_text, /local de moradia|local de trabalho|reserva|fgts|curso superior/i);
+}
+
 console.log("etapa1_predocs.smoke: ok");

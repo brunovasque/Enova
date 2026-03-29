@@ -1407,6 +1407,56 @@ function shouldCollectInformativosPreDocs(st = {}) {
   return getNextInformativoPreDocsSlot(st) !== null;
 }
 
+function getDefaultPreDocsEnvioDocsMessage() {
+  return [
+    "Perfeito! 👌",
+    "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+    "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
+  ];
+}
+
+function isActivePreDocsQuestionMessage(lastBotMsg) {
+  const text = String(lastBotMsg || "");
+  if (!text.trim()) return false;
+  return /(antes de te passar os documentos|local de moradia|local de trabalho|antes de liberar os documentos|fgts dispon[ií]vel|último ponto informativo antes dos documentos)/i.test(text);
+}
+
+function getPreDocsRoutingContext(st = {}) {
+  const active = getEtapa1InformativoValue(st, "predocs_routing_active") === true;
+  if (!active) return null;
+  const stageForPromptRaw = getEtapa1InformativoValue(st, "predocs_routing_stage");
+  const stageForPrompt = typeof stageForPromptRaw === "string" && stageForPromptRaw.trim()
+    ? stageForPromptRaw.trim()
+    : String(st?.fase_conversa || "regularizacao_restricao");
+  const rawEnvioDocsMessage = getEtapa1InformativoValue(st, "predocs_routing_envio_docs_message");
+  const envioDocsMessage = Array.isArray(rawEnvioDocsMessage) && rawEnvioDocsMessage.length
+    ? rawEnvioDocsMessage
+    : getDefaultPreDocsEnvioDocsMessage();
+  return { stageForPrompt, envioDocsMessage };
+}
+
+async function setPreDocsRoutingContext(env, st, stageForPrompt, envioDocsMessage) {
+  const patch = buildEtapa1InformativosPatch(st, {
+    predocs_routing_active: true,
+    predocs_routing_stage: stageForPrompt,
+    predocs_routing_envio_docs_message: Array.isArray(envioDocsMessage) ? envioDocsMessage : [String(envioDocsMessage || "")]
+  });
+  await upsertState(env, st.wa_id, patch);
+  Object.assign(st, patch);
+}
+
+async function clearPreDocsRoutingContext(env, st) {
+  const current = getPreDocsRoutingContext(st);
+  if (!current) return;
+  const patch = buildEtapa1InformativosPatch(st, {
+    predocs_routing_active: false,
+    predocs_routing_stage: null,
+    predocs_routing_envio_docs_message: null
+  });
+  await upsertState(env, st.wa_id, patch);
+  Object.assign(st, patch);
+}
+
 function parseInformativoBoolean(text) {
   if (isYes(text)) return true;
   if (isNo(text)) return false;
@@ -1462,8 +1512,14 @@ async function maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt)
 }
 
 async function routeToEnvioDocsViaPreDocs(env, st, userText, stageForPrompt, envioDocsMessage) {
+  if (shouldCollectInformativosPreDocs(st)) {
+    await setPreDocsRoutingContext(env, st, stageForPrompt, envioDocsMessage);
+  } else {
+    await clearPreDocsRoutingContext(env, st);
+  }
   const infoStep = await maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt);
   if (infoStep) return infoStep;
+  await clearPreDocsRoutingContext(env, st);
   return step(env, st, envioDocsMessage, "envio_docs");
 }
 
@@ -18262,6 +18318,25 @@ async function runFunnel(env, st, userText) {
       ],
       "inicio_programa"
     );
+  }
+
+  const preDocsRoutingContext =
+    getPreDocsRoutingContext(st) ||
+    (
+      shouldCollectInformativosPreDocs(st) && isActivePreDocsQuestionMessage(st?.last_bot_msg)
+        ? { stageForPrompt: stage, envioDocsMessage: getDefaultPreDocsEnvioDocsMessage() }
+        : null
+    );
+  if (preDocsRoutingContext) {
+    const preDocsStep = await maybeCaptureEtapa1PreDocsInput(
+      env,
+      st,
+      userText,
+      preDocsRoutingContext.stageForPrompt
+    );
+    if (preDocsStep) return preDocsStep;
+    await clearPreDocsRoutingContext(env, st);
+    return step(env, st, preDocsRoutingContext.envioDocsMessage, "envio_docs");
   }
 
   // ============================================================

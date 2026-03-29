@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { resolveCaseFileById, resolveRowsFromCanonicalState, type EnovaDocRow } from "../_shared";
+import { mergeCaseFileRows, resolveCaseFileById, resolveRowsFromCanonicalState, type EnovaDocRow } from "../_shared";
 
 const REQUIRED_ENVS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const;
 const CANONICAL_ALLOWED_ORIGINS = new Set([
@@ -79,7 +79,7 @@ export async function GET(request: Request) {
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE as string;
 
     const endpoint = new URL("/rest/v1/enova_docs", supabaseUrl);
-    endpoint.searchParams.set("select", "wa_id,tipo,participante,created_at,url");
+    endpoint.searchParams.set("select", "wa_id,tipo,participante,created_at,url,document_url,download_url,media_url,link");
     endpoint.searchParams.set("wa_id", `eq.${waId}`);
     endpoint.searchParams.set("order", "created_at.asc");
     endpoint.searchParams.set("limit", "200");
@@ -101,37 +101,34 @@ export async function GET(request: Request) {
     }
 
     const rows = (await response.json()) as EnovaDocRow[];
-    let sourceRows = Array.isArray(rows) ? rows : [];
-    let resolved = resolveCaseFileById(waId, fileId, sourceRows);
+    const primaryRows = Array.isArray(rows) ? rows : [];
+    let canonicalRows: EnovaDocRow[] = [];
 
-    if (!resolved) {
-      const fallbackEndpoint = new URL("/rest/v1/enova_state", supabaseUrl);
-      fallbackEndpoint.searchParams.set("select", "pacote_documentos_anexados_json,envio_docs_historico_json");
-      fallbackEndpoint.searchParams.set("wa_id", `eq.${waId}`);
-      fallbackEndpoint.searchParams.set("order", "updated_at.desc");
-      fallbackEndpoint.searchParams.set("limit", "1");
+    const fallbackEndpoint = new URL("/rest/v1/enova_state", supabaseUrl);
+    fallbackEndpoint.searchParams.set("select", "pacote_documentos_anexados_json,envio_docs_historico_json");
+    fallbackEndpoint.searchParams.set("wa_id", `eq.${waId}`);
+    fallbackEndpoint.searchParams.set("order", "updated_at.desc");
+    fallbackEndpoint.searchParams.set("limit", "1");
 
-      const fallbackResponse = await fetch(fallbackEndpoint, {
-        method: "GET",
-        headers: {
-          apikey: serviceRoleKey,
-          Authorization: `Bearer ${serviceRoleKey}`,
-        },
-        cache: "no-store",
-      });
+    const fallbackResponse = await fetch(fallbackEndpoint, {
+      method: "GET",
+      headers: {
+        apikey: serviceRoleKey,
+        Authorization: `Bearer ${serviceRoleKey}`,
+      },
+      cache: "no-store",
+    });
 
-      if (fallbackResponse.ok) {
-        const fallbackRows = (await fallbackResponse.json()) as Array<{
-          pacote_documentos_anexados_json?: unknown;
-          envio_docs_historico_json?: unknown;
-        }>;
-        const canonicalRows = resolveRowsFromCanonicalState(waId, fallbackRows?.[0] || null);
-        if (canonicalRows.length > 0) {
-          sourceRows = canonicalRows;
-          resolved = resolveCaseFileById(waId, fileId, sourceRows);
-        }
-      }
+    if (fallbackResponse.ok) {
+      const fallbackRows = (await fallbackResponse.json()) as Array<{
+        pacote_documentos_anexados_json?: unknown;
+        envio_docs_historico_json?: unknown;
+      }>;
+      canonicalRows = resolveRowsFromCanonicalState(waId, fallbackRows?.[0] || null);
     }
+
+    const sourceRows = mergeCaseFileRows(primaryRows, canonicalRows);
+    const resolved = resolveCaseFileById(waId, fileId, sourceRows);
 
     if (!resolved) {
       return NextResponse.json(

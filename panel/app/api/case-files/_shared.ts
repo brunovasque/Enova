@@ -34,6 +34,29 @@ function normalizeUrl(row: EnovaDocRow): string {
   return "";
 }
 
+function buildDedupKey(row: EnovaDocRow): string {
+  const normalizedUrl = normalizeUrl(row);
+  return [
+    normalizedUrl,
+    String(row.tipo || "").trim().toLowerCase(),
+    String(row.participante || "").trim().toLowerCase(),
+    String(row.created_at || "").trim(),
+  ].join("|");
+}
+
+function dedupeRows(rows: EnovaDocRow[]): EnovaDocRow[] {
+  const deduped: EnovaDocRow[] = [];
+  const seen = new Set<string>();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const normalizedUrl = normalizeUrl(row);
+    const key = buildDedupKey(row);
+    if (!normalizedUrl || seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(row);
+  }
+  return deduped;
+}
+
 function normalizeMimeType(row: EnovaDocRow): string | null {
   const url = normalizeUrl(row).toLowerCase();
   if (url.includes(".pdf")) return "application/pdf";
@@ -212,22 +235,9 @@ export function resolveRowsFromCanonicalState(
 ): EnovaDocRow[] {
   const pacoteRows = parseCanonicalRows(waId, stateRow?.pacote_documentos_anexados_json);
   const historicoRows = parseCanonicalRows(waId, stateRow?.envio_docs_historico_json);
-  const merged = [...pacoteRows, ...historicoRows];
-  const deduped: EnovaDocRow[] = [];
-  const seen = new Set<string>();
+  return dedupeRows([...pacoteRows, ...historicoRows]);
+}
 
-  for (const row of merged) {
-    const normalizedUrl = normalizeUrl(row);
-    const key = [
-      normalizedUrl,
-      String(row.tipo || "").trim().toLowerCase(),
-      String(row.participante || "").trim().toLowerCase(),
-      String(row.created_at || "").trim(),
-    ].join("|");
-    if (!normalizedUrl || seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(row);
-  }
-
-  return deduped;
+export function mergeCaseFileRows(primaryRows: EnovaDocRow[], canonicalRows: EnovaDocRow[]): EnovaDocRow[] {
+  return dedupeRows([...(Array.isArray(primaryRows) ? primaryRows : []), ...(Array.isArray(canonicalRows) ? canonicalRows : [])]);
 }

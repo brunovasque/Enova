@@ -30,15 +30,10 @@ function buildEnv() {
   };
 }
 
-async function simulateFromState(env, waId, text, stOverrides = {}) {
-  const stage = "envio_docs";
+async function simulateFromState(env, waId, stage, text, stOverrides = {}) {
   env.__enovaSimulationCtx.stateByWaId[waId] = {
     wa_id: waId,
     fase_conversa: stage,
-    dossie_status: "pronto",
-    docs_lista_enviada: true,
-    envio_docs_lista_enviada: true,
-    canal_docs_status: "pendente",
     updated_at: "2026-03-27T00:00:00.000Z",
     ...(env.__enovaSimulationCtx.stateByWaId[waId] || {}),
     ...stOverrides
@@ -66,153 +61,82 @@ async function simulateFromState(env, waId, text, stOverrides = {}) {
   return data;
 }
 
-function infoBag(data) {
-  return data?.writes?.controle?.etapa1_informativos || {};
-}
-
-const commonPreDocs = {
+const preDocsBase = {
   restricao: false,
-  regularizacao_restricao: "em_andamento"
+  regularizacao_restricao: "em_andamento",
+  renda: 4500,
+  controle: {
+    etapa1_informativos: {
+      visita_reserva_entrada_tem: false,
+      visita_fgts_disponivel: false,
+      titular_curso_superior_status: "nao"
+    }
+  }
 };
 
-// 1) SOLO: moradia/trabalho titular e retorno sem quebrar envio_docs.
+// 1) pré-docs roda imediatamente antes de docs no trilho regularizacao_restricao.
 {
   const env = buildEnv();
-  const wa = "5541999200001";
-
-  const moradiaP1 = await simulateFromState(env, wa, "Bairro Boa Vista", commonPreDocs);
-  assert.equal(moradiaP1.stage_after, "envio_docs");
-  assert.equal(infoBag(moradiaP1).informativo_moradia_p1, "Bairro Boa Vista");
-  assert.match(moradiaP1.reply_text, /local de trabalho seu/i);
-
-  const trabalhoP1 = await simulateFromState(env, wa, "Centro", {
-    ...commonPreDocs,
-    controle: { etapa1_informativos: { informativo_moradia_p1: "Bairro Boa Vista" } }
-  });
-  assert.equal(trabalhoP1.stage_after, "envio_docs");
-  assert.equal(infoBag(trabalhoP1).informativo_trabalho_p1, "Centro");
-  assert.doesNotMatch(trabalhoP1.reply_text, /local de moradia|local de trabalho/i);
+  const wa = "5541999200101";
+  const result = await simulateFromState(env, wa, "regularizacao_restricao", "sim", preDocsBase);
+  assert.equal(result.stage_after, "regularizacao_restricao");
+  assert.match(result.reply_text, /local de moradia/i);
 }
 
-// 2) PARCEIRO: coleta p1+p2 (moradia/trabalho) com composição fechada.
+// 2) caminhos de produção mapeados (#1, #2, #3, #8) passam pelo bloco pré-docs.
 {
-  const env = buildEnv();
-  const wa = "5541999200002";
-  const common = {
-    ...commonPreDocs,
-    financiamento_conjunto: true,
-    restricao_parceiro: false
-  };
-
-  const m1 = await simulateFromState(env, wa, "Pilarzinho", common);
-  assert.equal(m1.stage_after, "envio_docs");
-  assert.equal(infoBag(m1).informativo_moradia_p1, "Pilarzinho");
-  assert.match(m1.reply_text, /moradia do\(a\) parceiro\(a\)/i);
-
-  const m2 = await simulateFromState(env, wa, "Santa Felicidade", {
-    ...common,
-    controle: { etapa1_informativos: { informativo_moradia_p1: "Pilarzinho" } }
+  const envRestricao = buildEnv();
+  const fromRestricao = await simulateFromState(envRestricao, "5541999200102", "restricao", "não", {
+    ...preDocsBase,
+    composicao_pessoa: "familiar",
+    restricao_parceiro: false,
+    p3_required: false
   });
-  assert.equal(infoBag(m2).informativo_moradia_p2, "Santa Felicidade");
-  assert.match(m2.reply_text, /local de trabalho seu/i);
+  assert.equal(fromRestricao.stage_after, "restricao");
+  assert.match(fromRestricao.reply_text, /local de moradia|local de trabalho/i);
 
-  const t1 = await simulateFromState(env, wa, "Batel", {
-    ...common,
-    controle: {
-      etapa1_informativos: {
-        informativo_moradia_p1: "Pilarzinho",
-        informativo_moradia_p2: "Santa Felicidade"
-      }
-    }
+  const envParceiroNao = buildEnv();
+  const fromRestricaoParceiroNao = await simulateFromState(envParceiroNao, "5541999200103", "restricao_parceiro", "não", {
+    ...preDocsBase,
+    restricao: false,
+    p3_required: false
   });
-  assert.equal(infoBag(t1).informativo_trabalho_p1, "Batel");
-  assert.match(t1.reply_text, /trabalho do\(a\) parceiro\(a\)/i);
+  assert.equal(fromRestricaoParceiroNao.stage_after, "restricao_parceiro");
+  assert.match(fromRestricaoParceiroNao.reply_text, /local de moradia|local de trabalho/i);
 
-  const t2 = await simulateFromState(env, wa, "Portão", {
-    ...common,
-    controle: {
-      etapa1_informativos: {
-        informativo_moradia_p1: "Pilarzinho",
-        informativo_moradia_p2: "Santa Felicidade",
-        informativo_trabalho_p1: "Batel"
-      }
-    }
+  const envParceiroIncerto = buildEnv();
+  const fromRestricaoParceiroIncerto = await simulateFromState(envParceiroIncerto, "5541999200104", "restricao_parceiro", "não sei", {
+    ...preDocsBase,
+    restricao: false,
+    p3_required: false
   });
-  assert.equal(t2.stage_after, "envio_docs");
-  assert.equal(infoBag(t2).informativo_trabalho_p2, "Portão");
-  assert.doesNotMatch(t2.reply_text, /local de moradia|local de trabalho/i);
-}
+  assert.equal(fromRestricaoParceiroIncerto.stage_after, "restricao_parceiro");
+  assert.match(fromRestricaoParceiroIncerto.reply_text, /local de moradia|local de trabalho/i);
 
-// 3a) FAMILIAR COM P3 NÃO FECHADO: não pergunta P3.
-{
-  const env = buildEnv();
-  const wa = "5541999200003";
-  const common = {
-    ...commonPreDocs,
-    somar_renda: true,
-    p2_tipo: "familiar",
-    p3_required: true,
-    p3_done: false,
-    restricao_parceiro: false
-  };
-
-  const t2 = await simulateFromState(env, wa, "Centro Cívico", {
-    ...common,
-    controle: {
-      etapa1_informativos: {
-        informativo_moradia_p1: "Cabral",
-        informativo_moradia_p2: "Juvevê",
-        informativo_trabalho_p1: "Ahú"
-      }
-    }
-  });
-  assert.equal(t2.stage_after, "envio_docs");
-  assert.equal(infoBag(t2).informativo_trabalho_p2, "Centro Cívico");
-  assert.equal(Object.prototype.hasOwnProperty.call(infoBag(t2), "informativo_moradia_p3"), false);
-  assert.equal(Object.prototype.hasOwnProperty.call(infoBag(t2), "informativo_trabalho_p3"), false);
-}
-
-// 3b) FAMILIAR COM P3 FECHADO: captura P3 e retorna para envio_docs.
-{
-  const env = buildEnv();
-  const wa = "5541999200004";
-  const common = {
-    ...commonPreDocs,
-    somar_renda: true,
-    p2_tipo: "familiar",
+  const envRegularizacaoP3 = buildEnv();
+  const fromRegularizacaoP3 = await simulateFromState(envRegularizacaoP3, "5541999200105", "regularizacao_restricao_p3", "sim", {
+    ...preDocsBase,
     p3_required: true,
     p3_done: true,
-    restricao_parceiro: false
-  };
-
-  const moradiaP3 = await simulateFromState(env, wa, "Mercês", {
-    ...common,
-    controle: {
-      etapa1_informativos: {
-        informativo_moradia_p1: "Cabral",
-        informativo_moradia_p2: "Juvevê"
-      }
-    }
+    renda_total_para_fluxo: 5000
   });
-  assert.equal(moradiaP3.stage_after, "envio_docs");
-  assert.equal(infoBag(moradiaP3).informativo_moradia_p3, "Mercês");
-  assert.match(moradiaP3.reply_text, /local de trabalho seu/i);
+  assert.equal(fromRegularizacaoP3.stage_after, "regularizacao_restricao_p3");
+  assert.match(fromRegularizacaoP3.reply_text, /local de moradia|local de trabalho/i);
+}
 
-  const trabalhoP3 = await simulateFromState(env, wa, "Rebouças", {
-    ...common,
-    controle: {
-      etapa1_informativos: {
-        informativo_moradia_p1: "Cabral",
-        informativo_moradia_p2: "Juvevê",
-        informativo_moradia_p3: "Mercês",
-        informativo_trabalho_p1: "Ahú",
-        informativo_trabalho_p2: "Centro Cívico"
-      }
-    }
+// 3) envio_docs não intercepta mais o bloco informativo intruso.
+{
+  const env = buildEnv();
+  const wa = "5541999200106";
+  const result = await simulateFromState(env, wa, "envio_docs", "sim", {
+    ...preDocsBase,
+    dossie_status: "pronto",
+    docs_lista_enviada: false,
+    envio_docs_lista_enviada: false,
+    canal_docs_status: "pendente"
   });
-  assert.equal(trabalhoP3.stage_after, "envio_docs");
-  assert.equal(infoBag(trabalhoP3).informativo_trabalho_p3, "Rebouças");
-  assert.doesNotMatch(trabalhoP3.reply_text, /local de moradia|local de trabalho/i);
+  assert.equal(result.stage_after, "envio_docs");
+  assert.doesNotMatch(result.reply_text, /local de moradia|local de trabalho|curso superior|fgts|reserva/i);
 }
 
 console.log("etapa1_predocs.smoke: ok");

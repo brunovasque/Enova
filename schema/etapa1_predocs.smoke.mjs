@@ -294,7 +294,7 @@ const preDocsBase = {
   assert.match(semValor.reply_text, /fgts disponível hoje/i);
 }
 
-// 2.4) Cenário 3: FGTS = sim + "não sei" avança sem travar para docs.
+// 2.4) Cenário 3: baixa renda mantém escolaridade no PRÉ-DOCS após FGTS.
 {
   const env = buildEnv();
   const wa = "5541999200116";
@@ -316,13 +316,87 @@ const preDocsBase = {
   flowState = nextState(flowState, first);
 
   const second = await simulateFromState(env, wa, "regularizacao_restricao", "não sei", flowState);
-  assert.equal(second.stage_after, "envio_docs");
+  assert.equal(second.stage_after, "regularizacao_restricao");
   assert.equal(infoBag(second).visita_fgts_valor, "não informado");
-  assert.doesNotMatch(second.reply_text, /Último ponto informativo antes dos documentos/i);
-  assert.match(second.reply_text, /Me confirme com \*sim\*/i);
+  assert.match(second.reply_text, /Último ponto informativo antes dos documentos/i);
+  assert.match(second.reply_text, /curso superior/i);
 }
 
-// 2.5) Cenário 4: reserva = sim + sem valor e FGTS = sim + sem valor avançam para docs.
+// 2.5) Cenário 4: escolaridade respondida com "sim" salva e avança sem repetir.
+{
+  const env = buildEnv();
+  const wa = "5541999200119";
+  let flowState = {
+    ...preDocsBase,
+    renda: 3000,
+    controle: {
+      etapa1_informativos: {
+        informativo_trabalho_p1: "Batel",
+        informativo_moradia_p1: "Centro",
+        informativo_parcela_mensal: "R$ 1.000",
+        visita_reserva_entrada_tem: false,
+        visita_fgts_disponivel: false,
+        predocs_routing_active: true,
+        predocs_routing_stage: "regularizacao_restricao",
+        predocs_routing_envio_docs_message: [
+          "Perfeito! 👌",
+          "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+          "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
+        ]
+      }
+    }
+  };
+
+  const escolaridadePrompt = await simulateFromState(env, wa, "regularizacao_restricao", "oi", flowState);
+  assert.equal(escolaridadePrompt.stage_after, "regularizacao_restricao");
+  assert.match(escolaridadePrompt.reply_text, /Último ponto informativo antes dos documentos/i);
+  flowState = nextState(flowState, escolaridadePrompt);
+
+  const escolaridadeSim = await simulateFromState(env, wa, "regularizacao_restricao", "sim", flowState);
+  assert.equal(escolaridadeSim.stage_after, "envio_docs");
+  assert.equal(infoBag(escolaridadeSim).titular_curso_superior_status, "sim");
+  assert.doesNotMatch(escolaridadeSim.reply_text, /Último ponto informativo antes dos documentos/i);
+  assert.match(escolaridadeSim.reply_text, /Me confirme com \*sim\*|Quer que eu te envie/i);
+}
+
+// 2.6) Cenário 5: escolaridade respondida com "não" salva e avança sem repetir.
+{
+  const env = buildEnv();
+  const wa = "5541999200121";
+  let flowState = {
+    ...preDocsBase,
+    renda: 3000,
+    controle: {
+      etapa1_informativos: {
+        informativo_trabalho_p1: "Batel",
+        informativo_moradia_p1: "Centro",
+        informativo_parcela_mensal: "R$ 1.000",
+        visita_reserva_entrada_tem: false,
+        visita_fgts_disponivel: false,
+        predocs_routing_active: true,
+        predocs_routing_stage: "regularizacao_restricao",
+        predocs_routing_envio_docs_message: [
+          "Perfeito! 👌",
+          "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
+          "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
+        ]
+      }
+    }
+  };
+
+  const escolaridadePrompt = await simulateFromState(env, wa, "regularizacao_restricao", "oi", flowState);
+  assert.equal(escolaridadePrompt.stage_after, "regularizacao_restricao");
+  assert.match(escolaridadePrompt.reply_text, /Último ponto informativo antes dos documentos/i);
+  flowState = nextState(flowState, escolaridadePrompt);
+
+  const escolaridadeNao = await simulateFromState(env, wa, "regularizacao_restricao", "não", flowState);
+  assert.equal(escolaridadeNao.stage_after, "envio_docs");
+  assert.equal(infoBag(escolaridadeNao).titular_curso_superior_status, "nao");
+  assert.doesNotMatch(escolaridadeNao.reply_text, /Último ponto informativo antes dos documentos/i);
+  assert.match(escolaridadeNao.reply_text, /Me confirme com \*sim\*|Posso te enviar a \*\*instrução rápida\*\*/i);
+}
+
+// 2.7) Cenário 6: reserva = sim + sem valor e FGTS = sim + sem valor avançam para docs.
 {
   const env = buildEnv();
   const wa = "5541999200117";
@@ -359,7 +433,7 @@ const preDocsBase = {
   assert.equal(infoBag(fgtsSemValor).visita_fgts_valor, "não informado");
 }
 
-// 2.6) Cenário 5: reserva = não e FGTS = não segue normal para docs.
+// 2.8) Cenário 7: reserva = não e FGTS = não segue normal para docs.
 {
   const env = buildEnv();
   const wa = "5541999200118";

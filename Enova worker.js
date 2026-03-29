@@ -1444,6 +1444,14 @@ function getNextInformativoPreDocsSlot(st = {}) {
   ) {
     return { topic: "fgts_valor" };
   }
+  const rendaTitular = resolveRendaTitularParaCursoSuperior(st);
+  if (
+    Number.isFinite(rendaTitular) &&
+    rendaTitular <= 3500 &&
+    !hasStateValue(getEtapa1InformativoValue(st, "titular_curso_superior_status"))
+  ) {
+    return { topic: "escolaridade" };
+  }
   return null;
 }
 
@@ -1495,6 +1503,13 @@ function buildInformativoPreDocsQuestion(slot, st = {}) {
       ...introLines,
       "Qual valor aproximadamente você tem disponível no FGTS?",
       "Se não quiser informar, não tem problema, mas isso me ajuda a te orientar melhor nas opções de imóvel."
+    ];
+  }
+  if (slot.topic === "escolaridade") {
+    return [
+      ...introLines,
+      "Último ponto informativo antes dos documentos:",
+      "Você tem curso superior completo, incompleto, está cursando ou não tem curso superior?"
     ];
   }
   return [
@@ -1641,6 +1656,9 @@ async function maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt)
       if (parsed !== null) updates = { visita_fgts_disponivel: parsed };
     } else if (infoSlot.topic === "fgts_valor") {
       updates = { visita_fgts_valor: parseOptionalInformativoValue(userProvidedInfo) };
+    } else if (infoSlot.topic === "escolaridade") {
+      const parsed = parseTitularCursoSuperiorStatus(userProvidedInfo);
+      if (parsed !== null) updates = { titular_curso_superior_status: parsed };
     }
 
     if (updates) {
@@ -1770,6 +1788,7 @@ function parseTitularCursoSuperiorStatus(text) {
   if (/cursando|faculdade|universidade|graduacao em andamento|graduação em andamento/.test(nt)) return "cursando";
   if (/concluid|formad|completei|tenho curso superior/.test(nt)) return "concluido";
   if (/incomplet/.test(nt)) return "incompleto";
+  if (isYes(text) || /\b(sim|tenho|possuo)\b/.test(nt)) return "sim";
   if (/nao|não|sem|medio|fundamental/.test(nt)) return "nao";
   return null;
 }

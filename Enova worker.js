@@ -1415,10 +1415,17 @@ function getDefaultPreDocsEnvioDocsMessage() {
   ];
 }
 
-function isActivePreDocsQuestionMessage(lastBotMsg) {
-  const text = String(lastBotMsg || "");
+function isActivePreDocsQuestionMessage(st = {}, lastBotMessage) {
+  const text = String(lastBotMessage || "");
   if (!text.trim()) return false;
-  return /(antes de te passar os documentos|local de moradia|local de trabalho|antes de liberar os documentos|fgts dispon[ií]vel|último ponto informativo antes dos documentos)/i.test(text);
+  const slot = getNextInformativoPreDocsSlot(st);
+  if (!slot) return false;
+  const normalizedText = normalizeText(text);
+  if (!normalizedText) return false;
+  const promptLines = buildInformativoPreDocsQuestion(slot)
+    .map((line) => normalizeText(line))
+    .filter(Boolean);
+  return promptLines.some((line) => normalizedText.includes(line));
 }
 
 function getPreDocsRoutingContext(st = {}) {
@@ -1436,10 +1443,19 @@ function getPreDocsRoutingContext(st = {}) {
 }
 
 async function setPreDocsRoutingContext(env, st, stageForPrompt, envioDocsMessage) {
+  const normalizedEnvioDocsMessage = Array.isArray(envioDocsMessage)
+    ? envioDocsMessage
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)
+    : typeof envioDocsMessage === "string" && envioDocsMessage.trim()
+      ? [envioDocsMessage.trim()]
+      : [];
   const patch = buildEtapa1InformativosPatch(st, {
     predocs_routing_active: true,
     predocs_routing_stage: stageForPrompt,
-    predocs_routing_envio_docs_message: Array.isArray(envioDocsMessage) ? envioDocsMessage : [String(envioDocsMessage || "")]
+    predocs_routing_envio_docs_message: normalizedEnvioDocsMessage.length
+      ? normalizedEnvioDocsMessage
+      : getDefaultPreDocsEnvioDocsMessage()
   });
   await upsertState(env, st.wa_id, patch);
   Object.assign(st, patch);
@@ -1515,10 +1531,12 @@ async function routeToEnvioDocsViaPreDocs(env, st, userText, stageForPrompt, env
   if (shouldCollectInformativosPreDocs(st)) {
     await setPreDocsRoutingContext(env, st, stageForPrompt, envioDocsMessage);
   } else {
+    // Limpeza defensiva: se não há slots pendentes, não deve sobrar contexto de roteamento PRÉ-DOCS.
     await clearPreDocsRoutingContext(env, st);
   }
   const infoStep = await maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt);
   if (infoStep) return infoStep;
+  // Com PRÉ-DOCS concluído, remove o contexto antes de transicionar para envio documental.
   await clearPreDocsRoutingContext(env, st);
   return step(env, st, envioDocsMessage, "envio_docs");
 }
@@ -18323,7 +18341,7 @@ async function runFunnel(env, st, userText) {
   const preDocsRoutingContext =
     getPreDocsRoutingContext(st) ||
     (
-      shouldCollectInformativosPreDocs(st) && isActivePreDocsQuestionMessage(st?.last_bot_msg)
+      shouldCollectInformativosPreDocs(st) && isActivePreDocsQuestionMessage(st, st?.last_bot_msg)
         ? { stageForPrompt: stage, envioDocsMessage: getDefaultPreDocsEnvioDocsMessage() }
         : null
     );

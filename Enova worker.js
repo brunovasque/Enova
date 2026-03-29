@@ -1397,9 +1397,24 @@ function informativoPreDocsField(topic, participantId) {
     : `informativo_trabalho_${participantId}`;
 }
 
+function hasStartedInformativosPreDocs(st = {}) {
+  const participantes = getComposicaoParticipantesInformativos(st);
+  for (const participante of participantes) {
+    if (hasStateValue(getEtapa1InformativoValue(st, informativoPreDocsField("trabalho", participante.id)))) return true;
+    if (hasStateValue(getEtapa1InformativoValue(st, informativoPreDocsField("moradia", participante.id)))) return true;
+  }
+  return [
+    "informativo_parcela_mensal",
+    "visita_reserva_entrada_tem",
+    "visita_reserva_entrada_valor",
+    "visita_fgts_disponivel",
+    "visita_fgts_valor"
+  ].some((key) => hasStateValue(getEtapa1InformativoValue(st, key)));
+}
+
 function getNextInformativoPreDocsSlot(st = {}) {
   const participantes = getComposicaoParticipantesInformativos(st);
-  const topics = ["moradia", "trabalho"];
+  const topics = ["trabalho", "moradia"];
   for (const topic of topics) {
     for (const participante of participantes) {
       const field = informativoPreDocsField(topic, participante.id);
@@ -1408,48 +1423,82 @@ function getNextInformativoPreDocsSlot(st = {}) {
       }
     }
   }
+  if (!hasStateValue(getEtapa1InformativoValue(st, "informativo_parcela_mensal"))) {
+    return { topic: "parcela_mensal" };
+  }
   if (!hasStateValue(getEtapa1InformativoValue(st, "visita_reserva_entrada_tem"))) {
     return { topic: "reserva" };
+  }
+  if (
+    getEtapa1InformativoValue(st, "visita_reserva_entrada_tem") === true &&
+    !hasStateValue(getEtapa1InformativoValue(st, "visita_reserva_entrada_valor"))
+  ) {
+    return { topic: "reserva_valor" };
   }
   if (!hasStateValue(getEtapa1InformativoValue(st, "visita_fgts_disponivel"))) {
     return { topic: "fgts" };
   }
-  const rendaTitular = resolveRendaTitularParaCursoSuperior(st);
-  if (Number.isFinite(rendaTitular) && rendaTitular <= 3500 && !hasStateValue(getEtapa1InformativoValue(st, "titular_curso_superior_status"))) {
-    return { topic: "escolaridade" };
+  if (
+    getEtapa1InformativoValue(st, "visita_fgts_disponivel") === true &&
+    !hasStateValue(getEtapa1InformativoValue(st, "visita_fgts_valor"))
+  ) {
+    return { topic: "fgts_valor" };
   }
   return null;
 }
 
-function buildInformativoPreDocsQuestion(slot) {
+function buildInformativoPreDocsQuestion(slot, st = {}) {
   if (!slot) return [];
+  const introLines = slot.topic === "trabalho" && !hasStartedInformativosPreDocs(st)
+    ? [
+        "Perfeito, as perguntas que te fiz acima foram para verificar se o seu perfil se enquadra no programa Minha Casa Minha Vida. Agora, as perguntas seguintes servem para eu te orientar nas melhores opções de imóveis de acordo com o seu perfil após a aprovação de financiamento."
+      ]
+    : [];
   if (slot.topic === "moradia") {
     return [
-      `Antes de te passar os documentos, me conta rapidinho o local de moradia ${slot.label}.`,
+      ...introLines,
+      `Agora me conta qual local de preferência para moradia ${slot.label}.`,
       "Pode ser bairro, região ou uma referência simples.",
       "Depois você pode enviar qualquer comprovante de residência atualizado."
     ];
   }
+  if (slot.topic === "parcela_mensal") {
+    return [
+      ...introLines,
+      "Já considerando seus gastos mensais, até qual valor mensal considera pagar de parcela por um imóvel?"
+    ];
+  }
   if (slot.topic === "reserva") {
     return [
-      "Antes de liberar os documentos, só mais um ponto rápido:",
+      ...introLines,
+      "Agora me ajuda com mais um ponto para eu te orientar melhor:",
       "Você tem alguma reserva para entrada?",
       "Responda *sim* ou *não*."
     ];
   }
+  if (slot.topic === "reserva_valor") {
+    return [
+      ...introLines,
+      "Se tiver, qual valor aproximadamente você tem de reserva para entrada?",
+      "Se não quiser informar, não tem problema, mas isso me ajuda a te orientar melhor nas opções de imóvel."
+    ];
+  }
   if (slot.topic === "fgts") {
     return [
+      ...introLines,
       "Perfeito. E você tem FGTS disponível hoje?",
       "Responda *sim* ou *não*."
     ];
   }
-  if (slot.topic === "escolaridade") {
+  if (slot.topic === "fgts_valor") {
     return [
-      "Último ponto informativo antes dos documentos:",
-      "Você tem curso superior completo, incompleto, está cursando ou não tem curso superior?"
+      ...introLines,
+      "Qual valor aproximadamente você tem disponível no FGTS?",
+      "Se não quiser informar, não tem problema, mas isso me ajuda a te orientar melhor nas opções de imóvel."
     ];
   }
   return [
+    ...introLines,
     `Perfeito. Agora me conta o local de trabalho ${slot.label}.`,
     "Pode ser endereço, bairro ou um ponto de referência."
   ];
@@ -1467,6 +1516,19 @@ function getDefaultPreDocsEnvioDocsMessage() {
   ];
 }
 
+function getPreDocsTransitionClosingMessage() {
+  return [
+    "Com essas informações mais os dados de seu perfil do programa, ja tenho segurança suficiente para inicarmos o proximo passo, onde vou te enquadrar nas menores taxas de juros e maior subsídio dentro do seu perfil."
+  ];
+}
+
+function buildPreDocsEnvioDocsHandoffMessage(envioDocsMessage) {
+  return [
+    ...getPreDocsTransitionClosingMessage(),
+    ...(Array.isArray(envioDocsMessage) ? envioDocsMessage : [envioDocsMessage].filter(Boolean))
+  ];
+}
+
 function isActivePreDocsQuestionMessage(st = {}, lastBotMessage) {
   const text = String(lastBotMessage || "");
   if (!text.trim()) return false;
@@ -1474,7 +1536,7 @@ function isActivePreDocsQuestionMessage(st = {}, lastBotMessage) {
   if (!slot) return false;
   const normalizedText = normalizeText(text);
   if (!normalizedText) return false;
-  const promptLines = buildInformativoPreDocsQuestion(slot)
+  const promptLines = buildInformativoPreDocsQuestion(slot, st)
     .map((line) => normalizeText(line))
     .filter(Boolean);
   return promptLines.some((line) => normalizedText.includes(line));
@@ -1543,6 +1605,17 @@ function isGenericAckText(text) {
   return /^(sim|nao|não|ok|blz|beleza|bora|vamos|quero|pode|manda|depois|talvez|1|2|3|4)$/.test(nt);
 }
 
+function parseOptionalInformativoValue(text) {
+  const raw = String(text || "").trim();
+  const nt = normalizeText(raw);
+  if (!nt) return "não informado";
+  if (isGenericAckText(raw) || isYes(raw) || isNo(raw)) return "não informado";
+  if (/\b(nao sei|nao quero informar|prefiro nao informar|nao quero dizer|prefiro nao dizer)\b/.test(nt)) {
+    return "não informado";
+  }
+  return raw;
+}
+
 async function maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt) {
   if (!shouldCollectInformativosPreDocs(st)) return null;
   const infoSlot = getNextInformativoPreDocsSlot(st);
@@ -1556,15 +1629,18 @@ async function maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt)
       if (!hasStateValue(getEtapa1InformativoValue(st, infoField))) {
         updates = { [infoField]: userProvidedInfo };
       }
+    } else if (infoSlot.topic === "parcela_mensal") {
+      updates = { informativo_parcela_mensal: parseOptionalInformativoValue(userProvidedInfo) };
     } else if (infoSlot.topic === "reserva") {
       const parsed = parseInformativoBoolean(userProvidedInfo);
       if (parsed !== null) updates = { visita_reserva_entrada_tem: parsed };
+    } else if (infoSlot.topic === "reserva_valor") {
+      updates = { visita_reserva_entrada_valor: parseOptionalInformativoValue(userProvidedInfo) };
     } else if (infoSlot.topic === "fgts") {
       const parsed = parseInformativoBoolean(userProvidedInfo);
       if (parsed !== null) updates = { visita_fgts_disponivel: parsed };
-    } else if (infoSlot.topic === "escolaridade") {
-      const parsed = parseTitularCursoSuperiorStatus(userProvidedInfo);
-      if (parsed !== null) updates = { titular_curso_superior_status: parsed };
+    } else if (infoSlot.topic === "fgts_valor") {
+      updates = { visita_fgts_valor: parseOptionalInformativoValue(userProvidedInfo) };
     }
 
     if (updates) {
@@ -1591,7 +1667,7 @@ async function routeToEnvioDocsViaPreDocs(env, st, userText, stageForPrompt, env
   if (infoStep) return infoStep;
   // Com PRÉ-DOCS concluído, remove o contexto antes de transicionar para envio documental.
   await clearPreDocsRoutingContext(env, st);
-  return step(env, st, envioDocsMessage, "envio_docs");
+  return step(env, st, buildPreDocsEnvioDocsHandoffMessage(envioDocsMessage), "envio_docs");
 }
 
 function nextAutonomoInformativoPendente(st = {}) {
@@ -18655,7 +18731,7 @@ async function runFunnel(env, st, userText) {
     );
     if (preDocsStep) return preDocsStep;
     await clearPreDocsRoutingContext(env, st);
-    return step(env, st, preDocsRoutingContext.envioDocsMessage, "envio_docs");
+    return step(env, st, buildPreDocsEnvioDocsHandoffMessage(preDocsRoutingContext.envioDocsMessage), "envio_docs");
   }
 
   // ============================================================

@@ -124,6 +124,51 @@ const preDocsBase = {
   assert.match(fromRegularizacaoP3.reply_text, /local de moradia|local de trabalho/i);
 }
 
+// 2.1) caminhos que antes caiam direto em envio_docs também passam pelo pré-docs.
+{
+  const envSoloNao = buildEnv();
+  const soloNao = await simulateFromState(envSoloNao, "5541999200110", "restricao", "não", {
+    ...preDocsBase,
+    financiamento_conjunto: false,
+    somar_renda: false,
+    p3_required: false
+  });
+  assert.equal(soloNao.stage_after, "restricao");
+  assert.match(soloNao.reply_text, /local de moradia|local de trabalho|reserva|fgts|curso superior/i);
+
+  const envSoloIncerto = buildEnv();
+  const soloIncerto = await simulateFromState(envSoloIncerto, "5541999200111", "restricao", "não sei", {
+    ...preDocsBase,
+    financiamento_conjunto: false,
+    somar_renda: false,
+    p3_required: false
+  });
+  assert.equal(soloIncerto.stage_after, "restricao");
+  assert.match(soloIncerto.reply_text, /local de moradia|local de trabalho|reserva|fgts|curso superior/i);
+
+  const envParceiroNaoDireto = buildEnv();
+  const parceiroNaoDireto = await simulateFromState(envParceiroNaoDireto, "5541999200112", "restricao", "não", {
+    ...preDocsBase,
+    financiamento_conjunto: true,
+    restricao: false,
+    restricao_parceiro: null,
+    p3_required: false
+  });
+  assert.equal(parceiroNaoDireto.stage_after, "restricao");
+  assert.match(parceiroNaoDireto.reply_text, /local de moradia|local de trabalho|reserva|fgts|curso superior/i);
+
+  const envParceiroIncertoDireto = buildEnv();
+  const parceiroIncertoDireto = await simulateFromState(envParceiroIncertoDireto, "5541999200113", "restricao", "não sei", {
+    ...preDocsBase,
+    financiamento_conjunto: true,
+    restricao: false,
+    restricao_parceiro: null,
+    p3_required: false
+  });
+  assert.equal(parceiroIncertoDireto.stage_after, "restricao");
+  assert.match(parceiroIncertoDireto.reply_text, /local de moradia|local de trabalho|reserva|fgts|curso superior/i);
+}
+
 // 3) envio_docs não intercepta mais o bloco informativo intruso.
 {
   const env = buildEnv();

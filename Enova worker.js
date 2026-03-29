@@ -1404,11 +1404,7 @@ function buildInformativoPreDocsQuestion(slot) {
 }
 
 function shouldCollectInformativosPreDocs(st = {}) {
-  return (
-    hasStateValue(st.restricao) ||
-    hasStateValue(st.regularizacao_restricao) ||
-    hasStateValue(st.restricao_parceiro)
-  );
+  return getNextInformativoPreDocsSlot(st) !== null;
 }
 
 function parseInformativoBoolean(text) {
@@ -1463,6 +1459,12 @@ async function maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt)
     return step(env, st, buildInformativoPreDocsQuestion(remainingSlot), stageForPrompt);
   }
   return null;
+}
+
+async function routeToEnvioDocsViaPreDocs(env, st, userText, stageForPrompt, envioDocsMessage) {
+  const infoStep = await maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt);
+  if (infoStep) return infoStep;
+  return step(env, st, envioDocsMessage, "envio_docs");
 }
 
 function nextAutonomoInformativoPendente(st = {}) {
@@ -22586,14 +22588,11 @@ case "regularizacao_restricao_p3": {
       (st.renda_total_para_fluxo != null);
 
     if (titularFechado) {
-      const infoStepP3 = await maybeCaptureEtapa1PreDocsInput(env, st, userText, stage);
-      if (infoStepP3) return infoStepP3;
-      return step(env, st,
+      return routeToEnvioDocsViaPreDocs(env, st, userText, stage,
         [
           "Ótimo! 👏",
           "Como o seu cadastro principal já está fechado, já vamos pra etapa de documentos 😊"
-        ],
-        "envio_docs"
+        ]
       );
     }
 
@@ -25274,15 +25273,12 @@ const modoFamiliar =
 
   // Se já tenho restrição do familiar e (se precisar) do P3, finaliza
   if (familiarJa && (!p3Precisa || p3Ja)) {
-    const infoStepModoFamiliar = await maybeCaptureEtapa1PreDocsInput(env, st, userText, stage);
-    if (infoStepModoFamiliar) return infoStepModoFamiliar;
-    return step(env, st,
+    return routeToEnvioDocsViaPreDocs(env, st, userText, stage,
       [
         "Perfeito! 👌",
         "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
         "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
-      ],
-      "envio_docs"
+      ]
     );
   }
 }
@@ -25401,13 +25397,12 @@ if (st.p3_required && st.p3_done !== true) {
   );
 }
 
-return step(env, st,
+return routeToEnvioDocsViaPreDocs(env, st, userText, stage,
   [
   "Perfeito! 👌",
   "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
   "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
-],
-  "envio_docs"
+]
 );
   }
 
@@ -25446,13 +25441,12 @@ return step(env, st,
   );
 }
 
-  return step(env, st,
+  return routeToEnvioDocsViaPreDocs(env, st, userText, stage,
     [
   "Perfeito! 👌",
   "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
   "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
-],
-  "envio_docs"
+]
 );
 }
 
@@ -25476,13 +25470,12 @@ if (incerto) {
       message: "Parceiro não soube informar restrição (checkpoint em restricao)"
     });
 
-    return step(env, st,
+    return routeToEnvioDocsViaPreDocs(env, st, userText, stage,
       [
   "Perfeito! 👌",
   "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
   "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
-],
-      "envio_docs"
+]
     );
   }
 
@@ -25511,13 +25504,12 @@ if (incerto) {
     );
   }
 
-  return step(env, st,
+  return routeToEnvioDocsViaPreDocs(env, st, userText, stage,
     [
   "Perfeito! 👌",
   "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
   "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
-],
-    "envio_docs"
+]
   );
 }
 
@@ -25708,16 +25700,12 @@ if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restric
   );
 }
 
-    const infoStepSemRestricao = await maybeCaptureEtapa1PreDocsInput(env, st, userText, stage);
-    if (infoStepSemRestricao) return infoStepSemRestricao;
-
-    return step(env, st,
+    return routeToEnvioDocsViaPreDocs(env, st, userText, stage,
   [
   "Perfeito! 👌",
   "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
   "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
-],
-  "envio_docs"
+]
 );
   }
 
@@ -25757,16 +25745,12 @@ if (st.p3_required === true && (st.p3_restricao === null || typeof st.p3_restric
   );
 }
 
-    const infoStepIncerto = await maybeCaptureEtapa1PreDocsInput(env, st, userText, stage);
-    if (infoStepIncerto) return infoStepIncerto;
-
-    return step(env, st,
+    return routeToEnvioDocsViaPreDocs(env, st, userText, stage,
   [
   "Perfeito! 👌",
   "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
   "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
-],
-  "envio_docs"
+]
 );
   }
 
@@ -25977,30 +25961,23 @@ case "regularizacao_restricao": {
     if (stage === "regularizacao_restricao_parceiro" && st.restricao !== true) {
       const gateRes2 = gateAntesEnvioDocs();
       if (gateRes2) return gateRes2;
-      const infoStepParceiro = await maybeAskInformativosPreDocs();
-      if (infoStepParceiro) return infoStepParceiro;
-      return step(env, st,
+      return routeToEnvioDocsViaPreDocs(env, st, userText, stage,
         [
           "Ótimo! 👏",
           "Agora vou te passar a documentação certa do seu caso pra seguirmos com envio online.",
           "Me confirme com *sim* que eu já libero a lista objetiva dos documentos."
-        ],
-        "envio_docs"
+        ]
       );
     }
 
     const gateRes = gateAntesEnvioDocs();
     if (gateRes) return gateRes;
-    const infoStepSim = await maybeAskInformativosPreDocs();
-    if (infoStepSim) return infoStepSim;
-
-    return step(env, st,
+    return routeToEnvioDocsViaPreDocs(env, st, userText, stage,
       [
         "Ótimo! 👏",
         "Quando a restrição sair do sistema, o banco libera o financiamento. E isso não impede de irmos para a próxima fase 😉",
         "Enquanto isso, já posso te adiantar a lista de **documentos** pra darmos sequencia. Quer que eu te envie?"
-      ],
-      "envio_docs"
+      ]
     );
   }
 
@@ -26067,17 +26044,13 @@ case "regularizacao_restricao": {
 
     const gateRes = gateAntesEnvioDocs();
     if (gateRes) return gateRes;
-    const infoStepNao = await maybeAskInformativosPreDocs();
-    if (infoStepNao) return infoStepNao;
-
-    return step(env, st,
+    return routeToEnvioDocsViaPreDocs(env, st, userText, stage,
       [
         "Tranquilo, isso é bem comum 😊",
         "Pra Caixa liberar o financiamento, o CPF precisa estar sem restrição.",
         "Mas não precisa se preocupar: te mostro o caminho mais fácil pra resolver isso pelo app da Serasa ou banco.",
         "Posso te enviar a **instrução rápida** e já te adiantar a lista de documentos?"
-      ],
-      "envio_docs"
+      ]
     );
   }
 
@@ -26102,16 +26075,12 @@ case "regularizacao_restricao": {
 
     const gateRes = gateAntesEnvioDocs();
     if (gateRes) return gateRes;
-    const infoStepTalvez = await maybeAskInformativosPreDocs();
-    if (infoStepTalvez) return infoStepTalvez;
-
-    return step(env, st,
+    return routeToEnvioDocsViaPreDocs(env, st, userText, stage,
       [
         "Sem problema 😊",
         "Vemos isso diretamente com o banco na nossa próxima fase, que é a análise com o banco.",
         "Posso te passar a lista de **documentos básicos** que o banco pede pra validar seu cadastro e analisar se libera financiamento ou não?"
-      ],
-      "envio_docs"
+      ]
     );
   }
 

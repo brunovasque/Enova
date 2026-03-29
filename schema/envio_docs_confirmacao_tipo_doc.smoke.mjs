@@ -369,6 +369,7 @@ function buildPdfFetch(text) {
       Object.prototype.hasOwnProperty.call(patch, "envio_docs_ultima_pergunta_confirmacao_id") ||
       Object.prototype.hasOwnProperty.call(patch, "envio_docs_ultimo_upload_confirmacao_id") ||
       Object.prototype.hasOwnProperty.call(patch, "envio_docs_historico_json") ||
+      Object.prototype.hasOwnProperty.call(patch, "pacote_sinais_persistidos_json") ||
       Object.keys(patch).some((k) => k.startsWith("analise_docs_")) ||
       Object.keys(patch).some((k) => k.startsWith("pacote_docs_"))
     );

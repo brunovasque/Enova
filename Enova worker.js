@@ -674,6 +674,7 @@ async function upsertState(env, wa_id, payload) {
     "last_message_id_prev",
     "last_message_timestamp",
     "dossie_sinais_persistidos_json",
+    "pacote_sinais_persistidos_json",
     "envio_docs_itens_json"
   ]);
   // Initial attempt + one retry for each optional allowlisted column that may need removal.
@@ -8953,8 +8954,7 @@ function pickEnvioDocsPersistedPacotePatch(pacotePayload = {}) {
     pacote_restricoes_json: base?.pacote_restricoes_json && typeof base.pacote_restricoes_json === "object" ? base.pacote_restricoes_json : null,
     pacote_pendencias_json: Array.isArray(base?.pacote_pendencias_json) ? base.pacote_pendencias_json : null,
     pacote_documentos_anexados_json: Array.isArray(base?.pacote_documentos_anexados_json) ? base.pacote_documentos_anexados_json : null,
-    pacote_observacoes_json: Array.isArray(base?.pacote_observacoes_json) ? base.pacote_observacoes_json : null,
-    pacote_sinais_persistidos_json: base?.pacote_sinais_persistidos_json && typeof base.pacote_sinais_persistidos_json === "object" ? base.pacote_sinais_persistidos_json : null
+    pacote_observacoes_json: Array.isArray(base?.pacote_observacoes_json) ? base.pacote_observacoes_json : null
   };
 }
 

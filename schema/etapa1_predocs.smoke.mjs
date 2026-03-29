@@ -61,6 +61,10 @@ async function simulateFromState(env, waId, stage, text, stOverrides = {}) {
   return data;
 }
 
+function infoBag(data) {
+  return data.writes?.controle?.etapa1_informativos || {};
+}
+
 const preDocsBase = {
   restricao: false,
   regularizacao_restricao: "em_andamento",
@@ -167,6 +171,42 @@ const preDocsBase = {
   });
   assert.equal(parceiroIncertoDireto.stage_after, "restricao");
   assert.match(parceiroIncertoDireto.reply_text, /local de moradia|local de trabalho|reserva|fgts|curso superior/i);
+}
+
+// 2.2) Booleanos PRÉ-DOCS: "não" em reserva e "sim" em FGTS persistem e avançam sem loop.
+{
+  const env = buildEnv();
+  const wa = "5541999200114";
+  const boolBase = {
+    ...preDocsBase,
+    controle: {
+      etapa1_informativos: {
+        informativo_moradia_p1: "Centro",
+        informativo_trabalho_p1: "Batel"
+      }
+    }
+  };
+
+  const reservaNao = await simulateFromState(env, wa, "regularizacao_restricao", "não", {
+    ...boolBase
+  });
+  assert.equal(reservaNao.stage_after, "regularizacao_restricao");
+  assert.equal(infoBag(reservaNao).visita_reserva_entrada_tem, false);
+  assert.doesNotMatch(reservaNao.reply_text, /reserva para entrada/i);
+  assert.match(reservaNao.reply_text, /fgts/i);
+
+  const fgtsSim = await simulateFromState(env, wa, "regularizacao_restricao", "sim", {
+    ...boolBase,
+    controle: {
+      etapa1_informativos: {
+        ...(boolBase.controle?.etapa1_informativos || {}),
+        visita_reserva_entrada_tem: false
+      }
+    }
+  });
+  assert.equal(fgtsSim.stage_after, "envio_docs");
+  assert.equal(infoBag(fgtsSim).visita_fgts_disponivel, true);
+  assert.doesNotMatch(fgtsSim.reply_text, /fgts dispon[ií]vel hoje/i);
 }
 
 // 3) envio_docs não intercepta mais o bloco informativo intruso.

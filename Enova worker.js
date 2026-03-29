@@ -7856,7 +7856,7 @@ function validateDocumentReadable(docType, txt) {
 // ======================================================================
 async function saveDocumentToSupabase(env, wa_id, data) {
   const participante = data?.participante || data?.participant || null;
-  const payload = { wa_id, ...data, participante };
+  const payload = { ...data, wa_id, participante };
   delete payload.participant;
   try {
     await sbFetch(env, "/rest/v1/enova_docs", {
@@ -12665,7 +12665,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
                 tipo: targetConfirmedByText?.tipo,
                 participante: targetConfirmedByText?.participante,
                 phase: "insert",
-                payload: _e?.enova_docs_payload || { wa_id: st?.wa_id || null, ..._cSavePayload },
+                payload: _e?.enova_docs_payload || { ..._cSavePayload, wa_id: st?.wa_id || null },
                 ..._cErrorDebug
               });
             }
@@ -13200,7 +13200,7 @@ async function handleDocumentUpload(env, st, msg, options = {}) {
                   tipo: matched?.tipo,
                   participante: matched?.participante,
                   phase: "insert",
-                  payload: _e?.enova_docs_payload || { wa_id: st?.wa_id || null, ..._savePayload },
+                  payload: _e?.enova_docs_payload || { ..._savePayload, wa_id: st?.wa_id || null },
                   ..._errorDebug
                 });
               }

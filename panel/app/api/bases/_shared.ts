@@ -1,0 +1,640 @@
+export const LEAD_POOLS = ["COLD_POOL", "WARM_POOL", "HOT_POOL"] as const;
+export const LEAD_TEMPS = ["COLD", "WARM", "HOT"] as const;
+
+export type LeadPool = (typeof LEAD_POOLS)[number];
+export type LeadTemp = (typeof LEAD_TEMPS)[number];
+
+export type CrmLeadMetaRow = {
+  wa_id: string;
+  lead_pool: LeadPool;
+  lead_temp: LeadTemp;
+  lead_source: string | null;
+  tags: string[];
+  obs_curta: string | null;
+  import_ref: string | null;
+  auto_outreach_enabled: boolean;
+  is_paused: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+type LeadMetaInput = {
+  wa_id?: unknown;
+  lead_pool?: unknown;
+  lead_temp?: unknown;
+  lead_source?: unknown;
+  tags?: unknown;
+  obs_curta?: unknown;
+  import_ref?: unknown;
+  auto_outreach_enabled?: unknown;
+  is_paused?: unknown;
+};
+
+type NormalizeLeadMetaOptions = {
+  defaultLeadPool?: LeadPool;
+  defaultLeadTemp?: LeadTemp;
+  defaultLeadSource?: string;
+  defaultImportRef?: string | null;
+  defaultAutoOutreachEnabled?: boolean;
+  defaultPaused?: boolean;
+};
+
+export type WarmupSelectionOptions = {
+  lead_pool?: LeadPool | null;
+  lead_temp?: LeadTemp | null;
+  limit?: number;
+};
+
+export type BasesAction =
+  | "add_lead_manual"
+  | "import_base"
+  | "move_base"
+  | "pause_lead"
+  | "resume_lead"
+  | "call_now"
+  | "warmup_base";
+
+export type BasesRequest = {
+  action?: BasesAction;
+  wa_id?: string;
+  text?: string;
+  lead_pool?: string;
+  lead_temp?: string;
+  lead_source?: string;
+  tags?: unknown;
+  obs_curta?: string;
+  import_ref?: string;
+  auto_outreach_enabled?: boolean;
+  is_paused?: boolean;
+  leads?: Array<Record<string, unknown>>;
+  limit?: number;
+};
+
+type AuditLogRow = {
+  wa_id: string | null;
+  tag:
+    | "bases_add_lead_manual"
+    | "bases_import"
+    | "bases_move"
+    | "bases_pause"
+    | "bases_resume"
+    | "bases_call_now"
+    | "bases_warmup";
+  meta_text: string;
+  details: Record<string, unknown>;
+};
+
+export const REQUIRED_ENVS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const;
+export const CALL_NOW_ENVS = ["WORKER_BASE_URL", "ENOVA_ADMIN_KEY"] as const;
+
+export function defaultLeadTempForPool(leadPool: LeadPool): LeadTemp {
+  if (leadPool === "WARM_POOL") return "WARM";
+  if (leadPool === "HOT_POOL") return "HOT";
+  return "COLD";
+}
+
+export function isLeadPool(value: unknown): value is LeadPool {
+  return typeof value === "string" && LEAD_POOLS.includes(value as LeadPool);
+}
+
+export function isLeadTemp(value: unknown): value is LeadTemp {
+  return typeof value === "string" && LEAD_TEMPS.includes(value as LeadTemp);
+}
+
+export function normalizeOptionalText(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function normalizeTags(value: unknown): string[] {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(",")
+      : [];
+
+  const unique = new Set<string>();
+  for (const entry of rawValues) {
+    if (typeof entry !== "string") continue;
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    unique.add(trimmed);
+  }
+
+  return Array.from(unique);
+}
+
+export function normalizeBoolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+export function normalizeLeadMetaInput(
+  input: LeadMetaInput,
+  options: NormalizeLeadMetaOptions = {},
+): Omit<CrmLeadMetaRow, "created_at"> {
+  const waId = normalizeOptionalText(input.wa_id);
+  if (!waId) {
+    throw new Error("wa_id é obrigatório");
+  }
+
+  const leadPoolRaw = input.lead_pool ?? options.defaultLeadPool;
+  if (!isLeadPool(leadPoolRaw)) {
+    throw new Error("lead_pool inválido");
+  }
+
+  const leadTempRaw = input.lead_temp ?? options.defaultLeadTemp ?? defaultLeadTempForPool(leadPoolRaw);
+  if (!isLeadTemp(leadTempRaw)) {
+    throw new Error("lead_temp inválido");
+  }
+
+  return {
+    wa_id: waId,
+    lead_pool: leadPoolRaw,
+    lead_temp: leadTempRaw,
+    lead_source: normalizeOptionalText(input.lead_source) ?? normalizeOptionalText(options.defaultLeadSource) ?? null,
+    tags: normalizeTags(input.tags),
+    obs_curta: normalizeOptionalText(input.obs_curta),
+    import_ref: normalizeOptionalText(input.import_ref) ?? normalizeOptionalText(options.defaultImportRef) ?? null,
+    auto_outreach_enabled: normalizeBoolean(
+      input.auto_outreach_enabled,
+      options.defaultAutoOutreachEnabled ?? false,
+    ),
+    is_paused: normalizeBoolean(input.is_paused, options.defaultPaused ?? false),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+export function clampWarmupLimit(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 20;
+  return Math.max(1, Math.min(50, Math.trunc(parsed)));
+}
+
+export function buildWarmupSelection(
+  rows: CrmLeadMetaRow[],
+  options: WarmupSelectionOptions = {},
+): CrmLeadMetaRow[] {
+  const limit = clampWarmupLimit(options.limit);
+  const filtered = rows.filter((row) => {
+    if (!row.auto_outreach_enabled || row.is_paused) {
+      return false;
+    }
+    if (options.lead_pool && row.lead_pool !== options.lead_pool) {
+      return false;
+    }
+    if (options.lead_temp && row.lead_temp !== options.lead_temp) {
+      return false;
+    }
+    return true;
+  });
+
+  return filtered
+    .slice()
+    .sort((left, right) => {
+      const leftTs = left.updated_at ? new Date(left.updated_at).getTime() : Number.POSITIVE_INFINITY;
+      const rightTs = right.updated_at ? new Date(right.updated_at).getTime() : Number.POSITIVE_INFINITY;
+      if (leftTs !== rightTs) {
+        return leftTs - rightTs;
+      }
+      return left.wa_id.localeCompare(right.wa_id);
+    })
+    .slice(0, limit);
+}
+
+export function assessCallNowEligibility(
+  row: CrmLeadMetaRow | null,
+): { ok: true } | { ok: false; reason: string } {
+  if (!row) {
+    return { ok: false, reason: "LEAD_NOT_FOUND" };
+  }
+  if (!isLeadPool(row.lead_pool) || !isLeadTemp(row.lead_temp)) {
+    return { ok: false, reason: "INVALID_LEAD_META" };
+  }
+  if (row.is_paused) {
+    return { ok: false, reason: "LEAD_PAUSED" };
+  }
+  return { ok: true };
+}
+
+function missingEnvNames(
+  names: readonly string[],
+  envMap: NodeJS.ProcessEnv,
+): string[] {
+  return names.filter((envName) => !envMap[envName]);
+}
+
+function buildSupabaseHeaders(serviceRoleKey: string, extra: Record<string, string> = {}) {
+  return {
+    apikey: serviceRoleKey,
+    Authorization: `Bearer ${serviceRoleKey}`,
+    "Content-Type": "application/json",
+    ...extra,
+  };
+}
+
+async function readJsonResponse<T>(response: Response): Promise<T | null> {
+  const text = await response.text();
+  if (!text) return null;
+  return JSON.parse(text) as T;
+}
+
+async function loadLeadMeta(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  waId: string,
+): Promise<CrmLeadMetaRow | null> {
+  const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
+  endpoint.searchParams.set(
+    "select",
+    "wa_id,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at",
+  );
+  endpoint.searchParams.set("wa_id", `eq.${waId}`);
+  endpoint.searchParams.set("limit", "1");
+
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: buildSupabaseHeaders(serviceRoleKey),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`FAILED_TO_LOAD_META:${response.status}`);
+  }
+
+  const rows = (await readJsonResponse<CrmLeadMetaRow[]>(response)) ?? [];
+  return rows[0] ?? null;
+}
+
+async function loadWarmupCandidates(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  payload: BasesRequest,
+): Promise<CrmLeadMetaRow[]> {
+  const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
+  endpoint.searchParams.set(
+    "select",
+    "wa_id,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at",
+  );
+  endpoint.searchParams.set("auto_outreach_enabled", "eq.true");
+  endpoint.searchParams.set("is_paused", "eq.false");
+  endpoint.searchParams.set("order", "updated_at.asc,wa_id.asc");
+  endpoint.searchParams.set("limit", String(Math.max(50, clampWarmupLimit(payload.limit) * 2)));
+
+  if (payload.lead_pool && isLeadPool(payload.lead_pool)) {
+    endpoint.searchParams.set("lead_pool", `eq.${payload.lead_pool}`);
+  }
+  if (payload.lead_temp && isLeadTemp(payload.lead_temp)) {
+    endpoint.searchParams.set("lead_temp", `eq.${payload.lead_temp}`);
+  }
+
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: buildSupabaseHeaders(serviceRoleKey),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`FAILED_TO_LOAD_WARMUP:${response.status}`);
+  }
+
+  return (await readJsonResponse<CrmLeadMetaRow[]>(response)) ?? [];
+}
+
+async function upsertLeadMetaRows(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  rows: Array<Record<string, unknown>>,
+) {
+  const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
+  endpoint.searchParams.set("on_conflict", "wa_id");
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: buildSupabaseHeaders(serviceRoleKey, {
+      Prefer: "resolution=merge-duplicates,return=representation",
+    }),
+    body: JSON.stringify(rows),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`FAILED_TO_UPSERT_META:${response.status}`);
+  }
+
+  return (await readJsonResponse<CrmLeadMetaRow[]>(response)) ?? [];
+}
+
+async function patchLeadMetaRow(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  waId: string,
+  patch: Record<string, unknown>,
+) {
+  const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
+  endpoint.searchParams.set("wa_id", `eq.${waId}`);
+
+  const response = await fetch(endpoint, {
+    method: "PATCH",
+    headers: buildSupabaseHeaders(serviceRoleKey, {
+      Prefer: "return=representation",
+    }),
+    body: JSON.stringify(patch),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`FAILED_TO_PATCH_META:${response.status}`);
+  }
+
+  const rows = (await readJsonResponse<CrmLeadMetaRow[]>(response)) ?? [];
+  return rows[0] ?? null;
+}
+
+async function insertAuditLogs(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  rows: AuditLogRow[],
+) {
+  if (rows.length === 0) {
+    return;
+  }
+
+  const endpoint = new URL("/rest/v1/enova_log", supabaseUrl);
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: buildSupabaseHeaders(serviceRoleKey, {
+      Prefer: "return=minimal",
+    }),
+    body: JSON.stringify(rows),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`FAILED_TO_LOG_BASES:${response.status}`);
+  }
+}
+
+function buildAuditRow(
+  waId: string | null,
+  tag: AuditLogRow["tag"],
+  metaText: string,
+  details: Record<string, unknown>,
+): AuditLogRow {
+  return {
+    wa_id: waId,
+    tag,
+    meta_text: metaText,
+    details,
+  };
+}
+
+export async function runBasesAction(
+  payload: BasesRequest,
+  envMap: NodeJS.ProcessEnv = process.env,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const missingEnvs = missingEnvNames(REQUIRED_ENVS, envMap);
+  if (missingEnvs.length > 0) {
+    return { status: 500, body: { ok: false, error: `missing env: ${missingEnvs.join(", ")}` } };
+  }
+
+  const action = payload.action;
+  if (!action) {
+    return { status: 400, body: { ok: false, error: "action é obrigatória" } };
+  }
+
+  const supabaseUrl = envMap.SUPABASE_URL as string;
+  const serviceRoleKey = envMap.SUPABASE_SERVICE_ROLE as string;
+
+  try {
+    if (action === "add_lead_manual") {
+      const row = normalizeLeadMetaInput(payload, {
+        defaultLeadSource: "manual",
+        defaultAutoOutreachEnabled: false,
+        defaultPaused: false,
+      });
+      const savedRows = await upsertLeadMetaRows(supabaseUrl, serviceRoleKey, [row]);
+      const savedRow = savedRows[0] ?? null;
+      await insertAuditLogs(supabaseUrl, serviceRoleKey, [
+        buildAuditRow(row.wa_id, "bases_add_lead_manual", "Lead adicionado manualmente em Bases", {
+          lead_pool: row.lead_pool,
+          lead_temp: row.lead_temp,
+          lead_source: row.lead_source,
+          import_ref: row.import_ref,
+          auto_outreach_enabled: row.auto_outreach_enabled,
+          is_paused: row.is_paused,
+        }),
+      ]);
+      return { status: 200, body: { ok: true, action, lead: savedRow } };
+    }
+
+    if (action === "import_base") {
+      const leads = Array.isArray(payload.leads) ? payload.leads : [];
+      if (leads.length === 0) {
+        return { status: 400, body: { ok: false, error: "leads é obrigatório" } };
+      }
+      const importRef = normalizeOptionalText(payload.import_ref);
+      const rows = leads.map((lead) =>
+        normalizeLeadMetaInput(lead, {
+          defaultLeadSource: "import",
+          defaultImportRef: importRef,
+          defaultAutoOutreachEnabled: false,
+          defaultPaused: false,
+        }),
+      );
+      const savedRows = await upsertLeadMetaRows(supabaseUrl, serviceRoleKey, rows);
+      await insertAuditLogs(
+        supabaseUrl,
+        serviceRoleKey,
+        rows.map((row) =>
+          buildAuditRow(row.wa_id, "bases_import", "Lead importado para Bases", {
+            lead_pool: row.lead_pool,
+            lead_temp: row.lead_temp,
+            lead_source: row.lead_source,
+            import_ref: row.import_ref,
+            auto_outreach_enabled: row.auto_outreach_enabled,
+            is_paused: row.is_paused,
+          }),
+        ),
+      );
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          action,
+          imported_count: savedRows.length,
+          import_ref: importRef,
+        },
+      };
+    }
+
+    if (action === "move_base") {
+      const waId = normalizeOptionalText(payload.wa_id);
+      if (!waId) {
+        return { status: 400, body: { ok: false, error: "wa_id é obrigatório" } };
+      }
+      const existing = await loadLeadMeta(supabaseUrl, serviceRoleKey, waId);
+      if (!existing) {
+        return { status: 404, body: { ok: false, error: "LEAD_NOT_FOUND" } };
+      }
+      const normalized = normalizeLeadMetaInput(
+        {
+          ...existing,
+          wa_id: waId,
+          lead_pool: payload.lead_pool ?? existing.lead_pool,
+          lead_temp: payload.lead_temp,
+          lead_source: payload.lead_source ?? existing.lead_source,
+          tags: payload.tags ?? existing.tags,
+          obs_curta: payload.obs_curta ?? existing.obs_curta,
+          import_ref: payload.import_ref ?? existing.import_ref,
+          auto_outreach_enabled: payload.auto_outreach_enabled ?? existing.auto_outreach_enabled,
+          is_paused: existing.is_paused,
+        },
+        {},
+      );
+      const savedRow = await patchLeadMetaRow(supabaseUrl, serviceRoleKey, waId, normalized);
+      await insertAuditLogs(supabaseUrl, serviceRoleKey, [
+        buildAuditRow(waId, "bases_move", "Lead movido de base", {
+          from_pool: existing.lead_pool,
+          to_pool: normalized.lead_pool,
+          from_temp: existing.lead_temp,
+          to_temp: normalized.lead_temp,
+        }),
+      ]);
+      return { status: 200, body: { ok: true, action, lead: savedRow } };
+    }
+
+    if (action === "pause_lead" || action === "resume_lead") {
+      const waId = normalizeOptionalText(payload.wa_id);
+      if (!waId) {
+        return { status: 400, body: { ok: false, error: "wa_id é obrigatório" } };
+      }
+      const existing = await loadLeadMeta(supabaseUrl, serviceRoleKey, waId);
+      if (!existing) {
+        return { status: 404, body: { ok: false, error: "LEAD_NOT_FOUND" } };
+      }
+      const isPaused = action === "pause_lead";
+      const savedRow = await patchLeadMetaRow(supabaseUrl, serviceRoleKey, waId, {
+        is_paused: isPaused,
+        updated_at: new Date().toISOString(),
+      });
+      await insertAuditLogs(supabaseUrl, serviceRoleKey, [
+        buildAuditRow(
+          waId,
+          isPaused ? "bases_pause" : "bases_resume",
+          isPaused ? "Lead pausado em Bases" : "Lead retomado em Bases",
+          { is_paused: isPaused },
+        ),
+      ]);
+      return { status: 200, body: { ok: true, action, lead: savedRow } };
+    }
+
+    if (action === "call_now") {
+      const waId = normalizeOptionalText(payload.wa_id);
+      const text = normalizeOptionalText(payload.text);
+      if (!waId || !text) {
+        return { status: 400, body: { ok: false, error: "wa_id e text são obrigatórios" } };
+      }
+      const existing = await loadLeadMeta(supabaseUrl, serviceRoleKey, waId);
+      const eligibility = assessCallNowEligibility(existing);
+      if (!eligibility.ok) {
+        await insertAuditLogs(supabaseUrl, serviceRoleKey, [
+          buildAuditRow(waId, "bases_call_now", "Call now bloqueado", {
+            blocked: true,
+            reason: eligibility.reason,
+          }),
+        ]);
+        return { status: 409, body: { ok: false, error: eligibility.reason } };
+      }
+
+      const missingCallNowEnvs = missingEnvNames(CALL_NOW_ENVS, envMap);
+      if (missingCallNowEnvs.length > 0) {
+        return {
+          status: 500,
+          body: { ok: false, error: `missing env: ${missingCallNowEnvs.join(", ")}` },
+        };
+      }
+
+      const workerEndpoint = new URL("/__admin__/send", envMap.WORKER_BASE_URL as string);
+      const workerResponse = await fetch(workerEndpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-enova-admin-key": envMap.ENOVA_ADMIN_KEY as string,
+        },
+        body: JSON.stringify({ wa_id: waId, text }),
+        cache: "no-store",
+      });
+      const workerJson = (await readJsonResponse<Record<string, unknown>>(workerResponse)) ?? {};
+
+      await insertAuditLogs(supabaseUrl, serviceRoleKey, [
+        buildAuditRow(waId, "bases_call_now", "Call now executado em Bases", {
+          blocked: false,
+          lead_pool: existing?.lead_pool ?? null,
+          lead_temp: existing?.lead_temp ?? null,
+          meta_status: workerJson.meta_status ?? null,
+          message_id: workerJson.message_id ?? null,
+        }),
+      ]);
+
+      return {
+        status: workerResponse.status,
+        body: { ok: workerResponse.ok, action, ...workerJson },
+      };
+    }
+
+    if (action === "warmup_base") {
+      const candidates = await loadWarmupCandidates(supabaseUrl, serviceRoleKey, payload);
+      const selection = buildWarmupSelection(candidates, {
+        lead_pool: payload.lead_pool && isLeadPool(payload.lead_pool) ? payload.lead_pool : null,
+        lead_temp: payload.lead_temp && isLeadTemp(payload.lead_temp) ? payload.lead_temp : null,
+        limit: payload.limit,
+      });
+
+      const selectionLogs =
+        selection.length > 0
+          ? selection.map((row) =>
+              buildAuditRow(row.wa_id, "bases_warmup", "Warmup v0 selecionou lead elegível", {
+                dispatch_mode: "selection_only",
+                lead_pool: row.lead_pool,
+                lead_temp: row.lead_temp,
+                import_ref: row.import_ref,
+                limit: clampWarmupLimit(payload.limit),
+              }),
+            )
+          : [
+              buildAuditRow(null, "bases_warmup", "Warmup v0 executado sem leads elegíveis", {
+                dispatch_mode: "selection_only",
+                lead_pool:
+                  payload.lead_pool && isLeadPool(payload.lead_pool) ? payload.lead_pool : null,
+                lead_temp:
+                  payload.lead_temp && isLeadTemp(payload.lead_temp) ? payload.lead_temp : null,
+                limit: clampWarmupLimit(payload.limit),
+                selected_count: 0,
+              }),
+            ];
+      await insertAuditLogs(supabaseUrl, serviceRoleKey, selectionLogs);
+
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          action,
+          dispatch_mode: "selection_only",
+          selected_count: selection.length,
+          leads: selection,
+        },
+      };
+    }
+
+    return { status: 400, body: { ok: false, error: "UNKNOWN_ACTION" } };
+  } catch (error) {
+    return {
+      status: 500,
+      body: {
+        ok: false,
+        error: error instanceof Error ? error.message : "internal error",
+      },
+    };
+  }
+}

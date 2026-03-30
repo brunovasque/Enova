@@ -6,6 +6,8 @@ export type LeadTemp = (typeof LEAD_TEMPS)[number];
 
 export type CrmLeadMetaRow = {
   wa_id: string;
+  nome: string | null;
+  telefone: string | null;
   lead_pool: LeadPool;
   lead_temp: LeadTemp;
   lead_source: string | null;
@@ -20,6 +22,8 @@ export type CrmLeadMetaRow = {
 
 type LeadMetaInput = {
   wa_id?: unknown;
+  nome?: unknown;
+  telefone?: unknown;
   lead_pool?: unknown;
   lead_temp?: unknown;
   lead_source?: unknown;
@@ -57,6 +61,8 @@ export type BasesAction =
 export type BasesRequest = {
   action?: BasesAction;
   wa_id?: string;
+  nome?: string;
+  telefone?: string;
   text?: string;
   lead_pool?: string;
   lead_temp?: string;
@@ -129,13 +135,39 @@ export function normalizeBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
+/**
+ * Normalizes a raw phone string to a WhatsApp ID (wa_id).
+ * Strips non-digit characters, then prepends Brazil country code "55"
+ * when the number has 10–11 digits (DDD + subscriber number).
+ * Returns null if the result is not a plausible wa_id (< 10 digits).
+ */
+export function normalizePhoneToWaId(phone: unknown): string | null {
+  if (typeof phone !== "string") return null;
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 0) return null;
+  // Already full international with "55" prefix: 12 digits (landline) or 13 digits (mobile)
+  if ((digits.length === 12 || digits.length === 13) && digits.startsWith("55")) {
+    return digits;
+  }
+  // 10 or 11 digits = DDD + subscriber number (no country code)
+  if (digits.length >= 10 && digits.length <= 11) {
+    return "55" + digits;
+  }
+  // Fallback: return digits if they look plausible (≥ 7), caller must validate
+  if (digits.length >= 7) return digits;
+  return null;
+}
+
 export function normalizeLeadMetaInput(
   input: LeadMetaInput,
   options: NormalizeLeadMetaOptions = {},
 ): Omit<CrmLeadMetaRow, "created_at"> {
-  const waId = normalizeOptionalText(input.wa_id);
+  const rawWaId = normalizeOptionalText(input.wa_id);
+  const rawTelefone = normalizeOptionalText(input.telefone);
+  // wa_id can be provided directly or derived from telefone
+  const waId = rawWaId ?? (rawTelefone ? normalizePhoneToWaId(rawTelefone) : null);
   if (!waId) {
-    throw new Error("wa_id é obrigatório");
+    throw new Error("wa_id ou telefone é obrigatório");
   }
 
   const leadPoolRaw = input.lead_pool ?? options.defaultLeadPool;
@@ -150,6 +182,8 @@ export function normalizeLeadMetaInput(
 
   return {
     wa_id: waId,
+    nome: normalizeOptionalText(input.nome),
+    telefone: rawTelefone,
     lead_pool: leadPoolRaw,
     lead_temp: leadTempRaw,
     lead_source: normalizeOptionalText(input.lead_source) ?? normalizeOptionalText(options.defaultLeadSource) ?? null,
@@ -247,7 +281,7 @@ async function loadLeadMeta(
   const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
   endpoint.searchParams.set(
     "select",
-    "wa_id,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at",
+    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at",
   );
   endpoint.searchParams.set("wa_id", `eq.${waId}`);
   endpoint.searchParams.set("limit", "1");
@@ -274,7 +308,7 @@ async function loadWarmupCandidates(
   const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
   endpoint.searchParams.set(
     "select",
-    "wa_id,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at",
+    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at",
   );
   endpoint.searchParams.set("auto_outreach_enabled", "eq.true");
   endpoint.searchParams.set("is_paused", "eq.false");
@@ -403,7 +437,7 @@ export async function listLeadsForPanel(
   const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
   endpoint.searchParams.set(
     "select",
-    "wa_id,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at",
+    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at",
   );
   endpoint.searchParams.set("order", "updated_at.desc,wa_id.asc");
 

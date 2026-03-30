@@ -6,6 +6,8 @@ type LeadPool = "COLD_POOL" | "WARM_POOL" | "HOT_POOL";
 
 type CrmLeadMetaRow = {
   wa_id: string;
+  nome: string | null;
+  telefone: string | null;
   lead_pool: LeadPool;
   lead_temp: "COLD" | "WARM" | "HOT";
   lead_source: string | null;
@@ -72,6 +74,21 @@ function formatDate(input: string | null): string {
 
 function s(style: React.CSSProperties): React.CSSProperties {
   return style;
+}
+
+/** Mirrors the server-side normalizePhoneToWaId logic for client-side preview. */
+function phoneToWaId(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length === 0) return null;
+  if ((digits.length === 12 || digits.length === 13) && digits.startsWith("55")) return digits;
+  if (digits.length >= 10 && digits.length <= 11) return "55" + digits;
+  if (digits.length >= 7) return digits;
+  return null;
+}
+
+/** Returns the best human-readable label for a lead: nome > telefone > wa_id. */
+function leadLabel(lead: CrmLeadMetaRow): string {
+  return lead.nome ?? lead.telefone ?? lead.wa_id;
 }
 
 export default function BasesPage() {
@@ -149,8 +166,9 @@ export default function BasesPage() {
       const action = lead.is_paused ? "resume_lead" : "pause_lead";
       const result = await callAction({ action, wa_id: lead.wa_id });
       if (result) {
+        const lbl = leadLabel(lead);
         showFeedback(
-          lead.is_paused ? `Lead ${lead.wa_id} retomado.` : `Lead ${lead.wa_id} pausado.`,
+          lead.is_paused ? `Lead ${lbl} retomado.` : `Lead ${lbl} pausado.`,
         );
         await fetchLeads(activePool);
       }
@@ -361,12 +379,12 @@ export default function BasesPage() {
               >
                 <thead>
                   <tr style={s({ textAlign: "left", borderBottom: "1px solid #2b3440" })}>
-                    <Th>WA ID</Th>
+                    <Th>Nome</Th>
+                    <Th>Telefone</Th>
                     <Th>Temp.</Th>
                     <Th>Origem</Th>
                     <Th>Tags</Th>
                     <Th>Obs.</Th>
-                    <Th>Importação</Th>
                     <Th>Auto-envio</Th>
                     <Th>Status</Th>
                     <Th>Atualizado</Th>
@@ -376,8 +394,19 @@ export default function BasesPage() {
                 <tbody>
                   {leads.map((lead) => (
                     <tr key={lead.wa_id} style={s({ borderBottom: "1px solid #1a2230" })}>
+                      <td style={s({ padding: "9px 10px", maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" })}>
+                        {lead.nome ? (
+                          <span style={s({ color: "#e6edf3" })}>{lead.nome}</span>
+                        ) : (
+                          <span style={s({ color: "#3d4d5d" })}>—</span>
+                        )}
+                      </td>
                       <td style={s({ padding: "9px 10px", fontFamily: "monospace", fontSize: "0.83rem" })}>
-                        {lead.wa_id}
+                        {lead.telefone ?? (
+                          <span style={s({ color: "#5d6e7e", fontSize: "0.78rem" })} title={lead.wa_id}>
+                            {lead.wa_id}
+                          </span>
+                        )}
                       </td>
                       <td style={s({ padding: "9px 10px" })}>
                         <span
@@ -428,21 +457,6 @@ export default function BasesPage() {
                         title={lead.obs_curta ?? ""}
                       >
                         {lead.obs_curta ?? "—"}
-                      </td>
-                      <td
-                        style={s({
-                          padding: "9px 10px",
-                          color: "#8896a7",
-                          fontFamily: "monospace",
-                          fontSize: "0.8rem",
-                          maxWidth: "120px",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        })}
-                        title={lead.import_ref ?? ""}
-                      >
-                        {lead.import_ref ?? "—"}
                       </td>
                       <td style={s({ padding: "9px 10px" })}>
                         <span
@@ -548,7 +562,8 @@ export default function BasesPage() {
           onSubmit={async (payload) => {
             const result = await callAction({ action: "add_lead_manual", ...payload });
             if (result) {
-              showFeedback(`Lead ${payload.wa_id} adicionado com sucesso.`);
+              const lbl = (payload.nome as string | undefined) ?? (payload.telefone as string | undefined) ?? (payload.wa_id as string | undefined) ?? "Lead";
+              showFeedback(`${lbl} adicionado com sucesso.`);
               setModal(null);
               await fetchLeads(activePool);
             }
@@ -586,7 +601,7 @@ export default function BasesPage() {
             });
             if (result) {
               showFeedback(
-                `Lead ${moveTarget.wa_id} movido para ${POOL_LABEL[payload.lead_pool as LeadPool] ?? payload.lead_pool}.`,
+                `Lead ${leadLabel(moveTarget)} movido para ${POOL_LABEL[payload.lead_pool as LeadPool] ?? payload.lead_pool}.`,
               );
               setModal(null);
               setMoveTarget(null);
@@ -787,19 +802,24 @@ function AddLeadModal({
   onClose: () => void;
   onSubmit: (payload: Record<string, unknown>) => Promise<void>;
 }) {
-  const [waId, setWaId] = useState("");
+  const [nome, setNome] = useState("");
+  const [telefone, setTelefone] = useState("");
   const [leadPool, setLeadPool] = useState<LeadPool>(activePool);
   const [tags, setTags] = useState("");
   const [obsCurta, setObsCurta] = useState("");
   const [leadSource, setLeadSource] = useState("");
   const [busy, setBusy] = useState(false);
 
+  const derivedWaId = telefone.trim() ? phoneToWaId(telefone.trim()) : null;
+  const canSubmit = telefone.trim().length > 0;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!waId.trim()) return;
+    if (!canSubmit) return;
     setBusy(true);
     await onSubmit({
-      wa_id: waId.trim(),
+      nome: nome.trim() || undefined,
+      telefone: telefone.trim(),
       lead_pool: leadPool,
       tags: tags
         .split(",")
@@ -814,14 +834,27 @@ function AddLeadModal({
   return (
     <ModalShell title="Adicionar Lead" onClose={onClose}>
       <form onSubmit={handleSubmit}>
-        <Field label="WA ID *">
+        <Field label="Nome">
           <input
             style={inputStyle}
-            value={waId}
-            onChange={(e) => setWaId(e.target.value)}
-            placeholder="5511999990001"
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            placeholder="Nome completo (opcional)"
+          />
+        </Field>
+        <Field label="Telefone *">
+          <input
+            style={inputStyle}
+            value={telefone}
+            onChange={(e) => setTelefone(e.target.value)}
+            placeholder="11 99999-0001"
             required
           />
+          {derivedWaId && (
+            <span style={{ fontSize: "0.78rem", color: "#5d6e7e", marginTop: "3px", display: "block" }}>
+              WA ID: <code style={{ color: "#8896a7" }}>{derivedWaId}</code>
+            </span>
+          )}
         </Field>
         <Field label="Base">
           <select
@@ -860,7 +893,7 @@ function AddLeadModal({
             placeholder="manual / indicação / etc."
           />
         </Field>
-        <button type="submit" style={submitStyle} disabled={busy}>
+        <button type="submit" style={submitStyle} disabled={busy || !canSubmit}>
           {busy ? "Salvando…" : "Adicionar Lead"}
         </button>
       </form>
@@ -869,6 +902,59 @@ function AddLeadModal({
 }
 
 // ─── Import Base Modal ───────────────────────────────────────────────────────
+
+const IMPORT_POOL_NAMES = new Set<string>(["COLD_POOL", "WARM_POOL", "HOT_POOL"]);
+const IMPORT_HEADER_TOKENS = new Set<string>(["nome", "name", "telefone", "phone", "fone", "wa_id", "waid"]);
+
+/**
+ * Parse import text into lead records.
+ *
+ * Supported line formats (one per line, CSV or plain):
+ *   Format A (backward compat): wa_id_or_phone[,POOL]
+ *     e.g. "5511999990001" or "5511999990001,HOT_POOL"
+ *   Format B (human-friendly):  nome,telefone[,POOL][,origem][,tags separadas por ;]
+ *     e.g. "João Silva,11 99999-0001" or "Maria,11988880002,WARM_POOL,indicação"
+ *
+ * Header rows (first token matches common header words) are automatically skipped.
+ */
+function parseImportLines(text: string, defaultPool: LeadPool): Array<Record<string, unknown>> {
+  const leads: Array<Record<string, unknown>> = [];
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+
+  for (const line of lines) {
+    const parts = line.split(",").map((p) => p.trim());
+    const firstLower = (parts[0] ?? "").toLowerCase();
+    // Skip header rows
+    if (IMPORT_HEADER_TOKENS.has(firstLower)) continue;
+
+    const firstDigits = parts[0].replace(/\D/g, "");
+    const firstLooksLikePhone = firstDigits.length >= 7 && /^[\d\s\-\(\)\+\.]+$/.test(parts[0]);
+
+    if (parts.length === 1 || firstLooksLikePhone) {
+      // Format A: bare phone/wa_id [,POOL]
+      const poolRaw = parts[1] ?? "";
+      const pool = IMPORT_POOL_NAMES.has(poolRaw) ? (poolRaw as LeadPool) : defaultPool;
+      leads.push({ wa_id: parts[0], lead_pool: pool, auto_outreach_enabled: false });
+    } else {
+      // Format B: nome,telefone[,POOL][,origem][,tags;separadas;por;ponto-e-vírgula]
+      const nome = parts[0];
+      const telefone = parts[1] ?? "";
+      const poolRaw = parts[2] ?? "";
+      const pool = IMPORT_POOL_NAMES.has(poolRaw) ? (poolRaw as LeadPool) : defaultPool;
+      const origem = parts[3] ?? "";
+      const tagsRaw = parts[4] ?? "";
+      leads.push({
+        nome: nome || undefined,
+        telefone: telefone || undefined,
+        lead_pool: pool,
+        lead_source: origem || undefined,
+        tags: tagsRaw ? tagsRaw.split(";").map((t) => t.trim()).filter(Boolean) : [],
+        auto_outreach_enabled: false,
+      });
+    }
+  }
+  return leads;
+}
 
 function ImportBaseModal({
   activePool,
@@ -884,29 +970,31 @@ function ImportBaseModal({
   const [defaultPool, setDefaultPool] = useState<LeadPool>(activePool);
   const [busy, setBusy] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result;
+      if (typeof text === "string") setRawLeads(text);
+    };
+    reader.readAsText(file, "utf-8");
+    // Reset so the same file can be re-selected after clearing
+    e.target.value = "";
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setParseError(null);
 
-    const lines = rawLeads
-      .split("\n")
-      .map((l) => l.trim())
-      .filter(Boolean);
+    const leads = parseImportLines(rawLeads, defaultPool);
 
-    if (lines.length === 0) {
-      setParseError("Insira pelo menos um WA ID");
+    if (leads.length === 0) {
+      setParseError("Insira pelo menos um lead (telefone ou wa_id)");
       return;
     }
-
-    const leads = lines.map((line) => {
-      const parts = line.split(",").map((p) => p.trim());
-      return {
-        wa_id: parts[0],
-        lead_pool: (parts[1] as LeadPool) || defaultPool,
-        auto_outreach_enabled: false,
-      };
-    });
 
     setBusy(true);
     await onSubmit({ import_ref: importRef.trim() || undefined, leads });
@@ -937,12 +1025,46 @@ function ImportBaseModal({
             ))}
           </select>
         </Field>
-        <Field label="WA IDs (um por linha; opcionalmente: wa_id,POOL)">
+        <Field label="Arquivo .txt ou .csv">
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <button
+              type="button"
+              style={{
+                ...inputStyle,
+                cursor: "pointer",
+                width: "auto",
+                padding: "7px 14px",
+                color: "#8896a7",
+                fontSize: "0.82rem",
+              }}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              Escolher arquivo…
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".txt,.csv,text/plain,text/csv"
+              style={{ display: "none" }}
+              onChange={handleFileChange}
+            />
+            <span style={{ fontSize: "0.78rem", color: "#5d6e7e" }}>
+              O conteúdo do arquivo será carregado abaixo
+            </span>
+          </div>
+        </Field>
+        <Field label="Leads (cole o texto ou use o arquivo acima)">
           <textarea
-            style={{ ...inputStyle, height: "120px", resize: "vertical", fontFamily: "monospace" }}
+            style={{ ...inputStyle, height: "120px", resize: "vertical", fontFamily: "monospace", fontSize: "0.8rem" }}
             value={rawLeads}
             onChange={(e) => setRawLeads(e.target.value)}
-            placeholder={"5511999990001\n5511999990002,HOT_POOL\n5511999990003"}
+            placeholder={
+              "Formatos aceitos (um por linha):\n" +
+              "  nome,telefone          → João Silva,11 99999-0001\n" +
+              "  nome,telefone,BASE     → Maria,11988880002,WARM_POOL\n" +
+              "  telefone               → 5511999990001\n" +
+              "  telefone,BASE          → 5511999990003,HOT_POOL"
+            }
           />
         </Field>
         {parseError && (
@@ -979,7 +1101,7 @@ function MoveBaseModal({
   };
 
   return (
-    <ModalShell title={`Mover Lead — ${lead.wa_id}`} onClose={onClose}>
+    <ModalShell title={`Mover Lead — ${leadLabel(lead)}`} onClose={onClose}>
       <p style={{ color: "#8896a7", fontSize: "0.87rem", margin: "0 0 16px" }}>
         Base atual:{" "}
         <strong style={{ color: "#e6edf3" }}>{POOL_LABEL[lead.lead_pool] ?? lead.lead_pool}</strong>

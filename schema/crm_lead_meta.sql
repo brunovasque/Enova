@@ -1,5 +1,7 @@
 create table if not exists public.crm_lead_meta (
   wa_id text primary key,
+  nome text,
+  telefone text,
   lead_pool text not null check (lead_pool in ('COLD_POOL', 'WARM_POOL', 'HOT_POOL')),
   lead_temp text not null check (lead_temp in ('COLD', 'WARM', 'HOT')),
   lead_source text,
@@ -12,6 +14,10 @@ create table if not exists public.crm_lead_meta (
   updated_at timestamptz not null default now(),
   constraint crm_lead_meta_tags_array check (jsonb_typeof(tags) = 'array')
 );
+
+-- manual action required in Supabase if table already exists:
+-- alter table public.crm_lead_meta add column if not exists nome text;
+-- alter table public.crm_lead_meta add column if not exists telefone text;
 
 create index if not exists crm_lead_meta_pool_idx
   on public.crm_lead_meta (lead_pool);

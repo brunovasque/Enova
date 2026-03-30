@@ -269,4 +269,212 @@ async function fetchEntryHtml(env) {
   }
 }
 
+// 5) Stored URL expired — fallback to media_id via Graph API materializes and serves.
+{
+  const env = buildEnvWithState();
+  const bucket = buildMemoryR2Bucket();
+  env.CORRESPONDENTE_DOCS_BUCKET = bucket;
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      {
+        doc_id: "doc-expired-1",
+        tipo: "comprovante_renda",
+        participante: "p1",
+        status: "recebido",
+        url: "https://lookaside.fbsbx.com/expired-link?hash=abc",
+        media_id: "mid-fresh-1",
+        file_name: "renda.pdf"
+      }
+    ]
+  };
+
+  const originalFetch = globalThis.fetch;
+  let graphResolveCalls = 0;
+  let downloadCalls = 0;
+  globalThis.fetch = async (input, init = {}) => {
+    const asString = String(input || "");
+    // Expired lookaside URL returns 404
+    if (asString.includes("lookaside.fbsbx.com/expired-link")) {
+      return new Response("expired", { status: 404 });
+    }
+    // Graph API resolution for media_id
+    if (asString === "https://graph.facebook.com/v20.0/mid-fresh-1") {
+      graphResolveCalls += 1;
+      return new Response(
+        JSON.stringify({ url: "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=mid-fresh-1-download" }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    // Actual download from fresh lookaside URL
+    if (asString.includes("mid-fresh-1-download")) {
+      downloadCalls += 1;
+      return new Response("RENDA PDF CONTENT", { status: 200, headers: { "content-type": "application/pdf" } });
+    }
+    return originalFetch(input, init);
+  };
+  try {
+    const req = new Request(`https://worker.local/correspondente/doc?pre=000001&t=${token}&doc=doc_doc-expired-1`, { method: "GET" });
+    const res = await worker.fetch(req, env, {});
+    assert.equal(res.status, 200, "should serve 200 from media_id fallback");
+    assert.equal(await res.text(), "RENDA PDF CONTENT");
+    assert.equal(graphResolveCalls, 1, "should have called Graph API to resolve media_id");
+    assert.equal(downloadCalls, 1, "should have downloaded from resolved URL");
+    assert.equal(bucket.puts.length, 1, "should have put document into R2");
+    assert.equal(Boolean(env.__enovaSimulationCtx.docsByWaId[waCaso][0].private_object_key), true, "should persist private_object_key");
+    assert.equal(Boolean(env.__enovaSimulationCtx.docsByWaId[waCaso][0].private_materialized_at), true, "should persist private_materialized_at");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+// 6) Reabertura after media_id fallback serves from R2 (no Meta calls).
+{
+  const env = buildEnvWithState();
+  // Simulate a doc that was previously materialized via media_id fallback
+  env.CORRESPONDENTE_DOCS_BUCKET = buildMemoryR2Bucket({
+    "correspondente-docs/5541999998888/000001/doc_doc-fallback-reopen.pdf": {
+      body: "REOPEN FROM R2",
+      httpMetadata: {
+        contentType: "application/pdf",
+        contentDisposition: 'inline; filename="renda.pdf"'
+      }
+    }
+  });
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      {
+        doc_id: "doc-fallback-reopen",
+        tipo: "comprovante_renda",
+        participante: "p1",
+        status: "recebido",
+        url: "https://lookaside.fbsbx.com/expired-link?hash=abc",
+        media_id: "mid-old-1",
+        private_object_key: "correspondente-docs/5541999998888/000001/doc_doc-fallback-reopen.pdf",
+        private_materialized_at: "2026-03-30T00:00:00.000Z"
+      }
+    ]
+  };
+
+  const originalFetch = globalThis.fetch;
+  let metaCalls = 0;
+  globalThis.fetch = async (input, init = {}) => {
+    const asString = String(input || "");
+    let host = "";
+    try { host = new URL(asString).hostname.toLowerCase(); } catch {}
+    if (host.includes("facebook.com") || host.includes("fbsbx.com")) {
+      metaCalls += 1;
+      throw new Error("should not call Meta on reopening a materialized doc");
+    }
+    return originalFetch(input, init);
+  };
+  try {
+    const req = new Request(`https://worker.local/correspondente/doc?pre=000001&t=${token}&doc=doc_doc-fallback-reopen`, { method: "GET" });
+    const res = await worker.fetch(req, env, {});
+    assert.equal(res.status, 200, "reopen should succeed from R2");
+    assert.equal(await res.text(), "REOPEN FROM R2");
+    assert.equal(metaCalls, 0, "should not call Meta for reopened materialized doc");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+// 7) Doc with only media_id (no stored URL) materializes via Graph API.
+{
+  const env = buildEnvWithState();
+  const bucket = buildMemoryR2Bucket();
+  env.CORRESPONDENTE_DOCS_BUCKET = bucket;
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      {
+        doc_id: "doc-media-only-1",
+        tipo: "cpf",
+        participante: "p1",
+        status: "recebido",
+        media_id: "mid-cpf-001",
+        mime_type: "image/jpeg",
+        file_name: "cpf.jpg"
+      }
+    ]
+  };
+
+  const originalFetch = globalThis.fetch;
+  let graphCalls = 0;
+  let downloadCalls = 0;
+  globalThis.fetch = async (input, init = {}) => {
+    const asString = String(input || "");
+    if (asString === "https://graph.facebook.com/v20.0/mid-cpf-001") {
+      graphCalls += 1;
+      return new Response(
+        JSON.stringify({ url: "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=cpf-download" }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    if (asString.includes("cpf-download")) {
+      downloadCalls += 1;
+      return new Response("CPF IMAGE DATA", { status: 200, headers: { "content-type": "image/jpeg" } });
+    }
+    return originalFetch(input, init);
+  };
+  try {
+    const req = new Request(`https://worker.local/correspondente/doc?pre=000001&t=${token}&doc=doc_doc-media-only-1`, { method: "GET" });
+    const res = await worker.fetch(req, env, {});
+    assert.equal(res.status, 200, "doc with only media_id should serve");
+    assert.equal(await res.text(), "CPF IMAGE DATA");
+    assert.equal(graphCalls, 1, "should resolve media_id via Graph API");
+    assert.equal(downloadCalls, 1, "should download from resolved URL");
+    assert.equal(bucket.puts.length, 1, "should materialize in R2");
+    assert.equal(Boolean(env.__enovaSimulationCtx.docsByWaId[waCaso][0].private_object_key), true);
+    assert.equal(Boolean(env.__enovaSimulationCtx.docsByWaId[waCaso][0].private_materialized_at), true);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
+// 8) Primary URL works (non-Meta) — no fallback needed, materializes normally.
+{
+  const env = buildEnvWithState();
+  const bucket = buildMemoryR2Bucket();
+  env.CORRESPONDENTE_DOCS_BUCKET = bucket;
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      {
+        doc_id: "doc-direct-url-1",
+        tipo: "comprovante_residencia",
+        participante: "p1",
+        status: "recebido",
+        url: "https://cdn.example.com/residencia.pdf",
+        media_id: "mid-should-not-use",
+        file_name: "residencia.pdf"
+      }
+    ]
+  };
+
+  const originalFetch = globalThis.fetch;
+  let directCalls = 0;
+  let graphCalls = 0;
+  globalThis.fetch = async (input, init = {}) => {
+    const asString = String(input || "");
+    if (asString === "https://cdn.example.com/residencia.pdf") {
+      directCalls += 1;
+      return new Response("RESIDENCIA PDF", { status: 200, headers: { "content-type": "application/pdf" } });
+    }
+    if (asString.includes("graph.facebook.com")) {
+      graphCalls += 1;
+      throw new Error("should not hit Graph API when primary URL works");
+    }
+    return originalFetch(input, init);
+  };
+  try {
+    const req = new Request(`https://worker.local/correspondente/doc?pre=000001&t=${token}&doc=doc_doc-direct-url-1`, { method: "GET" });
+    const res = await worker.fetch(req, env, {});
+    assert.equal(res.status, 200, "direct URL should work");
+    assert.equal(await res.text(), "RESIDENCIA PDF");
+    assert.equal(directCalls, 1, "should fetch from direct URL");
+    assert.equal(graphCalls, 0, "should not use Graph API fallback when primary works");
+    assert.equal(bucket.puts.length, 1, "should materialize in R2");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 console.log("correspondente_private_docs_r2.smoke: ok");

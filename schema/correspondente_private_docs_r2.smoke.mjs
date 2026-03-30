@@ -234,7 +234,7 @@ async function fetchEntryHtml(env) {
 
   const body = await fetchEntryHtml(env);
   const rgLinks = body.match(/rg — Titular/g) || [];
-  assert.equal(rgLinks.length >= 1, true);
+  assert.ok(rgLinks.length >= 1);
   const entryMatch = body.match(/rg — Titular:\s*<a href="([^"]*\/correspondente\/doc\?[^"]+)"/);
   assert.notEqual(entryMatch, null);
   const href = String(entryMatch?.[1] || "").replace(/&amp;/g, "&");
@@ -243,7 +243,16 @@ async function fetchEntryHtml(env) {
   let upstreamCalls = 0;
   globalThis.fetch = async (input, init = {}) => {
     const asString = String(input || "");
-    if (asString.includes("graph.facebook.com") || asString.includes("lookaside.fbsbx.com")) {
+    let host = "";
+    try {
+      host = new URL(asString).hostname.toLowerCase();
+    } catch {}
+    if (
+      host === "graph.facebook.com" ||
+      host.endsWith(".graph.facebook.com") ||
+      host === "lookaside.fbsbx.com" ||
+      host.endsWith(".lookaside.fbsbx.com")
+    ) {
       upstreamCalls += 1;
       throw new Error("should not fetch legacy Meta URL when private_object_key survives");
     }

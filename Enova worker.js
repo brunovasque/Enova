@@ -18066,9 +18066,9 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
   };
   const mergeReceivedUploadsByDocId = (rows = []) => {
     const merged = new Map();
-    const mergePreferDefined = (baseDoc = {}, nextDoc = {}) => {
-      const out = { ...baseDoc };
-      for (const [key, value] of Object.entries(nextDoc || {})) {
+    const mergeDocumentsPreferringDefined = (fallbackDoc = {}, preferredDoc = {}) => {
+      const out = { ...fallbackDoc };
+      for (const [key, value] of Object.entries(preferredDoc || {})) {
         if (value === undefined || value === null || value === "") continue;
         out[key] = value;
       }
@@ -18098,7 +18098,7 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
         );
       const winner = pickNext ? doc : current;
       const loser = pickNext ? current : doc;
-      merged.set(key, mergePreferDefined(loser, winner));
+      merged.set(key, mergeDocumentsPreferringDefined(loser, winner));
     }
     return [...merged.values()];
   };

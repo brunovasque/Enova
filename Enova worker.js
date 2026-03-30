@@ -15703,7 +15703,8 @@ function buildCorrespondenteWebDocsModel(docs) {
   for (const doc of normalizedDocs) {
     const hasUsableUrl = Boolean(
       resolveCorrespondenteDocumentUrl(doc) ||
-      String(doc?.private_object_key || "").trim()
+      String(doc?.private_object_key || "").trim() ||
+      String(doc?.media_id || "").trim()
     );
     if (doc.status !== "pendente" && hasUsableUrl) {
       doc.received_access_id = String(doc?.stable_doc_id || "").trim() || null;
@@ -15896,7 +15897,9 @@ async function resolveCorrespondenteMetaProtectedFetchTarget(env, rawUrl, option
         if (resolvedDownloadUrl) return { url: resolvedDownloadUrl, headers };
       }
     }
-  } catch {}
+  } catch (err) {
+    console.log("[correspondente/doc] meta-protected resolve threw", { error: err?.message || String(err) });
+  }
   return { url: targetUrl, headers };
 }
 
@@ -16086,17 +16089,50 @@ async function tryServeCorrespondentePrivateObject(env, doc = {}) {
 async function fetchCorrespondenteDocumentUpstream(env, doc, options = {}) {
   const fetchImpl = options?.fetchImpl || fetch;
   const rawUrl = resolveCorrespondenteDocumentUrl(doc);
-  if (!rawUrl) return { upstream: null, fetchTargetUrl: "", headers: {} };
-  const resolved = isMetaProtectedDocumentUrl(rawUrl)
-    ? await resolveCorrespondenteMetaProtectedFetchTarget(env, rawUrl, { fetchImpl })
-    : { url: rawUrl, headers: {} };
-  if (!resolved?.url) return { upstream: null, fetchTargetUrl: "", headers: resolved?.headers || {} };
-  const upstream = await fetchImpl(resolved.url, { headers: resolved.headers || {} });
-  return {
-    upstream,
-    fetchTargetUrl: resolved.url,
-    headers: resolved.headers || {}
-  };
+
+  // --- primary: try stored URL ---
+  if (rawUrl) {
+    const resolved = isMetaProtectedDocumentUrl(rawUrl)
+      ? await resolveCorrespondenteMetaProtectedFetchTarget(env, rawUrl, { fetchImpl })
+      : { url: rawUrl, headers: {} };
+    if (resolved?.url) {
+      try {
+        const upstream = await fetchImpl(resolved.url, { headers: resolved.headers || {} });
+        if (upstream?.ok) {
+          return { upstream, fetchTargetUrl: resolved.url, headers: resolved.headers || {} };
+        }
+        console.log("[correspondente/doc] primary url fetch non-ok", { status: upstream?.status });
+      } catch (err) {
+        console.log("[correspondente/doc] primary url fetch threw", { error: err?.message || String(err) });
+      }
+    }
+  }
+
+  // --- fallback: reconstruct Graph API URL from media_id ---
+  const mediaId = String(doc?.media_id || "").trim();
+  if (mediaId) {
+    const metaApiVersion = String(env?.META_API_VERSION || "v20.0").trim() || "v20.0";
+    const graphUrl = `https://graph.facebook.com/${metaApiVersion}/${mediaId}`;
+    if (graphUrl !== rawUrl) {
+      console.log("[correspondente/doc] trying media_id fallback via graph api");
+      const resolved = await resolveCorrespondenteMetaProtectedFetchTarget(env, graphUrl, { fetchImpl });
+      if (resolved?.url && resolved.url !== graphUrl) {
+        try {
+          const upstream = await fetchImpl(resolved.url, { headers: resolved.headers || {} });
+          if (upstream?.ok) {
+            return { upstream, fetchTargetUrl: resolved.url, headers: resolved.headers || {} };
+          }
+          console.log("[correspondente/doc] media_id fallback non-ok", { status: upstream?.status });
+        } catch (err) {
+          console.log("[correspondente/doc] media_id fallback threw", { error: err?.message || String(err) });
+        }
+      } else {
+        console.log("[correspondente/doc] media_id graph resolve did not yield download url");
+      }
+    }
+  }
+
+  return { upstream: null, fetchTargetUrl: "", headers: {} };
 }
 
 async function serveCorrespondenteDocumentFromAuthorizedProxy(env, caso, doc, options = {}) {
@@ -16106,10 +16142,12 @@ async function serveCorrespondenteDocumentFromAuthorizedProxy(env, caso, doc, op
   let upstreamBundle;
   try {
     upstreamBundle = await fetchCorrespondenteDocumentUpstream(env, doc, options);
-  } catch {
+  } catch (err) {
+    console.log("[correspondente/doc] fetchUpstream threw", { error: err?.message || String(err) });
     return new Response("Falha ao carregar documento.", { status: 502 });
   }
   if (!upstreamBundle?.upstream?.ok) {
+    console.log("[correspondente/doc] upstream not ok after all attempts", { status: upstreamBundle?.upstream?.status ?? "null" });
     return new Response("Falha ao carregar documento.", { status: 502 });
   }
 
@@ -16131,7 +16169,8 @@ async function serveCorrespondenteDocumentFromAuthorizedProxy(env, caso, doc, op
   let bodyBuffer;
   try {
     bodyBuffer = await upstream.arrayBuffer();
-  } catch {
+  } catch (err) {
+    console.log("[correspondente/doc] arrayBuffer read failed", { error: err?.message || String(err) });
     return new Response("Falha ao carregar documento.", { status: 502 });
   }
 
@@ -16155,7 +16194,9 @@ async function serveCorrespondenteDocumentFromAuthorizedProxy(env, caso, doc, op
       private_object_key: privateObjectKey,
       private_materialized_at: privateMaterializedAt
     });
-  } catch {}
+  } catch (err) {
+    console.log("[correspondente/doc] R2 put or persist failed", { error: err?.message || String(err), key: privateObjectKey });
+  }
 
   return new Response(bodyBuffer, {
     status: 200,
@@ -16202,7 +16243,8 @@ async function handleCorrespondenteDocumentAccess(request, env) {
   const targetDoc = docsModel.receivedById.get(docId) || null;
   const hasResolvableAccess = Boolean(
     String(targetDoc?.private_object_key || "").trim() ||
-    resolveCorrespondenteDocumentUrl(targetDoc)
+    resolveCorrespondenteDocumentUrl(targetDoc) ||
+    String(targetDoc?.media_id || "").trim()
   );
   if (!hasResolvableAccess) {
     return new Response("Documento não encontrado.", { status: 404 });

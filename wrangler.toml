@@ -13,6 +13,10 @@ CORR_TEMPLATE_NAME = "enova_novo_caso_correspondente"
 CORR_TEMPLATE_LANG = "pt_BR"
 CORRESPONDENTE_TEXT_FALLBACK_WINDOW_OPEN = "false"
 
+[[r2_buckets]]
+binding = "CORRESPONDENTE_DOCS_BUCKET"
+bucket_name = "enova-correspondente-docs"
+
 [env.test]
 name = "nv-enova-test"
 
@@ -25,3 +29,7 @@ DEBUG_META_WEBHOOK = "1"
 CORR_TEMPLATE_NAME = "enova_novo_caso_correspondente"
 CORR_TEMPLATE_LANG = "pt_BR"
 CORRESPONDENTE_TEXT_FALLBACK_WINDOW_OPEN = "false"
+
+[[env.test.r2_buckets]]
+binding = "CORRESPONDENTE_DOCS_BUCKET"
+bucket_name = "enova-correspondente-docs-test"

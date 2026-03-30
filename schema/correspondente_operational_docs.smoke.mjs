@@ -319,6 +319,43 @@ function countOccurrences(body, snippet) {
   assert.equal(countOccurrences(links, "comprovante_residencia — Titular"), 1);
 }
 
+// 8.1) Entre equivalentes, o card mantém 1 item e preserva a materialização privada como representante operacional.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.envio_docs_itens_json = [
+    { tipo: "rg", participante: "p1", status: "recebido_pendente_validacao", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true },
+  ];
+  st.pacote_documentos_anexados_json = [
+    {
+      tipo: "rg",
+      participante: "p1",
+      status: "recebido",
+      url: "https://graph.facebook.com/v20.0/mid-rg-materializado",
+      private_object_key: "correspondente-docs/5541999998888/000001/doc_doc-rg-materializado.pdf",
+      private_materialized_at: "2026-03-29T11:15:00.000Z",
+    },
+  ];
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      {
+        doc_id: "persisted-rg-materializado",
+        tipo: "rg",
+        participante: "p1",
+        status: "recebido",
+        url: "https://graph.facebook.com/v20.0/mid-rg-materializado",
+      },
+    ],
+  };
+
+  const body = await fetchEntryHtml(env);
+  const recebidos = extractSection(body, "Documentos Recebidos");
+  const links = extractSection(body, "Links operacionais dos documentos");
+  assert.equal(countOccurrences(recebidos, "rg — Titular"), 1);
+  assert.equal(countOccurrences(links, "rg — Titular"), 1);
+  assert.equal(body.includes("/correspondente/doc?pre=000001"), true);
+}
+
 // 9) Documentos legítimos distintos do mesmo tipo permanecem visíveis quando a materialidade é diferente.
 {
   const env = buildEnvWithState();

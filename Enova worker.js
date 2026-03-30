@@ -15512,6 +15512,30 @@ function resolveCorrespondenteDocumentUrl(doc) {
   ).trim();
 }
 
+function getCorrespondenteDocumentRepresentativePriority(doc = {}, options = {}) {
+  const resolveOperational = typeof options?.resolveOperationalUrl === "function"
+    ? options.resolveOperationalUrl
+    : resolveCorrespondenteDocumentUrl;
+  const directUrl = resolveCorrespondenteDocumentUrl(doc);
+  const operationalUrl = String(resolveOperational(doc) || "").trim();
+  const privateObjectKey = String(doc?.private_object_key || "").trim();
+  const privateMaterializedAt = String(doc?.private_materialized_at || "").trim();
+  const source = String(doc?.__doc_source || "").trim().toLowerCase();
+  let score = 0;
+  if (privateObjectKey) score += 1000;
+  if (privateMaterializedAt) score += 80;
+  if (directUrl) {
+    score += isMetaProtectedDocumentUrl(directUrl) ? 120 : 400;
+  } else if (operationalUrl) {
+    score += isMetaProtectedDocumentUrl(operationalUrl) ? 40 : 160;
+  }
+  if (source === "persisted" || source === "sim") score += 30;
+  else if (source === "state") score += 20;
+  else if (source === "hist") score += 10;
+  if (String(doc?.stable_doc_id || doc?.doc_id || doc?.id || "").trim()) score += 5;
+  return score;
+}
+
 function canonicalizeCorrespondenteDocumentUrl(rawUrl) {
   const url = String(rawUrl || "").trim();
   if (!url) return "";
@@ -15749,6 +15773,7 @@ function buildCorrespondenteDocsForUi(docs = [], st = null, options = {}) {
     const itemParticipante = normalizeDocUiParticipant(item?.participante);
     let best = null;
     let bestScore = -1;
+    let bestRepresentativeScore = -1;
     for (const doc of receivedDocs) {
       const docParticipante = normalizeDocUiParticipant(doc?.participante);
       if (docParticipante !== itemParticipante) continue;
@@ -15760,9 +15785,14 @@ function buildCorrespondenteDocsForUi(docs = [], st = null, options = {}) {
       if (normalizeEnvioDocsTipoForChecklist(doc?.tipo) === itemTipo) score += 50;
       if (siblingMatch && !directMatch) score += 3;
       if (String(doc?.received_access_id || "").trim()) score += 150;
-      if (score > bestScore) {
+      const representativeScore = getCorrespondenteDocumentRepresentativePriority(doc);
+      if (
+        score > bestScore ||
+        (score === bestScore && representativeScore > bestRepresentativeScore)
+      ) {
         best = doc;
         bestScore = score;
+        bestRepresentativeScore = representativeScore;
       }
     }
     return best;
@@ -18036,9 +18066,9 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
   };
   const mergeReceivedUploadsByDocId = (rows = []) => {
     const merged = new Map();
-    const mergePreferDefined = (baseDoc = {}, nextDoc = {}) => {
-      const out = { ...baseDoc };
-      for (const [key, value] of Object.entries(nextDoc || {})) {
+    const mergeDocumentsPreferringDefined = (fallbackDoc = {}, preferredDoc = {}) => {
+      const out = { ...fallbackDoc };
+      for (const [key, value] of Object.entries(preferredDoc || {})) {
         if (value === undefined || value === null || value === "") continue;
         out[key] = value;
       }
@@ -18055,10 +18085,20 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
       }
       const currentUrl = resolveOperationalUrl(current);
       const nextUrl = resolveOperationalUrl(doc);
+      const currentRepresentativeScore = getCorrespondenteDocumentRepresentativePriority(current, { resolveOperationalUrl });
+      const nextRepresentativeScore = getCorrespondenteDocumentRepresentativePriority(doc, { resolveOperationalUrl });
       const pickNext =
-        (!currentUrl && nextUrl) ||
-        (toLower(current?.status) === "pendente" && toLower(doc?.status) !== "pendente");
-      if (pickNext) merged.set(key, mergePreferDefined(current, doc));
+        nextRepresentativeScore > currentRepresentativeScore ||
+        (
+          nextRepresentativeScore === currentRepresentativeScore &&
+          (
+            (!currentUrl && nextUrl) ||
+            (toLower(current?.status) === "pendente" && toLower(doc?.status) !== "pendente")
+          )
+        );
+      const winner = pickNext ? doc : current;
+      const loser = pickNext ? current : doc;
+      merged.set(key, mergeDocumentsPreferringDefined(loser, winner));
     }
     return [...merged.values()];
   };

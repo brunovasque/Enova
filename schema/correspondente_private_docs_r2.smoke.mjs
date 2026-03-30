@@ -75,6 +75,15 @@ function buildMemoryR2Bucket(initial = {}) {
   };
 }
 
+async function fetchEntryHtml(env) {
+  const req = new Request(`https://worker.local/correspondente/entrada?pre=000001&cw=${correspondenteWa}`, {
+    method: "GET"
+  });
+  const res = await worker.fetch(req, env, {});
+  assert.equal(res.status, 200);
+  return await res.text();
+}
+
 // 1) Documento já materializado abre via proxy autorizado lendo do bucket privado.
 {
   const env = buildEnvWithState();
@@ -184,6 +193,80 @@ function buildMemoryR2Bucket(initial = {}) {
   const req = new Request(`https://worker.local/correspondente/doc?pre=000999&t=${token}&doc=doc_doc-rg-1`, { method: "GET" });
   const res = await worker.fetch(req, env, {});
   assert.equal(res.status, 403);
+}
+
+// 4) Card deduplicado prioriza o representante materializado e o link final abre do bucket sem cair no Meta legado.
+{
+  const env = buildEnvWithState();
+  env.CORRESPONDENTE_DOCS_BUCKET = buildMemoryR2Bucket({
+    "correspondente-docs/5541999998888/000001/doc_doc-rg-materializado.pdf": {
+      body: "RG MATERIALIZADO NO CARD",
+      httpMetadata: {
+        contentType: "application/pdf",
+        contentDisposition: 'inline; filename="rg-materializado.pdf"'
+      }
+    }
+  });
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      {
+        doc_id: "doc-rg-legacy",
+        tipo: "rg",
+        participante: "p1",
+        status: "recebido",
+        url: "https://graph.facebook.com/v20.0/mid-rg-card"
+      }
+    ]
+  };
+  env.__enovaSimulationCtx.stateByWaId[waCaso].envio_docs_itens_json = [
+    { tipo: "rg", participante: "p1", status: "recebido_pendente_validacao", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true }
+  ];
+  env.__enovaSimulationCtx.stateByWaId[waCaso].pacote_documentos_anexados_json = [
+    {
+      tipo: "rg",
+      participante: "p1",
+      status: "recebido",
+      url: "https://graph.facebook.com/v20.0/mid-rg-card",
+      private_object_key: "correspondente-docs/5541999998888/000001/doc_doc-rg-materializado.pdf",
+      private_materialized_at: "2026-03-29T18:05:00.000Z"
+    }
+  ];
+
+  const body = await fetchEntryHtml(env);
+  const rgLinks = body.match(/rg — Titular/g) || [];
+  assert.ok(rgLinks.length >= 1);
+  const entryMatch = body.match(/rg — Titular:\s*<a href="([^"]*\/correspondente\/doc\?[^"]+)"/);
+  assert.notEqual(entryMatch, null);
+  const href = String(entryMatch?.[1] || "").replace(/&amp;/g, "&");
+
+  const originalFetch = globalThis.fetch;
+  let upstreamCalls = 0;
+  globalThis.fetch = async (input, init = {}) => {
+    const asString = String(input || "");
+    let host = "";
+    try {
+      host = new URL(asString).hostname.toLowerCase();
+    } catch {}
+    if (
+      host === "graph.facebook.com" ||
+      host.endsWith(".graph.facebook.com") ||
+      host === "lookaside.fbsbx.com" ||
+      host.endsWith(".lookaside.fbsbx.com")
+    ) {
+      upstreamCalls += 1;
+      throw new Error("should not fetch legacy Meta URL when private_object_key survives");
+    }
+    return originalFetch(input, init);
+  };
+  try {
+    const openReq = new Request(new URL(href, "https://worker.local").toString(), { method: "GET" });
+    const openRes = await worker.fetch(openReq, env, {});
+    assert.equal(openRes.status, 200);
+    assert.equal(await openRes.text(), "RG MATERIALIZADO NO CARD");
+    assert.equal(upstreamCalls, 0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 }
 
 console.log("correspondente_private_docs_r2.smoke: ok");

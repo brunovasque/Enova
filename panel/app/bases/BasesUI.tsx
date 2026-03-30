@@ -11,7 +11,7 @@ type Lead = {
   origem: string;
   tags: string[];
   observacao: string;
-  lote: string;
+  entrada: string;
   paused: boolean;
   base_atual: "fria" | "morna" | "quente";
 };
@@ -27,7 +27,7 @@ const MOCK_LEADS: Lead[] = [
     origem: "LinkedIn",
     tags: ["interessado", "seguro"],
     observacao: "Respondeu positivamente ao contato",
-    lote: "IMP-2024-001",
+    entrada: "Importação 001",
     paused: false,
     base_atual: "fria",
   },
@@ -39,7 +39,7 @@ const MOCK_LEADS: Lead[] = [
     origem: "Google Ads",
     tags: ["qualificado"],
     observacao: "Visitou o site 3 vezes",
-    lote: "IMP-2024-001",
+    entrada: "Importação 001",
     paused: true,
     base_atual: "morna",
   },
@@ -51,7 +51,7 @@ const MOCK_LEADS: Lead[] = [
     origem: "Indicação",
     tags: ["hot", "carro na garagem"],
     observacao: "Pronto para fechar",
-    lote: "IMP-2024-002",
+    entrada: "Importação 002",
     paused: false,
     base_atual: "quente",
   },
@@ -63,7 +63,7 @@ const MOCK_LEADS: Lead[] = [
     origem: "Meta Ads",
     tags: ["novo"],
     observacao: "Primeiro contato realizado",
-    lote: "IMP-2024-002",
+    entrada: "Importação 002",
     paused: false,
     base_atual: "fria",
   },
@@ -75,7 +75,7 @@ const MOCK_LEADS: Lead[] = [
     origem: "Orgânico",
     tags: ["seguimento"],
     observacao: "Agendado para segunda-feira",
-    lote: "IMP-2024-003",
+    entrada: "Importação 003",
     paused: false,
     base_atual: "morna",
   },
@@ -87,7 +87,7 @@ const MOCK_LEADS: Lead[] = [
     origem: "LinkedIn",
     tags: ["decisor"],
     observacao: "CEO da empresa",
-    lote: "IMP-2024-003",
+    entrada: "Importação 003",
     paused: true,
     base_atual: "fria",
   },
@@ -99,7 +99,7 @@ const MOCK_LEADS: Lead[] = [
     origem: "Google Ads",
     tags: ["retorno"],
     observacao: "Pediu retorno em 3 dias",
-    lote: "IMP-2024-001",
+    entrada: "Importação 001",
     paused: false,
     base_atual: "quente",
   },
@@ -108,7 +108,7 @@ const MOCK_LEADS: Lead[] = [
 type FilterState = {
   origem: string;
   tag: string;
-  lote: string;
+  entrada: string;
   status: "todos" | "ativos" | "pausados";
 };
 
@@ -120,7 +120,7 @@ export function BasesUI() {
   const [filters, setFilters] = useState<FilterState>({
     origem: "",
     tag: "",
-    lote: "",
+    entrada: "",
     status: "todos",
   });
   const [newLead, setNewLead] = useState({
@@ -132,7 +132,7 @@ export function BasesUI() {
   });
   const [importData, setImportData] = useState({
     arquivo: "",
-    lote: "",
+    entrada: "",
   });
 
   // Contagem por base
@@ -150,7 +150,7 @@ export function BasesUI() {
     return {
       origens: [...new Set(baseLeads.map((l) => l.origem))],
       tags: [...new Set(baseLeads.flatMap((l) => l.tags))],
-      lotes: [...new Set(baseLeads.map((l) => l.lote))],
+      entradas: [...new Set(baseLeads.map((l) => l.entrada))],
     };
   }, [leads, activeBase]);
 
@@ -159,7 +159,7 @@ export function BasesUI() {
       if (lead.base_atual !== activeBase) return false;
       if (filters.origem && lead.origem !== filters.origem) return false;
       if (filters.tag && !lead.tags.includes(filters.tag)) return false;
-      if (filters.lote && lead.lote !== filters.lote) return false;
+      if (filters.entrada && lead.entrada !== filters.entrada) return false;
       if (filters.status === "ativos" && lead.paused) return false;
       if (filters.status === "pausados" && !lead.paused) return false;
       return true;
@@ -178,7 +178,7 @@ export function BasesUI() {
       origem: newLead.origem,
       tags: [],
       observacao: newLead.observacao,
-      lote: `IMP-${new Date().getFullYear()}-${String(leads.length + 1).padStart(3, "0")}`,
+      entrada: `Importação ${String(leads.length + 1).padStart(3, "0")}`,
       paused: false,
       base_atual: activeBase,
     };
@@ -190,7 +190,7 @@ export function BasesUI() {
 
   const handleImportBatch = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!importData.arquivo || !importData.lote) return;
+    if (!importData.arquivo || !importData.entrada) return;
 
     const newLeads = Array.from({ length: 5 }, (_, i) => ({
       id: `import-${Date.now()}-${i}`,
@@ -199,14 +199,14 @@ export function BasesUI() {
       wa_id: `55${Math.random().toString().slice(2, 14)}`,
       origem: "Importação",
       tags: ["importado"],
-      observacao: "Importado em lote",
-      lote: importData.lote,
+      observacao: "Importado de base",
+      entrada: importData.entrada,
       paused: false,
       base_atual: activeBase,
     }));
 
     setLeads([...leads, ...newLeads]);
-    setImportData({ arquivo: "", lote: "" });
+    setImportData({ arquivo: "", entrada: "" });
     setShowImportModal(false);
   };
 
@@ -250,11 +250,11 @@ export function BasesUI() {
   };
 
   const clearFilters = () => {
-    setFilters({ origem: "", tag: "", lote: "", status: "todos" });
+    setFilters({ origem: "", tag: "", entrada: "", status: "todos" });
   };
 
   const hasActiveFilters =
-    filters.origem || filters.tag || filters.lote || filters.status !== "todos";
+    filters.origem || filters.tag || filters.entrada || filters.status !== "todos";
 
   return (
     <main className={styles.pageMain}>
@@ -346,7 +346,7 @@ export function BasesUI() {
                 disabled={filteredLeads.length === 0}
               >
                 <span className={styles.heatIcon}>↗</span>
-                Aquecer lote
+                Aquecer base
                 <span className={styles.heatBadge}>
                   {filteredLeads.length} leads
                 </span>
@@ -389,15 +389,15 @@ export function BasesUI() {
 
               <select
                 className={styles.filterSelect}
-                value={filters.lote}
-                onChange={(e) =>
-                  setFilters({ ...filters, lote: e.target.value })
-                }
-              >
-                <option value="">Todos os lotes</option>
-                {filterOptions.lotes.map((lote) => (
-                  <option key={lote} value={lote}>
-                    {lote}
+          value={filters.entrada}
+          onChange={(e) =>
+            setFilters({ ...filters, entrada: e.target.value })
+          }
+        >
+          <option value="">Todas as importações</option>
+          {filterOptions.entradas.map((entrada) => (
+            <option key={entrada} value={entrada}>
+              {entrada}
                   </option>
                 ))}
               </select>
@@ -443,7 +443,7 @@ export function BasesUI() {
             <div className={styles.colObservacao}>Observação</div>
             <div className={styles.colBase}>Base</div>
             <div className={styles.colStatus}>Status</div>
-            <div className={styles.colLote}>Lote</div>
+            <div className={styles.colEntrada}>Entrada</div>
             <div className={styles.colAcoes}>Ações</div>
           </div>
 
@@ -456,7 +456,7 @@ export function BasesUI() {
                 <p className={styles.emptySubtitle}>
                   {hasActiveFilters
                     ? "Tente ajustar os filtros"
-                    : "Adicione leads ou importe um lote"}
+                    : "Adicione leads ou importe uma base"}
                 </p>
               </div>
             ) : (
@@ -517,9 +517,9 @@ export function BasesUI() {
                     </span>
                   </div>
 
-                  {/* Lote */}
-                  <div className={styles.colLote}>
-                    <span className={styles.loteBadge}>{lead.lote}</span>
+          {/* Entrada */}
+          <div className={styles.colEntrada}>
+            <span className={styles.entradaBadge}>{lead.entrada}</span>
                   </div>
 
                   {/* Ações */}
@@ -680,7 +680,7 @@ export function BasesUI() {
         >
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
-              <h2 className={styles.modalTitle}>Importar lote</h2>
+              <h2 className={styles.modalTitle}>Importar base</h2>
               <button
                 className={styles.closeButton}
                 onClick={() => setShowImportModal(false)}
@@ -721,23 +721,23 @@ export function BasesUI() {
                 </div>
               </div>
               <div className={styles.formGroup}>
-                <label htmlFor="lote" className={styles.label}>
-                  Identificação do lote <span className={styles.required}>*</span>
-                </label>
-                <input
-                  id="lote"
-                  type="text"
-                  className={styles.input}
-                  value={importData.lote}
-                  onChange={(e) =>
-                    setImportData({ ...importData, lote: e.target.value })
-                  }
-                  placeholder="IMP-2024-001"
+        <label htmlFor="entrada" className={styles.label}>
+            Nome da importação <span className={styles.required}>*</span>
+          </label>
+          <input
+            type="text"
+            id="entrada"
+            placeholder="Ex: Importação 001"
+            value={importData.entrada}
+            onChange={(e) =>
+              setImportData({ ...importData, entrada: e.target.value })
+            }
+                  placeholder="Importação 001"
                 />
               </div>
               <div className={styles.formHint}>
-                O lote será criado na base &quot;{activeBase}&quot;. Você pode
-                mover os leads individualmente ou em lote após a importação.
+                Os leads serão adicionados à base &quot;{activeBase}&quot;. Você pode
+                mover leads entre bases ou aquecer a base após a importação.
               </div>
             </form>
             <div className={styles.modalFooter}>
@@ -751,7 +751,7 @@ export function BasesUI() {
                 className={styles.primaryButton}
                 onClick={(e) => handleImportBatch(e as React.FormEvent)}
               >
-                Importar lote
+            Importar base
               </button>
             </div>
           </div>

@@ -27,7 +27,7 @@ const MOCK_LEADS: Lead[] = [
     origem: "LinkedIn",
     tags: ["interessado", "seguro"],
     observacao: "Respondeu positivamente ao contato",
-    lote: "LOTE-001",
+    lote: "IMP-2024-001",
     paused: false,
     base_atual: "fria",
   },
@@ -36,10 +36,10 @@ const MOCK_LEADS: Lead[] = [
     nome: "Maria Santos",
     telefone: "(21) 99876-5432",
     wa_id: "5521998765432",
-    origem: "Google",
+    origem: "Google Ads",
     tags: ["qualificado"],
     observacao: "Visitou o site 3 vezes",
-    lote: "LOTE-001",
+    lote: "IMP-2024-001",
     paused: true,
     base_atual: "morna",
   },
@@ -51,19 +51,19 @@ const MOCK_LEADS: Lead[] = [
     origem: "Indicação",
     tags: ["hot", "carro na garagem"],
     observacao: "Pronto para fechar",
-    lote: "LOTE-002",
+    lote: "IMP-2024-002",
     paused: false,
     base_atual: "quente",
   },
   {
     id: "4",
-    nome: "Ana Paula",
+    nome: "Ana Paula Rodrigues",
     telefone: "(31) 92345-6789",
     wa_id: "5531923456789",
-    origem: "Facebook",
+    origem: "Meta Ads",
     tags: ["novo"],
-    observacao: "Primeiro contato",
-    lote: "LOTE-002",
+    observacao: "Primeiro contato realizado",
+    lote: "IMP-2024-002",
     paused: false,
     base_atual: "fria",
   },
@@ -72,20 +72,57 @@ const MOCK_LEADS: Lead[] = [
     nome: "Carlos Mendes",
     telefone: "(47) 93456-7890",
     wa_id: "5547934567890",
-    origem: "WhatsApp",
+    origem: "Orgânico",
     tags: ["seguimento"],
-    observacao: "Agendado para segunda",
-    lote: "LOTE-003",
+    observacao: "Agendado para segunda-feira",
+    lote: "IMP-2024-003",
     paused: false,
     base_atual: "morna",
   },
+  {
+    id: "6",
+    nome: "Fernanda Lima",
+    telefone: "(19) 94567-8901",
+    wa_id: "5519945678901",
+    origem: "LinkedIn",
+    tags: ["decisor"],
+    observacao: "CEO da empresa",
+    lote: "IMP-2024-003",
+    paused: true,
+    base_atual: "fria",
+  },
+  {
+    id: "7",
+    nome: "Roberto Alves",
+    telefone: "(62) 95678-9012",
+    wa_id: "5562956789012",
+    origem: "Google Ads",
+    tags: ["retorno"],
+    observacao: "Pediu retorno em 3 dias",
+    lote: "IMP-2024-001",
+    paused: false,
+    base_atual: "quente",
+  },
 ];
+
+type FilterState = {
+  origem: string;
+  tag: string;
+  lote: string;
+  status: "todos" | "ativos" | "pausados";
+};
 
 export function BasesUI() {
   const [activeBase, setActiveBase] = useState<BaseType>("fria");
   const [leads, setLeads] = useState<Lead[]>(MOCK_LEADS);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [filters, setFilters] = useState<FilterState>({
+    origem: "",
+    tag: "",
+    lote: "",
+    status: "todos",
+  });
   const [newLead, setNewLead] = useState({
     nome: "",
     telefone: "",
@@ -98,9 +135,36 @@ export function BasesUI() {
     lote: "",
   });
 
-  const filteredLeads = useMemo(() => {
-    return leads.filter((lead) => lead.base_atual === activeBase);
+  // Contagem por base
+  const baseCounts = useMemo(() => {
+    return {
+      fria: leads.filter((l) => l.base_atual === "fria").length,
+      morna: leads.filter((l) => l.base_atual === "morna").length,
+      quente: leads.filter((l) => l.base_atual === "quente").length,
+    };
+  }, [leads]);
+
+  // Opções únicas para filtros
+  const filterOptions = useMemo(() => {
+    const baseLeads = leads.filter((l) => l.base_atual === activeBase);
+    return {
+      origens: [...new Set(baseLeads.map((l) => l.origem))],
+      tags: [...new Set(baseLeads.flatMap((l) => l.tags))],
+      lotes: [...new Set(baseLeads.map((l) => l.lote))],
+    };
   }, [leads, activeBase]);
+
+  const filteredLeads = useMemo(() => {
+    return leads.filter((lead) => {
+      if (lead.base_atual !== activeBase) return false;
+      if (filters.origem && lead.origem !== filters.origem) return false;
+      if (filters.tag && !lead.tags.includes(filters.tag)) return false;
+      if (filters.lote && lead.lote !== filters.lote) return false;
+      if (filters.status === "ativos" && lead.paused) return false;
+      if (filters.status === "pausados" && !lead.paused) return false;
+      return true;
+    });
+  }, [leads, activeBase, filters]);
 
   const handleAddLead = (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,7 +178,7 @@ export function BasesUI() {
       origem: newLead.origem,
       tags: [],
       observacao: newLead.observacao,
-      lote: `LOTE-${String(leads.length + 1).padStart(3, "0")}`,
+      lote: `IMP-${new Date().getFullYear()}-${String(leads.length + 1).padStart(3, "0")}`,
       paused: false,
       base_atual: activeBase,
     };
@@ -128,7 +192,6 @@ export function BasesUI() {
     e.preventDefault();
     if (!importData.arquivo || !importData.lote) return;
 
-    // Simulando importação
     const newLeads = Array.from({ length: 5 }, (_, i) => ({
       id: `import-${Date.now()}-${i}`,
       nome: `Lead Importado ${i + 1}`,
@@ -170,146 +233,314 @@ export function BasesUI() {
     );
   };
 
+  const handleHeatBatch = () => {
+    // Move todos os leads filtrados para a próxima base
+    const bases: BaseType[] = ["fria", "morna", "quente"];
+    const currentIndex = bases.indexOf(activeBase);
+    const nextBase = bases[Math.min(currentIndex + 1, bases.length - 1)];
+
+    if (currentIndex === bases.length - 1) return; // Já está na base quente
+
+    const filteredIds = new Set(filteredLeads.map((l) => l.id));
+    setLeads(
+      leads.map((lead) =>
+        filteredIds.has(lead.id) ? { ...lead, base_atual: nextBase } : lead
+      )
+    );
+  };
+
+  const clearFilters = () => {
+    setFilters({ origem: "", tag: "", lote: "", status: "todos" });
+  };
+
+  const hasActiveFilters =
+    filters.origem || filters.tag || filters.lote || filters.status !== "todos";
+
   return (
     <main className={styles.pageMain}>
       <div className={styles.shell}>
         {/* Header */}
-        <div className={styles.header}>
+        <header className={styles.header}>
           <div className={styles.headerContent}>
             <h1 className={styles.headerTitle}>Bases</h1>
             <p className={styles.headerSubtitle}>
-              Base operacional de leads em diferentes estágios de aquecimento
+              Gestão operacional de leads por estágio de relacionamento
             </p>
           </div>
           <div className={styles.headerActions}>
             <button
-              className={styles.button}
+              className={styles.buttonSecondary}
               onClick={() => setShowAddModal(true)}
             >
-              + Adicionar lead
+              <span className={styles.buttonIcon}>+</span>
+              Adicionar lead
             </button>
             <button
-              className={styles.button}
+              className={styles.buttonSecondary}
               onClick={() => setShowImportModal(true)}
             >
-              ⬆ Importar lote
+              <span className={styles.buttonIcon}>↑</span>
+              Importar lote
             </button>
+          </div>
+        </header>
+
+        {/* Stats Bar */}
+        <div className={styles.statsBar}>
+          <div className={styles.statsGroup}>
+            <div
+              className={`${styles.statItem} ${activeBase === "fria" ? styles.statItemActive : ""}`}
+              onClick={() => setActiveBase("fria")}
+            >
+              <span className={styles.statLabel}>Base Fria</span>
+              <span className={styles.statValue}>{baseCounts.fria}</span>
+            </div>
+            <div className={styles.statDivider} />
+            <div
+              className={`${styles.statItem} ${activeBase === "morna" ? styles.statItemActive : ""}`}
+              onClick={() => setActiveBase("morna")}
+            >
+              <span className={styles.statLabel}>Base Morna</span>
+              <span className={styles.statValue}>{baseCounts.morna}</span>
+            </div>
+            <div className={styles.statDivider} />
+            <div
+              className={`${styles.statItem} ${activeBase === "quente" ? styles.statItemActive : ""}`}
+              onClick={() => setActiveBase("quente")}
+            >
+              <span className={styles.statLabel}>Base Quente</span>
+              <span className={styles.statValue}>{baseCounts.quente}</span>
+            </div>
+          </div>
+          <div className={styles.statsSummary}>
+            <span className={styles.statsSummaryText}>
+              Total: {leads.length} leads
+            </span>
           </div>
         </div>
 
         {/* Content */}
         <div className={styles.content}>
           {/* Tabs */}
-          <div className={styles.tabsContainer}>
-            {(["fria", "morna", "quente"] as const).map((base) => (
+          <div className={styles.tabsSection}>
+            <div className={styles.tabsContainer}>
+              {(["fria", "morna", "quente"] as const).map((base) => (
+                <button
+                  key={base}
+                  className={`${styles.tab} ${activeBase === base ? styles.tabActive : ""}`}
+                  onClick={() => setActiveBase(base)}
+                >
+                  <span className={styles.tabLabel}>
+                    Base {base.charAt(0).toUpperCase() + base.slice(1)}
+                  </span>
+                  <span className={styles.tabCount}>{baseCounts[base]}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Heat Batch Action */}
+            {activeBase !== "quente" && (
               <button
-                key={base}
-                className={`${styles.tab} ${
-                  activeBase === base ? styles.tabActive : ""
-                }`}
-                onClick={() => setActiveBase(base)}
+                className={styles.heatBatchButton}
+                onClick={handleHeatBatch}
+                disabled={filteredLeads.length === 0}
               >
-                Base {base.charAt(0).toUpperCase() + base.slice(1)}
+                <span className={styles.heatIcon}>↗</span>
+                Aquecer lote
+                <span className={styles.heatBadge}>
+                  {filteredLeads.length} leads
+                </span>
               </button>
-            ))}
+            )}
+          </div>
+
+          {/* Filters */}
+          <div className={styles.filtersSection}>
+            <div className={styles.filtersRow}>
+              <select
+                className={styles.filterSelect}
+                value={filters.origem}
+                onChange={(e) =>
+                  setFilters({ ...filters, origem: e.target.value })
+                }
+              >
+                <option value="">Todas as origens</option>
+                {filterOptions.origens.map((origem) => (
+                  <option key={origem} value={origem}>
+                    {origem}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                className={styles.filterSelect}
+                value={filters.tag}
+                onChange={(e) =>
+                  setFilters({ ...filters, tag: e.target.value })
+                }
+              >
+                <option value="">Todas as tags</option>
+                {filterOptions.tags.map((tag) => (
+                  <option key={tag} value={tag}>
+                    {tag}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                className={styles.filterSelect}
+                value={filters.lote}
+                onChange={(e) =>
+                  setFilters({ ...filters, lote: e.target.value })
+                }
+              >
+                <option value="">Todos os lotes</option>
+                {filterOptions.lotes.map((lote) => (
+                  <option key={lote} value={lote}>
+                    {lote}
+                  </option>
+                ))}
+              </select>
+
+              <div className={styles.statusFilters}>
+                <button
+                  className={`${styles.statusFilterBtn} ${filters.status === "todos" ? styles.statusFilterActive : ""}`}
+                  onClick={() => setFilters({ ...filters, status: "todos" })}
+                >
+                  Todos
+                </button>
+                <button
+                  className={`${styles.statusFilterBtn} ${filters.status === "ativos" ? styles.statusFilterActive : ""}`}
+                  onClick={() => setFilters({ ...filters, status: "ativos" })}
+                >
+                  Ativos
+                </button>
+                <button
+                  className={`${styles.statusFilterBtn} ${filters.status === "pausados" ? styles.statusFilterActive : ""}`}
+                  onClick={() => setFilters({ ...filters, status: "pausados" })}
+                >
+                  Pausados
+                </button>
+              </div>
+
+              {hasActiveFilters && (
+                <button className={styles.clearFilters} onClick={clearFilters}>
+                  Limpar filtros
+                </button>
+              )}
+            </div>
+
+            <div className={styles.resultsInfo}>
+              {filteredLeads.length} de {baseCounts[activeBase]} leads
+              {hasActiveFilters && " (filtrado)"}
+            </div>
+          </div>
+
+          {/* Table Header */}
+          <div className={styles.tableHeader}>
+            <div className={styles.colNome}>Lead</div>
+            <div className={styles.colOrigem}>Origem / Tags</div>
+            <div className={styles.colObservacao}>Observação</div>
+            <div className={styles.colBase}>Base</div>
+            <div className={styles.colStatus}>Status</div>
+            <div className={styles.colLote}>Lote</div>
+            <div className={styles.colAcoes}>Ações</div>
           </div>
 
           {/* Leads List */}
           <div className={styles.leadsTable}>
             {filteredLeads.length === 0 ? (
               <div className={styles.emptyState}>
-                Nenhum lead nesta base
+                <div className={styles.emptyIcon}>○</div>
+                <p className={styles.emptyTitle}>Nenhum lead encontrado</p>
+                <p className={styles.emptySubtitle}>
+                  {hasActiveFilters
+                    ? "Tente ajustar os filtros"
+                    : "Adicione leads ou importe um lote"}
+                </p>
               </div>
             ) : (
               filteredLeads.map((lead) => (
-                <div key={lead.id} className={styles.leadRow}>
-                  {/* Nome */}
-                  <div className={styles.leadCell}>
-                    <span className={styles.leadCellLabel}>Nome</span>
-                    <span className={styles.leadCellContent}>{lead.nome}</span>
-                  </div>
-
-                  {/* Telefone */}
-                  <div className={styles.leadCell}>
-                    <span className={styles.leadCellLabel}>Telefone</span>
-                    <span className={styles.leadCellContent}>
-                      {lead.telefone}
-                    </span>
-                    <span className={styles.leadCellMeta}>{lead.wa_id}</span>
+                <div
+                  key={lead.id}
+                  className={`${styles.leadRow} ${lead.paused ? styles.leadRowPaused : ""}`}
+                >
+                  {/* Nome e Telefone */}
+                  <div className={styles.colNome}>
+                    <span className={styles.leadName}>{lead.nome}</span>
+                    <span className={styles.leadPhone}>{lead.telefone}</span>
                   </div>
 
                   {/* Origem e Tags */}
-                  <div className={styles.leadCell}>
-                    <span className={styles.leadCellLabel}>Origem</span>
-                    <span className={styles.leadCellContent}>
-                      {lead.origem}
-                    </span>
+                  <div className={styles.colOrigem}>
+                    <span className={styles.leadOrigin}>{lead.origem}</span>
                     {lead.tags.length > 0 && (
                       <div className={styles.tagsContainer}>
-                        {lead.tags.map((tag, i) => (
+                        {lead.tags.slice(0, 2).map((tag, i) => (
                           <span key={i} className={styles.tag}>
                             {tag}
                           </span>
                         ))}
+                        {lead.tags.length > 2 && (
+                          <span className={styles.tagMore}>
+                            +{lead.tags.length - 2}
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>
 
                   {/* Observação */}
-                  <div className={styles.leadCell}>
-                    <span className={styles.leadCellLabel}>Observação</span>
-                    <span className={styles.leadCellContent}>
-                      {lead.observacao}
+                  <div className={styles.colObservacao}>
+                    <span className={styles.leadObs}>{lead.observacao}</span>
+                  </div>
+
+                  {/* Base Atual */}
+                  <div className={styles.colBase}>
+                    <span
+                      className={`${styles.baseBadge} ${styles[`baseBadge${lead.base_atual.charAt(0).toUpperCase() + lead.base_atual.slice(1)}`]}`}
+                    >
+                      {lead.base_atual.charAt(0).toUpperCase() +
+                        lead.base_atual.slice(1)}
                     </span>
                   </div>
 
-                  {/* Lote e Status */}
-                  <div className={styles.leadCell}>
-                    <span className={styles.leadCellLabel}>Lote</span>
-                    <span className={styles.leadCellContent}>{lead.lote}</span>
+                  {/* Status */}
+                  <div className={styles.colStatus}>
                     <span
                       className={
                         lead.paused ? styles.statusPaused : styles.statusActive
                       }
                     >
-                      {lead.paused ? "⏸ Pausado" : "✓ Ativo"}
+                      <span className={styles.statusDot} />
+                      {lead.paused ? "Pausado" : "Ativo"}
                     </span>
                   </div>
 
+                  {/* Lote */}
+                  <div className={styles.colLote}>
+                    <span className={styles.loteBadge}>{lead.lote}</span>
+                  </div>
+
                   {/* Ações */}
-                  <div className={styles.leadActions}>
+                  <div className={styles.colAcoes}>
                     <button
-                      className={styles.actionButton}
-                      title="Chamar agora"
+                      className={styles.actionBtn}
                       onClick={() => console.log("Chamar", lead.nome)}
                     >
-                      📞
+                      Chamar
                     </button>
                     <button
-                      className={styles.actionButton}
-                      title={`Mover para base ${
-                        {
-                          fria: "morna",
-                          morna: "quente",
-                          quente: "fria",
-                        }[activeBase]
-                      }`}
+                      className={styles.actionBtn}
                       onClick={() => handleMoveLead(lead.id)}
                     >
-                      → {
-                        {
-                          fria: "M",
-                          morna: "Q",
-                          quente: "F",
-                        }[activeBase]
-                      }
+                      Mover
                     </button>
                     <button
-                      className={styles.actionButton}
-                      title={lead.paused ? "Retomar" : "Pausar"}
+                      className={`${styles.actionBtn} ${lead.paused ? styles.actionBtnResume : styles.actionBtnPause}`}
                       onClick={() => handleTogglePause(lead.id)}
                     >
-                      {lead.paused ? "▶" : "⏸"}
+                      {lead.paused ? "Retomar" : "Pausar"}
                     </button>
                   </div>
                 </div>
@@ -329,13 +560,20 @@ export function BasesUI() {
                 className={styles.closeButton}
                 onClick={() => setShowAddModal(false)}
               >
-                ✕
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path
+                    d="M1 1L13 13M1 13L13 1"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
               </button>
             </div>
             <form onSubmit={handleAddLead} className={styles.modalContent}>
               <div className={styles.formGroup}>
                 <label htmlFor="nome" className={styles.label}>
-                  Nome *
+                  Nome <span className={styles.required}>*</span>
                 </label>
                 <input
                   id="nome"
@@ -345,38 +583,40 @@ export function BasesUI() {
                   onChange={(e) =>
                     setNewLead({ ...newLead, nome: e.target.value })
                   }
-                  placeholder="Nome do lead"
+                  placeholder="Nome completo do lead"
                 />
               </div>
-              <div className={styles.formGroup}>
-                <label htmlFor="telefone" className={styles.label}>
-                  Telefone *
-                </label>
-                <input
-                  id="telefone"
-                  type="tel"
-                  className={styles.input}
-                  value={newLead.telefone}
-                  onChange={(e) =>
-                    setNewLead({ ...newLead, telefone: e.target.value })
-                  }
-                  placeholder="(11) 98765-4321"
-                />
-              </div>
-              <div className={styles.formGroup}>
-                <label htmlFor="wa_id" className={styles.label}>
-                  WhatsApp ID (opcional)
-                </label>
-                <input
-                  id="wa_id"
-                  type="text"
-                  className={styles.input}
-                  value={newLead.wa_id}
-                  onChange={(e) =>
-                    setNewLead({ ...newLead, wa_id: e.target.value })
-                  }
-                  placeholder="5511987654321"
-                />
+              <div className={styles.formRow}>
+                <div className={styles.formGroup}>
+                  <label htmlFor="telefone" className={styles.label}>
+                    Telefone <span className={styles.required}>*</span>
+                  </label>
+                  <input
+                    id="telefone"
+                    type="tel"
+                    className={styles.input}
+                    value={newLead.telefone}
+                    onChange={(e) =>
+                      setNewLead({ ...newLead, telefone: e.target.value })
+                    }
+                    placeholder="(11) 98765-4321"
+                  />
+                </div>
+                <div className={styles.formGroup}>
+                  <label htmlFor="wa_id" className={styles.label}>
+                    WhatsApp ID
+                  </label>
+                  <input
+                    id="wa_id"
+                    type="text"
+                    className={styles.input}
+                    value={newLead.wa_id}
+                    onChange={(e) =>
+                      setNewLead({ ...newLead, wa_id: e.target.value })
+                    }
+                    placeholder="5511987654321"
+                  />
+                </div>
               </div>
               <div className={styles.formGroup}>
                 <label htmlFor="origem" className={styles.label}>
@@ -392,9 +632,9 @@ export function BasesUI() {
                 >
                   <option value="">Selecionar origem</option>
                   <option value="LinkedIn">LinkedIn</option>
-                  <option value="Google">Google</option>
-                  <option value="Facebook">Facebook</option>
-                  <option value="WhatsApp">WhatsApp</option>
+                  <option value="Google Ads">Google Ads</option>
+                  <option value="Meta Ads">Meta Ads</option>
+                  <option value="Orgânico">Orgânico</option>
                   <option value="Indicação">Indicação</option>
                   <option value="Outro">Outro</option>
                 </select>
@@ -423,9 +663,9 @@ export function BasesUI() {
               </button>
               <button
                 className={styles.primaryButton}
-                onClick={(e) => handleAddLead(e as any)}
+                onClick={(e) => handleAddLead(e as React.FormEvent)}
               >
-                Adicionar
+                Adicionar lead
               </button>
             </div>
           </div>
@@ -445,7 +685,14 @@ export function BasesUI() {
                 className={styles.closeButton}
                 onClick={() => setShowImportModal(false)}
               >
-                ✕
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path
+                    d="M1 1L13 13M1 13L13 1"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                  />
+                </svg>
               </button>
             </div>
             <form
@@ -454,23 +701,28 @@ export function BasesUI() {
             >
               <div className={styles.formGroup}>
                 <label htmlFor="arquivo" className={styles.label}>
-                  Arquivo CSV *
+                  Arquivo CSV <span className={styles.required}>*</span>
                 </label>
-                <input
-                  id="arquivo"
-                  type="file"
-                  className={styles.input}
-                  value={importData.arquivo}
-                  onChange={(e) =>
-                    setImportData({ ...importData, arquivo: e.target.value })
-                  }
-                  accept=".csv"
-                  style={{ padding: "8px 12px" }}
-                />
+                <div className={styles.fileInput}>
+                  <input
+                    id="arquivo"
+                    type="file"
+                    className={styles.fileInputHidden}
+                    value={importData.arquivo}
+                    onChange={(e) =>
+                      setImportData({ ...importData, arquivo: e.target.value })
+                    }
+                    accept=".csv"
+                  />
+                  <label htmlFor="arquivo" className={styles.fileInputLabel}>
+                    <span className={styles.fileInputIcon}>↑</span>
+                    <span>Selecionar arquivo CSV</span>
+                  </label>
+                </div>
               </div>
               <div className={styles.formGroup}>
                 <label htmlFor="lote" className={styles.label}>
-                  Identificação do lote *
+                  Identificação do lote <span className={styles.required}>*</span>
                 </label>
                 <input
                   id="lote"
@@ -480,14 +732,12 @@ export function BasesUI() {
                   onChange={(e) =>
                     setImportData({ ...importData, lote: e.target.value })
                   }
-                  placeholder="LOTE-001"
+                  placeholder="IMP-2024-001"
                 />
               </div>
-              <div className={styles.formGroup}>
-                <p className={styles.leadCellMeta}>
-                  💡 Dica: O lote será criado na base &quot;{activeBase}&quot;.
-                  Você pode mover os leads após a importação.
-                </p>
+              <div className={styles.formHint}>
+                O lote será criado na base &quot;{activeBase}&quot;. Você pode
+                mover os leads individualmente ou em lote após a importação.
               </div>
             </form>
             <div className={styles.modalFooter}>
@@ -499,9 +749,9 @@ export function BasesUI() {
               </button>
               <button
                 className={styles.primaryButton}
-                onClick={(e) => handleImportBatch(e as any)}
+                onClick={(e) => handleImportBatch(e as React.FormEvent)}
               >
-                Importar
+                Importar lote
               </button>
             </div>
           </div>

@@ -22313,7 +22313,7 @@ case "autonomo_ir_pergunta": {
  const sim = /\b(sim|yes)\b/i.test(userText);
 
   if (nao) {
-    await upsertState(env, st.wa_id, { autonomo_ir: false });
+    await upsertState(env, st.wa_id, { ir_declarado: false });
 
     const estadoCivil = String(st.estado_civil || "").toLowerCase();
     const casadoCivil = estadoCivil === "casado_civil" || st.casado_civil === true;
@@ -22348,7 +22348,7 @@ case "autonomo_ir_pergunta": {
   }
 
   if (sim) {
-    await upsertState(env, st.wa_id, { autonomo_ir: true });
+    await upsertState(env, st.wa_id, { ir_declarado: true });
     return step(
       env,
       st,

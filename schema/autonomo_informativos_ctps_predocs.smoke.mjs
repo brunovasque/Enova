@@ -120,7 +120,7 @@ function infoBag(data) {
     }
   });
   assert.equal(irSimMantemGate.stage_after, "renda");
-  assert.equal(irSimMantemGate.writes.autonomo_ir, true);
+  assert.equal(irSimMantemGate.writes.ir_declarado, true);
   assert.equal(Object.hasOwn(irSimMantemGate.writes, "docs_lista_enviada"), false);
 }
 

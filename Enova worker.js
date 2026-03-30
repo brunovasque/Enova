@@ -1249,7 +1249,9 @@ function getPersistedEtapaSignals(st = {}) {
     },
     visita: {
       reserva_entrada_tem: getPersistedEtapaSignalValue(st, "visita_reserva_entrada_tem"),
+      reserva_entrada_valor: getPersistedEtapaSignalValue(st, "visita_reserva_entrada_valor"),
       fgts_disponivel: getPersistedEtapaSignalValue(st, "visita_fgts_disponivel"),
+      fgts_valor: getPersistedEtapaSignalValue(st, "visita_fgts_valor"),
       decisor_adicional_visita: getPersistedEtapaSignalValue(st, "visita_decisor_adicional_visita"),
       decisor_adicional_nome: getPersistedEtapaSignalValue(st, "visita_decisor_adicional_nome")
     },
@@ -1272,6 +1274,7 @@ function getPersistedEtapaSignals(st = {}) {
       multi_renda: getPersistedEtapaSignalValue(st, ["inicio_multi_renda_coletar", "parceiro_inicio_multi_renda_coletar"]),
       multi_regime: getPersistedEtapaSignalValue(st, ["inicio_multi_regime_coletar", "parceiro_inicio_multi_regime_coletar"])
     },
+    parcela_mensal: getPersistedEtapaSignalValue(st, "informativo_parcela_mensal"),
     reprovacao: {
       categoria: getPersistedEtapaSignalValue(st, "reprovacao_categoria_caso")
     }
@@ -1298,7 +1301,9 @@ function buildCorrespondenteDossierPredocsSignals(rawSignals = {}) {
     },
     visita: {
       reserva_entrada_tem: raw?.visita?.reserva_entrada_tem ?? null,
-      fgts_disponivel: raw?.visita?.fgts_disponivel ?? null
+      reserva_entrada_valor: raw?.visita?.reserva_entrada_valor ?? null,
+      fgts_disponivel: raw?.visita?.fgts_disponivel ?? null,
+      fgts_valor: raw?.visita?.fgts_valor ?? null
     },
     autonomo: {
       profissao_atividade: raw?.autonomo?.profissao_atividade ?? null,
@@ -1318,7 +1323,8 @@ function buildCorrespondenteDossierPredocsSignals(rawSignals = {}) {
       renda_extra_entra: raw?.renda?.renda_extra_entra ?? null,
       multi_renda: raw?.renda?.multi_renda ?? null,
       multi_regime: raw?.renda?.multi_regime ?? null
-    }
+    },
+    parcela_mensal: raw?.parcela_mensal ?? null
   };
 }
 
@@ -14834,6 +14840,16 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
       multi_regime: renda.multi_regime === true,
       participantes: participantesPerfil
     },
+    renda: {
+      titular: Number(renda.titular) > 0 ? Number(renda.titular) : null,
+      complementar: Number(renda.complementar) > 0 ? Number(renda.complementar) : null,
+      total: Number(renda.total) > 0 ? Number(renda.total) : null,
+      multi_renda: renda.multi_renda === true,
+      multi_regime: renda.multi_regime === true,
+      regimes_unicos: Array.isArray(renda.regimes_unicos)
+        ? renda.regimes_unicos.map((value) => String(value || "").trim()).filter(Boolean)
+        : []
+    },
     sinais_persistidos: sinaisPersistidos,
     documentos_por_participante: Object.values(documentosPorParticipante),
     pendencias: {
@@ -14967,6 +14983,9 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   const perfil = dossierPayload?.perfil && typeof dossierPayload.perfil === "object"
     ? dossierPayload.perfil
     : null;
+  const renda = dossierPayload?.renda && typeof dossierPayload.renda === "object"
+    ? dossierPayload.renda
+    : null;
   const docsParticipante = Array.isArray(dossierPayload?.documentos_por_participante)
     ? dossierPayload.documentos_por_participante
     : [];
@@ -15017,7 +15036,7 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   const hasTechnicalSignalValue = (value) => {
     if (value === true || value === false) return true;
     if (typeof value === "number") return Number.isFinite(value);
-    return typeof value === "string" ? value.trim() !== "" : false;
+    return typeof value === "string" ? value.trim() !== "" && !isCorrespondentePlaceholderText(value) : false;
   };
   const technicalSignalEntries = [];
   const pushTechnicalSignal = (label, value) => {
@@ -15033,8 +15052,15 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   pushTechnicalSignal("Trabalho P1", sinaisPersistidos?.trabalho?.p1);
   pushTechnicalSignal("Trabalho P2", sinaisPersistidos?.trabalho?.p2);
   pushTechnicalSignal("Trabalho P3", sinaisPersistidos?.trabalho?.p3);
+  pushTechnicalSignal("Parcela mensal", sinaisPersistidos?.parcela_mensal);
   pushTechnicalSignal("Reserva para entrada", sinaisPersistidos?.visita?.reserva_entrada_tem);
+  if (sinaisPersistidos?.visita?.reserva_entrada_tem === true) {
+    pushTechnicalSignal("Reserva para entrada - valor", sinaisPersistidos?.visita?.reserva_entrada_valor);
+  }
   pushTechnicalSignal("FGTS disponível", sinaisPersistidos?.visita?.fgts_disponivel);
+  if (sinaisPersistidos?.visita?.fgts_disponivel === true) {
+    pushTechnicalSignal("FGTS disponível - valor", sinaisPersistidos?.visita?.fgts_valor);
+  }
   pushTechnicalSignal("Curso superior", sinaisPersistidos?.titular?.curso_superior_status);
   pushTechnicalSignal("Autônomo - atividade", sinaisPersistidos?.autonomo?.profissao_atividade);
   pushTechnicalSignal("Autônomo - MEI/PJ", sinaisPersistidos?.autonomo?.mei_pj_status);
@@ -15045,7 +15071,16 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   pushTechnicalSignal("CLT P3 - tipo de renda", sinaisPersistidos?.trabalho_clt?.p3_tipo_renda);
   pushTechnicalSignal("Renda extra entra", sinaisPersistidos?.renda?.renda_extra_entra);
   pushTechnicalSignal("Multi-renda", sinaisPersistidos?.renda?.multi_renda);
+  if (sinaisPersistidos?.renda?.multi_renda === true && Number(renda?.complementar) > 0) {
+    pushTechnicalSignal("Multi-renda - valor consolidado", formatMoney(renda.complementar));
+  }
   pushTechnicalSignal("Multi-regime", sinaisPersistidos?.renda?.multi_regime);
+  const regimesUnicos = Array.isArray(renda?.regimes_unicos)
+    ? renda.regimes_unicos.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+  if (sinaisPersistidos?.renda?.multi_regime === true && regimesUnicos.length > 1) {
+    pushTechnicalSignal("Multi-regime - regimes consolidados", regimesUnicos.join(", "));
+  }
   const participantRoleLabel = (value) => {
     const txt = String(value || "").trim().toLowerCase();
     if (txt === "titular") return "Titular";

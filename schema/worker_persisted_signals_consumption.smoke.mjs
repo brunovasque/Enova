@@ -70,8 +70,11 @@ function buildStateBase(overrides = {}) {
         informativo_moradia_atual_p1: "Pinheirinho",
         informativo_moradia_p1: "Bairro Alto",
         informativo_trabalho_p1: "Centro",
+        informativo_parcela_mensal: "R$ 1.300",
         visita_reserva_entrada_tem: true,
+        visita_reserva_entrada_valor: "R$ 20 mil",
         visita_fgts_disponivel: true,
+        visita_fgts_valor: "R$ 8 mil",
         visita_decisor_adicional_visita: true,
         visita_decisor_adicional_nome: "Maria",
         titular_autonomo_profissao_atividade: "Motorista de app",
@@ -100,8 +103,11 @@ function buildStateBase(overrides = {}) {
   assert.equal(sinais?.moradia_atual?.p1, "Pinheirinho");
   assert.equal(sinais?.moradia?.p1, "Bairro Alto");
   assert.equal(sinais?.trabalho?.p1, "Centro");
+  assert.equal(sinais?.parcela_mensal, "R$ 1.300");
   assert.equal(sinais?.visita?.reserva_entrada_tem, true);
+  assert.equal(sinais?.visita?.reserva_entrada_valor, "R$ 20 mil");
   assert.equal(sinais?.visita?.fgts_disponivel, true);
+  assert.equal(sinais?.visita?.fgts_valor, "R$ 8 mil");
   assert.equal("decisor_adicional_visita" in (sinais?.visita || {}), false);
   assert.equal("decisor_adicional_nome" in (sinais?.visita || {}), false);
   assert.equal(sinais?.autonomo?.profissao_atividade, "Motorista de app");
@@ -122,10 +128,13 @@ function buildStateBase(overrides = {}) {
   const sinais = pacote?.pacote_sinais_persistidos_json || {};
 
   assert.equal(pacote?.pacote_status, "pronto");
+  assert.equal(sinais?.parcela_mensal, "R$ 1.300");
   assert.equal(sinais?.moradia?.p1, "Bairro Alto");
   assert.equal(sinais?.trabalho?.p1, "Centro");
   assert.equal(sinais?.visita?.reserva_entrada_tem, true);
+  assert.equal(sinais?.visita?.reserva_entrada_valor, "R$ 20 mil");
   assert.equal(sinais?.visita?.fgts_disponivel, true);
+  assert.equal(sinais?.visita?.fgts_valor, "R$ 8 mil");
   assert.equal(sinais?.autonomo?.mei_pj_status, "mei");
   assert.equal(sinais?.renda?.multi_regime, true);
   assert.equal("decisor_adicional_visita" in (sinais?.visita || {}), false);

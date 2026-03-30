@@ -15797,7 +15797,7 @@ async function resolveCorrespondenteMetaProtectedFetchTarget(env, rawUrl, option
 }
 
 function getCorrespondentePrivateDocsBucket(env) {
-  return env?.CORRESPONDENTE_DOCS_BUCKET || env?.CORRESPONDENTE_DOCS_R2 || env?.R2_CORRESPONDENTE_DOCS || null;
+  return env?.CORRESPONDENTE_DOCS_BUCKET || null;
 }
 
 function inferContentTypeFileExtension(contentType = "") {

@@ -356,7 +356,8 @@ const preDocsBase = {
   assert.equal(escolaridadeSim.stage_after, "envio_docs");
   assert.equal(infoBag(escolaridadeSim).titular_curso_superior_status, "sim");
   assert.doesNotMatch(escolaridadeSim.reply_text, /Último ponto informativo antes dos documentos/i);
-  assert.match(escolaridadeSim.reply_text, /Me confirme com \*sim\*|Quer que eu te envie/i);
+  assert.match(escolaridadeSim.reply_text, /Com essas informações mais os dados de seu perfil do programa/i);
+  assert.match(escolaridadeSim.reply_text, /documentos/i);
 }
 
 // 2.6) Cenário 5: escolaridade respondida com "não" salva e avança sem repetir.
@@ -393,7 +394,8 @@ const preDocsBase = {
   assert.equal(escolaridadeNao.stage_after, "envio_docs");
   assert.equal(infoBag(escolaridadeNao).titular_curso_superior_status, "nao");
   assert.doesNotMatch(escolaridadeNao.reply_text, /Último ponto informativo antes dos documentos/i);
-  assert.match(escolaridadeNao.reply_text, /Me confirme com \*sim\*|Posso te enviar a \*\*instrução rápida\*\*/i);
+  assert.match(escolaridadeNao.reply_text, /Com essas informações mais os dados de seu perfil do programa/i);
+  assert.match(escolaridadeNao.reply_text, /documentos/i);
 }
 
 // 2.7) Cenário 6: reserva = sim + sem valor e FGTS = sim + sem valor avançam para docs.

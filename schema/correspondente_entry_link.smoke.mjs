@@ -194,6 +194,7 @@ function getLastStepMessagesForWa(env, waId) {
     renda: 5000,
     controle: {
       etapa1_informativos: {
+        informativo_moradia_atual_p1: "Pinheirinho",
         informativo_moradia_p1: "Bairro Alto",
         informativo_trabalho_p1: "Centro",
         visita_reserva_entrada_tem: true,
@@ -214,9 +215,11 @@ function getLastStepMessagesForWa(env, waId) {
     },
     dossie_participantes_json: [
       { id: "p1", role: "titular", regime_trabalho: "clt", renda: 5000 }
-    ]
+    ],
+    ir_declarado: true
   });
   const sinais = structured?.sinais_persistidos || {};
+  assert.equal(sinais?.moradia_atual?.p1, "Pinheirinho");
   assert.equal(sinais?.moradia?.p1, "Bairro Alto");
   assert.equal(sinais?.trabalho?.p1, "Centro");
   assert.equal(sinais?.visita?.reserva_entrada_tem, true);
@@ -656,6 +659,7 @@ function getLastStepMessagesForWa(env, waId) {
   ];
   env.__enovaSimulationCtx.stateByWaId[waCaso].controle = {
     etapa1_informativos: {
+      informativo_moradia_atual_p1: "Pinheirinho",
       informativo_moradia_p1: "Bairro Alto",
       informativo_trabalho_p1: "Centro",
       visita_reserva_entrada_tem: true,
@@ -700,7 +704,9 @@ function getLastStepMessagesForWa(env, waId) {
   assert.equal(assumirHtml.includes("Renda total:</span> R$ 8900.00"), true);
   assert.equal(assumirHtml.includes("Sem pendências documentais ativas."), true);
   assert.equal(assumirHtml.includes("Sinais técnicos PRÉ-DOCS"), true);
-  assert.equal(assumirHtml.includes("Moradia P1"), true);
+  assert.equal(assumirHtml.includes("Moradia atual P1"), true);
+  assert.equal(assumirHtml.includes("Pinheirinho"), true);
+  assert.equal(assumirHtml.includes("Preferência de moradia P1"), true);
   assert.equal(assumirHtml.includes("Bairro Alto"), true);
   assert.equal(assumirHtml.includes("Trabalho P1"), true);
   assert.equal(assumirHtml.includes("Centro"), true);

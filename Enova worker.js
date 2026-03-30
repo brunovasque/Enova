@@ -1232,6 +1232,11 @@ function getPersistedEtapaSignalValue(st = {}, keys = []) {
 
 function getPersistedEtapaSignals(st = {}) {
   return {
+    moradia_atual: {
+      p1: getPersistedEtapaSignalValue(st, "informativo_moradia_atual_p1"),
+      p2: getPersistedEtapaSignalValue(st, "informativo_moradia_atual_p2"),
+      p3: getPersistedEtapaSignalValue(st, "informativo_moradia_atual_p3")
+    },
     moradia: {
       p1: getPersistedEtapaSignalValue(st, "informativo_moradia_p1"),
       p2: getPersistedEtapaSignalValue(st, "informativo_moradia_p2"),
@@ -1244,14 +1249,17 @@ function getPersistedEtapaSignals(st = {}) {
     },
     visita: {
       reserva_entrada_tem: getPersistedEtapaSignalValue(st, "visita_reserva_entrada_tem"),
+      reserva_entrada_valor: getPersistedEtapaSignalValue(st, "visita_reserva_entrada_valor"),
       fgts_disponivel: getPersistedEtapaSignalValue(st, "visita_fgts_disponivel"),
+      fgts_valor: getPersistedEtapaSignalValue(st, "visita_fgts_valor"),
       decisor_adicional_visita: getPersistedEtapaSignalValue(st, "visita_decisor_adicional_visita"),
       decisor_adicional_nome: getPersistedEtapaSignalValue(st, "visita_decisor_adicional_nome")
     },
     autonomo: {
       profissao_atividade: getPersistedEtapaSignalValue(st, "titular_autonomo_profissao_atividade"),
       mei_pj_status: getPersistedEtapaSignalValue(st, "titular_autonomo_mei_pj_status"),
-      renda_estabilidade: getPersistedEtapaSignalValue(st, "titular_autonomo_renda_estabilidade")
+      renda_estabilidade: getPersistedEtapaSignalValue(st, "titular_autonomo_renda_estabilidade"),
+      ir_declarado: getPersistedEtapaSignalValue(st, ["ir_declarado", "autonomo_ir"])
     },
     titular: {
       curso_superior_status: getPersistedEtapaSignalValue(st, "titular_curso_superior_status")
@@ -1266,6 +1274,7 @@ function getPersistedEtapaSignals(st = {}) {
       multi_renda: getPersistedEtapaSignalValue(st, ["inicio_multi_renda_coletar", "parceiro_inicio_multi_renda_coletar"]),
       multi_regime: getPersistedEtapaSignalValue(st, ["inicio_multi_regime_coletar", "parceiro_inicio_multi_regime_coletar"])
     },
+    parcela_mensal: getPersistedEtapaSignalValue(st, "informativo_parcela_mensal"),
     reprovacao: {
       categoria: getPersistedEtapaSignalValue(st, "reprovacao_categoria_caso")
     }
@@ -1275,6 +1284,11 @@ function getPersistedEtapaSignals(st = {}) {
 function buildCorrespondenteDossierPredocsSignals(rawSignals = {}) {
   const raw = rawSignals && typeof rawSignals === "object" ? rawSignals : {};
   return {
+    moradia_atual: {
+      p1: raw?.moradia_atual?.p1 ?? null,
+      p2: raw?.moradia_atual?.p2 ?? null,
+      p3: raw?.moradia_atual?.p3 ?? null
+    },
     moradia: {
       p1: raw?.moradia?.p1 ?? null,
       p2: raw?.moradia?.p2 ?? null,
@@ -1287,12 +1301,15 @@ function buildCorrespondenteDossierPredocsSignals(rawSignals = {}) {
     },
     visita: {
       reserva_entrada_tem: raw?.visita?.reserva_entrada_tem ?? null,
-      fgts_disponivel: raw?.visita?.fgts_disponivel ?? null
+      reserva_entrada_valor: raw?.visita?.reserva_entrada_valor ?? null,
+      fgts_disponivel: raw?.visita?.fgts_disponivel ?? null,
+      fgts_valor: raw?.visita?.fgts_valor ?? null
     },
     autonomo: {
       profissao_atividade: raw?.autonomo?.profissao_atividade ?? null,
       mei_pj_status: raw?.autonomo?.mei_pj_status ?? null,
-      renda_estabilidade: raw?.autonomo?.renda_estabilidade ?? null
+      renda_estabilidade: raw?.autonomo?.renda_estabilidade ?? null,
+      ir_declarado: raw?.autonomo?.ir_declarado ?? null
     },
     titular: {
       curso_superior_status: raw?.titular?.curso_superior_status ?? null
@@ -1306,7 +1323,8 @@ function buildCorrespondenteDossierPredocsSignals(rawSignals = {}) {
       renda_extra_entra: raw?.renda?.renda_extra_entra ?? null,
       multi_renda: raw?.renda?.multi_renda ?? null,
       multi_regime: raw?.renda?.multi_regime ?? null
-    }
+    },
+    parcela_mensal: raw?.parcela_mensal ?? null
   };
 }
 
@@ -1392,14 +1410,15 @@ function getComposicaoParticipantesInformativos(st = {}) {
 }
 
 function informativoPreDocsField(topic, participantId) {
-  return topic === "moradia"
-    ? `informativo_moradia_${participantId}`
-    : `informativo_trabalho_${participantId}`;
+  if (topic === "moradia_atual") return `informativo_moradia_atual_${participantId}`;
+  if (topic === "moradia") return `informativo_moradia_${participantId}`;
+  return `informativo_trabalho_${participantId}`;
 }
 
 function hasStartedInformativosPreDocs(st = {}) {
   const participantes = getComposicaoParticipantesInformativos(st);
   for (const participante of participantes) {
+    if (hasStateValue(getEtapa1InformativoValue(st, informativoPreDocsField("moradia_atual", participante.id)))) return true;
     if (hasStateValue(getEtapa1InformativoValue(st, informativoPreDocsField("trabalho", participante.id)))) return true;
     if (hasStateValue(getEtapa1InformativoValue(st, informativoPreDocsField("moradia", participante.id)))) return true;
   }
@@ -1414,7 +1433,7 @@ function hasStartedInformativosPreDocs(st = {}) {
 
 function getNextInformativoPreDocsSlot(st = {}) {
   const participantes = getComposicaoParticipantesInformativos(st);
-  const topics = ["trabalho", "moradia"];
+  const topics = ["moradia_atual", "trabalho", "moradia"];
   for (const topic of topics) {
     for (const participante of participantes) {
       const field = informativoPreDocsField(topic, participante.id);
@@ -1457,11 +1476,18 @@ function getNextInformativoPreDocsSlot(st = {}) {
 
 function buildInformativoPreDocsQuestion(slot, st = {}) {
   if (!slot) return [];
-  const introLines = slot.topic === "trabalho" && !hasStartedInformativosPreDocs(st)
+  const introLines = slot.topic === "moradia_atual" && !hasStartedInformativosPreDocs(st)
     ? [
         "Perfeito, as perguntas que te fiz acima foram para verificar se o seu perfil se enquadra no programa Minha Casa Minha Vida. Agora, as perguntas seguintes servem para eu te orientar nas melhores opções de imóveis de acordo com o seu perfil após a aprovação de financiamento."
       ]
     : [];
+  if (slot.topic === "moradia_atual") {
+    return [
+      ...introLines,
+      `Antes de seguir, me conta onde você mora atualmente ${slot.label}.`,
+      "Pode ser bairro, região ou uma referência simples."
+    ];
+  }
   if (slot.topic === "moradia") {
     return [
       ...introLines,
@@ -1636,10 +1662,10 @@ async function maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt)
   const infoSlot = getNextInformativoPreDocsSlot(st);
   if (!infoSlot) return null;
   const userProvidedInfo = String(userText || "").trim();
-  const requiresNonGenericText = infoSlot.topic === "moradia" || infoSlot.topic === "trabalho";
+  const requiresNonGenericText = infoSlot.topic === "moradia_atual" || infoSlot.topic === "moradia" || infoSlot.topic === "trabalho";
   if (!requiresNonGenericText || !isGenericAckText(userProvidedInfo)) {
     let updates = null;
-    if (infoSlot.topic === "moradia" || infoSlot.topic === "trabalho") {
+    if (infoSlot.topic === "moradia_atual" || infoSlot.topic === "moradia" || infoSlot.topic === "trabalho") {
       const infoField = informativoPreDocsField(infoSlot.topic, infoSlot.id);
       if (!hasStateValue(getEtapa1InformativoValue(st, infoField))) {
         updates = { [infoField]: userProvidedInfo };
@@ -1733,7 +1759,77 @@ function parseAutonomoRendaEstabilidade(text) {
   return null;
 }
 
+function parseAutonomoIrPerguntaResposta(text) {
+  const raw = String(text || "").trim();
+  if (/^(n[aã]o|nao)$/i.test(raw)) return false;
+  if (/\b(sim|yes)\b/i.test(raw)) return true;
+  return null;
+}
+
+function readAutonomoIrDeclaradoState(st = {}) {
+  if (st?.autonomo_ir === true || st?.autonomo_ir === false) return st.autonomo_ir;
+  if (st?.ir_declarado === true || st?.ir_declarado === false) return st.ir_declarado;
+  return null;
+}
+
+async function maybePersistAutonomoIrDeclaradoEarly(env, st, userText) {
+  const atual = readAutonomoIrDeclaradoState(st);
+  if (atual !== null) return atual;
+  const parsed = parseAutonomoIrPerguntaResposta(userText);
+  if (parsed === null) return null;
+  const patch = { ir_declarado: parsed };
+  await upsertState(env, st.wa_id, patch);
+  Object.assign(st, patch);
+  return parsed;
+}
+
+function routeAutonomoIrPerguntaResolved(env, st, irDeclarado) {
+  if (irDeclarado === true) {
+    return step(
+      env,
+      st,
+      [
+        "Perfeito! 👍",
+        "Agora me diga qual é a sua **renda mensal média** com esse trabalho como autônomo."
+      ],
+      "renda"
+    );
+  }
+
+  const estadoCivil = String(st.estado_civil || "").toLowerCase();
+  const casadoCivil = estadoCivil === "casado_civil" || st.casado_civil === true;
+  const financiamentoConjunto = st.financiamento_conjunto === true;
+  const somarRendaTxt = String(st.somar_renda || "").toLowerCase();
+  const somarRendaComParceiroOuFamiliar =
+    st.somar_renda === true || /(parceiro|familiar)/i.test(somarRendaTxt);
+  const ehConjunto = casadoCivil || financiamentoConjunto || somarRendaComParceiroOuFamiliar;
+
+  if (ehConjunto) {
+    return step(
+      env,
+      st,
+      [
+        "Perfeito.",
+        "Agora me diga qual é a sua **renda mensal média** com esse trabalho como autônomo."
+      ],
+      "renda"
+    );
+  }
+
+  return step(
+    env,
+    st,
+    [
+      "Entendi.",
+      "Normalmente, quem recebe acima de ~R$ 2.380 por mês entra na faixa de obrigatoriedade de declaração.",
+      "Você pretende declarar IR este ano? (sim/não)"
+    ],
+    "autonomo_sem_ir_ir_este_ano"
+  );
+}
+
 async function maybeHandleAutonomoInformativos(env, st, userText, stageForPrompt) {
+  await maybePersistAutonomoIrDeclaradoEarly(env, st, userText);
   const pendente = nextAutonomoInformativoPendente(st);
   if (!pendente) return null;
   const t = String(userText || "").trim();
@@ -1758,6 +1854,7 @@ async function maybeHandleAutonomoInformativos(env, st, userText, stageForPrompt
   if (proximo) {
     return step(env, st, buildAutonomoInformativoQuestion(proximo), stageForPrompt);
   }
+  if (readAutonomoIrDeclaradoState(st) !== null) return null;
   return step(
     env,
     st,
@@ -14743,6 +14840,16 @@ function buildCorrespondenteDossierPayloadFromCanonical(canonical, st = {}, opti
       multi_regime: renda.multi_regime === true,
       participantes: participantesPerfil
     },
+    renda: {
+      titular: Number(renda.titular) > 0 ? Number(renda.titular) : null,
+      complementar: Number(renda.complementar) > 0 ? Number(renda.complementar) : null,
+      total: Number(renda.total) > 0 ? Number(renda.total) : null,
+      multi_renda: renda.multi_renda === true,
+      multi_regime: renda.multi_regime === true,
+      regimes_unicos: Array.isArray(renda.regimes_unicos)
+        ? renda.regimes_unicos.map((value) => String(value || "").trim()).filter(Boolean)
+        : []
+    },
     sinais_persistidos: sinaisPersistidos,
     documentos_por_participante: Object.values(documentosPorParticipante),
     pendencias: {
@@ -14876,6 +14983,9 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   const perfil = dossierPayload?.perfil && typeof dossierPayload.perfil === "object"
     ? dossierPayload.perfil
     : null;
+  const renda = dossierPayload?.renda && typeof dossierPayload.renda === "object"
+    ? dossierPayload.renda
+    : null;
   const docsParticipante = Array.isArray(dossierPayload?.documentos_por_participante)
     ? dossierPayload.documentos_por_participante
     : [];
@@ -14926,31 +15036,51 @@ function buildCorrespondenteEntryCoverHtml(caso, options = {}) {
   const hasTechnicalSignalValue = (value) => {
     if (value === true || value === false) return true;
     if (typeof value === "number") return Number.isFinite(value);
-    return typeof value === "string" ? value.trim() !== "" : false;
+    return typeof value === "string" ? value.trim() !== "" && !isCorrespondentePlaceholderText(value) : false;
   };
   const technicalSignalEntries = [];
   const pushTechnicalSignal = (label, value) => {
     if (!hasTechnicalSignalValue(value)) return;
     technicalSignalEntries.push({ label, value: signalTextLabel(value) });
   };
-  pushTechnicalSignal("Moradia P1", sinaisPersistidos?.moradia?.p1);
-  pushTechnicalSignal("Moradia P2", sinaisPersistidos?.moradia?.p2);
-  pushTechnicalSignal("Moradia P3", sinaisPersistidos?.moradia?.p3);
+  pushTechnicalSignal("Moradia atual P1", sinaisPersistidos?.moradia_atual?.p1);
+  pushTechnicalSignal("Moradia atual P2", sinaisPersistidos?.moradia_atual?.p2);
+  pushTechnicalSignal("Moradia atual P3", sinaisPersistidos?.moradia_atual?.p3);
+  pushTechnicalSignal("Preferência de moradia P1", sinaisPersistidos?.moradia?.p1);
+  pushTechnicalSignal("Preferência de moradia P2", sinaisPersistidos?.moradia?.p2);
+  pushTechnicalSignal("Preferência de moradia P3", sinaisPersistidos?.moradia?.p3);
   pushTechnicalSignal("Trabalho P1", sinaisPersistidos?.trabalho?.p1);
   pushTechnicalSignal("Trabalho P2", sinaisPersistidos?.trabalho?.p2);
   pushTechnicalSignal("Trabalho P3", sinaisPersistidos?.trabalho?.p3);
+  pushTechnicalSignal("Parcela mensal", sinaisPersistidos?.parcela_mensal);
   pushTechnicalSignal("Reserva para entrada", sinaisPersistidos?.visita?.reserva_entrada_tem);
+  if (sinaisPersistidos?.visita?.reserva_entrada_tem === true) {
+    pushTechnicalSignal("Reserva para entrada - valor", sinaisPersistidos?.visita?.reserva_entrada_valor);
+  }
   pushTechnicalSignal("FGTS disponível", sinaisPersistidos?.visita?.fgts_disponivel);
+  if (sinaisPersistidos?.visita?.fgts_disponivel === true) {
+    pushTechnicalSignal("FGTS disponível - valor", sinaisPersistidos?.visita?.fgts_valor);
+  }
   pushTechnicalSignal("Curso superior", sinaisPersistidos?.titular?.curso_superior_status);
   pushTechnicalSignal("Autônomo - atividade", sinaisPersistidos?.autonomo?.profissao_atividade);
   pushTechnicalSignal("Autônomo - MEI/PJ", sinaisPersistidos?.autonomo?.mei_pj_status);
   pushTechnicalSignal("Autônomo - estabilidade de renda", sinaisPersistidos?.autonomo?.renda_estabilidade);
+  pushTechnicalSignal("Autônomo - IR declarado", sinaisPersistidos?.autonomo?.ir_declarado);
   pushTechnicalSignal("CLT titular - tipo de renda", sinaisPersistidos?.trabalho_clt?.titular_tipo_renda);
   pushTechnicalSignal("CLT parceiro - tipo de renda", sinaisPersistidos?.trabalho_clt?.parceiro_tipo_renda);
   pushTechnicalSignal("CLT P3 - tipo de renda", sinaisPersistidos?.trabalho_clt?.p3_tipo_renda);
   pushTechnicalSignal("Renda extra entra", sinaisPersistidos?.renda?.renda_extra_entra);
   pushTechnicalSignal("Multi-renda", sinaisPersistidos?.renda?.multi_renda);
+  if (sinaisPersistidos?.renda?.multi_renda === true && Number(renda?.complementar) > 0) {
+    pushTechnicalSignal("Multi-renda - valor consolidado", formatMoney(renda.complementar));
+  }
   pushTechnicalSignal("Multi-regime", sinaisPersistidos?.renda?.multi_regime);
+  const regimesUnicos = Array.isArray(renda?.regimes_unicos)
+    ? renda.regimes_unicos.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+  if (sinaisPersistidos?.renda?.multi_regime === true && regimesUnicos.length > 1) {
+    pushTechnicalSignal("Multi-regime - regimes consolidados", regimesUnicos.join(", "));
+  }
   const participantRoleLabel = (value) => {
     const txt = String(value || "").trim().toLowerCase();
     if (txt === "titular") return "Titular";
@@ -22309,55 +22439,9 @@ case "autonomo_ir_pergunta": {
   const informativoAutonomo = await maybeHandleAutonomoInformativos(env, st, userText, "autonomo_ir_pergunta");
   if (informativoAutonomo) return informativoAutonomo;
 
- const nao = /^(n[aã]o|nao)$/i.test(String(userText || "").trim());
- const sim = /\b(sim|yes)\b/i.test(userText);
-
-  if (nao) {
-    await upsertState(env, st.wa_id, { ir_declarado: false });
-
-    const estadoCivil = String(st.estado_civil || "").toLowerCase();
-    const casadoCivil = estadoCivil === "casado_civil" || st.casado_civil === true;
-    const financiamentoConjunto = st.financiamento_conjunto === true;
-    const somarRendaTxt = String(st.somar_renda || "").toLowerCase();
-    const somarRendaComParceiroOuFamiliar =
-      st.somar_renda === true || /(parceiro|familiar)/i.test(somarRendaTxt);
-    const ehConjunto = casadoCivil || financiamentoConjunto || somarRendaComParceiroOuFamiliar;
-
-    if (ehConjunto) {
-      return step(
-        env,
-        st,
-        [
-          "Perfeito.",
-          "Agora me diga qual é a sua **renda mensal média** com esse trabalho como autônomo."
-        ],
-        "renda"
-      );
-    }
-
-    return step(
-      env,
-      st,
-      [
-        "Entendi.",
-        "Normalmente, quem recebe acima de ~R$ 2.380 por mês entra na faixa de obrigatoriedade de declaração.",
-        "Você pretende declarar IR este ano? (sim/não)"
-      ],
-      "autonomo_sem_ir_ir_este_ano"
-    );
-  }
-
-  if (sim) {
-    await upsertState(env, st.wa_id, { ir_declarado: true });
-    return step(
-      env,
-      st,
-      [
-        "Perfeito! 👍",
-        "Agora me diga qual é a sua **renda mensal média** com esse trabalho como autônomo."
-      ],
-      "renda"
-    );
+  const irDeclarado = readAutonomoIrDeclaradoState(st);
+  if (irDeclarado === true || irDeclarado === false) {
+    return routeAutonomoIrPerguntaResolved(env, st, irDeclarado);
   }
 
   return step(

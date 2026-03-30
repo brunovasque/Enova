@@ -104,7 +104,7 @@ const preDocsBase = {
   const result = await simulateFromState(env, wa, "regularizacao_restricao", "sim", preDocsBase);
   assert.equal(result.stage_after, "regularizacao_restricao");
   assert.match(result.reply_text, /programa minha casa minha vida/i);
-  assert.match(result.reply_text, /local de trabalho/i);
+  assert.match(result.reply_text, /mora atualmente/i);
 }
 
 // 2) caminhos de produção mapeados (#1, #2, #3, #8) passam pelo bloco pré-docs.
@@ -117,7 +117,7 @@ const preDocsBase = {
     p3_required: false
   });
   assert.equal(fromRestricao.stage_after, "restricao");
-  assert.match(fromRestricao.reply_text, /local de trabalho|preferência para moradia/i);
+  assert.match(fromRestricao.reply_text, /mora atualmente|local de trabalho|preferência para moradia/i);
 
   const envParceiroNao = buildEnv();
   const fromRestricaoParceiroNao = await simulateFromState(envParceiroNao, "5541999200103", "restricao_parceiro", "não", {
@@ -126,7 +126,7 @@ const preDocsBase = {
     p3_required: false
   });
   assert.equal(fromRestricaoParceiroNao.stage_after, "restricao_parceiro");
-  assert.match(fromRestricaoParceiroNao.reply_text, /local de trabalho|preferência para moradia/i);
+  assert.match(fromRestricaoParceiroNao.reply_text, /mora atualmente|local de trabalho|preferência para moradia/i);
 
   const envParceiroIncerto = buildEnv();
   const fromRestricaoParceiroIncerto = await simulateFromState(envParceiroIncerto, "5541999200104", "restricao_parceiro", "não sei", {
@@ -135,7 +135,7 @@ const preDocsBase = {
     p3_required: false
   });
   assert.equal(fromRestricaoParceiroIncerto.stage_after, "restricao_parceiro");
-  assert.match(fromRestricaoParceiroIncerto.reply_text, /local de trabalho|preferência para moradia/i);
+  assert.match(fromRestricaoParceiroIncerto.reply_text, /mora atualmente|local de trabalho|preferência para moradia/i);
 
   const envRegularizacaoP3 = buildEnv();
   const fromRegularizacaoP3 = await simulateFromState(envRegularizacaoP3, "5541999200105", "regularizacao_restricao_p3", "sim", {
@@ -145,7 +145,7 @@ const preDocsBase = {
     renda_total_para_fluxo: 5000
   });
   assert.equal(fromRegularizacaoP3.stage_after, "regularizacao_restricao_p3");
-  assert.match(fromRegularizacaoP3.reply_text, /local de trabalho|preferência para moradia/i);
+  assert.match(fromRegularizacaoP3.reply_text, /mora atualmente|local de trabalho|preferência para moradia/i);
 }
 
 // 2.1) caminhos que antes caiam direto em envio_docs também passam pelo pré-docs.
@@ -158,7 +158,7 @@ const preDocsBase = {
     p3_required: false
   });
   assert.equal(soloNao.stage_after, "restricao");
-  assert.match(soloNao.reply_text, /local de trabalho|preferência para moradia|reserva|fgts|parcela/i);
+  assert.match(soloNao.reply_text, /mora atualmente|local de trabalho|preferência para moradia|reserva|fgts|parcela/i);
 
   const envSoloIncerto = buildEnv();
   const soloIncerto = await simulateFromState(envSoloIncerto, "5541999200111", "restricao", "não sei", {
@@ -168,7 +168,7 @@ const preDocsBase = {
     p3_required: false
   });
   assert.equal(soloIncerto.stage_after, "restricao");
-  assert.match(soloIncerto.reply_text, /local de trabalho|preferência para moradia|reserva|fgts|parcela/i);
+  assert.match(soloIncerto.reply_text, /mora atualmente|local de trabalho|preferência para moradia|reserva|fgts|parcela/i);
 
   const envParceiroNaoDireto = buildEnv();
   const parceiroNaoDireto = await simulateFromState(envParceiroNaoDireto, "5541999200112", "restricao", "não", {
@@ -179,7 +179,7 @@ const preDocsBase = {
     p3_required: false
   });
   assert.equal(parceiroNaoDireto.stage_after, "restricao");
-  assert.match(parceiroNaoDireto.reply_text, /local de trabalho|preferência para moradia|reserva|fgts|parcela/i);
+  assert.match(parceiroNaoDireto.reply_text, /mora atualmente|local de trabalho|preferência para moradia|reserva|fgts|parcela/i);
 
   const envParceiroIncertoDireto = buildEnv();
   const parceiroIncertoDireto = await simulateFromState(envParceiroIncertoDireto, "5541999200113", "restricao", "não sei", {
@@ -190,7 +190,7 @@ const preDocsBase = {
     p3_required: false
   });
   assert.equal(parceiroIncertoDireto.stage_after, "restricao");
-  assert.match(parceiroIncertoDireto.reply_text, /local de trabalho|preferência para moradia|reserva|fgts|parcela/i);
+  assert.match(parceiroIncertoDireto.reply_text, /mora atualmente|local de trabalho|preferência para moradia|reserva|fgts|parcela/i);
 }
 
 // 2.2) Cenário 1: fluxo completo do PRÉ-DOCS com nova abertura, nova ordem, valores e handoff para docs.
@@ -206,18 +206,23 @@ const preDocsBase = {
   const abertura = await simulateFromState(env, wa, "regularizacao_restricao", "sim", flowState);
   assert.equal(abertura.stage_after, "regularizacao_restricao");
   assert.match(abertura.reply_text, /programa minha casa minha vida/i);
-  assert.match(abertura.reply_text, /local de trabalho/i);
+  assert.match(abertura.reply_text, /mora atualmente/i);
   flowState = nextState(flowState, abertura);
 
-  const trabalho = await simulateFromState(env, wa, "regularizacao_restricao", "Batel", flowState);
+  const moradiaAtual = await simulateFromState(env, wa, "regularizacao_restricao", "Batel", flowState);
+  assert.equal(moradiaAtual.stage_after, "regularizacao_restricao");
+  assert.match(moradiaAtual.reply_text, /local de trabalho/i);
+  flowState = nextState(flowState, moradiaAtual);
+
+  const trabalho = await simulateFromState(env, wa, "regularizacao_restricao", "Centro", flowState);
   assert.equal(trabalho.stage_after, "regularizacao_restricao");
   assert.match(trabalho.reply_text, /prefer[eê]ncia para moradia/i);
   flowState = nextState(flowState, trabalho);
 
-  const moradia = await simulateFromState(env, wa, "regularizacao_restricao", "Água Verde", flowState);
-  assert.equal(moradia.stage_after, "regularizacao_restricao");
-  assert.match(moradia.reply_text, /até qual valor mensal considera pagar de parcela/i);
-  flowState = nextState(flowState, moradia);
+  const moradiaPreferencia = await simulateFromState(env, wa, "regularizacao_restricao", "Água Verde", flowState);
+  assert.equal(moradiaPreferencia.stage_after, "regularizacao_restricao");
+  assert.match(moradiaPreferencia.reply_text, /até qual valor mensal considera pagar de parcela/i);
+  flowState = nextState(flowState, moradiaPreferencia);
 
   const parcela = await simulateFromState(env, wa, "regularizacao_restricao", "R$ 1.200", flowState);
   assert.equal(parcela.stage_after, "regularizacao_restricao");
@@ -247,7 +252,8 @@ const preDocsBase = {
   assert.doesNotMatch(fgtsValor.reply_text, /Último ponto informativo antes dos documentos/i);
   flowState = nextState(flowState, fgtsValor);
 
-  assert.equal(flowState.controle.etapa1_informativos.informativo_trabalho_p1, "Batel");
+  assert.equal(flowState.controle.etapa1_informativos.informativo_moradia_atual_p1, "Batel");
+  assert.equal(flowState.controle.etapa1_informativos.informativo_trabalho_p1, "Centro");
   assert.equal(flowState.controle.etapa1_informativos.informativo_moradia_p1, "Água Verde");
   assert.equal(flowState.controle.etapa1_informativos.informativo_parcela_mensal, "R$ 1.200");
   assert.equal(flowState.controle.etapa1_informativos.visita_reserva_entrada_tem, true);
@@ -277,6 +283,7 @@ const preDocsBase = {
     ...preDocsBase,
     controle: {
       etapa1_informativos: {
+        informativo_moradia_atual_p1: "Atual",
         informativo_trabalho_p1: "Batel",
         informativo_moradia_p1: "Centro",
         informativo_parcela_mensal: "R$ 1.000"
@@ -303,6 +310,7 @@ const preDocsBase = {
     renda: 3000,
     controle: {
       etapa1_informativos: {
+        informativo_moradia_atual_p1: "Atual",
         informativo_trabalho_p1: "Batel",
         informativo_moradia_p1: "Centro",
         informativo_parcela_mensal: "R$ 1.000",
@@ -331,6 +339,7 @@ const preDocsBase = {
     renda: 3000,
     controle: {
       etapa1_informativos: {
+        informativo_moradia_atual_p1: "Atual",
         informativo_trabalho_p1: "Batel",
         informativo_moradia_p1: "Centro",
         informativo_parcela_mensal: "R$ 1.000",
@@ -369,6 +378,7 @@ const preDocsBase = {
     renda: 3000,
     controle: {
       etapa1_informativos: {
+        informativo_moradia_atual_p1: "Atual",
         informativo_trabalho_p1: "Batel",
         informativo_moradia_p1: "Centro",
         informativo_parcela_mensal: "R$ 1.000",
@@ -407,6 +417,7 @@ const preDocsBase = {
     renda: 4500,
     controle: {
       etapa1_informativos: {
+        informativo_moradia_atual_p1: "Atual",
         informativo_trabalho_p1: "Batel",
         informativo_moradia_p1: "Centro",
         informativo_parcela_mensal: "R$ 1.000"
@@ -444,6 +455,7 @@ const preDocsBase = {
     renda: 4500,
     controle: {
       etapa1_informativos: {
+        informativo_moradia_atual_p1: "Atual",
         informativo_trabalho_p1: "Batel",
         informativo_moradia_p1: "Centro",
         informativo_parcela_mensal: "R$ 1.000"
@@ -490,7 +502,7 @@ const preDocsBase = {
     p3_required: false
   });
   assert.equal(first.stage_after, "restricao");
-  assert.match(first.reply_text, /local de trabalho|preferência para moradia|reserva|fgts|parcela/i);
+  assert.match(first.reply_text, /mora atualmente|local de trabalho|preferência para moradia|reserva|fgts|parcela/i);
 
   const second = await simulateFromState(env, wa, "restricao", "merces", {
     ...(env.__enovaSimulationCtx.stateByWaId[wa] || {}),
@@ -509,7 +521,7 @@ const preDocsBase = {
   });
   assert.equal(second.stage_after, "restricao");
   assert.doesNotMatch(second.reply_text, /Pra eu seguir aqui, me responde só a pergunta anterior direitinho/i);
-  assert.match(second.reply_text, /local de trabalho|preferência para moradia|reserva|fgts|parcela/i);
+  assert.match(second.reply_text, /mora atualmente|local de trabalho|preferência para moradia|reserva|fgts|parcela/i);
 }
 
 console.log("etapa1_predocs.smoke: ok");

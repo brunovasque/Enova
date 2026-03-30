@@ -70,6 +70,35 @@ function buildEnvWithState() {
   };
 }
 
+function buildMemoryR2Bucket(initial = {}) {
+  const objects = new Map(Object.entries(initial).map(([key, value]) => [key, { ...value }]));
+  return {
+    puts: [],
+    async get(key) {
+      const entry = objects.get(String(key));
+      if (!entry) return null;
+      return {
+        body: entry.body,
+        httpMetadata: entry.httpMetadata || {},
+        writeHttpMetadata(headers) {
+          const meta = entry.httpMetadata || {};
+          if (meta.contentType) headers.set("content-type", meta.contentType);
+          if (meta.contentDisposition) headers.set("content-disposition", meta.contentDisposition);
+        }
+      };
+    },
+    async put(key, body, options = {}) {
+      const stored = body instanceof ArrayBuffer ? body.slice(0) : body;
+      this.puts.push({ key: String(key), options });
+      objects.set(String(key), {
+        body: stored,
+        httpMetadata: options.httpMetadata || {},
+        customMetadata: options.customMetadata || {}
+      });
+    }
+  };
+}
+
 function isFilled(value) {
   if (value === null || value === undefined) return false;
   if (typeof value === "string") return value.trim() !== "";
@@ -1539,6 +1568,22 @@ function getLastStepMessagesForWa(env, waId) {
 // 3.8n) Rota /correspondente/doc deve abrir exatamente o upload real correspondente ao doc_id.
 {
   const env = buildEnvWithState();
+  env.CORRESPONDENTE_DOCS_BUCKET = buildMemoryR2Bucket({
+    "correspondente-docs/5541999998888/000001/doc_doc-rg-1.pdf": {
+      body: "RG PRIVADO",
+      httpMetadata: {
+        contentType: "application/pdf",
+        contentDisposition: 'inline; filename="rg-a.pdf"'
+      }
+    },
+    "correspondente-docs/5541999998888/000001/doc_doc-cpf-1.pdf": {
+      body: "CPF PRIVADO",
+      httpMetadata: {
+        contentType: "application/pdf",
+        contentDisposition: 'inline; filename="cpf-b.pdf"'
+      }
+    }
+  });
   const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
   st.corr_lock_correspondente_wa_id = correspondenteWa;
   st.processo_enviado_correspondente = true;
@@ -1546,23 +1591,41 @@ function getLastStepMessagesForWa(env, waId) {
   st.pacote_documentos_anexados_json = [];
   env.__enovaSimulationCtx.docsByWaId = {
     [waCaso]: [
-      { doc_id: "doc-rg-1", tipo: "rg", participante: "p1", status: "recebido", url: "https://docs.example.com/rg-a.pdf" },
-      { doc_id: "doc-cpf-1", tipo: "cpf", participante: "p1", status: "recebido", url: "https://docs.example.com/cpf-b.pdf" }
+      {
+        doc_id: "doc-rg-1",
+        tipo: "rg",
+        participante: "p1",
+        status: "recebido",
+        url: "https://docs.example.com/rg-a.pdf",
+        private_object_key: "correspondente-docs/5541999998888/000001/doc_doc-rg-1.pdf"
+      },
+      {
+        doc_id: "doc-cpf-1",
+        tipo: "cpf",
+        participante: "p1",
+        status: "recebido",
+        url: "https://docs.example.com/cpf-b.pdf",
+        private_object_key: "correspondente-docs/5541999998888/000001/doc_doc-cpf-1.pdf"
+      }
     ]
   };
   const reqRg = new Request(`https://worker.local/correspondente/doc?pre=000001&t=${token}&doc=doc_doc-rg-1`, { method: "GET" });
   const resRg = await worker.fetch(reqRg, env, {});
-  assert.equal(resRg.status, 302);
-  assert.equal(String(resRg.headers.get("location") || ""), "https://docs.example.com/rg-a.pdf");
+  assert.equal(resRg.status, 200);
+  assert.equal(String(resRg.headers.get("content-type") || ""), "application/pdf");
+  assert.equal(await resRg.text(), "RG PRIVADO");
   const reqCpf = new Request(`https://worker.local/correspondente/doc?pre=000001&t=${token}&doc=doc_doc-cpf-1`, { method: "GET" });
   const resCpf = await worker.fetch(reqCpf, env, {});
-  assert.equal(resCpf.status, 302);
-  assert.equal(String(resCpf.headers.get("location") || ""), "https://docs.example.com/cpf-b.pdf");
+  assert.equal(resCpf.status, 200);
+  assert.equal(String(resCpf.headers.get("content-type") || ""), "application/pdf");
+  assert.equal(await resCpf.text(), "CPF PRIVADO");
 }
 
-// 3.8n.1) Rota /correspondente/doc deve resolver URL Meta protegida antes de servir o arquivo real.
+// 3.8n.1) Rota /correspondente/doc deve materializar legado no R2 e reabrir dali sem depender novamente da Meta.
 {
   const env = buildEnvWithState();
+  const bucket = buildMemoryR2Bucket();
+  env.CORRESPONDENTE_DOCS_BUCKET = bucket;
   const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
   st.corr_lock_correspondente_wa_id = correspondenteWa;
   st.processo_enviado_correspondente = true;
@@ -1581,9 +1644,12 @@ function getLastStepMessagesForWa(env, waId) {
     ]
   };
   const originalFetch = globalThis.fetch;
+  let graphFetchCount = 0;
+  let lookasideFetchCount = 0;
   globalThis.fetch = async (input, init = {}) => {
     const asString = String(input || "");
     if (asString === "https://graph.facebook.com/v20.0/mid-rg-meta-1") {
+      graphFetchCount += 1;
       assert.equal(String(init?.headers?.Authorization || ""), `Bearer ${env.WHATS_TOKEN}`);
       return new Response(
         JSON.stringify({ url: "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=rg-meta-real" }),
@@ -1591,6 +1657,7 @@ function getLastStepMessagesForWa(env, waId) {
       );
     }
     if (asString === "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=rg-meta-real") {
+      lookasideFetchCount += 1;
       assert.equal(String(init?.headers?.Authorization || ""), `Bearer ${env.WHATS_TOKEN}`);
       return new Response("RG META OK", { status: 200, headers: { "content-type": "application/pdf" } });
     }
@@ -1603,6 +1670,17 @@ function getLastStepMessagesForWa(env, waId) {
     assert.equal(res.status, 200);
     assert.equal(String(res.headers.get("content-type") || ""), "application/pdf");
     assert.equal(body, "RG META OK");
+    assert.equal(graphFetchCount, 1);
+    assert.equal(lookasideFetchCount, 1);
+    assert.equal(bucket.puts.length, 1);
+    assert.equal(typeof env.__enovaSimulationCtx.docsByWaId[waCaso][0].private_object_key, "string");
+    assert.equal(Boolean(env.__enovaSimulationCtx.docsByWaId[waCaso][0].private_materialized_at), true);
+
+    const resReopen = await worker.fetch(req, env, {});
+    assert.equal(resReopen.status, 200);
+    assert.equal(await resReopen.text(), "RG META OK");
+    assert.equal(graphFetchCount, 1);
+    assert.equal(lookasideFetchCount, 1);
   } finally {
     globalThis.fetch = originalFetch;
   }

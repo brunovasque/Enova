@@ -15589,11 +15589,24 @@ function buildCorrespondenteWebDocsModel(docs) {
       stableIdFromDocRawFallback(doc, stableIdentity)
     );
     const normalized = {
+      id: doc?.id || null,
+      doc_id: doc?.doc_id || doc?.id || null,
       tipo,
       participante,
       status,
       url,
       file_name: doc?.file_name || null,
+      media_id: doc?.media_id || doc?.mid || doc?.mediaId || null,
+      mime_type: doc?.mime_type || doc?.mimetype || null,
+      created_at: doc?.created_at || doc?.at || null,
+      wa_id: doc?.wa_id || null,
+      link: doc?.link || null,
+      document_url: doc?.document_url || null,
+      download_url: doc?.download_url || null,
+      media_url: doc?.media_url || null,
+      private_object_key: String(doc?.private_object_key || "").trim() || null,
+      private_materialized_at: doc?.private_materialized_at || null,
+      __doc_source: doc?.__doc_source || null,
       stable_doc_id: stableDocId
     };
     if (status === "pendente") {
@@ -15606,7 +15619,10 @@ function buildCorrespondenteWebDocsModel(docs) {
 
   const normalizedDocs = [...receivedDocs, ...pendingByPair.values()];
   for (const doc of normalizedDocs) {
-    const hasUsableUrl = Boolean(resolveCorrespondenteDocumentUrl(doc));
+    const hasUsableUrl = Boolean(
+      resolveCorrespondenteDocumentUrl(doc) ||
+      String(doc?.private_object_key || "").trim()
+    );
     if (doc.status !== "pendente" && hasUsableUrl) {
       doc.received_access_id = String(doc?.stable_doc_id || "").trim() || null;
     } else {
@@ -15780,6 +15796,273 @@ async function resolveCorrespondenteMetaProtectedFetchTarget(env, rawUrl, option
   return { url: targetUrl, headers };
 }
 
+function getCorrespondentePrivateDocsBucket(env) {
+  return env?.CORRESPONDENTE_DOCS_BUCKET || env?.CORRESPONDENTE_DOCS_R2 || env?.R2_CORRESPONDENTE_DOCS || null;
+}
+
+function inferContentTypeFileExtension(contentType = "") {
+  const normalized = String(contentType || "").trim().toLowerCase().split(";")[0];
+  if (!normalized) return "";
+  const byType = {
+    "application/pdf": ".pdf",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "text/plain": ".txt"
+  };
+  return byType[normalized] || "";
+}
+
+function buildCorrespondenteDocumentInlineFileName(doc = {}, contentType = "") {
+  const extensionFromName = (() => {
+    const raw = String(doc?.file_name || "").trim();
+    const match = raw.match(/(\.[a-z0-9]{1,8})$/i);
+    return match ? String(match[1]).toLowerCase() : "";
+  })();
+  const extension = extensionFromName || inferContentTypeFileExtension(contentType);
+  const fileNameRaw = String(doc?.file_name || doc?.tipo || "documento").trim() || "documento";
+  const fileName = fileNameRaw
+    .replace(/[^a-z0-9._-]/gi, "_")
+    .replace(/\.\.+/g, "_")
+    .replace(/^\.+/g, "")
+    .slice(0, 120) || "documento";
+  if (extension && !fileName.toLowerCase().endsWith(extension)) {
+    return `${fileName}${extension}`;
+  }
+  return fileName;
+}
+
+function buildCorrespondentePrivateObjectKey(caso, doc = {}, contentType = "") {
+  const waId = String(caso?.wa_id || doc?.wa_id || "").replace(/\D/g, "") || "sem_wa";
+  const caseRef = normalizeCorrespondenteCaseRefInput(buildCorrespondenteCaseRef(caso) || doc?.case_ref || "") || "sem_pre";
+  const docIdentity = String(
+    doc?.stable_doc_id ||
+    doc?.doc_id ||
+    doc?.id ||
+    doc?.media_id ||
+    doc?.file_name ||
+    `${doc?.tipo || "documento"}_${doc?.participante || "desconhecido"}`
+  ).trim();
+  const safeIdentity = normalizeText(docIdentity).replace(/[^a-z0-9._-]+/g, "_").slice(0, 140) || "documento";
+  const extension = (() => {
+    const fileName = String(doc?.file_name || "").trim();
+    const match = fileName.match(/(\.[a-z0-9]{1,8})$/i);
+    if (match) return String(match[1]).toLowerCase();
+    return inferContentTypeFileExtension(contentType);
+  })();
+  return `correspondente-docs/${waId}/${caseRef}/${safeIdentity}${extension}`;
+}
+
+function buildCorrespondentePrivateMaterializationPatch(materialized) {
+  return {
+    private_object_key: String(materialized?.private_object_key || "").trim() || null,
+    private_materialized_at: materialized?.private_materialized_at || null
+  };
+}
+
+function doesCorrespondenteDocMatchCandidate(candidate = {}, doc = {}) {
+  const candidateIds = new Set([
+    candidate?.id,
+    candidate?.doc_id,
+    candidate?.media_id,
+    resolveCorrespondenteDocumentUrl(candidate)
+  ].map((value) => String(value || "").trim()).filter(Boolean));
+  const docIds = [
+    doc?.id,
+    doc?.doc_id,
+    doc?.media_id,
+    resolveCorrespondenteDocumentUrl(doc)
+  ].map((value) => String(value || "").trim()).filter(Boolean);
+  if (docIds.some((value) => candidateIds.has(value))) return true;
+  const samePair =
+    String(candidate?.tipo || "").trim().toLowerCase() === String(doc?.tipo || "").trim().toLowerCase() &&
+    String(candidate?.participante || "").trim().toLowerCase() === String(doc?.participante || "").trim().toLowerCase();
+  if (!samePair) return false;
+  const candidateUrl = String(resolveCorrespondenteDocumentUrl(candidate) || "").trim();
+  const docUrl = String(resolveCorrespondenteDocumentUrl(doc) || "").trim();
+  return Boolean(candidateUrl && docUrl && candidateUrl === docUrl);
+}
+
+async function persistCorrespondentePrivateDocMaterialization(env, caso, doc, materialized) {
+  const waId = String(caso?.wa_id || doc?.wa_id || "").trim();
+  if (!waId) return;
+  const patch = buildCorrespondentePrivateMaterializationPatch(materialized);
+  if (!patch.private_object_key || !patch.private_materialized_at) return;
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) {
+    simCtx.docsByWaId = simCtx.docsByWaId && typeof simCtx.docsByWaId === "object" ? simCtx.docsByWaId : {};
+    const docs = Array.isArray(simCtx.docsByWaId[waId]) ? [...simCtx.docsByWaId[waId]] : [];
+    const idx = docs.findIndex((candidate) => doesCorrespondenteDocMatchCandidate(candidate, doc));
+    if (idx >= 0) {
+      docs[idx] = { ...docs[idx], ...patch };
+    } else {
+      docs.push({
+        wa_id: waId,
+        participante: doc?.participante || null,
+        tipo: doc?.tipo || null,
+        status: doc?.status || "recebido",
+        url: resolveCorrespondenteDocumentUrl(doc) || null,
+        media_id: doc?.media_id || null,
+        mime_type: doc?.mime_type || null,
+        file_name: doc?.file_name || null,
+        created_at: doc?.created_at || patch.private_materialized_at,
+        ...patch
+      });
+    }
+    simCtx.docsByWaId[waId] = docs;
+    return;
+  }
+
+  if (doc?.id) {
+    await sbFetch(env, "/rest/v1/enova_docs", {
+      method: "PATCH",
+      query: {
+        id: `eq.${encodeURIComponent(doc.id)}`
+      },
+      body: patch
+    });
+    return;
+  }
+
+  await sbFetch(env, "/rest/v1/enova_docs", {
+    method: "POST",
+    body: {
+      wa_id: waId,
+      participante: doc?.participante || null,
+      tipo: doc?.tipo || null,
+      status: doc?.status || "recebido",
+      url: resolveCorrespondenteDocumentUrl(doc) || null,
+      media_id: doc?.media_id || null,
+      mime_type: doc?.mime_type || null,
+      file_name: doc?.file_name || null,
+      created_at: doc?.created_at || patch.private_materialized_at,
+      ...patch
+    }
+  });
+}
+
+async function tryServeCorrespondentePrivateObject(env, doc = {}) {
+  const bucket = getCorrespondentePrivateDocsBucket(env);
+  const privateObjectKey = String(doc?.private_object_key || "").trim();
+  if (!bucket || !privateObjectKey) return null;
+  let objectBody = null;
+  try {
+    objectBody = await bucket.get(privateObjectKey);
+  } catch {
+    return null;
+  }
+  if (!objectBody) return null;
+  const headers = new Headers({
+    "cache-control": "private, max-age=300"
+  });
+  if (typeof objectBody.writeHttpMetadata === "function") {
+    objectBody.writeHttpMetadata(headers);
+  } else {
+    const contentType = String(
+      objectBody?.httpMetadata?.contentType ||
+      objectBody?.httpMetadata?.content_type ||
+      ""
+    ).trim();
+    if (contentType) headers.set("content-type", contentType);
+  }
+  if (!headers.get("content-type")) {
+    headers.set("content-type", String(doc?.mime_type || "").trim() || "application/octet-stream");
+  }
+  headers.set(
+    "content-disposition",
+    `inline; filename="${buildCorrespondenteDocumentInlineFileName(doc, headers.get("content-type") || "")}"`
+  );
+  return new Response(objectBody.body, {
+    status: 200,
+    headers
+  });
+}
+
+async function fetchCorrespondenteDocumentUpstream(env, doc, options = {}) {
+  const fetchImpl = options?.fetchImpl || fetch;
+  const rawUrl = resolveCorrespondenteDocumentUrl(doc);
+  if (!rawUrl) return { upstream: null, fetchTargetUrl: "", headers: {} };
+  const resolved = isMetaProtectedDocumentUrl(rawUrl)
+    ? await resolveCorrespondenteMetaProtectedFetchTarget(env, rawUrl, { fetchImpl })
+    : { url: rawUrl, headers: {} };
+  if (!resolved?.url) return { upstream: null, fetchTargetUrl: "", headers: resolved?.headers || {} };
+  const upstream = await fetchImpl(resolved.url, { headers: resolved.headers || {} });
+  return {
+    upstream,
+    fetchTargetUrl: resolved.url,
+    headers: resolved.headers || {}
+  };
+}
+
+async function serveCorrespondenteDocumentFromAuthorizedProxy(env, caso, doc, options = {}) {
+  const privateResponse = await tryServeCorrespondentePrivateObject(env, doc);
+  if (privateResponse) return privateResponse;
+
+  let upstreamBundle;
+  try {
+    upstreamBundle = await fetchCorrespondenteDocumentUpstream(env, doc, options);
+  } catch {
+    return new Response("Falha ao carregar documento.", { status: 502 });
+  }
+  if (!upstreamBundle?.upstream?.ok) {
+    return new Response("Falha ao carregar documento.", { status: 502 });
+  }
+
+  const upstream = upstreamBundle.upstream;
+  const contentType = String(upstream.headers.get("content-type") || "").trim() || String(doc?.mime_type || "").trim() || "application/octet-stream";
+  const fileName = buildCorrespondenteDocumentInlineFileName(doc, contentType);
+  const bucket = getCorrespondentePrivateDocsBucket(env);
+  if (!bucket) {
+    return new Response(upstream.body, {
+      status: 200,
+      headers: {
+        "content-type": contentType,
+        "content-disposition": `inline; filename="${fileName}"`,
+        "cache-control": "private, max-age=300"
+      }
+    });
+  }
+
+  let bodyBuffer;
+  try {
+    bodyBuffer = await upstream.arrayBuffer();
+  } catch {
+    return new Response("Falha ao carregar documento.", { status: 502 });
+  }
+
+  const privateObjectKey = buildCorrespondentePrivateObjectKey(caso, doc, contentType);
+  const privateMaterializedAt = new Date().toISOString();
+  try {
+    await bucket.put(privateObjectKey, bodyBuffer, {
+      httpMetadata: {
+        contentType,
+        contentDisposition: `inline; filename="${fileName}"`
+      },
+      customMetadata: {
+        wa_id: String(caso?.wa_id || ""),
+        case_ref: normalizeCorrespondenteCaseRefInput(buildCorrespondenteCaseRef(caso)) || "",
+        tipo: String(doc?.tipo || ""),
+        participante: String(doc?.participante || ""),
+        stable_doc_id: String(doc?.stable_doc_id || "")
+      }
+    });
+    await persistCorrespondentePrivateDocMaterialization(env, caso, doc, {
+      private_object_key: privateObjectKey,
+      private_materialized_at: privateMaterializedAt
+    });
+  } catch {}
+
+  return new Response(bodyBuffer, {
+    status: 200,
+    headers: {
+      "content-type": contentType,
+      "content-disposition": `inline; filename="${fileName}"`,
+      "cache-control": "private, max-age=300"
+    }
+  });
+}
+
 async function handleCorrespondenteDocumentAccess(request, env) {
   const requestUrl = new URL(request.url);
   const caseRef = normalizeCorrespondenteCaseRefInput(
@@ -15813,44 +16096,14 @@ async function handleCorrespondenteDocumentAccess(request, env) {
   const docs = await getCaseDocumentLinks(env, caso.wa_id, stCaso);
   const docsModel = buildCorrespondenteWebDocsModel(docs);
   const targetDoc = docsModel.receivedById.get(docId) || null;
-  const targetUrl = resolveCorrespondenteDocumentUrl(targetDoc);
-  if (!targetUrl) {
+  const hasResolvableAccess = Boolean(
+    String(targetDoc?.private_object_key || "").trim() ||
+    resolveCorrespondenteDocumentUrl(targetDoc)
+  );
+  if (!hasResolvableAccess) {
     return new Response("Documento não encontrado.", { status: 404 });
   }
-
-  if (!isMetaProtectedDocumentUrl(targetUrl)) {
-    return Response.redirect(targetUrl, 302);
-  }
-
-  const { url: fetchTargetUrl, headers } = await resolveCorrespondenteMetaProtectedFetchTarget(env, targetUrl);
-  if (!fetchTargetUrl) {
-    return new Response("Falha ao carregar documento.", { status: 502 });
-  }
-  let upstream;
-  try {
-    upstream = await fetch(fetchTargetUrl, { headers });
-  } catch {
-    return new Response("Falha ao carregar documento.", { status: 502 });
-  }
-  if (!upstream?.ok) {
-    return new Response("Falha ao carregar documento.", { status: 502 });
-  }
-
-  const contentType = String(upstream.headers.get("content-type") || "").trim() || "application/octet-stream";
-  const fileNameRaw = String(targetDoc?.file_name || targetDoc?.tipo || "documento").trim() || "documento";
-  const fileName = fileNameRaw
-    .replace(/[^a-z0-9._-]/gi, "_")
-    .replace(/\.\.+/g, "_")
-    .replace(/^\.+/g, "")
-    .slice(0, 120) || "documento";
-  return new Response(upstream.body, {
-    status: 200,
-    headers: {
-      "content-type": contentType,
-      "content-disposition": `inline; filename="${fileName}"`,
-      "cache-control": "private, max-age=300"
-    }
-  });
+  return await serveCorrespondenteDocumentFromAuthorizedProxy(env, caso, targetDoc);
 }
 
 function buildCorrespondentePrivateDocsLinksText(docs = [], st = null, options = {}) {
@@ -17701,6 +17954,7 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
       tipo,
       participante,
       status,
+      __doc_source: prefix,
       __is_real_upload: true
     };
     if (url) normalizedDoc.url = url;

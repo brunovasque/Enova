@@ -15512,6 +15512,63 @@ function resolveCorrespondenteDocumentUrl(doc) {
   ).trim();
 }
 
+function canonicalizeCorrespondenteDocumentUrl(rawUrl) {
+  const url = String(rawUrl || "").trim();
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return url.split("?")[0].split("#")[0].trim();
+  }
+}
+
+function buildCorrespondenteDocMaterialKey(doc = {}) {
+  const mediaId = String(
+    doc?.media_id ||
+    doc?.mid ||
+    doc?.mediaId ||
+    doc?.media_ref?.media_id ||
+    doc?.media_ref?.mediaId ||
+    ""
+  ).trim();
+  if (mediaId) return `mid:${mediaId}`;
+  const canonicalUrl = canonicalizeCorrespondenteDocumentUrl(resolveCorrespondenteDocumentUrl(doc));
+  if (canonicalUrl) {
+    return `url:${normalizeText(canonicalUrl).replace(/[^a-z0-9]+/g, "_").slice(0, 180) || "doc"}`;
+  }
+  const privateObjectKey = String(doc?.private_object_key || "").trim();
+  if (privateObjectKey) {
+    return `obj:${normalizeText(privateObjectKey).replace(/[^a-z0-9._/-]+/g, "_").slice(0, 180) || "doc"}`;
+  }
+  const messageId = String(
+    doc?.message_id ||
+    doc?.wamid ||
+    doc?.wamid_id ||
+    doc?.upload_message_id ||
+    ""
+  ).trim();
+  if (messageId) return `msg:${messageId}`;
+  const fallbackSignature = [
+    String(doc?.file_name || doc?.filename || doc?.media_ref?.file_name || "").trim().toLowerCase(),
+    String(doc?.created_at || doc?.at || "").trim(),
+    String(doc?.mime_type || doc?.mimetype || doc?.media_ref?.mime_type || "").trim().toLowerCase()
+  ].filter(Boolean).join("|");
+  if (fallbackSignature) {
+    return `file:${normalizeText(fallbackSignature).replace(/[^a-z0-9]+/g, "_").slice(0, 180) || "doc"}`;
+  }
+  return "";
+}
+
+function buildCorrespondenteDocSemanticKey(doc = {}) {
+  const tipo = String(doc?.tipo || "").trim().toLowerCase() || "documento";
+  const participante = String(doc?.participante || "").trim().toLowerCase() || "-";
+  const materialKey = buildCorrespondenteDocMaterialKey(doc);
+  if (materialKey) return `${participante}|${tipo}|${materialKey}`;
+  const fallbackId = String(doc?.doc_id || doc?.stable_doc_id || doc?.received_access_id || doc?.id || "").trim();
+  return fallbackId ? `${participante}|${tipo}|id:${fallbackId}` : "";
+}
+
 function buildCorrespondenteWebDocsModel(docs) {
   const normalizeDocUiStatus = (value) => {
     const txt = String(value || "").trim().toLowerCase();
@@ -15607,7 +15664,8 @@ function buildCorrespondenteWebDocsModel(docs) {
       private_object_key: String(doc?.private_object_key || "").trim() || null,
       private_materialized_at: doc?.private_materialized_at || null,
       __doc_source: doc?.__doc_source || null,
-      stable_doc_id: stableDocId
+      stable_doc_id: stableDocId,
+      semantic_doc_key: buildCorrespondenteDocSemanticKey(doc) || null
     };
     if (status === "pendente") {
       const key = `${tipo}|${participante}`;
@@ -15663,18 +15721,28 @@ function buildCorrespondenteDocsForUi(docs = [], st = null, options = {}) {
     : [];
 
   if (!checklistItems.length) {
+    const renderedDocKeys = new Set();
     return {
       docsModel,
-      docsForUi: (Array.isArray(docsModel?.normalizedDocs) ? docsModel.normalizedDocs : []).map((doc) => ({
-        tipo: doc?.tipo || null,
-        participante: doc?.participante || null,
-        status: doc?.status || null,
-        access_link: buildAccessLink(doc?.received_access_id || null)
-      }))
+      docsForUi: (Array.isArray(docsModel?.normalizedDocs) ? docsModel.normalizedDocs : []).reduce((acc, doc) => {
+        const semanticKey = String(doc?.semantic_doc_key || buildCorrespondenteDocSemanticKey(doc) || "").trim();
+        if (semanticKey) {
+          if (renderedDocKeys.has(semanticKey)) return acc;
+          renderedDocKeys.add(semanticKey);
+        }
+        acc.push({
+          tipo: doc?.tipo || null,
+          participante: doc?.participante || null,
+          status: doc?.status || null,
+          access_link: buildAccessLink(doc?.received_access_id || null)
+        });
+        return acc;
+      }, [])
     };
   }
 
   const matchedReceivedIds = new Set();
+  const renderedReceivedSemanticKeys = new Set();
   const docsForUi = [];
   const findBestReceivedDocForChecklistItem = (item) => {
     const itemTipo = normalizeDocUiType(item?.tipo);
@@ -15704,6 +15772,8 @@ function buildCorrespondenteDocsForUi(docs = [], st = null, options = {}) {
     const matchedDoc = findBestReceivedDocForChecklistItem(item);
     const matchedDocKey = String(matchedDoc?.stable_doc_id || matchedDoc?.received_access_id || "").trim();
     if (matchedDocKey) matchedReceivedIds.add(matchedDocKey);
+    const matchedSemanticKey = String(matchedDoc?.semantic_doc_key || buildCorrespondenteDocSemanticKey(matchedDoc) || "").trim();
+    if (matchedSemanticKey) renderedReceivedSemanticKeys.add(matchedSemanticKey);
     docsForUi.push({
       tipo: normalizeDocUiType(item?.tipo),
       participante: normalizeDocUiParticipant(item?.participante),
@@ -15716,7 +15786,7 @@ function buildCorrespondenteDocsForUi(docs = [], st = null, options = {}) {
   for (const doc of receivedDocs) {
     const docKey = String(doc?.stable_doc_id || doc?.received_access_id || "").trim();
     if (docKey && matchedReceivedIds.has(docKey)) {
-      const url = resolveCorrespondenteDocumentUrl(doc);
+      const url = canonicalizeCorrespondenteDocumentUrl(resolveCorrespondenteDocumentUrl(doc));
       if (url) matchedDocUrls.add(url);
     }
   }
@@ -15728,7 +15798,9 @@ function buildCorrespondenteDocsForUi(docs = [], st = null, options = {}) {
   for (const doc of receivedDocs) {
     const docKey = String(doc?.stable_doc_id || doc?.received_access_id || "").trim();
     if (docKey && matchedReceivedIds.has(docKey)) continue;
-    const docUrl = resolveCorrespondenteDocumentUrl(doc);
+    const docSemanticKey = String(doc?.semantic_doc_key || buildCorrespondenteDocSemanticKey(doc) || "").trim();
+    if (docSemanticKey && renderedReceivedSemanticKeys.has(docSemanticKey)) continue;
+    const docUrl = canonicalizeCorrespondenteDocumentUrl(resolveCorrespondenteDocumentUrl(doc));
     if (docUrl && matchedDocUrls.has(docUrl)) continue;
     const hasOwnLink = Boolean(String(doc?.received_access_id || "").trim());
     if (!hasOwnLink) {
@@ -15741,6 +15813,8 @@ function buildCorrespondenteDocsForUi(docs = [], st = null, options = {}) {
       status: doc?.status || null,
       access_link: buildAccessLink(doc?.received_access_id || null)
     });
+    if (docSemanticKey) renderedReceivedSemanticKeys.add(docSemanticKey);
+    if (docUrl) matchedDocUrls.add(docUrl);
   }
 
   return { docsModel, docsForUi };
@@ -17972,7 +18046,7 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
     };
     for (const raw of Array.isArray(rows) ? rows : []) {
       const doc = raw && typeof raw === "object" ? raw : {};
-      const key = String(doc?.doc_id || "").trim();
+      const key = String(buildCorrespondenteDocSemanticKey(doc) || doc?.doc_id || "").trim();
       if (!key) continue;
       const current = merged.get(key);
       if (!current) {

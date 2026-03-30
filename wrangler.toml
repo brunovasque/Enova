@@ -32,4 +32,4 @@ CORRESPONDENTE_TEXT_FALLBACK_WINDOW_OPEN = "false"
 
 [[env.test.r2_buckets]]
 binding = "CORRESPONDENTE_DOCS_BUCKET"
-bucket_name = "enova-correspondente-docs-test"
+bucket_name = "enova-correspondente-docs"

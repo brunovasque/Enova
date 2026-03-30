@@ -67,6 +67,7 @@ function buildStateBase(overrides = {}) {
     analise_docs_docs_faltantes_json: [],
     controle: {
       etapa1_informativos: {
+        informativo_moradia_atual_p1: "Pinheirinho",
         informativo_moradia_p1: "Bairro Alto",
         informativo_trabalho_p1: "Centro",
         visita_reserva_entrada_tem: true,
@@ -85,6 +86,7 @@ function buildStateBase(overrides = {}) {
         reprovacao_categoria_caso: "documental"
       }
     },
+    ir_declarado: true,
     ...overrides
   };
 }
@@ -95,6 +97,7 @@ function buildStateBase(overrides = {}) {
   const dossie = buildDocumentDossierFromState(state);
   const sinais = dossie?.dossie_sinais_persistidos_json || {};
 
+  assert.equal(sinais?.moradia_atual?.p1, "Pinheirinho");
   assert.equal(sinais?.moradia?.p1, "Bairro Alto");
   assert.equal(sinais?.trabalho?.p1, "Centro");
   assert.equal(sinais?.visita?.reserva_entrada_tem, true);
@@ -104,6 +107,7 @@ function buildStateBase(overrides = {}) {
   assert.equal(sinais?.autonomo?.profissao_atividade, "Motorista de app");
   assert.equal(sinais?.autonomo?.mei_pj_status, "mei");
   assert.equal(sinais?.autonomo?.renda_estabilidade, "variavel");
+  assert.equal(sinais?.autonomo?.ir_declarado, true);
   assert.equal(sinais?.titular?.curso_superior_status, "cursando");
   assert.equal(sinais?.renda?.multi_renda, true);
   assert.equal(sinais?.renda?.multi_regime, true);

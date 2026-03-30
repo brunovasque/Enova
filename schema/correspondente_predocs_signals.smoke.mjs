@@ -46,6 +46,7 @@ function buildEnvWithState() {
           aguardando_retorno_correspondente: false,
           dossie_resumo: "SEGREDO DOSSIE",
           renda: 8900,
+          ir_declarado: true,
           restricao: "nao",
           regime_trabalho: "clt",
           updated_at: "2026-03-18T00:00:00.000Z",
@@ -61,6 +62,7 @@ function buildEnvWithState() {
           ],
           controle: {
             etapa1_informativos: {
+              informativo_moradia_atual_p1: "Pinheirinho",
               informativo_moradia_p1: "Bairro Alto",
               informativo_trabalho_p1: "Centro",
               visita_reserva_entrada_tem: true,
@@ -95,6 +97,7 @@ function buildEnvWithState() {
     ],
     controle: {
       etapa1_informativos: {
+        informativo_moradia_atual_p1: "Pinheirinho",
         informativo_moradia_p1: "Bairro Alto",
         informativo_trabalho_p1: "Centro",
         visita_reserva_entrada_tem: true,
@@ -112,10 +115,12 @@ function buildEnvWithState() {
         inicio_multi_regime_coletar: true,
         reprovacao_categoria_caso: "documental"
       }
-    }
+    },
+    ir_declarado: true
   });
   const sinais = structured?.sinais_persistidos || {};
 
+  assert.equal(sinais?.moradia_atual?.p1, "Pinheirinho");
   assert.equal(sinais?.moradia?.p1, "Bairro Alto");
   assert.equal(sinais?.trabalho?.p1, "Centro");
   assert.equal(sinais?.visita?.reserva_entrada_tem, true);
@@ -123,6 +128,7 @@ function buildEnvWithState() {
   assert.equal(sinais?.autonomo?.profissao_atividade, "Motorista");
   assert.equal(sinais?.autonomo?.mei_pj_status, "mei");
   assert.equal(sinais?.autonomo?.renda_estabilidade, "variavel");
+  assert.equal(sinais?.autonomo?.ir_declarado, true);
   assert.equal(sinais?.titular?.curso_superior_status, "cursando");
   assert.equal(sinais?.trabalho_clt?.titular_tipo_renda, "variavel");
   assert.equal(sinais?.renda?.multi_renda, true);
@@ -149,7 +155,9 @@ function buildEnvWithState() {
   assert.equal(assumirRes.status, 200);
   assert.equal(html.includes("Cliente JOAO TESTE segue em processo sozinho."), true);
   assert.equal(html.includes("Sinais técnicos PRÉ-DOCS"), true);
-  assert.equal(html.includes("Moradia P1"), true);
+  assert.equal(html.includes("Moradia atual P1"), true);
+  assert.equal(html.includes("Pinheirinho"), true);
+  assert.equal(html.includes("Preferência de moradia P1"), true);
   assert.equal(html.includes("Bairro Alto"), true);
   assert.equal(html.includes("Trabalho P1"), true);
   assert.equal(html.includes("Centro"), true);
@@ -159,6 +167,7 @@ function buildEnvWithState() {
   assert.equal(html.includes("Autônomo - atividade"), true);
   assert.equal(html.includes("Autônomo - MEI/PJ"), true);
   assert.equal(html.includes("Autônomo - estabilidade de renda"), true);
+  assert.equal(html.includes("Autônomo - IR declarado"), true);
   assert.equal(html.includes("CLT titular - tipo de renda"), true);
   assert.equal(html.includes("Multi-renda"), true);
   assert.equal(html.includes("Multi-regime"), true);

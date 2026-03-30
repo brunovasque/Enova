@@ -106,20 +106,21 @@ async function simulateFromState(env, waId, stage, text, stOverrides = {}, dryRu
   return data;
 }
 
-async function runAutonomoPath(finalIrAnswer) {
+async function runAutonomoPath(irAnswerEarly) {
   const env = buildEnv();
   const harness = buildSupabaseHarness();
   const originalFetch = globalThis.fetch;
   globalThis.fetch = harness.fetchImpl;
   try {
-    const waId = finalIrAnswer === "sim" ? "5541999400001" : "5541999400002";
+    const waId = irAnswerEarly === "sim" ? "5541999400001" : "5541999400002";
 
     const viaRegime = await simulateFromState(env, waId, "regime_trabalho", "autônomo");
     assert.equal(viaRegime.stage_after, "autonomo_ir_pergunta");
 
-    const perguntaProfissao = await simulateFromState(env, waId, "autonomo_ir_pergunta", "sim");
+    const perguntaProfissao = await simulateFromState(env, waId, "autonomo_ir_pergunta", irAnswerEarly);
     assert.equal(perguntaProfissao.stage_after, "autonomo_ir_pergunta");
     assert.match(perguntaProfissao.reply_text, /profiss[aã]o|atividade principal/i);
+    assert.equal(perguntaProfissao.writes.ir_declarado, irAnswerEarly === "sim");
 
     const salvaProfissao = await simulateFromState(env, waId, "autonomo_ir_pergunta", "motorista de app");
     assert.equal(salvaProfissao.stage_after, "autonomo_ir_pergunta");
@@ -129,18 +130,14 @@ async function runAutonomoPath(finalIrAnswer) {
     assert.equal(salvaMei.stage_after, "autonomo_ir_pergunta");
     assert.match(salvaMei.reply_text, /renda costuma ser mais est[aá]vel|varia bastante/i);
 
-    const salvaEstabilidade = await simulateFromState(env, waId, "autonomo_ir_pergunta", "varia bastante");
-    assert.equal(salvaEstabilidade.stage_after, "autonomo_ir_pergunta");
-    assert.match(salvaEstabilidade.reply_text, /imposto de renda/i);
-
-    const resolveIr = await simulateFromState(env, waId, "autonomo_ir_pergunta", finalIrAnswer);
+    const resolveIr = await simulateFromState(env, waId, "autonomo_ir_pergunta", "varia bastante");
     assert.equal(Object.prototype.hasOwnProperty.call(resolveIr.writes || {}, "autonomo_ir"), false);
 
     const state = harness.stateByWaId[waId];
     assert.equal(state?.controle?.etapa1_informativos?.titular_autonomo_profissao_atividade, "motorista de app");
     assert.equal(state?.controle?.etapa1_informativos?.titular_autonomo_mei_pj_status, "mei");
     assert.equal(state?.controle?.etapa1_informativos?.titular_autonomo_renda_estabilidade, "variavel");
-    assert.equal(state?.ir_declarado, finalIrAnswer === "sim");
+    assert.equal(state?.ir_declarado, irAnswerEarly === "sim");
 
     const enovaStateWrites = harness.calls.filter((call) => call.path === "/rest/v1/enova_state" && (call.method === "PATCH" || call.method === "POST"));
     assert.equal(enovaStateWrites.some((call) => Object.prototype.hasOwnProperty.call(call.body || {}, "autonomo_ir")), false);
@@ -155,14 +152,14 @@ async function runAutonomoPath(finalIrAnswer) {
   const { resolveIr } = await runAutonomoPath("sim");
   assert.equal(resolveIr.stage_after, "renda");
   assert.match(resolveIr.reply_text, /renda mensal m[eé]dia/i);
-  assert.equal(resolveIr.writes.ir_declarado, true);
+  assert.doesNotMatch(resolveIr.reply_text, /imposto de renda/i);
 }
 
 {
   const { resolveIr } = await runAutonomoPath("não");
   assert.equal(resolveIr.stage_after, "autonomo_sem_ir_ir_este_ano");
   assert.match(resolveIr.reply_text, /pretende declarar IR este ano/i);
-  assert.equal(resolveIr.writes.ir_declarado, false);
+  assert.doesNotMatch(resolveIr.reply_text, /você declara imposto de renda/i);
 }
 
 console.log("autonomo_ir_persistence.smoke: ok");

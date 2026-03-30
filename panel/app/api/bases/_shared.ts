@@ -389,6 +389,47 @@ function buildAuditRow(
   };
 }
 
+export type ListLeadsOptions = {
+  lead_pool?: LeadPool | null;
+  lead_temp?: LeadTemp | null;
+  limit?: number;
+};
+
+export async function listLeadsForPanel(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  options: ListLeadsOptions = {},
+): Promise<CrmLeadMetaRow[]> {
+  const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
+  endpoint.searchParams.set(
+    "select",
+    "wa_id,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at",
+  );
+  endpoint.searchParams.set("order", "updated_at.desc,wa_id.asc");
+
+  const limit = Math.max(1, Math.min(200, Number.isFinite(Number(options.limit)) ? Math.trunc(Number(options.limit)) : 50));
+  endpoint.searchParams.set("limit", String(limit));
+
+  if (options.lead_pool && isLeadPool(options.lead_pool)) {
+    endpoint.searchParams.set("lead_pool", `eq.${options.lead_pool}`);
+  }
+  if (options.lead_temp && isLeadTemp(options.lead_temp)) {
+    endpoint.searchParams.set("lead_temp", `eq.${options.lead_temp}`);
+  }
+
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: buildSupabaseHeaders(serviceRoleKey),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`FAILED_TO_LIST_LEADS:${response.status}`);
+  }
+
+  return (await readJsonResponse<CrmLeadMetaRow[]>(response)) ?? [];
+}
+
 export async function runBasesAction(
   payload: BasesRequest,
   envMap: NodeJS.ProcessEnv = process.env,

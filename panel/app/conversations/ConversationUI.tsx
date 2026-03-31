@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import styles from "./conversations.module.css";
+import { PdfThumbnail } from "./PdfThumbnail";
+import { SmartFilePreview } from "./SmartFilePreview";
 
 const POLL_INTERVAL_MS = 1000;
 const THREAD_BOTTOM_THRESHOLD_PX = 32;
@@ -147,6 +149,53 @@ function formatFileSize(value: number | null): string {
 function formatFileDisplayName(file: Pick<CaseFile, "file_name" | "tipo" | "file_id">): string {
   const shortId = (file.file_id || "").trim().slice(0, 8);
   return file.file_name || file.tipo || (shortId ? `arquivo-${shortId}` : "arquivo");
+}
+
+function isImageMime(mimeOrTipo: string | null): boolean {
+  const raw = (mimeOrTipo ?? "").toLowerCase();
+  // Proper MIME type (e.g. "image/jpeg", "image/png")
+  if (raw.startsWith("image/")) return true;
+  // Bare extension string without slash (e.g. tipo field = "jpg") — exact match only
+  if (!raw.includes("/")) {
+    return ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(raw);
+  }
+  return false;
+}
+
+function isPdfMime(mimeOrTipo: string | null): boolean {
+  const raw = (mimeOrTipo ?? "").toLowerCase();
+  if (raw === "application/pdf") return true;
+  // Bare extension / tipo field = "pdf"
+  if (!raw.includes("/")) return raw === "pdf";
+  return false;
+}
+
+function getFileIcon(mimeOrTipo: string | null): { icon: string; color: string } {
+  const raw = (mimeOrTipo ?? "").toLowerCase();
+  if (raw.includes("pdf")) return { icon: "PDF", color: "#e74c3c" };
+  if (raw.includes("image") || raw.includes("png") || raw.includes("jpg") || raw.includes("jpeg") ||
+    raw.includes("gif") || raw.includes("webp") || raw.includes("svg") || raw.includes("bmp"))
+    return { icon: "IMG", color: "#3498db" };
+  if (raw.includes("video") || raw.includes("mp4") || raw.includes("mov"))
+    return { icon: "VID", color: "#9b59b6" };
+  if (raw.includes("audio") || raw.includes("mp3") || raw.includes("ogg"))
+    return { icon: "AUD", color: "#f39c12" };
+  if (
+    raw.includes("word") ||
+    raw.includes("doc") ||
+    raw.includes("docx") ||
+    raw.includes("odt")
+  )
+    return { icon: "DOC", color: "#2980b9" };
+  if (
+    raw.includes("sheet") ||
+    raw.includes("excel") ||
+    raw.includes("xls") ||
+    raw.includes("xlsx") ||
+    raw.includes("csv")
+  )
+    return { icon: "XLS", color: "#27ae60" };
+  return { icon: "ARQ", color: "#7f8c8d" };
 }
 
 function buildMessageRenderKey(message: Message): string {
@@ -1056,39 +1105,260 @@ export function ConversationUI() {
                   }
 
                   const file = entry.file;
-                  return (
-                    <div key={entry.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
-                      <article className={`${styles.bubble} ${styles.bubbleIn}`}>
-                        <div className={styles.inlineFileCard}>
-                          <div className={styles.inlineFileMeta}>
-                            <span className={styles.inlineFileType}>
-                              Tipo: {file.tipo || file.mime_type || "arquivo"}
+                  const displayName = formatFileDisplayName(file);
+                  const fileIcon = getFileIcon(file.mime_type || file.tipo);
+                  const isImage = isImageMime(file.mime_type || file.tipo);
+                  const isPdf = isPdfMime(file.mime_type || file.tipo);
+                  // Unknown MIME: URL exists but no file extension (e.g. Graph API URLs).
+                  // SmartFilePreview fetches the file once, reads real Content-Type, and
+                  // dispatches to the correct renderer (image or PDF canvas).
+                  const isUnknownType = !isImage && !isPdf && file.mime_type === null;
+                  const metaLine = [
+                    file.tipo || file.mime_type || "arquivo",
+                    file.size_bytes ? formatFileSize(file.size_bytes) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
+
+                  if (isImage) {
+                    // ── Image card: inline real preview ──────────────────
+                    return (
+                      <div key={entry.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
+                        <article
+                          className={`${styles.bubble} ${styles.bubbleIn} ${styles.fileBubble} ${styles.fileBubbleImage}`}
+                        >
+                          <button
+                            type="button"
+                            className={styles.fileCardImageBtn}
+                            onClick={() => handleOpenFile(file)}
+                            aria-label={`Visualizar ${displayName}`}
+                          >
+                            <span className={styles.fileCardImageWrap}>
+                              <img
+                                src={openFileUrl(file)}
+                                alt={displayName}
+                                className={styles.fileCardImageThumb}
+                                onError={(e) => {
+                                  e.currentTarget.setAttribute("data-error", "");
+                                }}
+                              />
+                              {/* fallback badge — shown via CSS when img[data-error] */}
+                              <span
+                                className={`${styles.fileCardIcon} ${styles.fileCardImageFallback}`}
+                                style={{ background: fileIcon.color }}
+                                aria-hidden="true"
+                              >
+                                {fileIcon.icon}
+                              </span>
                             </span>
-                            <span className={styles.inlineFileInfo}>
-                              Participante: {file.participante || "--"} • data:{" "}
+                            <span className={styles.fileCardImageCaption}>
+                              <span className={styles.fileCardName}>{displayName}</span>
+                            </span>
+                          </button>
+                          <div className={styles.fileCardFooter}>
+                            <span className={styles.fileCardTimestamp}>
                               {formatDateTime(file.created_at)}
                             </span>
-                            <span className={styles.inlineFileInfo}>
-                              Formato: {file.mime_type || "--"} • Tamanho: {formatFileSize(file.size_bytes)}
-                            </span>
-                          </div>
-                          <div className={styles.inlineFileActions}>
-                            <button
-                              type="button"
-                              className={styles.fileOpenButton}
-                              onClick={() => handleOpenFile(file)}
-                            >
-                              Visualizar
-                            </button>
                             <a
                               href={`${openFileUrl(file)}&download=1`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className={styles.inlineFileDownloadLink}
+                              className={styles.fileCardDownloadBtn}
+                              aria-label={`Baixar ${displayName}`}
+                              title="Baixar"
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+                              }}
                             >
-                              Baixar
+                              ↓
                             </a>
                           </div>
+                        </article>
+                      </div>
+                    );
+                  }
+
+                  // ── PDF card: real first-page thumbnail via pdfjs ────
+                  if (isPdf) {
+                    const pdfFallback = (
+                      <span className={styles.fileCardDocPreview} aria-hidden="true">
+                        <span className={styles.fileCardDocLinesWrap}>
+                          <span className={styles.fileCardDocLine} />
+                          <span className={styles.fileCardDocLine} />
+                          <span className={styles.fileCardDocLine} />
+                          <span className={styles.fileCardDocLine} />
+                        </span>
+                        <span
+                          className={styles.fileCardDocBadge}
+                          style={{ background: fileIcon.color }}
+                        >
+                          {fileIcon.icon}
+                        </span>
+                      </span>
+                    );
+                    return (
+                      <div key={entry.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
+                        <article
+                          className={`${styles.bubble} ${styles.bubbleIn} ${styles.fileBubble} ${styles.fileBubblePdf}`}
+                        >
+                          <button
+                            type="button"
+                            className={styles.fileCardImageBtn}
+                            onClick={() => handleOpenFile(file)}
+                            aria-label={`Visualizar ${displayName}`}
+                          >
+                            <span className={styles.fileCardPdfWrap}>
+                              <PdfThumbnail
+                                src={openFileUrl(file)}
+                                fallback={pdfFallback}
+                                className={styles.fileCardPdfCanvas}
+                                loadingClassName={styles.fileCardPdfLoading}
+                              />
+                            </span>
+                            <span className={styles.fileCardImageCaption}>
+                              <span className={styles.fileCardName}>{displayName}</span>
+                              <span className={styles.fileCardMeta}>{metaLine}</span>
+                            </span>
+                          </button>
+                          <div className={styles.fileCardFooter}>
+                            <span className={styles.fileCardTimestamp}>
+                              {formatDateTime(file.created_at)}
+                            </span>
+                            <a
+                              href={`${openFileUrl(file)}&download=1`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.fileCardDownloadBtn}
+                              aria-label={`Baixar ${displayName}`}
+                              title="Baixar"
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+                              }}
+                            >
+                              ↓
+                            </a>
+                          </div>
+                        </article>
+                      </div>
+                    );
+                  }
+
+                  // ── Unknown MIME type card: SmartFilePreview auto-detect ──
+                  if (isUnknownType) {
+                    const smartFallback = (
+                      <span className={styles.fileCardDocPreview} aria-hidden="true">
+                        <span className={styles.fileCardDocLinesWrap}>
+                          <span className={styles.fileCardDocLine} />
+                          <span className={styles.fileCardDocLine} />
+                          <span className={styles.fileCardDocLine} />
+                          <span className={styles.fileCardDocLine} />
+                        </span>
+                        <span
+                          className={styles.fileCardDocBadge}
+                          style={{ background: fileIcon.color }}
+                        >
+                          {fileIcon.icon}
+                        </span>
+                      </span>
+                    );
+                    return (
+                      <div key={entry.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
+                        <article
+                          className={`${styles.bubble} ${styles.bubbleIn} ${styles.fileBubble} ${styles.fileBubblePdf}`}
+                        >
+                          <button
+                            type="button"
+                            className={styles.fileCardImageBtn}
+                            onClick={() => handleOpenFile(file)}
+                            aria-label={`Visualizar ${displayName}`}
+                          >
+                            <span className={styles.fileCardPdfWrap}>
+                              <SmartFilePreview
+                                src={openFileUrl(file)}
+                                fallback={smartFallback}
+                                canvasClassName={styles.fileCardPdfCanvas}
+                                imgClassName={styles.fileCardPdfCanvas}
+                                loadingClassName={styles.fileCardPdfLoading}
+                              />
+                            </span>
+                            <span className={styles.fileCardImageCaption}>
+                              <span className={styles.fileCardName}>{displayName}</span>
+                              <span className={styles.fileCardMeta}>{metaLine}</span>
+                            </span>
+                          </button>
+                          <div className={styles.fileCardFooter}>
+                            <span className={styles.fileCardTimestamp}>
+                              {formatDateTime(file.created_at)}
+                            </span>
+                            <a
+                              href={`${openFileUrl(file)}&download=1`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.fileCardDownloadBtn}
+                              aria-label={`Baixar ${displayName}`}
+                              title="Baixar"
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+                              }}
+                            >
+                              ↓
+                            </a>
+                          </div>
+                        </article>
+                      </div>
+                    );
+                  }
+
+                  // ── Generic document card: paper-with-lines fallback ──
+                  return (
+                    <div key={entry.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
+                      <article className={`${styles.bubble} ${styles.bubbleIn} ${styles.fileBubble}`}>
+                        <button
+                          type="button"
+                          className={styles.fileCardClickable}
+                          onClick={() => handleOpenFile(file)}
+                          aria-label={`Visualizar ${displayName}`}
+                        >
+                          <span className={styles.fileCardDocPreview} aria-hidden="true">
+                            <span className={styles.fileCardDocLinesWrap}>
+                              <span className={styles.fileCardDocLine} />
+                              <span className={styles.fileCardDocLine} />
+                              <span className={styles.fileCardDocLine} />
+                              <span className={styles.fileCardDocLine} />
+                            </span>
+                            <span
+                              className={styles.fileCardDocBadge}
+                              style={{ background: fileIcon.color }}
+                            >
+                              {fileIcon.icon}
+                            </span>
+                          </span>
+                          <span className={styles.fileCardContent}>
+                            <span className={styles.fileCardName}>{displayName}</span>
+                            <span className={styles.fileCardMeta}>{metaLine}</span>
+                          </span>
+                        </button>
+                        <div className={styles.fileCardFooter}>
+                          <span className={styles.fileCardTimestamp}>
+                            {formatDateTime(file.created_at)}
+                          </span>
+                          <a
+                            href={`${openFileUrl(file)}&download=1`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={styles.fileCardDownloadBtn}
+                            aria-label={`Baixar ${displayName}`}
+                            title="Baixar"
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+                            }}
+                          >
+                            ↓
+                          </a>
                         </div>
                       </article>
                     </div>

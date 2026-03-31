@@ -156,15 +156,54 @@ export async function GET(request: Request) {
 
     const upstreamHeaders: Record<string, string> = {};
     const whatsToken = (process.env.WHATS_TOKEN || "").trim();
-    if (whatsToken && CANONICAL_ALLOWED_HOSTS.has(parsedSourceUrl.hostname.toLowerCase())) {
+    const upstreamHost = parsedSourceUrl.hostname.toLowerCase();
+    if (whatsToken && CANONICAL_ALLOWED_HOSTS.has(upstreamHost)) {
       upstreamHeaders["Authorization"] = `Bearer ${whatsToken}`;
+    } else {
+      let supabaseHostname = "";
+      try { supabaseHostname = new URL(supabaseUrl).hostname.toLowerCase(); } catch {}
+      if (supabaseHostname && upstreamHost === supabaseHostname) {
+        upstreamHeaders["apikey"] = serviceRoleKey;
+        upstreamHeaders["Authorization"] = `Bearer ${serviceRoleKey}`;
+      }
     }
 
-    const upstream = await fetch(parsedSourceUrl.toString(), {
+    let upstream = await fetch(parsedSourceUrl.toString(), {
       method: "GET",
       headers: upstreamHeaders,
       cache: "no-store",
     });
+
+    if (!upstream.ok && whatsToken && upstreamHost === "lookaside.fbsbx.com") {
+      const mediaId = parsedSourceUrl.searchParams.get("mid");
+      if (mediaId) {
+        try {
+          const graphResp = await fetch(
+            `https://graph.facebook.com/v20.0/${encodeURIComponent(mediaId)}`,
+            { headers: { Authorization: `Bearer ${whatsToken}` }, cache: "no-store" },
+          );
+          if (graphResp.ok) {
+            const graphData = (await graphResp.json()) as { url?: string };
+            if (typeof graphData?.url === "string" && graphData.url) {
+              const refreshedParsedUrl = new URL(graphData.url);
+              if (isAllowedFileOrigin(refreshedParsedUrl, supabaseUrl)) {
+                const refreshed = await fetch(refreshedParsedUrl.toString(), {
+                  method: "GET",
+                  headers: { Authorization: `Bearer ${whatsToken}` },
+                  cache: "no-store",
+                });
+                if (refreshed.ok && refreshed.body) {
+                  upstream = refreshed;
+                }
+              }
+            }
+          }
+        } catch {
+          // fall through to the error response below
+        }
+      }
+    }
+
     if (!upstream.ok || !upstream.body) {
       return NextResponse.json(
         { ok: false, error: "arquivo indisponível para abertura" },

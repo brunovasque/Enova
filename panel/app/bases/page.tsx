@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { suggestCallNowMessage } from "./_callNowSuggest";
+import { suggestCallNowMessage, suggestWarmupMessage } from "./_callNowSuggest";
 
 type LeadPool = "COLD_POOL" | "WARM_POOL" | "HOT_POOL";
 
@@ -639,14 +639,22 @@ export default function BasesPage() {
         <WarmupBaseModal
           activePool={activePool}
           onClose={() => setModal(null)}
-          onSubmit={async (payload) => {
-            const result = await callAction({ action: "warmup_base", ...payload });
-            if (result) {
-              showFeedback(
-                `Warmup concluído: ${result.selected_count ?? 0} lead(s) selecionados (${result.dispatch_mode ?? "selection_only"}).`,
-              );
-              setModal(null);
+          onFetchPreview={async (payload) => {
+            return await callAction({ action: "warmup_base", ...payload });
+          }}
+          onConfirmSend={async (leads, messages) => {
+            let sent = 0;
+            let failed = 0;
+            for (let i = 0; i < leads.length; i++) {
+              const lead = leads[i];
+              const text = messages[i];
+              const r = await callAction({ action: "call_now", wa_id: lead.wa_id, text });
+              if (r) sent++;
+              else failed++;
             }
+            const detail = failed > 0 ? `, ${failed} falha(s)` : "";
+            showFeedback(`Warmup: ${sent} mensagem(ns) enviada(s)${detail}.`);
+            setModal(null);
           }}
         />
       )}
@@ -1172,32 +1180,159 @@ function MoveBaseModal({
 
 // ─── Warmup Base Modal ───────────────────────────────────────────────────────
 
+const WARMUP_ASSISTED_MAX_LIMIT = 5;
+
 function WarmupBaseModal({
   activePool,
   onClose,
-  onSubmit,
+  onFetchPreview,
+  onConfirmSend,
 }: {
   activePool: LeadPool;
   onClose: () => void;
-  onSubmit: (payload: Record<string, unknown>) => Promise<void>;
+  onFetchPreview: (payload: Record<string, unknown>) => Promise<ApiActionPayload | null>;
+  onConfirmSend: (leads: CrmLeadMetaRow[], messages: string[]) => Promise<void>;
 }) {
+  const [step, setStep] = useState<1 | 2>(1);
   const [leadPool, setLeadPool] = useState<LeadPool>(activePool);
-  const [limit, setLimit] = useState("20");
+  const [limit, setLimit] = useState("5");
+  const [previewLeads, setPreviewLeads] = useState<CrmLeadMetaRow[]>([]);
+  const [messages, setMessages] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Step 1 → fetch preview
+  const handleFetch = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    await onSubmit({ lead_pool: leadPool, limit: Number(limit) });
+    const result = await onFetchPreview({ lead_pool: leadPool, limit: Number(limit) });
+    setBusy(false);
+    if (!result) return;
+    const leads = (result.leads ?? []) as CrmLeadMetaRow[];
+    const msgs = leads.map((lead, i) => suggestWarmupMessage(lead.lead_pool, lead.nome, i));
+    setPreviewLeads(leads);
+    setMessages(msgs);
+    setStep(2);
+  };
+
+  // Step 2 → confirm and send
+  const handleConfirm = async () => {
+    setBusy(true);
+    await onConfirmSend(previewLeads, messages);
     setBusy(false);
   };
+
+  if (step === 2) {
+    return (
+      <ModalShell title="Confirmar Aquecimento" onClose={onClose}>
+        <p style={{ color: "#8896a7", fontSize: "0.87rem", margin: "0 0 4px" }}>
+          Base: <strong style={{ color: "#e6edf3" }}>{POOL_LABEL[leadPool]}</strong> —{" "}
+          <strong style={{ color: "#e6edf3" }}>{previewLeads.length}</strong> lead(s) elegíveis
+        </p>
+        {previewLeads.length === 0 ? (
+          <p style={{ color: "#f6a03d", fontSize: "0.87rem", margin: "12px 0 16px" }}>
+            Nenhum lead elegível encontrado nesta base no momento.
+          </p>
+        ) : (
+          <div
+            style={{
+              margin: "12px 0 16px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "10px",
+              maxHeight: "340px",
+              overflowY: "auto",
+            }}
+          >
+            {previewLeads.map((lead, i) => (
+              <div
+                key={lead.wa_id}
+                style={{
+                  background: "#0f1620",
+                  border: "1px solid #2b3440",
+                  borderRadius: "8px",
+                  padding: "10px 12px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: "6px",
+                  }}
+                >
+                  <span style={{ fontWeight: 600, fontSize: "0.88rem", color: "#e6edf3" }}>
+                    {leadLabel(lead)}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "0.75rem",
+                      color: TEMP_COLOR[lead.lead_temp] ?? "#8896a7",
+                      fontWeight: 600,
+                    }}
+                  >
+                    {lead.lead_pool.replace("_POOL", "")}
+                  </span>
+                </div>
+                {lead.telefone && (
+                  <div style={{ fontSize: "0.8rem", color: "#8896a7", marginBottom: "6px" }}>
+                    📱 {lead.telefone}
+                  </div>
+                )}
+                <textarea
+                  style={{
+                    ...inputStyle,
+                    resize: "vertical",
+                    minHeight: "60px",
+                    fontSize: "0.82rem",
+                  }}
+                  value={messages[i] ?? ""}
+                  onChange={(e) => {
+                    const updated = [...messages];
+                    updated[i] = e.target.value;
+                    setMessages(updated);
+                  }}
+                  disabled={busy}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button
+            type="button"
+            onClick={() => setStep(1)}
+            disabled={busy}
+            style={{
+              ...submitStyle,
+              background: "none",
+              border: "1px solid #2b3440",
+              color: "#8896a7",
+            }}
+          >
+            ← Voltar
+          </button>
+          {previewLeads.length > 0 && (
+            <button
+              type="button"
+              onClick={handleConfirm}
+              disabled={busy}
+              style={submitStyle}
+            >
+              {busy ? "Enviando…" : `Confirmar e Enviar ${previewLeads.length} lead(s)`}
+            </button>
+          )}
+        </div>
+      </ModalShell>
+    );
+  }
 
   return (
     <ModalShell title="Aquecer Base" onClose={onClose}>
       <p style={{ color: "#8896a7", fontSize: "0.87rem", margin: "0 0 16px" }}>
-        Seleção dos leads elegíveis para aquecimento (dispatch_mode: selection_only).
+        Selecione a base e o limite de leads para visualizar a seleção antes de confirmar.
       </p>
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleFetch}>
         <Field label="Base">
           <select
             style={inputStyle}
@@ -1211,18 +1346,18 @@ function WarmupBaseModal({
             ))}
           </select>
         </Field>
-        <Field label="Limite de leads (1–50)">
+        <Field label={`Limite de leads (1–${WARMUP_ASSISTED_MAX_LIMIT})`}>
           <input
             style={inputStyle}
             type="number"
             min="1"
-            max="50"
+            max={WARMUP_ASSISTED_MAX_LIMIT}
             value={limit}
             onChange={(e) => setLimit(e.target.value)}
           />
         </Field>
         <button type="submit" style={submitStyle} disabled={busy}>
-          {busy ? "Aquecendo…" : "Aquecer Base"}
+          {busy ? "Buscando…" : "Ver Leads Elegíveis"}
         </button>
       </form>
     </ModalShell>

@@ -234,7 +234,7 @@ export async function GET(request: Request) {
     }
 
     if (!upstream.ok || !upstream.body) {
-      const detail = !whatsToken && CANONICAL_ALLOWED_HOSTS.has(upstreamHost)
+      const detail = !whatsToken && (CANONICAL_ALLOWED_HOSTS.has(upstreamHost) || CANONICAL_ALLOWED_HOSTS.has(downloadHost))
         ? "WHATS_TOKEN não configurado"
         : `upstream ${upstream.status}`;
       return NextResponse.json(

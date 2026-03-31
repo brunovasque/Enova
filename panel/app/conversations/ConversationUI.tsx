@@ -149,6 +149,17 @@ function formatFileDisplayName(file: Pick<CaseFile, "file_name" | "tipo" | "file
   return file.file_name || file.tipo || (shortId ? `arquivo-${shortId}` : "arquivo");
 }
 
+function isImageMime(mimeOrTipo: string | null): boolean {
+  const raw = (mimeOrTipo ?? "").toLowerCase();
+  // Proper MIME type (e.g. "image/jpeg", "image/png")
+  if (raw.startsWith("image/")) return true;
+  // Bare extension string without slash (e.g. tipo field = "jpg") — exact match only
+  if (!raw.includes("/")) {
+    return ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(raw);
+  }
+  return false;
+}
+
 function getFileIcon(mimeOrTipo: string | null): { icon: string; color: string } {
   const raw = (mimeOrTipo ?? "").toLowerCase();
   if (raw.includes("pdf")) return { icon: "PDF", color: "#e74c3c" };
@@ -1086,12 +1097,74 @@ export function ConversationUI() {
                   const file = entry.file;
                   const displayName = formatFileDisplayName(file);
                   const fileIcon = getFileIcon(file.mime_type || file.tipo);
+                  const isImage = isImageMime(file.mime_type || file.tipo);
                   const metaLine = [
                     file.tipo || file.mime_type || "arquivo",
                     file.size_bytes ? formatFileSize(file.size_bytes) : null,
                   ]
                     .filter(Boolean)
                     .join(" · ");
+
+                  if (isImage) {
+                    // ── Image card: inline real preview ──────────────────
+                    return (
+                      <div key={entry.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
+                        <article
+                          className={`${styles.bubble} ${styles.bubbleIn} ${styles.fileBubble} ${styles.fileBubbleImage}`}
+                        >
+                          <button
+                            type="button"
+                            className={styles.fileCardImageBtn}
+                            onClick={() => handleOpenFile(file)}
+                            aria-label={`Visualizar ${displayName}`}
+                          >
+                            <span className={styles.fileCardImageWrap}>
+                              <img
+                                src={openFileUrl(file)}
+                                alt={displayName}
+                                className={styles.fileCardImageThumb}
+                                onError={(e) => {
+                                  e.currentTarget.setAttribute("data-error", "");
+                                }}
+                              />
+                              {/* fallback badge — shown via CSS when img[data-error] */}
+                              <span
+                                className={`${styles.fileCardIcon} ${styles.fileCardImageFallback}`}
+                                style={{ background: fileIcon.color }}
+                                aria-hidden="true"
+                              >
+                                {fileIcon.icon}
+                              </span>
+                            </span>
+                            <span className={styles.fileCardImageCaption}>
+                              <span className={styles.fileCardName}>{displayName}</span>
+                            </span>
+                          </button>
+                          <div className={styles.fileCardFooter}>
+                            <span className={styles.fileCardTimestamp}>
+                              {formatDateTime(file.created_at)}
+                            </span>
+                            <a
+                              href={`${openFileUrl(file)}&download=1`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.fileCardDownloadBtn}
+                              aria-label={`Baixar ${displayName}`}
+                              title="Baixar"
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+                              }}
+                            >
+                              ↓
+                            </a>
+                          </div>
+                        </article>
+                      </div>
+                    );
+                  }
+
+                  // ── Document card: paper-with-lines preview ───────────
                   return (
                     <div key={entry.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
                       <article className={`${styles.bubble} ${styles.bubbleIn} ${styles.fileBubble}`}>
@@ -1101,12 +1174,19 @@ export function ConversationUI() {
                           onClick={() => handleOpenFile(file)}
                           aria-label={`Visualizar ${displayName}`}
                         >
-                          <span
-                            className={styles.fileCardIcon}
-                            style={{ background: fileIcon.color }}
-                            aria-hidden="true"
-                          >
-                            {fileIcon.icon}
+                          <span className={styles.fileCardDocPreview} aria-hidden="true">
+                            <span className={styles.fileCardDocLinesWrap}>
+                              <span className={styles.fileCardDocLine} />
+                              <span className={styles.fileCardDocLine} />
+                              <span className={styles.fileCardDocLine} />
+                              <span className={styles.fileCardDocLine} />
+                            </span>
+                            <span
+                              className={styles.fileCardDocBadge}
+                              style={{ background: fileIcon.color }}
+                            >
+                              {fileIcon.icon}
+                            </span>
                           </span>
                           <span className={styles.fileCardContent}>
                             <span className={styles.fileCardName}>{displayName}</span>

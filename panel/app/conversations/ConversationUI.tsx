@@ -177,6 +177,15 @@ function getFileIcon(mimeOrTipo: string | null): { icon: string; color: string }
   return { icon: "ARQ", color: "#7f8c8d" };
 }
 
+function isImageFile(mimeOrTipo: string | null): boolean {
+  const raw = (mimeOrTipo ?? "").toLowerCase();
+  return (
+    raw.startsWith("image/") ||
+    raw === "png" || raw === "jpg" || raw === "jpeg" ||
+    raw === "gif" || raw === "webp" || raw === "svg" || raw === "bmp"
+  );
+}
+
 function buildMessageRenderKey(message: Message): string {
   return [
     message.direction,
@@ -1086,12 +1095,59 @@ export function ConversationUI() {
                   const file = entry.file;
                   const displayName = formatFileDisplayName(file);
                   const fileIcon = getFileIcon(file.mime_type || file.tipo);
+                  const isImg = isImageFile(file.mime_type || file.tipo);
                   const metaLine = [
                     file.tipo || file.mime_type || "arquivo",
                     file.size_bytes ? formatFileSize(file.size_bytes) : null,
                   ]
                     .filter(Boolean)
                     .join(" · ");
+
+                  if (isImg) {
+                    return (
+                      <div key={entry.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
+                        <article className={`${styles.bubble} ${styles.bubbleIn} ${styles.fileImageBubble}`}>
+                          <button
+                            type="button"
+                            className={styles.fileImageClickable}
+                            onClick={() => handleOpenFile(file)}
+                            aria-label={`Visualizar ${displayName}`}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={openFileUrl(file)}
+                              alt={displayName}
+                              className={styles.fileImagePreview}
+                              loading="lazy"
+                            />
+                          </button>
+                          <div className={styles.fileImageCaption}>
+                            <span className={styles.fileCardName}>{displayName}</span>
+                            <div className={styles.fileCardFooter}>
+                              <span className={styles.fileCardTimestamp}>
+                                {formatDateTime(file.created_at)}
+                              </span>
+                              <a
+                                href={`${openFileUrl(file)}&download=1`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={styles.fileCardDownloadBtn}
+                                aria-label={`Baixar ${displayName}`}
+                                title="Baixar"
+                                onClick={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+                                }}
+                              >
+                                ↓
+                              </a>
+                            </div>
+                          </div>
+                        </article>
+                      </div>
+                    );
+                  }
+
                   return (
                     <div key={entry.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
                       <article className={`${styles.bubble} ${styles.bubbleIn} ${styles.fileBubble}`}>

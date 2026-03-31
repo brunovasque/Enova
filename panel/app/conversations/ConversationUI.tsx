@@ -149,32 +149,51 @@ function formatFileDisplayName(file: Pick<CaseFile, "file_name" | "tipo" | "file
   return file.file_name || file.tipo || (shortId ? `arquivo-${shortId}` : "arquivo");
 }
 
-function getFileIcon(mimeOrTipo: string | null): { icon: string; color: string } {
+function getFileType(mimeOrTipo: string | null): { label: string; color: string } {
   const raw = (mimeOrTipo ?? "").toLowerCase();
-  if (raw.includes("pdf")) return { icon: "PDF", color: "#e74c3c" };
-  if (raw.includes("image") || raw.includes("png") || raw.includes("jpg") || raw.includes("jpeg") ||
-    raw.includes("gif") || raw.includes("webp") || raw.includes("svg") || raw.includes("bmp"))
-    return { icon: "IMG", color: "#3498db" };
+  if (raw.includes("pdf")) return { label: "PDF", color: "#c0392b" };
+  if (isImageFile(mimeOrTipo)) return { label: "IMG", color: "#2471a3" };
   if (raw.includes("video") || raw.includes("mp4") || raw.includes("mov"))
-    return { icon: "VID", color: "#9b59b6" };
+    return { label: "VID", color: "#7d3c98" };
   if (raw.includes("audio") || raw.includes("mp3") || raw.includes("ogg"))
-    return { icon: "AUD", color: "#f39c12" };
+    return { label: "AUD", color: "#d68910" };
   if (
-    raw.includes("word") ||
-    raw.includes("doc") ||
-    raw.includes("docx") ||
-    raw.includes("odt")
+    raw.includes("word") || raw.includes("doc") || raw.includes("docx") || raw.includes("odt")
   )
-    return { icon: "DOC", color: "#2980b9" };
+    return { label: "DOC", color: "#1a5276" };
   if (
-    raw.includes("sheet") ||
-    raw.includes("excel") ||
-    raw.includes("xls") ||
-    raw.includes("xlsx") ||
-    raw.includes("csv")
+    raw.includes("sheet") || raw.includes("excel") || raw.includes("xls") ||
+    raw.includes("xlsx") || raw.includes("csv")
   )
-    return { icon: "XLS", color: "#27ae60" };
-  return { icon: "ARQ", color: "#7f8c8d" };
+    return { label: "XLS", color: "#1e8449" };
+  return { label: "ARQ", color: "#566573" };
+}
+
+function isImageFile(mimeOrTipo: string | null): boolean {
+  const raw = (mimeOrTipo ?? "").toLowerCase();
+  return (
+    raw.startsWith("image/") ||
+    raw === "png" || raw === "jpg" || raw === "jpeg" ||
+    raw === "gif" || raw === "webp" || raw === "svg" || raw === "bmp"
+  );
+}
+
+function DocPageIcon({ label, color }: { label: string; color: string }) {
+  return (
+    <svg viewBox="0 0 44 54" fill="none" xmlns="http://www.w3.org/2000/svg" width="44" height="54" aria-hidden="true">
+      {/* Page body */}
+      <path d="M4 6C4 3.24 6.24 1 9 1H29L43 15V48C43 50.76 40.76 53 38 53H9C6.24 53 4 50.76 4 48V6Z" fill={color} />
+      {/* Folded corner flap */}
+      <path d="M29 1L43 15H33C30.79 15 29 13.21 29 11V1Z" fill="rgba(255,255,255,0.22)" />
+      {/* Document lines */}
+      <rect x="11" y="22" width="22" height="2.5" rx="1.25" fill="rgba(255,255,255,0.55)" />
+      <rect x="11" y="28" width="18" height="2" rx="1" fill="rgba(255,255,255,0.38)" />
+      <rect x="11" y="33" width="20" height="2" rx="1" fill="rgba(255,255,255,0.32)" />
+      {/* Label */}
+      <text x="23.5" y="48" textAnchor="middle" fill="white" fontSize="7.5" fontWeight="900"
+        fontFamily="ui-sans-serif, system-ui, sans-serif" letterSpacing="0.8">{label}</text>
+    </svg>
+  );
 }
 
 function buildMessageRenderKey(message: Message): string {
@@ -1085,13 +1104,63 @@ export function ConversationUI() {
 
                   const file = entry.file;
                   const displayName = formatFileDisplayName(file);
-                  const fileIcon = getFileIcon(file.mime_type || file.tipo);
+                  const fileType = getFileType(file.mime_type || file.tipo);
+                  const isImg = isImageFile(file.mime_type || file.tipo);
                   const metaLine = [
                     file.tipo || file.mime_type || "arquivo",
                     file.size_bytes ? formatFileSize(file.size_bytes) : null,
                   ]
                     .filter(Boolean)
                     .join(" · ");
+
+                  if (isImg) {
+                    return (
+                      <div key={entry.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
+                        <article className={`${styles.bubble} ${styles.bubbleIn} ${styles.fileImageBubble}`}>
+                          <button
+                            type="button"
+                            className={styles.fileImageClickable}
+                            onClick={() => handleOpenFile(file)}
+                            aria-label={`Visualizar ${displayName}`}
+                          >
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={openFileUrl(file)}
+                              alt={displayName}
+                              className={styles.fileImagePreview}
+                              loading="lazy"
+                            />
+                          </button>
+                          <div className={styles.fileImageCaption}>
+                            <span className={styles.fileCardName}>{displayName}</span>
+                            <div className={styles.fileCardFooter}>
+                              <span className={styles.fileCardTimestamp}>
+                                {formatDateTime(file.created_at)}
+                              </span>
+                              <a
+                                href={`${openFileUrl(file)}&download=1`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={styles.fileCardDownloadBtn}
+                                aria-label={`Baixar ${displayName}`}
+                                title="Baixar arquivo"
+                                onClick={(e) => e.stopPropagation()}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+                                }}
+                              >
+                                <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" width="14" height="14" aria-hidden="true">
+                                  <path d="M8 1v9M4 7l4 4 4-4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+                                  <path d="M2 13h12" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
+                                </svg>
+                              </a>
+                            </div>
+                          </div>
+                        </article>
+                      </div>
+                    );
+                  }
+
                   return (
                     <div key={entry.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
                       <article className={`${styles.bubble} ${styles.bubbleIn} ${styles.fileBubble}`}>
@@ -1101,16 +1170,13 @@ export function ConversationUI() {
                           onClick={() => handleOpenFile(file)}
                           aria-label={`Visualizar ${displayName}`}
                         >
-                          <span
-                            className={styles.fileCardIcon}
-                            style={{ background: fileIcon.color }}
-                            aria-hidden="true"
-                          >
-                            {fileIcon.icon}
+                          <span className={styles.fileCardIconWrap}>
+                            <DocPageIcon label={fileType.label} color={fileType.color} />
                           </span>
                           <span className={styles.fileCardContent}>
                             <span className={styles.fileCardName}>{displayName}</span>
                             <span className={styles.fileCardMeta}>{metaLine}</span>
+                            <span className={styles.fileCardOpenHint}>Toque para abrir</span>
                           </span>
                         </button>
                         <div className={styles.fileCardFooter}>
@@ -1123,13 +1189,16 @@ export function ConversationUI() {
                             rel="noopener noreferrer"
                             className={styles.fileCardDownloadBtn}
                             aria-label={`Baixar ${displayName}`}
-                            title="Baixar"
+                            title="Baixar arquivo"
                             onClick={(e) => e.stopPropagation()}
                             onKeyDown={(e) => {
                               if (e.key === "Enter" || e.key === " ") e.stopPropagation();
                             }}
                           >
-                            ↓
+                            <svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" width="14" height="14" aria-hidden="true">
+                              <path d="M8 1v9M4 7l4 4 4-4" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"/>
+                              <path d="M2 13h12" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
+                            </svg>
                           </a>
                         </div>
                       </article>

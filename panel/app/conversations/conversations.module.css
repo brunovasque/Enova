@@ -394,44 +394,58 @@
   cursor: pointer;
 }
 
-/* ─── WhatsApp-style file card ─────────────────────────────────── */
+/* ─── WhatsApp-style document card ────────────────────────────── */
 
 .fileBubble {
-  padding: 8px 10px 6px;
-  min-width: 200px;
-  max-width: min(60ch, 72%);
+  padding: 6px 8px 8px;
+  min-width: 280px;
+  max-width: min(62ch, 74%);
+  overflow: hidden;
+  /* slightly distinct from plain text bubble */
+  background: linear-gradient(180deg, #222222 0%, #1a1a1a 100%);
 }
 
 .fileCardClickable {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 14px;
   width: 100%;
   background: none;
   border: none;
   cursor: pointer;
-  padding: 0;
+  padding: 8px 6px 10px;
   text-align: left;
   color: inherit;
+  border-radius: 10px;
+  transition: background 0.14s;
 }
 
-.fileCardClickable:hover .fileCardName {
-  text-decoration: underline;
-  text-decoration-color: rgba(255, 255, 255, 0.35);
+.fileCardClickable:hover {
+  background: rgba(255, 255, 255, 0.06);
 }
 
+.fileCardIconWrap {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 50px;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.45));
+}
+
+/* kept for backward compat but no longer used for doc cards */
 .fileCardIcon {
   flex-shrink: 0;
-  width: 42px;
-  height: 42px;
-  border-radius: 10px;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
   display: grid;
   place-items: center;
-  font-size: 0.6rem;
+  font-size: 0.62rem;
   font-weight: 800;
   letter-spacing: 0.04em;
   color: #fff;
-  opacity: 0.92;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
 
 .fileCardContent {
@@ -439,39 +453,51 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
 }
 
 .fileCardName {
   display: block;
-  font-size: 0.88rem;
+  font-size: 0.94rem;
   font-weight: 600;
   color: #e7edf3;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  line-height: 1.3;
 }
 
 .fileCardMeta {
   display: block;
-  font-size: 0.72rem;
+  font-size: 0.76rem;
   color: #8fa5b8;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.fileCardOpenHint {
+  display: block;
+  font-size: 0.69rem;
+  color: #4ca8a0;
+  opacity: 0;
+  transition: opacity 0.14s;
+}
+
+.fileCardClickable:hover .fileCardOpenHint {
+  opacity: 1;
+}
+
 .fileCardFooter {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 6px;
-  padding-top: 5px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 7px 6px 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.09);
 }
 
 .fileCardTimestamp {
-  font-size: 0.69rem;
+  font-size: 0.7rem;
   color: #6d8399;
 }
 
@@ -479,20 +505,54 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.08);
   color: #9db8cc;
-  font-size: 0.85rem;
   text-decoration: none;
-  transition: background 0.12s, color 0.12s;
+  transition: background 0.14s, color 0.14s, transform 0.1s;
 }
 
 .fileCardDownloadBtn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #dbe7f3;
+  background: rgba(47, 158, 137, 0.28);
+  color: #7fe3d7;
+  border-color: rgba(47, 158, 137, 0.5);
+  transform: translateY(1px);
+}
+
+/* ─── WhatsApp-style image card ───────────────────────────────── */
+
+.fileImageBubble {
+  padding: 4px 4px 6px;
+  min-width: 200px;
+  max-width: min(55ch, 68%);
+  overflow: hidden;
+}
+
+.fileImageClickable {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.fileImagePreview {
+  display: block;
+  width: 100%;
+  max-height: 300px;
+  object-fit: cover;
+  border-radius: 10px;
+  background: #1a1a1a;
+}
+
+.fileImageCaption {
+  padding: 6px 6px 2px;
 }
 
 .previewOverlay {

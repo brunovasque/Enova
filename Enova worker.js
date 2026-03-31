@@ -2197,6 +2197,115 @@ function buildCognitiveFallback(stage) {
   };
 }
 
+// =============================================================
+// 🧠 COGNITIVE V2 — Adapter + Runner
+// Converte output do motor isolado (runReadOnlyCognitiveEngine)
+// para o formato compatível com o worker (mesmo contrato de cognitiveAssistV1)
+// =============================================================
+
+function adaptCognitiveV2Output(stage, v2Result) {
+  const fallback = buildCognitiveFallback(stage);
+  if (!v2Result || typeof v2Result !== "object" || !v2Result.ok) return fallback;
+
+  const resp = v2Result.response;
+  if (!resp || typeof resp !== "object") return fallback;
+
+  const slotsDetected = resp.slots_detected && typeof resp.slots_detected === "object"
+    ? resp.slots_detected : {};
+  const slotKeys = Object.keys(slotsDetected);
+
+  // Converter slots_detected → entities flat (formato legado)
+  const entities = {};
+  for (const key of slotKeys) {
+    const slot = slotsDetected[key];
+    if (slot && slot.value != null) entities[key] = slot.value;
+  }
+
+  // Converter slots_detected → stage_signals flat (formato legado)
+  const stageSignals = {};
+  for (const key of slotKeys) {
+    const slot = slotsDetected[key];
+    if (slot && slot.value != null) stageSignals[key] = slot.value;
+  }
+
+  // Construir safe_stage_signal compatível com isStageSignalCompatible()
+  let safeStageSignal = null;
+  if (stage === "estado_civil" && entities.estado_civil) {
+    safeStageSignal = "estado_civil:" + String(entities.estado_civil);
+  } else if ((stage === "quem_pode_somar" || stage === "interpretar_composicao") && entities.composicao) {
+    safeStageSignal = "composicao:" + String(entities.composicao);
+  } else if (stage === "renda" && entities.renda != null) {
+    safeStageSignal = "renda:" + String(entities.renda);
+  } else if (stage === "ir_declarado" && entities.ir_declarado) {
+    safeStageSignal = "ir:" + String(entities.ir_declarado);
+  }
+
+  const hasSlots = slotKeys.length > 0;
+  const confidence = Number.isFinite(resp.confidence) ? Math.max(0, Math.min(1, resp.confidence)) : 0;
+  const hasPendingSlots = Array.isArray(resp.pending_slots) && resp.pending_slots.length > 0;
+
+  const engineUsedLlm = v2Result.engine && v2Result.engine.llm_used === true;
+  const intent = hasSlots
+    ? "cognitive_v2_slot_detected"
+    : (resp.conflicts && resp.conflicts.length > 0)
+      ? "offtrack_contextual"
+      : "fallback_contextual";
+
+  const replyText = typeof resp.reply_text === "string" && resp.reply_text.trim()
+    ? resp.reply_text.trim()
+    : fallback.reply_text;
+
+  return {
+    reply_text: replyText,
+    intent,
+    entities,
+    stage_signals: stageSignals,
+    still_needs_original_answer: hasPendingSlots && confidence < 0.8,
+    answered_customer_question: replyText.length > 20 && resp.should_request_confirmation !== true,
+    safe_stage_signal: safeStageSignal,
+    suggested_stage: stage,
+    confidence,
+    reason: engineUsedLlm ? "cognitive_v2" : "cognitive_v2_heuristic"
+  };
+}
+
+async function runCognitiveV2WithAdapter(env, stage, userText, st) {
+  const fallback = buildCognitiveFallback(stage);
+  try {
+    const knownSlots = {};
+    if (st.estado_civil) knownSlots.estado_civil = { value: st.estado_civil };
+    if (st.somar_renda != null) knownSlots.composicao = { value: st.somar_renda };
+    if (st.renda) knownSlots.renda = { value: st.renda };
+    if (st.regime) knownSlots.regime_trabalho = { value: st.regime };
+
+    const rawInput = {
+      current_stage: stage,
+      message_text: String(userText || ""),
+      known_slots: knownSlots,
+      pending_slots: [],
+      recent_messages: []
+    };
+
+    const { apiKey } = getOpenAIConfig(env);
+    const options = {
+      openaiApiKey: apiKey || null,
+      model: String(env.COGNITIVE_AI_MODEL || "gpt-4.1-mini"),
+      fetchImpl:
+        typeof env.__COGNITIVE_OPENAI_FETCH === "function"
+          ? env.__COGNITIVE_OPENAI_FETCH
+          : typeof fetch === "function"
+            ? fetch.bind(globalThis)
+            : null
+    };
+
+    const v2Result = await runReadOnlyCognitiveEngine(rawInput, options);
+    return adaptCognitiveV2Output(stage, v2Result);
+  } catch (e) {
+    console.error("COGNITIVE_V2_ADAPTER_ERROR:", e);
+    return fallback;
+  }
+}
+
 async function cognitiveAssistV1(env, { stage, text, stateSnapshot }) {
   const base = buildCognitiveFallback(stage);
 
@@ -19340,42 +19449,80 @@ async function runFunnel(env, st, userText) {
   }
 
     // ============================================================
-  // 🧠 COGNITIVE ASSIST V1 (SOCORRO CONTROLADO)
+  // 🧠 COGNITIVE ASSIST (SOCORRO CONTROLADO)
   // - Somente nos stages permitidos
   // - Mantém soberania do funil mecânico
   // - Em baixa confiança ou ambiguidade: responde e mantém stage
+  // - COGNITIVE_V2_MODE: "off" (legado), "shadow" (ambos), "on" (isolado)
   // ============================================================
   try {
     if (shouldTriggerCognitiveAssist(stage, userText)) {
       const clearAnswer = hasClearStageAnswer(stage, userText);
-      const cognitive = await cognitiveAssistV1(env, {
-        stage,
-        text: userText,
-        stateSnapshot: st
-      });
+      const v2Mode = String(env.COGNITIVE_V2_MODE || "off").toLowerCase();
+
+      let cognitive;
+      let v2Shadow = null;
+
+      if (v2Mode === "on") {
+        // Motor isolado via adapter — legado desligado
+        cognitive = await runCognitiveV2WithAdapter(env, stage, userText, st);
+      } else if (v2Mode === "shadow") {
+        // Legado responde no fluxo, isolado roda em paralelo para telemetria
+        cognitive = await cognitiveAssistV1(env, {
+          stage,
+          text: userText,
+          stateSnapshot: st
+        });
+        try {
+          v2Shadow = await runCognitiveV2WithAdapter(env, stage, userText, st);
+        } catch (shadowErr) {
+          console.error("COGNITIVE_V2_SHADOW_ERROR:", shadowErr);
+        }
+      } else {
+        // Legado puro (default)
+        cognitive = await cognitiveAssistV1(env, {
+          stage,
+          text: userText,
+          stateSnapshot: st
+        });
+      }
 
       const compatibleSignal = isStageSignalCompatible(stage, cognitive.safe_stage_signal);
       const lowConfidence = Number(cognitive.confidence || 0) < COGNITIVE_V1_CONFIDENCE_MIN;
       const stillNeedsOriginal =
         cognitive.still_needs_original_answer === true && !clearAnswer;
 
+      const telemetryDetails = {
+        intent: cognitive.intent || null,
+        confidence: cognitive.confidence ?? null,
+        still_needs_original_answer: cognitive.still_needs_original_answer,
+        answered_customer_question: cognitive.answered_customer_question,
+        suggested_stage: cognitive.suggested_stage || null,
+        safe_stage_signal: cognitive.safe_stage_signal || null,
+        signal_compatible: compatibleSignal,
+        clear_answer_detected_by_parser: clearAnswer,
+        still_needs_original_effective: stillNeedsOriginal,
+        cognitive_v2_mode: v2Mode
+      };
+
+      // Shadow telemetria comparativa
+      if (v2Shadow) {
+        telemetryDetails.v2_shadow = {
+          confidence: v2Shadow.confidence ?? null,
+          intent: v2Shadow.intent || null,
+          reason: v2Shadow.reason || null,
+          safe_stage_signal: v2Shadow.safe_stage_signal || null,
+          reply_text_length: (v2Shadow.reply_text || "").length
+        };
+      }
+
       await telemetry(env, {
         wa_id: st.wa_id,
         event: "cognitive_v1_signal",
         stage,
         severity: "info",
-        message: "Cognitive v1 acionado",
-        details: {
-          intent: cognitive.intent || null,
-          confidence: cognitive.confidence ?? null,
-          still_needs_original_answer: cognitive.still_needs_original_answer,
-          answered_customer_question: cognitive.answered_customer_question,
-          suggested_stage: cognitive.suggested_stage || null,
-          safe_stage_signal: cognitive.safe_stage_signal || null,
-          signal_compatible: compatibleSignal,
-          clear_answer_detected_by_parser: clearAnswer,
-          still_needs_original_effective: stillNeedsOriginal
-        }
+        message: v2Mode === "on" ? "Cognitive v2 acionado" : "Cognitive v1 acionado",
+        details: telemetryDetails
       });
 
       const cognitiveReply = !lowConfidence
@@ -19396,7 +19543,8 @@ async function runFunnel(env, st, userText) {
         st.__cognitive_reply_prefix = null;
       }
 
-      const usedLlm = cognitive?.reason !== "no_llm_or_parse";
+      const usedLlm = cognitive?.reason !== "no_llm_or_parse"
+        && cognitive?.reason !== "cognitive_v2_heuristic";
       updateCognitiveTelemetryState(st, {
         used_llm: usedLlm,
         used_heuristic: usedLlm ? false : true,

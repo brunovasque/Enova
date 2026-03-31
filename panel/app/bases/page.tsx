@@ -259,6 +259,20 @@ export default function BasesPage() {
     setEditingObsText("");
   }, []);
 
+  const handleUpdateStatus = useCallback(
+    async (lead: CrmLeadMetaRow, newStatus: string) => {
+      const result = await callAction({ action: "update_obs", wa_id: lead.wa_id, status_operacional: newStatus });
+      if (result) {
+        setLeads((prev) =>
+          prev.map((l) =>
+            l.wa_id === lead.wa_id ? { ...l, status_operacional: newStatus } : l,
+          ),
+        );
+      }
+    },
+    [callAction],
+  );
+
   const accent = POOLS.find((p) => p.pool === activePool)?.accentColor ?? "#3d7ef6";
 
   return (
@@ -728,7 +742,7 @@ export default function BasesPage() {
                             })}
                           >
                             <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {lead.obs_curta ?? <span style={{ color: "#2c3848", fontStyle: "italic" }}>obs…</span>}
+                              {lead.obs_curta ?? <span style={{ color: "#3d5068", fontStyle: "italic" }}>+ obs</span>}
                             </span>
                             {hoveredObsWaId === lead.wa_id && (
                               <span style={{ fontSize: "0.7rem", color: "#4a6080", flexShrink: 0 }}>✏</span>
@@ -737,7 +751,7 @@ export default function BasesPage() {
                         )}
                       </td>
                       <td style={s({ padding: "9px 10px" })}>
-                        <StatusChip lead={lead} />
+                        <StatusChip lead={lead} onSelect={(newStatus) => void handleUpdateStatus(lead, newStatus)} />
                       </td>
                       <td style={s({ padding: "9px 10px" })}>
                         <UltimaAcaoChip acao={lead.ultima_acao} />
@@ -943,19 +957,91 @@ const ACAO_LABEL: Record<string, string> = {
   MOVE: "→ move",
 };
 
-function StatusChip({ lead }: { lead: CrmLeadMetaRow }) {
-  const key = lead.is_paused ? "PAUSADO" : (lead.status_operacional ?? "SEM_CONTATO");
+function StatusChip({ lead, onSelect }: { lead: CrmLeadMetaRow; onSelect: (status: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [open]);
+
+  const isPaused = lead.is_paused;
+  const key = isPaused ? "PAUSADO" : (lead.status_operacional ?? "SEM_CONTATO");
   const cfg = STATUS_OP_CONFIG[key] ?? STATUS_OP_CONFIG.SEM_CONTATO;
+
   return (
-    <span
-      style={{
-        color: cfg.color,
-        fontWeight: 600,
-        fontSize: "0.8rem",
-      }}
-    >
-      {cfg.label}
-    </span>
+    <div ref={ref} style={{ position: "relative", display: "inline-block" }}>
+      <span
+        onClick={isPaused ? undefined : () => setOpen((v) => !v)}
+        title={isPaused ? "Lead pausado — use Retomar para alterar" : "Clique para alterar status"}
+        style={{
+          color: cfg.color,
+          fontWeight: 600,
+          fontSize: "0.8rem",
+          cursor: isPaused ? "default" : "pointer",
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "3px",
+          padding: "2px 5px",
+          borderRadius: "4px",
+          border: `1px solid ${open && !isPaused ? cfg.color + "55" : "transparent"}`,
+          userSelect: "none",
+        }}
+      >
+        {cfg.label}
+        {!isPaused && <span style={{ fontSize: "0.6rem", opacity: 0.55 }}>▾</span>}
+      </span>
+      {open && !isPaused && (
+        <div
+          style={{
+            position: "absolute",
+            top: "calc(100% + 3px)",
+            left: 0,
+            zIndex: 300,
+            background: "#0f1620",
+            border: "1px solid #2c3848",
+            borderRadius: "6px",
+            boxShadow: "0 4px 18px rgba(0,0,0,0.6)",
+            minWidth: "152px",
+            padding: "4px 0",
+          }}
+        >
+          {(["SEM_CONTATO", "CONTATADO", "AGUARDANDO_RETORNO"] as const).map((k) => {
+            const opt = STATUS_OP_CONFIG[k];
+            const isCurrent = k === key;
+            return (
+              <button
+                key={k}
+                onClick={() => {
+                  setOpen(false);
+                  onSelect(k);
+                }}
+                style={{
+                  display: "block",
+                  width: "100%",
+                  background: isCurrent ? "#1a2230" : "none",
+                  border: "none",
+                  color: opt.color,
+                  cursor: "pointer",
+                  fontSize: "0.82rem",
+                  fontWeight: isCurrent ? 700 : 400,
+                  padding: "7px 12px",
+                  textAlign: "left",
+                }}
+              >
+                {isCurrent ? "● " : "○ "}
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

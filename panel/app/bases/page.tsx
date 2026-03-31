@@ -39,7 +39,7 @@ type ApiActionPayload = {
   [key: string]: unknown;
 };
 
-type ModalKind = "add_lead" | "import_base" | "move_base" | "warmup_base" | null;
+type ModalKind = "add_lead" | "import_base" | "move_base" | "warmup_base" | "call_now" | null;
 
 const POOLS: { pool: LeadPool; label: string; accentColor: string }[] = [
   { pool: "COLD_POOL", label: "Base Fria", accentColor: "#3d7ef6" },
@@ -100,6 +100,7 @@ export default function BasesPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [modal, setModal] = useState<ModalKind>(null);
   const [moveTarget, setMoveTarget] = useState<CrmLeadMetaRow | null>(null);
+  const [callNowTarget, setCallNowTarget] = useState<CrmLeadMetaRow | null>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showFeedback = useCallback((msg: string) => {
@@ -179,6 +180,12 @@ export default function BasesPage() {
   const handleMoveOpen = useCallback((lead: CrmLeadMetaRow) => {
     setMoveTarget(lead);
     setModal("move_base");
+    setActionError(null);
+  }, []);
+
+  const handleCallNowOpen = useCallback((lead: CrmLeadMetaRow) => {
+    setCallNowTarget(lead);
+    setModal("call_now");
     setActionError(null);
   }, []);
 
@@ -512,6 +519,23 @@ export default function BasesPage() {
                           >
                             {lead.is_paused ? "Retomar" : "Pausar"}
                           </button>
+                          <button
+                            onClick={() => handleCallNowOpen(lead)}
+                            disabled={lead.is_paused}
+                            title={lead.is_paused ? "Lead pausado — retome antes de chamar" : "Chamar agora"}
+                            style={s({
+                              background: "none",
+                              border: `1px solid ${lead.is_paused ? "#2b3440" : "#1a5c33"}`,
+                              borderRadius: "5px",
+                              color: lead.is_paused ? "#3d4d5d" : "#5ce89c",
+                              cursor: lead.is_paused ? "not-allowed" : "pointer",
+                              fontSize: "0.78rem",
+                              padding: "3px 8px",
+                              opacity: lead.is_paused ? 0.5 : 1,
+                            })}
+                          >
+                            Chamar
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -621,6 +645,23 @@ export default function BasesPage() {
                 `Warmup concluído: ${result.selected_count ?? 0} lead(s) selecionados (${result.dispatch_mode ?? "selection_only"}).`,
               );
               setModal(null);
+            }
+          }}
+        />
+      )}
+      {modal === "call_now" && callNowTarget && (
+        <CallNowModal
+          lead={callNowTarget}
+          onClose={() => {
+            setModal(null);
+            setCallNowTarget(null);
+          }}
+          onSubmit={async (text) => {
+            const result = await callAction({ action: "call_now", wa_id: callNowTarget.wa_id, text });
+            if (result) {
+              showFeedback(`Mensagem enviada para ${leadLabel(callNowTarget)}.`);
+              setModal(null);
+              setCallNowTarget(null);
             }
           }}
         />
@@ -1181,6 +1222,71 @@ function WarmupBaseModal({
         </Field>
         <button type="submit" style={submitStyle} disabled={busy}>
           {busy ? "Aquecendo…" : "Aquecer Base"}
+        </button>
+      </form>
+    </ModalShell>
+  );
+}
+
+// ─── Call Now Modal ──────────────────────────────────────────────────────────
+
+function CallNowModal({
+  lead,
+  onClose,
+  onSubmit,
+}: {
+  lead: CrmLeadMetaRow;
+  onClose: () => void;
+  onSubmit: (text: string) => Promise<void>;
+}) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const canSubmit = text.trim().length > 0 && !lead.is_paused && !busy;
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setBusy(true);
+    await onSubmit(text.trim());
+    setBusy(false);
+  };
+
+  return (
+    <ModalShell title={`Chamar agora — ${leadLabel(lead)}`} onClose={onClose}>
+      {lead.is_paused && (
+        <div
+          style={{
+            background: "#2a1a00",
+            border: "1px solid #5c3a00",
+            borderRadius: "6px",
+            padding: "10px 14px",
+            marginBottom: "14px",
+            color: "#f6a03d",
+            fontSize: "0.85rem",
+          }}
+        >
+          Lead pausado — retome o lead antes de chamar.
+        </div>
+      )}
+      <form onSubmit={handleSubmit}>
+        <Field label="Mensagem *">
+          <textarea
+            style={{ ...inputStyle, resize: "vertical", minHeight: "90px" }}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Digite a mensagem a ser enviada…"
+            disabled={lead.is_paused || busy}
+          />
+        </Field>
+        <button
+          type="submit"
+          style={{
+            ...submitStyle,
+            ...(lead.is_paused ? { opacity: 0.5, cursor: "not-allowed" } : {}),
+          }}
+          disabled={busy || !canSubmit || lead.is_paused}
+        >
+          {busy ? "Enviando…" : "Enviar"}
         </button>
       </form>
     </ModalShell>

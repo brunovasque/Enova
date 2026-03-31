@@ -154,28 +154,57 @@ export async function GET(request: Request) {
       );
     }
 
-    const upstreamHeaders: Record<string, string> = {};
     const whatsToken = (process.env.WHATS_TOKEN || "").trim();
     const upstreamHost = parsedSourceUrl.hostname.toLowerCase();
-    if (whatsToken && CANONICAL_ALLOWED_HOSTS.has(upstreamHost)) {
+
+    // ── Resolve actual download URL ──
+    // enova_docs may store Graph API metadata URLs (graph.facebook.com/v20.0/{media_id})
+    // which return JSON {url: "https://lookaside.fbsbx.com/..."}, not the binary file.
+    // We must resolve these to the actual CDN download URL first.
+    let downloadUrl = parsedSourceUrl;
+    if (whatsToken && upstreamHost === "graph.facebook.com") {
+      try {
+        const graphResp = await fetch(parsedSourceUrl.toString(), {
+          method: "GET",
+          headers: { Authorization: `Bearer ${whatsToken}` },
+          cache: "no-store",
+        });
+        if (graphResp.ok) {
+          const graphData = (await graphResp.json()) as { url?: string };
+          if (typeof graphData?.url === "string" && graphData.url) {
+            const resolvedDownloadUrl = new URL(graphData.url);
+            if (isAllowedFileOrigin(resolvedDownloadUrl, supabaseUrl)) {
+              downloadUrl = resolvedDownloadUrl;
+            }
+          }
+        }
+      } catch {
+        // fall through — will attempt direct fetch below
+      }
+    }
+
+    const downloadHost = downloadUrl.hostname.toLowerCase();
+    const upstreamHeaders: Record<string, string> = {};
+    if (whatsToken && CANONICAL_ALLOWED_HOSTS.has(downloadHost)) {
       upstreamHeaders["Authorization"] = `Bearer ${whatsToken}`;
     } else {
       let supabaseHostname = "";
       try { supabaseHostname = new URL(supabaseUrl).hostname.toLowerCase(); } catch {}
-      if (supabaseHostname && upstreamHost === supabaseHostname) {
+      if (supabaseHostname && downloadHost === supabaseHostname) {
         upstreamHeaders["apikey"] = serviceRoleKey;
         upstreamHeaders["Authorization"] = `Bearer ${serviceRoleKey}`;
       }
     }
 
-    let upstream = await fetch(parsedSourceUrl.toString(), {
+    let upstream = await fetch(downloadUrl.toString(), {
       method: "GET",
       headers: upstreamHeaders,
       cache: "no-store",
     });
 
-    if (!upstream.ok && whatsToken && upstreamHost === "lookaside.fbsbx.com") {
-      const mediaId = parsedSourceUrl.searchParams.get("mid");
+    // ── Expired lookaside URL refresh ──
+    if (!upstream.ok && whatsToken && downloadHost === "lookaside.fbsbx.com") {
+      const mediaId = downloadUrl.searchParams.get("mid");
       if (mediaId) {
         try {
           const graphResp = await fetch(
@@ -205,8 +234,11 @@ export async function GET(request: Request) {
     }
 
     if (!upstream.ok || !upstream.body) {
+      const detail = !whatsToken && CANONICAL_ALLOWED_HOSTS.has(upstreamHost)
+        ? "WHATS_TOKEN não configurado"
+        : `upstream ${upstream.status}`;
       return NextResponse.json(
-        { ok: false, error: "arquivo indisponível para abertura" },
+        { ok: false, error: `arquivo indisponível para abertura (${detail})` },
         { status: 502, headers: { "Cache-Control": "no-store" } },
       );
     }

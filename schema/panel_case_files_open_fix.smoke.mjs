@@ -69,24 +69,43 @@ const waId = "554185260518";
   );
 }
 
-// ---------- 3) Meta Graph API refresh fallback present ----------
+// ---------- 3) Graph API two-step resolution present ----------
 {
-  // Verify the Graph API refresh pattern exists
+  // enova_docs stores graph.facebook.com metadata URLs that return JSON,
+  // not binary file data. The open endpoint must resolve them first.
+  assert.ok(
+    openRouteSource.includes('upstreamHost === "graph.facebook.com"'),
+    "3a) open/route.ts deve detectar URLs graph.facebook.com para resolver metadata → download URL",
+  );
+
+  // After resolving, it should use the download URL from the JSON response
+  assert.ok(
+    openRouteSource.includes("downloadUrl") && openRouteSource.includes("resolvedDownloadUrl"),
+    "3b) open/route.ts deve extrair downloadUrl do JSON do Graph API",
+  );
+
+  // Verify the resolved download URL is validated via isAllowedFileOrigin
+  assert.ok(
+    openRouteSource.includes("isAllowedFileOrigin(resolvedDownloadUrl"),
+    "3c) open/route.ts deve validar a download URL resolvida via isAllowedFileOrigin",
+  );
+}
+
+// ---------- 3d) Expired lookaside URL refresh fallback ----------
+{
   assert.ok(
     openRouteSource.includes("graph.facebook.com/v20.0/"),
-    "3) open/route.ts deve ter fallback via Graph API para URLs Meta expiradas",
+    "3d) open/route.ts deve ter fallback via Graph API para URLs lookaside expiradas",
   );
 
-  // Verify mid parameter extraction
   assert.ok(
     openRouteSource.includes('"mid"') || openRouteSource.includes("'mid'"),
-    "3) open/route.ts deve extrair media_id do parâmetro 'mid' da URL",
+    "3e) open/route.ts deve extrair media_id do parâmetro 'mid' da URL",
   );
 
-  // Verify the refreshed URL is validated
   assert.ok(
     openRouteSource.includes("isAllowedFileOrigin") && openRouteSource.includes("refreshed"),
-    "3) open/route.ts deve validar a URL refreshed antes de usar",
+    "3f) open/route.ts deve validar a URL refreshed antes de usar",
   );
 }
 
@@ -168,6 +187,32 @@ const waId = "554185260518";
     const resolved = resolveCaseFileById(waId, file.file_id, merged);
     assert.ok(resolved, `7) ${file.tipo} resolve no open após merge`);
   }
+}
+
+// ---------- 8) Graph API URL resolves in file_id matching ----------
+{
+  const rows = [
+    { wa_id: waId, tipo: "comprovante_renda", participante: null, created_at: "2026-03-28T10:00:00.000Z", url: "https://graph.facebook.com/v20.0/12345678901234" },
+  ];
+  const merged = mergeCaseFileRows(rows, []);
+  const files = normalizeCaseFiles(waId, merged);
+  assert.equal(files.length, 1, "8) Graph API URL é listado");
+  const resolved = resolveCaseFileById(waId, files[0].file_id, merged);
+  assert.ok(resolved, "8) Graph API URL resolve no open");
+  assert.equal(resolved.sourceUrl, "https://graph.facebook.com/v20.0/12345678901234",
+    "8) sourceUrl preserva a URL original do Graph API (resolve para download URL no handler)");
+}
+
+// ---------- 9) Diagnostic error includes context ----------
+{
+  assert.ok(
+    openRouteSource.includes("WHATS_TOKEN não configurado"),
+    "9) Error response deve indicar se WHATS_TOKEN está faltando",
+  );
+  assert.ok(
+    openRouteSource.includes("upstream"),
+    "9) Error response deve incluir informação sobre upstream status",
+  );
 }
 
 console.log("panel_case_files_open_fix.smoke: ok");

@@ -8,6 +8,15 @@ SUPORTE DE CONTRATO
 Este workflow depende também de: schema/SUPABASE_CHANGE_GUARD.md.
 As regras desse arquivo são obrigatórias e têm o mesmo peso deste workflow.
 
+Para qualquer tarefa relacionada ao cognitivo, ler obrigatoriamente antes de agir:
+- schema/COGNITIVE_MIGRATION_CONTRACT.md
+- schema/DECISAO_PRE_IMPLEMENTACAO_COGNITIVO_V2.md
+- schema/ADENDO_FINAL_COBERTURA_SEGURANCA_COGNITIVO_V2.md
+
+Se a tarefa for continuação da migração cognitiva, atualizar obrigatoriamente ao final:
+- o contrato, se houver mudança de regra canônica, gate, arquitetura ou protocolo;
+- o planejamento/handoff, se houver avanço operacional, validação, bloqueio ou conclusão de etapa.
+
 Regras:
 
 1 tarefa = 1 PR = 1 branch até terminar.

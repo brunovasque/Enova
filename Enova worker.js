@@ -15512,6 +15512,87 @@ function resolveCorrespondenteDocumentUrl(doc) {
   ).trim();
 }
 
+function getCorrespondenteDocumentRepresentativePriority(doc = {}, options = {}) {
+  const resolveOperational = typeof options?.resolveOperationalUrl === "function"
+    ? options.resolveOperationalUrl
+    : resolveCorrespondenteDocumentUrl;
+  const directUrl = resolveCorrespondenteDocumentUrl(doc);
+  const operationalUrl = String(resolveOperational(doc) || "").trim();
+  const privateObjectKey = String(doc?.private_object_key || "").trim();
+  const privateMaterializedAt = String(doc?.private_materialized_at || "").trim();
+  const source = String(doc?.__doc_source || "").trim().toLowerCase();
+  let score = 0;
+  if (privateObjectKey) score += 1000;
+  if (privateMaterializedAt) score += 80;
+  if (directUrl) {
+    score += isMetaProtectedDocumentUrl(directUrl) ? 120 : 400;
+  } else if (operationalUrl) {
+    score += isMetaProtectedDocumentUrl(operationalUrl) ? 40 : 160;
+  }
+  if (source === "persisted" || source === "sim") score += 30;
+  else if (source === "state") score += 20;
+  else if (source === "hist") score += 10;
+  if (String(doc?.stable_doc_id || doc?.doc_id || doc?.id || "").trim()) score += 5;
+  return score;
+}
+
+function canonicalizeCorrespondenteDocumentUrl(rawUrl) {
+  const url = String(rawUrl || "").trim();
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return url.split("?")[0].split("#")[0].trim();
+  }
+}
+
+function buildCorrespondenteDocMaterialKey(doc = {}) {
+  const mediaId = String(
+    doc?.media_id ||
+    doc?.mid ||
+    doc?.mediaId ||
+    doc?.media_ref?.media_id ||
+    doc?.media_ref?.mediaId ||
+    ""
+  ).trim();
+  if (mediaId) return `mid:${mediaId}`;
+  const canonicalUrl = canonicalizeCorrespondenteDocumentUrl(resolveCorrespondenteDocumentUrl(doc));
+  if (canonicalUrl) {
+    return `url:${normalizeText(canonicalUrl).replace(/[^a-z0-9]+/g, "_").slice(0, 180) || "doc"}`;
+  }
+  const privateObjectKey = String(doc?.private_object_key || "").trim();
+  if (privateObjectKey) {
+    return `obj:${normalizeText(privateObjectKey).replace(/[^a-z0-9._/-]+/g, "_").slice(0, 180) || "doc"}`;
+  }
+  const messageId = String(
+    doc?.message_id ||
+    doc?.wamid ||
+    doc?.wamid_id ||
+    doc?.upload_message_id ||
+    ""
+  ).trim();
+  if (messageId) return `msg:${messageId}`;
+  const fallbackSignature = [
+    String(doc?.file_name || doc?.filename || doc?.media_ref?.file_name || "").trim().toLowerCase(),
+    String(doc?.created_at || doc?.at || "").trim(),
+    String(doc?.mime_type || doc?.mimetype || doc?.media_ref?.mime_type || "").trim().toLowerCase()
+  ].filter(Boolean).join("|");
+  if (fallbackSignature) {
+    return `file:${normalizeText(fallbackSignature).replace(/[^a-z0-9]+/g, "_").slice(0, 180) || "doc"}`;
+  }
+  return "";
+}
+
+function buildCorrespondenteDocSemanticKey(doc = {}) {
+  const tipo = String(doc?.tipo || "").trim().toLowerCase() || "documento";
+  const participante = String(doc?.participante || "").trim().toLowerCase() || "-";
+  const materialKey = buildCorrespondenteDocMaterialKey(doc);
+  if (materialKey) return `${participante}|${tipo}|${materialKey}`;
+  const fallbackId = String(doc?.doc_id || doc?.stable_doc_id || doc?.received_access_id || doc?.id || "").trim();
+  return fallbackId ? `${participante}|${tipo}|id:${fallbackId}` : "";
+}
+
 function buildCorrespondenteWebDocsModel(docs) {
   const normalizeDocUiStatus = (value) => {
     const txt = String(value || "").trim().toLowerCase();
@@ -15607,7 +15688,8 @@ function buildCorrespondenteWebDocsModel(docs) {
       private_object_key: String(doc?.private_object_key || "").trim() || null,
       private_materialized_at: doc?.private_materialized_at || null,
       __doc_source: doc?.__doc_source || null,
-      stable_doc_id: stableDocId
+      stable_doc_id: stableDocId,
+      semantic_doc_key: buildCorrespondenteDocSemanticKey(doc) || null
     };
     if (status === "pendente") {
       const key = `${tipo}|${participante}`;
@@ -15621,7 +15703,8 @@ function buildCorrespondenteWebDocsModel(docs) {
   for (const doc of normalizedDocs) {
     const hasUsableUrl = Boolean(
       resolveCorrespondenteDocumentUrl(doc) ||
-      String(doc?.private_object_key || "").trim()
+      String(doc?.private_object_key || "").trim() ||
+      String(doc?.media_id || "").trim()
     );
     if (doc.status !== "pendente" && hasUsableUrl) {
       doc.received_access_id = String(doc?.stable_doc_id || "").trim() || null;
@@ -15663,24 +15746,35 @@ function buildCorrespondenteDocsForUi(docs = [], st = null, options = {}) {
     : [];
 
   if (!checklistItems.length) {
+    const renderedDocKeys = new Set();
     return {
       docsModel,
-      docsForUi: (Array.isArray(docsModel?.normalizedDocs) ? docsModel.normalizedDocs : []).map((doc) => ({
-        tipo: doc?.tipo || null,
-        participante: doc?.participante || null,
-        status: doc?.status || null,
-        access_link: buildAccessLink(doc?.received_access_id || null)
-      }))
+      docsForUi: (Array.isArray(docsModel?.normalizedDocs) ? docsModel.normalizedDocs : []).reduce((acc, doc) => {
+        const semanticKey = String(doc?.semantic_doc_key || buildCorrespondenteDocSemanticKey(doc) || "").trim();
+        if (semanticKey) {
+          if (renderedDocKeys.has(semanticKey)) return acc;
+          renderedDocKeys.add(semanticKey);
+        }
+        acc.push({
+          tipo: doc?.tipo || null,
+          participante: doc?.participante || null,
+          status: doc?.status || null,
+          access_link: buildAccessLink(doc?.received_access_id || null)
+        });
+        return acc;
+      }, [])
     };
   }
 
   const matchedReceivedIds = new Set();
+  const renderedReceivedSemanticKeys = new Set();
   const docsForUi = [];
   const findBestReceivedDocForChecklistItem = (item) => {
     const itemTipo = normalizeDocUiType(item?.tipo);
     const itemParticipante = normalizeDocUiParticipant(item?.participante);
     let best = null;
     let bestScore = -1;
+    let bestRepresentativeScore = -1;
     for (const doc of receivedDocs) {
       const docParticipante = normalizeDocUiParticipant(doc?.participante);
       if (docParticipante !== itemParticipante) continue;
@@ -15692,9 +15786,14 @@ function buildCorrespondenteDocsForUi(docs = [], st = null, options = {}) {
       if (normalizeEnvioDocsTipoForChecklist(doc?.tipo) === itemTipo) score += 50;
       if (siblingMatch && !directMatch) score += 3;
       if (String(doc?.received_access_id || "").trim()) score += 150;
-      if (score > bestScore) {
+      const representativeScore = getCorrespondenteDocumentRepresentativePriority(doc);
+      if (
+        score > bestScore ||
+        (score === bestScore && representativeScore > bestRepresentativeScore)
+      ) {
         best = doc;
         bestScore = score;
+        bestRepresentativeScore = representativeScore;
       }
     }
     return best;
@@ -15704,6 +15803,8 @@ function buildCorrespondenteDocsForUi(docs = [], st = null, options = {}) {
     const matchedDoc = findBestReceivedDocForChecklistItem(item);
     const matchedDocKey = String(matchedDoc?.stable_doc_id || matchedDoc?.received_access_id || "").trim();
     if (matchedDocKey) matchedReceivedIds.add(matchedDocKey);
+    const matchedSemanticKey = String(matchedDoc?.semantic_doc_key || buildCorrespondenteDocSemanticKey(matchedDoc) || "").trim();
+    if (matchedSemanticKey) renderedReceivedSemanticKeys.add(matchedSemanticKey);
     docsForUi.push({
       tipo: normalizeDocUiType(item?.tipo),
       participante: normalizeDocUiParticipant(item?.participante),
@@ -15716,7 +15817,7 @@ function buildCorrespondenteDocsForUi(docs = [], st = null, options = {}) {
   for (const doc of receivedDocs) {
     const docKey = String(doc?.stable_doc_id || doc?.received_access_id || "").trim();
     if (docKey && matchedReceivedIds.has(docKey)) {
-      const url = resolveCorrespondenteDocumentUrl(doc);
+      const url = canonicalizeCorrespondenteDocumentUrl(resolveCorrespondenteDocumentUrl(doc));
       if (url) matchedDocUrls.add(url);
     }
   }
@@ -15728,7 +15829,9 @@ function buildCorrespondenteDocsForUi(docs = [], st = null, options = {}) {
   for (const doc of receivedDocs) {
     const docKey = String(doc?.stable_doc_id || doc?.received_access_id || "").trim();
     if (docKey && matchedReceivedIds.has(docKey)) continue;
-    const docUrl = resolveCorrespondenteDocumentUrl(doc);
+    const docSemanticKey = String(doc?.semantic_doc_key || buildCorrespondenteDocSemanticKey(doc) || "").trim();
+    if (docSemanticKey && renderedReceivedSemanticKeys.has(docSemanticKey)) continue;
+    const docUrl = canonicalizeCorrespondenteDocumentUrl(resolveCorrespondenteDocumentUrl(doc));
     if (docUrl && matchedDocUrls.has(docUrl)) continue;
     const hasOwnLink = Boolean(String(doc?.received_access_id || "").trim());
     if (!hasOwnLink) {
@@ -15741,6 +15844,8 @@ function buildCorrespondenteDocsForUi(docs = [], st = null, options = {}) {
       status: doc?.status || null,
       access_link: buildAccessLink(doc?.received_access_id || null)
     });
+    if (docSemanticKey) renderedReceivedSemanticKeys.add(docSemanticKey);
+    if (docUrl) matchedDocUrls.add(docUrl);
   }
 
   return { docsModel, docsForUi };
@@ -15792,7 +15897,9 @@ async function resolveCorrespondenteMetaProtectedFetchTarget(env, rawUrl, option
         if (resolvedDownloadUrl) return { url: resolvedDownloadUrl, headers };
       }
     }
-  } catch {}
+  } catch (err) {
+    console.log("[correspondente/doc] meta-protected resolve threw", { error: err?.message || String(err) });
+  }
   return { url: targetUrl, headers };
 }
 
@@ -15982,17 +16089,59 @@ async function tryServeCorrespondentePrivateObject(env, doc = {}) {
 async function fetchCorrespondenteDocumentUpstream(env, doc, options = {}) {
   const fetchImpl = options?.fetchImpl || fetch;
   const rawUrl = resolveCorrespondenteDocumentUrl(doc);
-  if (!rawUrl) return { upstream: null, fetchTargetUrl: "", headers: {} };
-  const resolved = isMetaProtectedDocumentUrl(rawUrl)
-    ? await resolveCorrespondenteMetaProtectedFetchTarget(env, rawUrl, { fetchImpl })
-    : { url: rawUrl, headers: {} };
-  if (!resolved?.url) return { upstream: null, fetchTargetUrl: "", headers: resolved?.headers || {} };
-  const upstream = await fetchImpl(resolved.url, { headers: resolved.headers || {} });
-  return {
-    upstream,
-    fetchTargetUrl: resolved.url,
-    headers: resolved.headers || {}
-  };
+
+  // --- primary: try stored URL ---
+  if (rawUrl) {
+    const resolved = isMetaProtectedDocumentUrl(rawUrl)
+      ? await resolveCorrespondenteMetaProtectedFetchTarget(env, rawUrl, { fetchImpl })
+      : { url: rawUrl, headers: {} };
+    if (resolved?.url) {
+      try {
+        const upstream = await fetchImpl(resolved.url, { headers: resolved.headers || {} });
+        if (upstream?.ok) {
+          return { upstream, fetchTargetUrl: resolved.url, headers: resolved.headers || {} };
+        }
+        console.log("[correspondente/doc] primary url fetch non-ok", { status: upstream?.status });
+      } catch (err) {
+        console.log("[correspondente/doc] primary url fetch threw", { error: err?.message || String(err) });
+      }
+    }
+  }
+
+  // --- fallback: reconstruct Graph API URL from media_id or from mid in lookaside URL ---
+  let mediaId = String(doc?.media_id || "").trim();
+  if (!mediaId && rawUrl) {
+    try {
+      const midFromUrl = new URL(rawUrl).searchParams.get("mid");
+      if (midFromUrl) {
+        mediaId = String(midFromUrl).trim();
+        if (mediaId) console.log("[correspondente/doc] extracted mid from lookaside url querystring for graph fallback");
+      }
+    } catch {}
+  }
+  if (mediaId) {
+    const metaApiVersion = String(env?.META_API_VERSION || "v20.0").trim() || "v20.0";
+    const graphUrl = `https://graph.facebook.com/${metaApiVersion}/${mediaId}`;
+    if (graphUrl !== rawUrl) {
+      console.log("[correspondente/doc] trying media_id fallback via graph api");
+      const resolved = await resolveCorrespondenteMetaProtectedFetchTarget(env, graphUrl, { fetchImpl });
+      if (resolved?.url && resolved.url !== graphUrl) {
+        try {
+          const upstream = await fetchImpl(resolved.url, { headers: resolved.headers || {} });
+          if (upstream?.ok) {
+            return { upstream, fetchTargetUrl: resolved.url, headers: resolved.headers || {} };
+          }
+          console.log("[correspondente/doc] media_id fallback non-ok", { status: upstream?.status });
+        } catch (err) {
+          console.log("[correspondente/doc] media_id fallback threw", { error: err?.message || String(err) });
+        }
+      } else {
+        console.log("[correspondente/doc] media_id graph resolve did not yield download url");
+      }
+    }
+  }
+
+  return { upstream: null, fetchTargetUrl: "", headers: {} };
 }
 
 async function serveCorrespondenteDocumentFromAuthorizedProxy(env, caso, doc, options = {}) {
@@ -16002,10 +16151,12 @@ async function serveCorrespondenteDocumentFromAuthorizedProxy(env, caso, doc, op
   let upstreamBundle;
   try {
     upstreamBundle = await fetchCorrespondenteDocumentUpstream(env, doc, options);
-  } catch {
+  } catch (err) {
+    console.log("[correspondente/doc] fetchUpstream threw", { error: err?.message || String(err) });
     return new Response("Falha ao carregar documento.", { status: 502 });
   }
   if (!upstreamBundle?.upstream?.ok) {
+    console.log("[correspondente/doc] upstream not ok after all attempts", { status: upstreamBundle?.upstream?.status ?? "null" });
     return new Response("Falha ao carregar documento.", { status: 502 });
   }
 
@@ -16027,7 +16178,8 @@ async function serveCorrespondenteDocumentFromAuthorizedProxy(env, caso, doc, op
   let bodyBuffer;
   try {
     bodyBuffer = await upstream.arrayBuffer();
-  } catch {
+  } catch (err) {
+    console.log("[correspondente/doc] arrayBuffer read failed", { error: err?.message || String(err) });
     return new Response("Falha ao carregar documento.", { status: 502 });
   }
 
@@ -16051,7 +16203,9 @@ async function serveCorrespondenteDocumentFromAuthorizedProxy(env, caso, doc, op
       private_object_key: privateObjectKey,
       private_materialized_at: privateMaterializedAt
     });
-  } catch {}
+  } catch (err) {
+    console.log("[correspondente/doc] R2 put or persist failed", { error: err?.message || String(err), key: privateObjectKey });
+  }
 
   return new Response(bodyBuffer, {
     status: 200,
@@ -16098,7 +16252,8 @@ async function handleCorrespondenteDocumentAccess(request, env) {
   const targetDoc = docsModel.receivedById.get(docId) || null;
   const hasResolvableAccess = Boolean(
     String(targetDoc?.private_object_key || "").trim() ||
-    resolveCorrespondenteDocumentUrl(targetDoc)
+    resolveCorrespondenteDocumentUrl(targetDoc) ||
+    String(targetDoc?.media_id || "").trim()
   );
   if (!hasResolvableAccess) {
     return new Response("Documento não encontrado.", { status: 404 });
@@ -17962,9 +18117,9 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
   };
   const mergeReceivedUploadsByDocId = (rows = []) => {
     const merged = new Map();
-    const mergePreferDefined = (baseDoc = {}, nextDoc = {}) => {
-      const out = { ...baseDoc };
-      for (const [key, value] of Object.entries(nextDoc || {})) {
+    const mergeDocumentsPreferringDefined = (fallbackDoc = {}, preferredDoc = {}) => {
+      const out = { ...fallbackDoc };
+      for (const [key, value] of Object.entries(preferredDoc || {})) {
         if (value === undefined || value === null || value === "") continue;
         out[key] = value;
       }
@@ -17972,7 +18127,7 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
     };
     for (const raw of Array.isArray(rows) ? rows : []) {
       const doc = raw && typeof raw === "object" ? raw : {};
-      const key = String(doc?.doc_id || "").trim();
+      const key = String(buildCorrespondenteDocSemanticKey(doc) || doc?.doc_id || "").trim();
       if (!key) continue;
       const current = merged.get(key);
       if (!current) {
@@ -17981,10 +18136,20 @@ async function getCaseDocumentLinks(env, wa_id, stateFallback = null) {
       }
       const currentUrl = resolveOperationalUrl(current);
       const nextUrl = resolveOperationalUrl(doc);
+      const currentRepresentativeScore = getCorrespondenteDocumentRepresentativePriority(current, { resolveOperationalUrl });
+      const nextRepresentativeScore = getCorrespondenteDocumentRepresentativePriority(doc, { resolveOperationalUrl });
       const pickNext =
-        (!currentUrl && nextUrl) ||
-        (toLower(current?.status) === "pendente" && toLower(doc?.status) !== "pendente");
-      if (pickNext) merged.set(key, mergePreferDefined(current, doc));
+        nextRepresentativeScore > currentRepresentativeScore ||
+        (
+          nextRepresentativeScore === currentRepresentativeScore &&
+          (
+            (!currentUrl && nextUrl) ||
+            (toLower(current?.status) === "pendente" && toLower(doc?.status) !== "pendente")
+          )
+        );
+      const winner = pickNext ? doc : current;
+      const loser = pickNext ? current : doc;
+      merged.set(key, mergeDocumentsPreferringDefined(loser, winner));
     }
     return [...merged.values()];
   };

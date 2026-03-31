@@ -394,46 +394,261 @@
   cursor: pointer;
 }
 
-.inlineFileCard {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
-  align-items: center;
+/* ─── WhatsApp-style file card ─────────────────────────────────── */
+
+.fileBubble {
+  padding: 8px 10px 6px;
+  min-width: 260px;
+  max-width: min(64ch, 75%);
 }
 
-.inlineFileMeta {
-  min-width: 0;
+/* ── Image bubble ───────────────────────────────────────────────── */
+
+.fileBubbleImage {
+  padding: 0;
+  min-width: 260px;
+  max-width: min(52ch, 68%);
+  overflow: hidden;
+}
+
+.fileCardImageBtn {
+  display: block;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+}
+
+.fileCardImageWrap {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 210px;      /* fixed-height preview frame — same as PDF */
+  background: #131313;
+  overflow: hidden;
+}
+
+.fileCardImageThumb {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;  /* fills frame, cropping edges rather than letter-boxing */
+}
+
+.fileCardImageFallback {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  display: none; /* hidden by default; shown when img has data-error */
+}
+
+/* when the image fails to load, hide it and show the fallback badge */
+.fileCardImageThumb[data-error] {
+  display: none;
+}
+
+.fileCardImageThumb[data-error] + .fileCardImageFallback {
+  display: grid;
+}
+
+.fileCardImageCaption {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding: 5px 10px 3px;
 }
 
-.inlineFileType {
-  font-size: 0.83rem;
-  color: #e7edf3;
-  font-weight: 600;
+/* ── PDF bubble (same proportions as image bubble) ─────────────── */
+
+.fileBubblePdf {
+  padding: 0;
+  min-width: 260px;
+  max-width: min(52ch, 68%);
+  overflow: hidden;
 }
 
-.inlineFileInfo {
-  font-size: 0.76rem;
-  color: #aebdcb;
+.fileCardPdfWrap {
+  display: block;
+  position: relative;
+  width: 100%;
+  height: 210px;      /* fixed-height preview frame — same as image */
+  background: #131313;
+  overflow: hidden;
 }
 
-.inlineFileActions {
+.fileCardPdfCanvas {
+  display: block;
+  width: 100%;
+  height: auto;       /* natural aspect ratio; container clips below 210px */
+}
+
+.fileCardPdfLoading {
+  display: block;
+  width: 100%;
+  height: 210px;      /* matches frame height so shimmer fills the frame */
+  background: linear-gradient(90deg, #1c1c1c 25%, #252525 50%, #1c1c1c 75%);
+  background-size: 200% 100%;
+  animation: pdfThumbShimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes pdfThumbShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+
+
+.fileCardClickable {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  color: inherit;
 }
 
-.inlineFileDownloadLink {
+.fileCardClickable:hover .fileCardName {
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.35);
+}
+
+/* Paper-with-lines document preview */
+.fileCardDocPreview {
+  flex-shrink: 0;
+  position: relative;
+  width: 58px;
+  height: 72px;
+  background: linear-gradient(160deg, #2e2e2e 0%, #1c1c1c 100%);
   border-radius: 8px;
-  border: 1px solid #3a3a3a;
-  background: #1d1d1d;
-  color: #dbe7f3;
-  padding: 8px 12px;
-  font-size: 0.78rem;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 8px 7px 6px;
+  gap: 4px;
+}
+
+.fileCardDocLinesWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  flex: 1;
+}
+
+.fileCardDocLine {
+  display: block;
+  height: 2.5px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.13);
+}
+
+.fileCardDocLine:nth-child(1) { width: 88%; }
+.fileCardDocLine:nth-child(2) { width: 72%; }
+.fileCardDocLine:nth-child(3) { width: 82%; }
+.fileCardDocLine:nth-child(4) { width: 55%; }
+
+.fileCardDocBadge {
+  display: block;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: 0.48rem;
+  font-weight: 900;
+  color: #fff;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  align-self: flex-end;
+}
+
+/* ── Shared content area (doc card) ───────────────────────────── */
+
+.fileCardIcon {
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fff;
+  opacity: 0.92;
+}
+
+.fileCardContent {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.fileCardName {
+  display: block;
+  font-size: 0.88rem;
   font-weight: 600;
+  color: #e7edf3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fileCardMeta {
+  display: block;
+  font-size: 0.72rem;
+  color: #8fa5b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fileCardFooter {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.fileBubbleImage .fileCardFooter {
+  margin: 0;
+  padding: 5px 10px 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.fileCardTimestamp {
+  font-size: 0.69rem;
+  color: #6d8399;
+}
+
+.fileCardDownloadBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #9db8cc;
+  font-size: 0.85rem;
   text-decoration: none;
+  transition: background 0.12s, color 0.12s;
+}
+
+.fileCardDownloadBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #dbe7f3;
 }
 
 .previewOverlay {

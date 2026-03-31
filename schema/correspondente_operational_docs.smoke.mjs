@@ -62,6 +62,19 @@ async function fetchEntryHtml(env) {
   return body;
 }
 
+function extractSection(body, title) {
+  const marker = `<h2 class="section-kicker">${title}</h2>`;
+  const start = body.indexOf(marker);
+  assert.notEqual(start, -1, `section not found: ${title}`);
+  const rest = body.slice(start + marker.length);
+  const nextHeading = rest.indexOf('<h2 class="section-kicker">');
+  return nextHeading >= 0 ? rest.slice(0, nextHeading) : rest;
+}
+
+function countOccurrences(body, snippet) {
+  return body.split(snippet).length - 1;
+}
+
 // 1) Snapshot documental sem materialidade não vira recebido operacional, mas continua visível como registro documental.
 {
   const env = buildEnvWithState();
@@ -225,6 +238,203 @@ async function fetchEntryHtml(env) {
   const openDocMatches = body.match(/>abrir documento</g) || [];
   assert.equal(openDocMatches.length, 6);
   assert.equal(body.includes("Registros documentais sem vínculo operacional:"), false);
+}
+
+// 7) Fontes equivalentes com doc_id incompatível e URL variante não podem duplicar RG no dossiê.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.envio_docs_itens_json = [
+    { tipo: "rg", participante: "p1", status: "recebido_pendente_validacao", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true },
+  ];
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      {
+        doc_id: "persisted-rg-1",
+        tipo: "rg",
+        participante: "p1",
+        status: "recebido",
+        url: "https://graph.facebook.com/v20.0/mid-rg-1?download=1",
+      },
+    ],
+  };
+  st.envio_docs_historico_json = [
+    {
+      origem: "upload",
+      at: "2026-03-29T11:00:00Z",
+      associado: { tipo: "rg", participante: "p1" },
+      media_ref: {
+        media_id: "mid-rg-1",
+        url: "https://graph.facebook.com/v20.0/mid-rg-1",
+        file_name: "rg-p1.pdf",
+      },
+    },
+  ];
+
+  const body = await fetchEntryHtml(env);
+  const recebidos = extractSection(body, "Documentos Recebidos");
+  const links = extractSection(body, "Links operacionais dos documentos");
+  assert.equal(countOccurrences(recebidos, "rg — Titular"), 1);
+  assert.equal(countOccurrences(links, "rg — Titular"), 1);
+}
+
+// 8) Link operacional do fallback canônico não pode duplicar item já materializado por fonte persistida.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.envio_docs_itens_json = [
+    { tipo: "comprovante_residencia", participante: "p1", status: "recebido_pendente_validacao", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true },
+  ];
+  st.pacote_documentos_anexados_json = [
+    { tipo: "comprovante_residencia", participante: "p1", status: "recebido" },
+  ];
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      {
+        doc_id: "persisted-res-1",
+        tipo: "comprovante_residencia",
+        participante: "p1",
+        status: "recebido",
+        url: "https://graph.facebook.com/v20.0/mid-res-1?download=1",
+      },
+    ],
+  };
+  st.envio_docs_historico_json = [
+    {
+      origem: "upload",
+      at: "2026-03-29T11:10:00Z",
+      associado: { tipo: "comprovante_residencia", participante: "p1" },
+      media_ref: {
+        media_id: "mid-res-1",
+        url: "https://graph.facebook.com/v20.0/mid-res-1",
+        file_name: "res-p1.pdf",
+      },
+    },
+  ];
+
+  const body = await fetchEntryHtml(env);
+  const recebidos = extractSection(body, "Documentos Recebidos");
+  const links = extractSection(body, "Links operacionais dos documentos");
+  assert.equal(countOccurrences(recebidos, "comprovante_residencia — Titular"), 1);
+  assert.equal(countOccurrences(links, "comprovante_residencia — Titular"), 1);
+}
+
+// 8.1) Entre equivalentes, o card mantém 1 item e preserva a materialização privada como representante operacional.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.envio_docs_itens_json = [
+    { tipo: "rg", participante: "p1", status: "recebido_pendente_validacao", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true },
+  ];
+  st.pacote_documentos_anexados_json = [
+    {
+      tipo: "rg",
+      participante: "p1",
+      status: "recebido",
+      url: "https://graph.facebook.com/v20.0/mid-rg-materializado",
+      private_object_key: "correspondente-docs/5541999998888/000001/doc_doc-rg-materializado.pdf",
+      private_materialized_at: "2026-03-29T11:15:00.000Z",
+    },
+  ];
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      {
+        doc_id: "persisted-rg-materializado",
+        tipo: "rg",
+        participante: "p1",
+        status: "recebido",
+        url: "https://graph.facebook.com/v20.0/mid-rg-materializado",
+      },
+    ],
+  };
+
+  const body = await fetchEntryHtml(env);
+  const recebidos = extractSection(body, "Documentos Recebidos");
+  const links = extractSection(body, "Links operacionais dos documentos");
+  assert.equal(countOccurrences(recebidos, "rg — Titular"), 1);
+  assert.equal(countOccurrences(links, "rg — Titular"), 1);
+  assert.equal(body.includes("/correspondente/doc?pre=000001"), true);
+}
+
+// 9) Documentos legítimos distintos do mesmo tipo permanecem visíveis quando a materialidade é diferente.
+{
+  const env = buildEnvWithState();
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      { doc_id: "rg-distinto-1", tipo: "rg", participante: "p1", status: "recebido", url: "https://graph.facebook.com/v20.0/mid-rg-distinto-1" },
+      { doc_id: "rg-distinto-2", tipo: "rg", participante: "p1", status: "recebido", url: "https://graph.facebook.com/v20.0/mid-rg-distinto-2" },
+    ],
+  };
+
+  const body = await fetchEntryHtml(env);
+  const recebidos = extractSection(body, "Documentos Recebidos");
+  const links = extractSection(body, "Links operacionais dos documentos");
+  assert.equal(countOccurrences(recebidos, "rg — Titular"), 2);
+  assert.equal(countOccurrences(links, "rg — Titular"), 2);
+}
+
+// 10) Participantes diferentes não podem ser colados pelo dedupe mesmo quando compartilham mídia equivalente.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.dossie_participantes_json = [
+    { id: "p1", role: "titular", regime_trabalho: "clt" },
+    { id: "p2", role: "parceiro", regime_trabalho: "clt" },
+  ];
+  st.envio_docs_itens_json = [
+    { tipo: "rg", participante: "p1", status: "recebido_pendente_validacao", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true },
+    { tipo: "rg", participante: "p2", status: "recebido_pendente_validacao", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true },
+  ];
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      { doc_id: "rg-p1", tipo: "rg", participante: "p1", status: "recebido", url: "https://graph.facebook.com/v20.0/mid-rg-shared" },
+      { doc_id: "rg-p2", tipo: "rg", participante: "p2", status: "recebido", url: "https://graph.facebook.com/v20.0/mid-rg-shared" },
+    ],
+  };
+
+  const body = await fetchEntryHtml(env);
+  const recebidos = extractSection(body, "Documentos Recebidos");
+  const links = extractSection(body, "Links operacionais dos documentos");
+  assert.equal(countOccurrences(recebidos, "rg — Titular"), 1);
+  assert.equal(countOccurrences(recebidos, "rg — Parceiro(a)"), 1);
+  assert.equal(countOccurrences(links, "rg — Titular"), 1);
+  assert.equal(countOccurrences(links, "rg — Parceiro(a)"), 1);
+}
+
+// 11) Equivalência útil real (CNH cobrindo RG + CPF) continua funcionando sem gerar duplicidade extra da mesma materialidade.
+{
+  const env = buildEnvWithState();
+  const st = env.__enovaSimulationCtx.stateByWaId[waCaso];
+  st.envio_docs_itens_json = [
+    { tipo: "rg", participante: "p1", status: "recebido_pendente_validacao", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true },
+    { tipo: "cpf", participante: "p1", status: "recebido_pendente_validacao", bucket: "obrigatorio", obrigatorio: true, bloqueante_operacional: true },
+  ];
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      { doc_id: "cnh-persistida-1", tipo: "cnh", participante: "p1", status: "recebido", url: "https://graph.facebook.com/v20.0/mid-cnh-dup-1?download=1" },
+    ],
+  };
+  st.envio_docs_historico_json = [
+    {
+      origem: "upload",
+      at: "2026-03-29T11:20:00Z",
+      associado: { tipo: "cnh", participante: "p1" },
+      media_ref: {
+        media_id: "mid-cnh-dup-1",
+        url: "https://graph.facebook.com/v20.0/mid-cnh-dup-1",
+        file_name: "cnh-p1.pdf",
+      },
+    },
+  ];
+
+  const body = await fetchEntryHtml(env);
+  const recebidos = extractSection(body, "Documentos Recebidos");
+  const links = extractSection(body, "Links operacionais dos documentos");
+  assert.equal(countOccurrences(recebidos, "rg — Titular"), 1);
+  assert.equal(countOccurrences(recebidos, "cpf — Titular"), 1);
+  assert.equal(countOccurrences(links, "rg — Titular"), 1);
+  assert.equal(countOccurrences(links, "cpf — Titular"), 1);
+  assert.equal(body.includes("cnh — Titular"), false);
 }
 
 console.log("correspondente_operational_docs.smoke: ok");

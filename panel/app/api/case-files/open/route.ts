@@ -53,6 +53,25 @@ function buildContentDisposition(fileName: string | null, previewable: boolean):
   return `${mode}; filename="${fallbackName}"; filename*=UTF-8''${encoded}`;
 }
 
+function mimeToExt(mime: string): string | null {
+  const m = mime.split(";")[0].trim().toLowerCase();
+  const map: Record<string, string> = {
+    "application/pdf": "pdf",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/heic": "heic",
+    "image/heif": "heif",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  };
+  return map[m] ?? null;
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const waId = (searchParams.get("wa_id") || "").trim();
@@ -79,7 +98,7 @@ export async function GET(request: Request) {
     const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE as string;
 
     const endpoint = new URL("/rest/v1/enova_docs", supabaseUrl);
-    endpoint.searchParams.set("select", "wa_id,tipo,participante,created_at,url,document_url,download_url,media_url,link");
+    endpoint.searchParams.set("select", "wa_id,tipo,participante,created_at,url");
     endpoint.searchParams.set("wa_id", `eq.${waId}`);
     endpoint.searchParams.set("order", "created_at.asc");
     endpoint.searchParams.set("limit", "200");
@@ -154,13 +173,91 @@ export async function GET(request: Request) {
       );
     }
 
-    const upstream = await fetch(parsedSourceUrl.toString(), {
+    const whatsToken = (process.env.WHATS_TOKEN || "").trim();
+    const upstreamHost = parsedSourceUrl.hostname.toLowerCase();
+
+    // ── Resolve actual download URL ──
+    // enova_docs may store Graph API metadata URLs (graph.facebook.com/v20.0/{media_id})
+    // which return JSON {url: "https://lookaside.fbsbx.com/..."}, not the binary file.
+    // We must resolve these to the actual CDN download URL first.
+    let downloadUrl = parsedSourceUrl;
+    if (whatsToken && upstreamHost === "graph.facebook.com") {
+      try {
+        const graphResp = await fetch(parsedSourceUrl.toString(), {
+          method: "GET",
+          headers: { Authorization: `Bearer ${whatsToken}` },
+          cache: "no-store",
+        });
+        if (graphResp.ok) {
+          const graphData = (await graphResp.json()) as { url?: string };
+          if (typeof graphData?.url === "string" && graphData.url) {
+            const resolvedDownloadUrl = new URL(graphData.url);
+            if (isAllowedFileOrigin(resolvedDownloadUrl, supabaseUrl)) {
+              downloadUrl = resolvedDownloadUrl;
+            }
+          }
+        }
+      } catch {
+        // fall through — will attempt direct fetch below
+      }
+    }
+
+    const downloadHost = downloadUrl.hostname.toLowerCase();
+    const upstreamHeaders: Record<string, string> = {};
+    if (whatsToken && CANONICAL_ALLOWED_HOSTS.has(downloadHost)) {
+      upstreamHeaders["Authorization"] = `Bearer ${whatsToken}`;
+    } else {
+      let supabaseHostname = "";
+      try { supabaseHostname = new URL(supabaseUrl).hostname.toLowerCase(); } catch {}
+      if (supabaseHostname && downloadHost === supabaseHostname) {
+        upstreamHeaders["apikey"] = serviceRoleKey;
+        upstreamHeaders["Authorization"] = `Bearer ${serviceRoleKey}`;
+      }
+    }
+
+    let upstream = await fetch(downloadUrl.toString(), {
       method: "GET",
+      headers: upstreamHeaders,
       cache: "no-store",
     });
+
+    // ── Expired lookaside URL refresh ──
+    if (!upstream.ok && whatsToken && downloadHost === "lookaside.fbsbx.com") {
+      const mediaId = downloadUrl.searchParams.get("mid");
+      if (mediaId) {
+        try {
+          const graphResp = await fetch(
+            `https://graph.facebook.com/v20.0/${encodeURIComponent(mediaId)}`,
+            { headers: { Authorization: `Bearer ${whatsToken}` }, cache: "no-store" },
+          );
+          if (graphResp.ok) {
+            const graphData = (await graphResp.json()) as { url?: string };
+            if (typeof graphData?.url === "string" && graphData.url) {
+              const refreshedParsedUrl = new URL(graphData.url);
+              if (isAllowedFileOrigin(refreshedParsedUrl, supabaseUrl)) {
+                const refreshed = await fetch(refreshedParsedUrl.toString(), {
+                  method: "GET",
+                  headers: { Authorization: `Bearer ${whatsToken}` },
+                  cache: "no-store",
+                });
+                if (refreshed.ok && refreshed.body) {
+                  upstream = refreshed;
+                }
+              }
+            }
+          }
+        } catch {
+          // fall through to the error response below
+        }
+      }
+    }
+
     if (!upstream.ok || !upstream.body) {
+      const detail = !whatsToken && (CANONICAL_ALLOWED_HOSTS.has(upstreamHost) || CANONICAL_ALLOWED_HOSTS.has(downloadHost))
+        ? "WHATS_TOKEN não configurado"
+        : `upstream ${upstream.status}`;
       return NextResponse.json(
-        { ok: false, error: "arquivo indisponível para abertura" },
+        { ok: false, error: `arquivo indisponível para abertura (${detail})` },
         { status: 502, headers: { "Cache-Control": "no-store" } },
       );
     }
@@ -174,12 +271,30 @@ export async function GET(request: Request) {
         ? String(resolved.item.size_bytes)
         : upstream.headers.get("content-length");
 
+    // Use the actual upstream content-type to decide inline vs attachment.
+    // URL-based MIME inference (used to compute resolved.item.previewable) fails
+    // for Meta CDN URLs which carry no file extension, so we re-evaluate here.
+    const effectiveMime = contentType.split(";")[0].trim().toLowerCase();
+    const effectivePreviewable =
+      effectiveMime === "application/pdf" || effectiveMime.startsWith("image/");
+
+    // Build a meaningful filename: prefer explicit file_name, else derive from
+    // tipo + participante + inferred extension so the browser can open the file.
+    const inferredExt = mimeToExt(effectiveMime);
+    // participante can be null — filter removes null/undefined/empty-string parts
+    const baseNameParts = [resolved.item.tipo, resolved.item.participante].filter(
+      (v): v is string => typeof v === "string" && v.length > 0,
+    );
+    const baseName = baseNameParts.length > 0 ? baseNameParts.join("_") : "arquivo";
+    const effectiveFileName =
+      resolved.item.file_name || (inferredExt ? `${baseName}.${inferredExt}` : baseName);
+
     const headers = new Headers();
     headers.set("Cache-Control", "no-store");
     headers.set("Content-Type", contentType);
     headers.set(
       "Content-Disposition",
-      buildContentDisposition(resolved.item.file_name, resolved.item.previewable && !forceDownload),
+      buildContentDisposition(effectiveFileName, effectivePreviewable && !forceDownload),
     );
     if (contentLength) headers.set("Content-Length", contentLength);
     headers.set("X-Content-Type-Options", "nosniff");

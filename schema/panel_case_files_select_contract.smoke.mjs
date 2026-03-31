@@ -152,13 +152,15 @@ assert.equal(
 const emptyFiles = normalizeCaseFiles(waId, []);
 assert.equal(emptyFiles.length, 0, "Lista vazia deve retornar array vazio sem erro");
 
-// 3d) Rows sem url válida são silenciosamente ignoradas
+// 3d) Rows sem url válida são incluídas (refletindo todos os docs persistidos)
 const rowsWithoutUrl = [
   { wa_id: waId, tipo: "rg", participante: "titular", created_at: "2026-03-30T10:00:00.000Z", url: "" },
   { wa_id: waId, tipo: "cpf", participante: null, created_at: null, url: null },
 ];
 const filesFromEmpty = normalizeCaseFiles(waId, rowsWithoutUrl);
-assert.equal(filesFromEmpty.length, 0, "Rows sem url devem ser ignoradas sem lançar erro");
+assert.equal(filesFromEmpty.length, 2, "Rows sem url devem aparecer na listagem (previewable=false)");
+assert.ok(filesFromEmpty.every((f) => f.previewable === false), "Rows sem url devem ser não-previsualizáveis");
+assert.ok(filesFromEmpty.every((f) => f.mime_type === null), "Rows sem url devem ter mime_type null");
 
 // 3e) Merge com canonical rows (fallback de enova_state) continua funcionando
 const canonicalRows = resolveRowsFromCanonicalState(waId, {

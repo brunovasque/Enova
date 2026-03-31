@@ -44,17 +44,44 @@ function buildDedupKey(row: EnovaDocRow): string {
   ].join("|");
 }
 
+function buildPartialKey(row: EnovaDocRow): string {
+  return [
+    String(row.tipo || "").trim().toLowerCase(),
+    String(row.participante || "").trim().toLowerCase(),
+    String(row.created_at || "").trim(),
+  ].join("|");
+}
+
 function dedupeRows(rows: EnovaDocRow[]): EnovaDocRow[] {
-  const deduped: EnovaDocRow[] = [];
-  const seen = new Set<string>();
-  for (const row of Array.isArray(rows) ? rows : []) {
+  if (!Array.isArray(rows)) return [];
+
+  const seenFull = new Set<string>();
+  const seenPartial = new Set<string>();
+  const urlRows: EnovaDocRow[] = [];
+  const noUrlRows: EnovaDocRow[] = [];
+
+  for (const row of rows) {
     const normalizedUrl = normalizeUrl(row);
+    if (!normalizedUrl) {
+      noUrlRows.push(row);
+      continue;
+    }
     const key = buildDedupKey(row);
-    if (!normalizedUrl || seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(row);
+    if (seenFull.has(key)) continue;
+    seenFull.add(key);
+    seenPartial.add(buildPartialKey(row));
+    urlRows.push(row);
   }
-  return deduped;
+
+  const noUrlSeen = new Set<string>();
+  for (const row of noUrlRows) {
+    const partial = buildPartialKey(row);
+    if (seenPartial.has(partial) || noUrlSeen.has(partial)) continue;
+    noUrlSeen.add(partial);
+    urlRows.push(row);
+  }
+
+  return urlRows;
 }
 
 function normalizeMimeType(row: EnovaDocRow): string | null {
@@ -96,11 +123,7 @@ export function normalizeCaseFiles(waId: string, rows: EnovaDocRow[]): CaseFileI
   const items: CaseFileItem[] = [];
   rows.forEach((row, index) => {
     const normalizedUrl = normalizeUrl(row);
-    if (!normalizedUrl) {
-      return;
-    }
-
-    const normalizedMimeType = normalizeMimeType(row);
+    const normalizedMimeType = normalizedUrl ? normalizeMimeType(row) : null;
     items.push({
       file_id: buildStableFileId(waId, row, normalizedUrl, normalizedMimeType, index),
       wa_id: waId,
@@ -110,7 +133,7 @@ export function normalizeCaseFiles(waId: string, rows: EnovaDocRow[]): CaseFileI
       mime_type: normalizedMimeType,
       file_name: null,
       size_bytes: null,
-      previewable: isPreviewable(normalizedMimeType),
+      previewable: normalizedUrl ? isPreviewable(normalizedMimeType) : false,
     });
   });
   return items;

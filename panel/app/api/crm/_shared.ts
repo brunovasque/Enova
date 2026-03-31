@@ -275,7 +275,7 @@ async function insertOverrideLog(
   }
 }
 
-// Tab filter constants
+// Tab filter constants — intentionally explicit subsets of ANALYSIS_STATUS for tab classification
 const ANALYSIS_TAB_STATUS = ANALYSIS_STATUS as readonly string[];
 const APPROVED_TAB_STATUS: readonly string[] = ["APPROVED_HIGH", "APPROVED_LOW"];
 const REJECTED_TAB_STATUS: readonly string[] = ["REJECTED_RECOVERABLE", "REJECTED_HARD"];
@@ -331,7 +331,8 @@ async function auditFieldChanges(
   reasonText: string | null,
 ): Promise<void> {
   for (const lf of logFields) {
-    const fromValue = current ? String(current[lf.field] ?? "") || null : null;
+    const rawFrom = current?.[lf.field] ?? null;
+    const fromValue = rawFrom !== null && rawFrom !== undefined ? String(rawFrom) : null;
     await insertOverrideLog(supabaseUrl, serviceRoleKey, {
       wa_id: waId,
       field: lf.field,

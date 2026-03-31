@@ -84,7 +84,11 @@ function adaptCognitiveV2Output(stage, v2Result) {
   const entities = {};
   for (const key of slotKeys) {
     const slot = slotsDetected[key];
-    if (slot && slot.value != null) entities[key] = slot.value;
+    if (slot && slot.value != null) {
+      entities[key] = slot.value;
+      // Alias: V1 usa composicao_tipo, V2 usa composicao — manter ambos para compatibilidade
+      if (key === "composicao") entities.composicao_tipo = slot.value;
+    }
   }
 
   const stageSignals = {};
@@ -199,7 +203,32 @@ test("converts composicao slot for quem_pode_somar", () => {
   const result = adaptCognitiveV2Output("quem_pode_somar", v2);
   assert.equal(result.safe_stage_signal, "composicao:sozinho");
   assert.equal(result.entities.composicao, "sozinho");
+  assert.equal(result.entities.composicao_tipo, "sozinho", "composicao_tipo alias must be present");
   assert.equal(result.reason, "cognitive_v2_heuristic");
+});
+
+test("composicao_tipo alias matches composicao for extractCompatibleStageAnswer compatibility", () => {
+  const v2 = {
+    ok: true,
+    response: {
+      reply_text: "Entendi, composição familiar.",
+      slots_detected: {
+        composicao: { value: "familiar", confidence: 0.83, evidence: null, source: "heuristic" }
+      },
+      pending_slots: [],
+      conflicts: [],
+      suggested_next_slot: null,
+      consultive_notes: [],
+      should_request_confirmation: false,
+      should_advance_stage: false,
+      confidence: 0.83
+    },
+    engine: { llm_used: true }
+  };
+  const result = adaptCognitiveV2Output("interpretar_composicao", v2);
+  assert.equal(result.entities.composicao, "familiar");
+  assert.equal(result.entities.composicao_tipo, "familiar");
+  assert.equal(result.safe_stage_signal, "composicao:familiar");
 });
 
 test("converts renda slot correctly", () => {

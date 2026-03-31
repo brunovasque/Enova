@@ -2218,7 +2218,11 @@ function adaptCognitiveV2Output(stage, v2Result) {
   const entities = {};
   for (const key of slotKeys) {
     const slot = slotsDetected[key];
-    if (slot && slot.value != null) entities[key] = slot.value;
+    if (slot && slot.value != null) {
+      entities[key] = slot.value;
+      // Alias: V1 usa composicao_tipo, V2 usa composicao — manter ambos para compatibilidade
+      if (key === "composicao") entities.composicao_tipo = slot.value;
+    }
   }
 
   // Converter slots_detected → stage_signals flat (formato legado)
@@ -19514,7 +19518,11 @@ async function runFunnel(env, st, userText) {
           intent: v2Shadow.intent || null,
           reason: v2Shadow.reason || null,
           safe_stage_signal: v2Shadow.safe_stage_signal || null,
-          reply_text_length: (v2Shadow.reply_text || "").length
+          reply_text_length: (v2Shadow.reply_text || "").length,
+          still_needs_original_answer: v2Shadow.still_needs_original_answer ?? null,
+          answered_customer_question: v2Shadow.answered_customer_question ?? null,
+          reply_text_snippet: String(v2Shadow.reply_text || "").slice(0, 80) || null,
+          entities_keys: Object.keys(v2Shadow.entities || {})
         };
       }
 

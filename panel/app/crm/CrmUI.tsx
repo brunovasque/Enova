@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./crm.module.css";
+import { fetchCrmLeadsAction, postCrmActionAction } from "./actions";
 
 /* ===========================================
    TIPOS - baseados em crm_leads_v1
@@ -197,11 +198,7 @@ export function CrmUI() {
   });
 
   const fetchLeads = useCallback(async (): Promise<CrmLeadRow[]> => {
-    const res = await fetch("/api/crm", {
-      cache: "no-store",
-      headers: { "x-enova-admin-key": "1" },
-    });
-    const data = (await res.json()) as ApiCrmPayload;
+    const data = (await fetchCrmLeadsAction()) as ApiCrmPayload;
     if (!data.ok) {
       throw new Error(data.error ?? "Erro ao carregar leads do CRM");
     }
@@ -228,16 +225,7 @@ export function CrmUI() {
 
   const callAction = useCallback(async (payload: Record<string, unknown>): Promise<ApiActionPayload | null> => {
     try {
-      const res = await fetch("/api/crm", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-enova-admin-key": "1",
-        },
-        body: JSON.stringify(payload),
-        cache: "no-store",
-      });
-      const data = (await res.json()) as ApiActionPayload;
+      const data = (await postCrmActionAction(payload as Parameters<typeof postCrmActionAction>[0])) as ApiActionPayload;
       if (!data.ok) {
         setActionError(data.error ?? "Ação falhou");
         setFeedback(null);
@@ -245,7 +233,7 @@ export function CrmUI() {
       }
       return data;
     } catch {
-      setActionError("Erro de rede ao executar ação");
+      setActionError("Erro ao executar ação");
       setFeedback(null);
       return null;
     }

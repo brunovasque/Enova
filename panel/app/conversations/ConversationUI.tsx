@@ -54,6 +54,7 @@ type CaseFile = {
   file_name: string | null;
   size_bytes: number | null;
   previewable: boolean;
+  has_link: boolean;
 };
 
 type CaseFilesPayload = {
@@ -1073,21 +1074,27 @@ export function ConversationUI() {
                             </span>
                           </div>
                           <div className={styles.inlineFileActions}>
-                            <button
-                              type="button"
-                              className={styles.fileOpenButton}
-                              onClick={() => handleOpenFile(file)}
-                            >
-                              Visualizar
-                            </button>
-                            <a
-                              href={`${openFileUrl(file)}&download=1`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={styles.inlineFileDownloadLink}
-                            >
-                              Baixar
-                            </a>
+                            {file.has_link ? (
+                              <>
+                                <button
+                                  type="button"
+                                  className={styles.fileOpenButton}
+                                  onClick={() => handleOpenFile(file)}
+                                >
+                                  Visualizar
+                                </button>
+                                <a
+                                  href={`${openFileUrl(file)}&download=1`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className={styles.inlineFileDownloadLink}
+                                >
+                                  Baixar
+                                </a>
+                              </>
+                            ) : (
+                              <span className={styles.inlineFileInfo}>Sem link disponível</span>
+                            )}
                           </div>
                         </div>
                       </article>

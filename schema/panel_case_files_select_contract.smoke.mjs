@@ -86,7 +86,7 @@ for (const col of FORBIDDEN_COLUMNS) {
   }
 }
 
-// --- 2) Verificar que `url` ainda está no SELECT (coluna canônica real) ---
+// --- 2) Verificar que `url` e `media_id` estão no SELECT (colunas canônicas reais) ---
 
 assert.match(
   routeSource,
@@ -98,6 +98,18 @@ assert.match(
   openRouteSource,
   /searchParams\.set\(\s*["']select["']\s*,\s*["'][^"']*\burl\b[^"']*["']\s*\)/,
   "open/route.ts: SELECT deve conter a coluna canônica `url`",
+);
+
+assert.match(
+  routeSource,
+  /searchParams\.set\(\s*["']select["']\s*,\s*["'][^"']*\bmedia_id\b[^"']*["']\s*\)/,
+  "route.ts: SELECT deve conter `media_id` para fallback de URL",
+);
+
+assert.match(
+  openRouteSource,
+  /searchParams\.set\(\s*["']select["']\s*,\s*["'][^"']*\bmedia_id\b[^"']*["']\s*\)/,
+  "open/route.ts: SELECT deve conter `media_id` para fallback de URL",
 );
 
 // --- 3) Smoke funcional: _shared normaliza corretamente com rows que têm apenas `url` ---
@@ -152,13 +164,27 @@ assert.equal(
 const emptyFiles = normalizeCaseFiles(waId, []);
 assert.equal(emptyFiles.length, 0, "Lista vazia deve retornar array vazio sem erro");
 
-// 3d) Rows sem url válida são silenciosamente ignoradas
+// 3d) Rows sem url válida NÃO são mais ignoradas — passam com has_link=false para que
+//     o painel possa refletir TODOS os documentos persistidos em enova_docs, inclusive
+//     os que foram salvos sem URL (ex: processIncomingDocument sem file.url).
 const rowsWithoutUrl = [
   { wa_id: waId, tipo: "rg", participante: "titular", created_at: "2026-03-30T10:00:00.000Z", url: "" },
   { wa_id: waId, tipo: "cpf", participante: null, created_at: null, url: null },
 ];
 const filesFromEmpty = normalizeCaseFiles(waId, rowsWithoutUrl);
-assert.equal(filesFromEmpty.length, 0, "Rows sem url devem ser ignoradas sem lançar erro");
+assert.equal(filesFromEmpty.length, 2, "Rows sem url devem aparecer no painel com has_link=false, não ser ignoradas");
+assert.ok(filesFromEmpty.every((f) => f.has_link === false), "Todos os arquivos sem url devem ter has_link=false");
+assert.ok(filesFromEmpty.every((f) => f.previewable === false), "Arquivos sem url não podem ser previewable");
+
+// 3d-bis) Rows com media_id mas sem url devem aparecer com has_link=true
+//         e URL construída via https://graph.facebook.com/v20.0/{media_id}
+const rowsWithMediaIdOnly = [
+  { wa_id: waId, tipo: "renda", participante: "titular", created_at: "2026-03-30T10:08:00.000Z", url: null, media_id: "mediaid-abc" },
+];
+const filesFromMediaId = normalizeCaseFiles(waId, rowsWithMediaIdOnly);
+assert.equal(filesFromMediaId.length, 1, "Row com media_id mas sem url deve aparecer no painel");
+assert.ok(filesFromMediaId[0].has_link === true, "Row com media_id deve ter has_link=true");
+assert.ok(filesFromMediaId[0].file_id, "Row com media_id deve ter file_id válido");
 
 // 3e) Merge com canonical rows (fallback de enova_state) continua funcionando
 const canonicalRows = resolveRowsFromCanonicalState(waId, {

@@ -394,46 +394,105 @@
   cursor: pointer;
 }
 
-.inlineFileCard {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 10px;
-  align-items: center;
+/* ─── WhatsApp-style file card ─────────────────────────────────── */
+
+.fileBubble {
+  padding: 8px 10px 6px;
+  min-width: 200px;
+  max-width: min(60ch, 72%);
 }
 
-.inlineFileMeta {
+.fileCardClickable {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  color: inherit;
+}
+
+.fileCardClickable:hover .fileCardName {
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.35);
+}
+
+.fileCardIcon {
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fff;
+  opacity: 0.92;
+}
+
+.fileCardContent {
   min-width: 0;
+  flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
-.inlineFileType {
-  font-size: 0.83rem;
+.fileCardName {
+  display: block;
+  font-size: 0.88rem;
+  font-weight: 600;
   color: #e7edf3;
-  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.inlineFileInfo {
-  font-size: 0.76rem;
-  color: #aebdcb;
+.fileCardMeta {
+  display: block;
+  font-size: 0.72rem;
+  color: #8fa5b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.inlineFileActions {
+.fileCardFooter {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  margin-top: 6px;
+  padding-top: 5px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
 }
 
-.inlineFileDownloadLink {
-  border-radius: 8px;
-  border: 1px solid #3a3a3a;
-  background: #1d1d1d;
-  color: #dbe7f3;
-  padding: 8px 12px;
-  font-size: 0.78rem;
-  font-weight: 600;
+.fileCardTimestamp {
+  font-size: 0.69rem;
+  color: #6d8399;
+}
+
+.fileCardDownloadBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: #9db8cc;
+  font-size: 0.85rem;
   text-decoration: none;
+  transition: background 0.12s, color 0.12s;
+}
+
+.fileCardDownloadBtn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #dbe7f3;
 }
 
 .previewOverlay {

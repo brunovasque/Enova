@@ -149,6 +149,34 @@ function formatFileDisplayName(file: Pick<CaseFile, "file_name" | "tipo" | "file
   return file.file_name || file.tipo || (shortId ? `arquivo-${shortId}` : "arquivo");
 }
 
+function getFileIcon(mimeOrTipo: string | null): { icon: string; color: string } {
+  const raw = (mimeOrTipo ?? "").toLowerCase();
+  if (raw.includes("pdf")) return { icon: "PDF", color: "#e74c3c" };
+  if (raw.includes("image") || raw.includes("png") || raw.includes("jpg") || raw.includes("jpeg") ||
+    raw.includes("gif") || raw.includes("webp") || raw.includes("svg") || raw.includes("bmp"))
+    return { icon: "IMG", color: "#3498db" };
+  if (raw.includes("video") || raw.includes("mp4") || raw.includes("mov"))
+    return { icon: "VID", color: "#9b59b6" };
+  if (raw.includes("audio") || raw.includes("mp3") || raw.includes("ogg"))
+    return { icon: "AUD", color: "#f39c12" };
+  if (
+    raw.includes("word") ||
+    raw.includes("doc") ||
+    raw.includes("docx") ||
+    raw.includes("odt")
+  )
+    return { icon: "DOC", color: "#2980b9" };
+  if (
+    raw.includes("sheet") ||
+    raw.includes("excel") ||
+    raw.includes("xls") ||
+    raw.includes("xlsx") ||
+    raw.includes("csv")
+  )
+    return { icon: "XLS", color: "#27ae60" };
+  return { icon: "ARQ", color: "#7f8c8d" };
+}
+
 function buildMessageRenderKey(message: Message): string {
   return [
     message.direction,
@@ -1056,39 +1084,53 @@ export function ConversationUI() {
                   }
 
                   const file = entry.file;
+                  const displayName = formatFileDisplayName(file);
+                  const fileIcon = getFileIcon(file.mime_type || file.tipo);
+                  const metaLine = [
+                    file.tipo || file.mime_type || "arquivo",
+                    file.size_bytes ? formatFileSize(file.size_bytes) : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
                   return (
                     <div key={entry.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
-                      <article className={`${styles.bubble} ${styles.bubbleIn}`}>
-                        <div className={styles.inlineFileCard}>
-                          <div className={styles.inlineFileMeta}>
-                            <span className={styles.inlineFileType}>
-                              Tipo: {file.tipo || file.mime_type || "arquivo"}
-                            </span>
-                            <span className={styles.inlineFileInfo}>
-                              Participante: {file.participante || "--"} • data:{" "}
-                              {formatDateTime(file.created_at)}
-                            </span>
-                            <span className={styles.inlineFileInfo}>
-                              Formato: {file.mime_type || "--"} • Tamanho: {formatFileSize(file.size_bytes)}
-                            </span>
-                          </div>
-                          <div className={styles.inlineFileActions}>
-                            <button
-                              type="button"
-                              className={styles.fileOpenButton}
-                              onClick={() => handleOpenFile(file)}
-                            >
-                              Visualizar
-                            </button>
-                            <a
-                              href={`${openFileUrl(file)}&download=1`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className={styles.inlineFileDownloadLink}
-                            >
-                              Baixar
-                            </a>
-                          </div>
+                      <article className={`${styles.bubble} ${styles.bubbleIn} ${styles.fileBubble}`}>
+                        <button
+                          type="button"
+                          className={styles.fileCardClickable}
+                          onClick={() => handleOpenFile(file)}
+                          aria-label={`Visualizar ${displayName}`}
+                        >
+                          <span
+                            className={styles.fileCardIcon}
+                            style={{ background: fileIcon.color }}
+                            aria-hidden="true"
+                          >
+                            {fileIcon.icon}
+                          </span>
+                          <span className={styles.fileCardContent}>
+                            <span className={styles.fileCardName}>{displayName}</span>
+                            <span className={styles.fileCardMeta}>{metaLine}</span>
+                          </span>
+                        </button>
+                        <div className={styles.fileCardFooter}>
+                          <span className={styles.fileCardTimestamp}>
+                            {formatDateTime(file.created_at)}
+                          </span>
+                          <a
+                            href={`${openFileUrl(file)}&download=1`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={styles.fileCardDownloadBtn}
+                            aria-label={`Baixar ${displayName}`}
+                            title="Baixar"
+                            onClick={(e) => e.stopPropagation()}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+                            }}
+                          >
+                            ↓
+                          </a>
                         </div>
                       </article>
                     </div>

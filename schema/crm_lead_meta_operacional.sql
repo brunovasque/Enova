@@ -76,6 +76,51 @@ ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS financial_status text;
 ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS financial_note_short text;
 ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS financial_last_update_at timestamptz;
 
+-- G) RETORNO DO CORRESPONDENTE
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_return_summary text;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_return_reason text;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_financing_amount numeric;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_subsidy_amount numeric;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_entry_amount numeric;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_monthly_payment numeric;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_return_raw text;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_returned_by text;
+
+-- H) SNAPSHOT DO PERFIL ENVIADO AO CORRESPONDENTE
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_profile_type text;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_holder_name text;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_partner_name_snapshot text;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_marital_status text;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_composition_type text;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_income_total numeric;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_income_holder numeric;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_income_partner numeric;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_income_family numeric;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_holder_work_regime text;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_partner_work_regime text;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_family_work_regime text;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_has_fgts boolean;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_has_down_payment boolean;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_down_payment_amount numeric;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_has_restriction boolean;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_partner_has_restriction boolean;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_holder_has_ir boolean;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_partner_has_ir boolean;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_ctps_36 boolean;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_partner_ctps_36 boolean;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_dependents_count integer;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_ticket_target numeric;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_property_goal text;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_profile_summary text;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_snapshot_raw text;
+
+-- I) SCORE OPERACIONAL DO CLIENTE
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_profile_score integer;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_profile_band text
+  CHECK (analysis_profile_band IN ('STRONG','MEDIUM','WEAK'));
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_work_score_label text;
+ALTER TABLE public.crm_lead_meta ADD COLUMN IF NOT EXISTS analysis_work_score_reason text;
+
 -- Índices operacionais
 CREATE INDEX IF NOT EXISTS crm_lead_meta_analysis_idx
   ON public.crm_lead_meta (analysis_status) WHERE analysis_status IS NOT NULL;
@@ -128,3 +173,44 @@ CREATE INDEX IF NOT EXISTS crm_lead_meta_reserve_idx
 -- DROP INDEX IF EXISTS crm_lead_meta_analysis_idx;
 -- DROP INDEX IF EXISTS crm_lead_meta_visit_idx;
 -- DROP INDEX IF EXISTS crm_lead_meta_reserve_idx;
+-- G) RETORNO DO CORRESPONDENTE
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_return_summary;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_return_reason;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_financing_amount;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_subsidy_amount;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_entry_amount;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_monthly_payment;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_return_raw;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_returned_by;
+-- H) SNAPSHOT DO PERFIL
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_profile_type;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_holder_name;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_partner_name_snapshot;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_marital_status;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_composition_type;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_income_total;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_income_holder;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_income_partner;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_income_family;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_holder_work_regime;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_partner_work_regime;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_family_work_regime;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_has_fgts;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_has_down_payment;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_down_payment_amount;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_has_restriction;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_partner_has_restriction;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_holder_has_ir;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_partner_has_ir;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_ctps_36;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_partner_ctps_36;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_dependents_count;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_ticket_target;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_property_goal;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_profile_summary;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_snapshot_raw;
+-- I) SCORE OPERACIONAL
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_profile_score;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_profile_band;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_work_score_label;
+-- ALTER TABLE public.crm_lead_meta DROP COLUMN IF EXISTS analysis_work_score_reason;

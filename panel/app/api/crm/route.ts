@@ -1,15 +1,51 @@
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 
 import { CrmRequest, REQUIRED_ENVS, listCrmLeads, runCrmAction } from "./_shared";
 
-export async function GET(request: Request) {
-  const missingEnvs = REQUIRED_ENVS.filter((k) => !process.env[k]);
+const AUTH_ENVS = [...REQUIRED_ENVS, "ENOVA_ADMIN_KEY"] as const;
+
+function hasValidAdminKey(received: string, expected: string): boolean {
+  const receivedBuffer = Buffer.from(received);
+  const expectedBuffer = Buffer.from(expected);
+  if (receivedBuffer.length !== expectedBuffer.length) {
+    return false;
+  }
+  return timingSafeEqual(receivedBuffer, expectedBuffer);
+}
+
+function authGuard(request: Request): NextResponse | null {
+  const missingEnvs = AUTH_ENVS.filter((k) => !process.env[k]);
   if (missingEnvs.length > 0) {
     return NextResponse.json(
       { ok: false, error: `missing env: ${missingEnvs.join(", ")}` },
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   }
+
+  const adminKey = process.env.ENOVA_ADMIN_KEY as string;
+  const receivedKey = request.headers.get("x-enova-admin-key") || "";
+
+  if (!receivedKey) {
+    return NextResponse.json(
+      { ok: false, error: "missing x-enova-admin-key" },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  if (!hasValidAdminKey(receivedKey, adminKey)) {
+    return NextResponse.json(
+      { ok: false, error: "invalid x-enova-admin-key" },
+      { status: 403, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  return null;
+}
+
+export async function GET(request: Request) {
+  const denied = authGuard(request);
+  if (denied) return denied;
 
   const { searchParams } = new URL(request.url);
   const tab = searchParams.get("tab") ?? undefined;
@@ -35,6 +71,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const denied = authGuard(request);
+  if (denied) return denied;
+
   let payload: CrmRequest;
 
   try {

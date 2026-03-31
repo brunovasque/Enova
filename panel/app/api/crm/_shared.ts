@@ -42,6 +42,9 @@ export const RESERVE_STATUS = [
 ] as const;
 export type ReserveStatus = (typeof RESERVE_STATUS)[number];
 
+export const ANALYSIS_PROFILE_BAND = ["STRONG", "MEDIUM", "WEAK"] as const;
+export type AnalysisProfileBand = (typeof ANALYSIS_PROFILE_BAND)[number];
+
 // ── Types ──
 
 export type CrmAction =
@@ -61,6 +64,47 @@ export type CrmRequest = {
   analysis_reason_text?: string;
   analysis_partner_name?: string;
   analysis_adjustment_note?: string;
+  // correspondent return
+  analysis_return_summary?: string;
+  analysis_return_reason?: string;
+  analysis_financing_amount?: number;
+  analysis_subsidy_amount?: number;
+  analysis_entry_amount?: number;
+  analysis_monthly_payment?: number;
+  analysis_return_raw?: string;
+  analysis_returned_by?: string;
+  // profile snapshot
+  analysis_profile_type?: string;
+  analysis_holder_name?: string;
+  analysis_partner_name_snapshot?: string;
+  analysis_marital_status?: string;
+  analysis_composition_type?: string;
+  analysis_income_total?: number;
+  analysis_income_holder?: number;
+  analysis_income_partner?: number;
+  analysis_income_family?: number;
+  analysis_holder_work_regime?: string;
+  analysis_partner_work_regime?: string;
+  analysis_family_work_regime?: string;
+  analysis_has_fgts?: boolean;
+  analysis_has_down_payment?: boolean;
+  analysis_down_payment_amount?: number;
+  analysis_has_restriction?: boolean;
+  analysis_partner_has_restriction?: boolean;
+  analysis_holder_has_ir?: boolean;
+  analysis_partner_has_ir?: boolean;
+  analysis_ctps_36?: boolean;
+  analysis_partner_ctps_36?: boolean;
+  analysis_dependents_count?: number;
+  analysis_ticket_target?: number;
+  analysis_property_goal?: string;
+  analysis_profile_summary?: string;
+  analysis_snapshot_raw?: string;
+  // score
+  analysis_profile_score?: number;
+  analysis_profile_band?: string;
+  analysis_work_score_label?: string;
+  analysis_work_score_reason?: string;
   // approved
   approved_purchase_band?: string;
   approved_target_match?: string;
@@ -106,6 +150,22 @@ function normalizeText(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+function normalizeNumeric(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function normalizeInteger(value: unknown): number | null {
+  const n = normalizeNumeric(value);
+  return n !== null ? Math.trunc(n) : null;
+}
+
+function normalizeBoolean(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  return null;
+}
+
 function normalizeTimestamp(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -135,6 +195,30 @@ async function readJsonResponse<T>(response: Response): Promise<T | null> {
 }
 
 // ── DB Operations ──
+
+async function loadCrmLeadMeta(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  waId: string,
+): Promise<Record<string, unknown> | null> {
+  const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
+  endpoint.searchParams.set("select", "*");
+  endpoint.searchParams.set("wa_id", `eq.${waId}`);
+  endpoint.searchParams.set("limit", "1");
+
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: buildSupabaseHeaders(serviceRoleKey),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`FAILED_TO_LOAD_CRM_META:${response.status}`);
+  }
+
+  const rows = (await readJsonResponse<Record<string, unknown>[]>(response)) ?? [];
+  return rows[0] ?? null;
+}
 
 async function patchCrmLeadMeta(
   supabaseUrl: string,
@@ -191,6 +275,11 @@ async function insertOverrideLog(
   }
 }
 
+// Tab filter constants
+const ANALYSIS_TAB_STATUS = ANALYSIS_STATUS as readonly string[];
+const APPROVED_TAB_STATUS: readonly string[] = ["APPROVED_HIGH", "APPROVED_LOW"];
+const REJECTED_TAB_STATUS: readonly string[] = ["REJECTED_RECOVERABLE", "REJECTED_HARD"];
+
 export async function listCrmLeads(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -203,13 +292,13 @@ export async function listCrmLeads(
   const limit = Math.max(1, Math.min(200, Number.isFinite(Number(options.limit)) ? Math.trunc(Number(options.limit)) : 50));
   endpoint.searchParams.set("limit", String(limit));
 
-  // Tab-based filtering
+  // Tab-based filtering using analysis_status enums
   if (options.tab === "analise") {
-    endpoint.searchParams.set("status_analise", "not.is.null");
+    endpoint.searchParams.set("status_analise", `in.(${ANALYSIS_TAB_STATUS.join(",")})`);
   } else if (options.tab === "aprovados") {
-    endpoint.searchParams.set("faixa_aprovacao", "not.is.null");
+    endpoint.searchParams.set("status_analise", `in.(${APPROVED_TAB_STATUS.join(",")})`);
   } else if (options.tab === "reprovados") {
-    endpoint.searchParams.set("codigo_motivo_reprovacao", "not.is.null");
+    endpoint.searchParams.set("status_analise", `in.(${REJECTED_TAB_STATUS.join(",")})`);
   } else if (options.tab === "visita") {
     endpoint.searchParams.set("status_visita", "not.is.null");
   } else if (options.tab === "reserva") {
@@ -227,6 +316,32 @@ export async function listCrmLeads(
   }
 
   return (await readJsonResponse<Record<string, unknown>[]>(response)) ?? [];
+}
+
+// ── Audit helper: log with real from_value ──
+
+async function auditFieldChanges(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  waId: string,
+  current: Record<string, unknown> | null,
+  logFields: Array<{ field: string; to: string | null }>,
+  operatorName: string | null,
+  reasonCode: string | null,
+  reasonText: string | null,
+): Promise<void> {
+  for (const lf of logFields) {
+    const fromValue = current ? String(current[lf.field] ?? "") || null : null;
+    await insertOverrideLog(supabaseUrl, serviceRoleKey, {
+      wa_id: waId,
+      field: lf.field,
+      from_value: fromValue,
+      to_value: lf.to,
+      reason_code: reasonCode,
+      reason_text: reasonText,
+      operator: operatorName,
+    });
+  }
 }
 
 // ── Action Router ──
@@ -255,6 +370,9 @@ export async function runCrmAction(
 
   try {
     if (action === "update_analysis") {
+      // Load current state for real audit trail
+      const current = await loadCrmLeadMeta(supabaseUrl, serviceRoleKey, waId);
+
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
       const logFields: Array<{ field: string; to: string | null }> = [];
 
@@ -285,24 +403,144 @@ export async function runCrmAction(
         patch.analysis_adjustment_note = normalizeText(payload.analysis_adjustment_note);
       }
 
+      // Correspondent return fields
+      if (payload.analysis_return_summary !== undefined) {
+        patch.analysis_return_summary = normalizeText(payload.analysis_return_summary);
+      }
+      if (payload.analysis_return_reason !== undefined) {
+        patch.analysis_return_reason = normalizeText(payload.analysis_return_reason);
+      }
+      if (payload.analysis_financing_amount !== undefined) {
+        patch.analysis_financing_amount = normalizeNumeric(payload.analysis_financing_amount);
+      }
+      if (payload.analysis_subsidy_amount !== undefined) {
+        patch.analysis_subsidy_amount = normalizeNumeric(payload.analysis_subsidy_amount);
+      }
+      if (payload.analysis_entry_amount !== undefined) {
+        patch.analysis_entry_amount = normalizeNumeric(payload.analysis_entry_amount);
+      }
+      if (payload.analysis_monthly_payment !== undefined) {
+        patch.analysis_monthly_payment = normalizeNumeric(payload.analysis_monthly_payment);
+      }
+      if (payload.analysis_return_raw !== undefined) {
+        patch.analysis_return_raw = normalizeText(payload.analysis_return_raw);
+      }
+      if (payload.analysis_returned_by !== undefined) {
+        patch.analysis_returned_by = normalizeText(payload.analysis_returned_by);
+      }
+
+      // Profile snapshot fields
+      if (payload.analysis_profile_type !== undefined) {
+        patch.analysis_profile_type = normalizeText(payload.analysis_profile_type);
+      }
+      if (payload.analysis_holder_name !== undefined) {
+        patch.analysis_holder_name = normalizeText(payload.analysis_holder_name);
+      }
+      if (payload.analysis_partner_name_snapshot !== undefined) {
+        patch.analysis_partner_name_snapshot = normalizeText(payload.analysis_partner_name_snapshot);
+      }
+      if (payload.analysis_marital_status !== undefined) {
+        patch.analysis_marital_status = normalizeText(payload.analysis_marital_status);
+      }
+      if (payload.analysis_composition_type !== undefined) {
+        patch.analysis_composition_type = normalizeText(payload.analysis_composition_type);
+      }
+      if (payload.analysis_income_total !== undefined) {
+        patch.analysis_income_total = normalizeNumeric(payload.analysis_income_total);
+      }
+      if (payload.analysis_income_holder !== undefined) {
+        patch.analysis_income_holder = normalizeNumeric(payload.analysis_income_holder);
+      }
+      if (payload.analysis_income_partner !== undefined) {
+        patch.analysis_income_partner = normalizeNumeric(payload.analysis_income_partner);
+      }
+      if (payload.analysis_income_family !== undefined) {
+        patch.analysis_income_family = normalizeNumeric(payload.analysis_income_family);
+      }
+      if (payload.analysis_holder_work_regime !== undefined) {
+        patch.analysis_holder_work_regime = normalizeText(payload.analysis_holder_work_regime);
+      }
+      if (payload.analysis_partner_work_regime !== undefined) {
+        patch.analysis_partner_work_regime = normalizeText(payload.analysis_partner_work_regime);
+      }
+      if (payload.analysis_family_work_regime !== undefined) {
+        patch.analysis_family_work_regime = normalizeText(payload.analysis_family_work_regime);
+      }
+      if (payload.analysis_has_fgts !== undefined) {
+        patch.analysis_has_fgts = normalizeBoolean(payload.analysis_has_fgts);
+      }
+      if (payload.analysis_has_down_payment !== undefined) {
+        patch.analysis_has_down_payment = normalizeBoolean(payload.analysis_has_down_payment);
+      }
+      if (payload.analysis_down_payment_amount !== undefined) {
+        patch.analysis_down_payment_amount = normalizeNumeric(payload.analysis_down_payment_amount);
+      }
+      if (payload.analysis_has_restriction !== undefined) {
+        patch.analysis_has_restriction = normalizeBoolean(payload.analysis_has_restriction);
+      }
+      if (payload.analysis_partner_has_restriction !== undefined) {
+        patch.analysis_partner_has_restriction = normalizeBoolean(payload.analysis_partner_has_restriction);
+      }
+      if (payload.analysis_holder_has_ir !== undefined) {
+        patch.analysis_holder_has_ir = normalizeBoolean(payload.analysis_holder_has_ir);
+      }
+      if (payload.analysis_partner_has_ir !== undefined) {
+        patch.analysis_partner_has_ir = normalizeBoolean(payload.analysis_partner_has_ir);
+      }
+      if (payload.analysis_ctps_36 !== undefined) {
+        patch.analysis_ctps_36 = normalizeBoolean(payload.analysis_ctps_36);
+      }
+      if (payload.analysis_partner_ctps_36 !== undefined) {
+        patch.analysis_partner_ctps_36 = normalizeBoolean(payload.analysis_partner_ctps_36);
+      }
+      if (payload.analysis_dependents_count !== undefined) {
+        patch.analysis_dependents_count = normalizeInteger(payload.analysis_dependents_count);
+      }
+      if (payload.analysis_ticket_target !== undefined) {
+        patch.analysis_ticket_target = normalizeNumeric(payload.analysis_ticket_target);
+      }
+      if (payload.analysis_property_goal !== undefined) {
+        patch.analysis_property_goal = normalizeText(payload.analysis_property_goal);
+      }
+      if (payload.analysis_profile_summary !== undefined) {
+        patch.analysis_profile_summary = normalizeText(payload.analysis_profile_summary);
+      }
+      if (payload.analysis_snapshot_raw !== undefined) {
+        patch.analysis_snapshot_raw = normalizeText(payload.analysis_snapshot_raw);
+      }
+
+      // Score fields
+      if (payload.analysis_profile_score !== undefined) {
+        patch.analysis_profile_score = normalizeInteger(payload.analysis_profile_score);
+      }
+      if (payload.analysis_profile_band !== undefined) {
+        if (payload.analysis_profile_band && !isValidEnum(payload.analysis_profile_band, ANALYSIS_PROFILE_BAND)) {
+          return { status: 400, body: { ok: false, error: "analysis_profile_band inválido" } };
+        }
+        patch.analysis_profile_band = normalizeText(payload.analysis_profile_band);
+      }
+      if (payload.analysis_work_score_label !== undefined) {
+        patch.analysis_work_score_label = normalizeText(payload.analysis_work_score_label);
+      }
+      if (payload.analysis_work_score_reason !== undefined) {
+        patch.analysis_work_score_reason = normalizeText(payload.analysis_work_score_reason);
+      }
+
       const saved = await patchCrmLeadMeta(supabaseUrl, serviceRoleKey, waId, patch);
 
-      for (const lf of logFields) {
-        await insertOverrideLog(supabaseUrl, serviceRoleKey, {
-          wa_id: waId,
-          field: lf.field,
-          from_value: null,
-          to_value: lf.to,
-          reason_code: normalizeText(payload.analysis_reason_code),
-          reason_text: normalizeText(payload.analysis_reason_text),
-          operator: normalizeText(payload.operator),
-        });
-      }
+      await auditFieldChanges(
+        supabaseUrl, serviceRoleKey, waId, current, logFields,
+        normalizeText(payload.operator),
+        normalizeText(payload.analysis_reason_code),
+        normalizeText(payload.analysis_reason_text),
+      );
 
       return { status: 200, body: { ok: true, action, lead: saved } };
     }
 
     if (action === "update_visit") {
+      const current = await loadCrmLeadMeta(supabaseUrl, serviceRoleKey, waId);
+
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
       const logFields: Array<{ field: string; to: string | null }> = [];
 
@@ -352,22 +590,19 @@ export async function runCrmAction(
 
       const saved = await patchCrmLeadMeta(supabaseUrl, serviceRoleKey, waId, patch);
 
-      for (const lf of logFields) {
-        await insertOverrideLog(supabaseUrl, serviceRoleKey, {
-          wa_id: waId,
-          field: lf.field,
-          from_value: null,
-          to_value: lf.to,
-          reason_code: normalizeText(payload.reason_code),
-          reason_text: normalizeText(payload.reason_text),
-          operator: normalizeText(payload.operator),
-        });
-      }
+      await auditFieldChanges(
+        supabaseUrl, serviceRoleKey, waId, current, logFields,
+        normalizeText(payload.operator),
+        normalizeText(payload.reason_code),
+        normalizeText(payload.reason_text),
+      );
 
       return { status: 200, body: { ok: true, action, lead: saved } };
     }
 
     if (action === "update_reserve") {
+      const current = await loadCrmLeadMeta(supabaseUrl, serviceRoleKey, waId);
+
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
       const logFields: Array<{ field: string; to: string | null }> = [];
 
@@ -398,22 +633,19 @@ export async function runCrmAction(
 
       const saved = await patchCrmLeadMeta(supabaseUrl, serviceRoleKey, waId, patch);
 
-      for (const lf of logFields) {
-        await insertOverrideLog(supabaseUrl, serviceRoleKey, {
-          wa_id: waId,
-          field: lf.field,
-          from_value: null,
-          to_value: lf.to,
-          reason_code: normalizeText(payload.reason_code),
-          reason_text: normalizeText(payload.reason_text),
-          operator: normalizeText(payload.operator),
-        });
-      }
+      await auditFieldChanges(
+        supabaseUrl, serviceRoleKey, waId, current, logFields,
+        normalizeText(payload.operator),
+        normalizeText(payload.reason_code),
+        normalizeText(payload.reason_text),
+      );
 
       return { status: 200, body: { ok: true, action, lead: saved } };
     }
 
     if (action === "update_approved") {
+      const current = await loadCrmLeadMeta(supabaseUrl, serviceRoleKey, waId);
+
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
       const logFields: Array<{ field: string; to: string | null }> = [];
 
@@ -442,22 +674,19 @@ export async function runCrmAction(
 
       const saved = await patchCrmLeadMeta(supabaseUrl, serviceRoleKey, waId, patch);
 
-      for (const lf of logFields) {
-        await insertOverrideLog(supabaseUrl, serviceRoleKey, {
-          wa_id: waId,
-          field: lf.field,
-          from_value: null,
-          to_value: lf.to,
-          reason_code: normalizeText(payload.reason_code),
-          reason_text: normalizeText(payload.reason_text),
-          operator: normalizeText(payload.operator),
-        });
-      }
+      await auditFieldChanges(
+        supabaseUrl, serviceRoleKey, waId, current, logFields,
+        normalizeText(payload.operator),
+        normalizeText(payload.reason_code),
+        normalizeText(payload.reason_text),
+      );
 
       return { status: 200, body: { ok: true, action, lead: saved } };
     }
 
     if (action === "update_rejection") {
+      const current = await loadCrmLeadMeta(supabaseUrl, serviceRoleKey, waId);
+
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
       const logFields: Array<{ field: string; to: string | null }> = [];
 
@@ -490,17 +719,12 @@ export async function runCrmAction(
 
       const saved = await patchCrmLeadMeta(supabaseUrl, serviceRoleKey, waId, patch);
 
-      for (const lf of logFields) {
-        await insertOverrideLog(supabaseUrl, serviceRoleKey, {
-          wa_id: waId,
-          field: lf.field,
-          from_value: null,
-          to_value: lf.to,
-          reason_code: normalizeText(payload.reason_code),
-          reason_text: normalizeText(payload.reason_text),
-          operator: normalizeText(payload.operator),
-        });
-      }
+      await auditFieldChanges(
+        supabaseUrl, serviceRoleKey, waId, current, logFields,
+        normalizeText(payload.operator),
+        normalizeText(payload.reason_code),
+        normalizeText(payload.reason_text),
+      );
 
       return { status: 200, body: { ok: true, action, lead: saved } };
     }

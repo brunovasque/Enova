@@ -56,11 +56,13 @@ export type BasesAction =
   | "pause_lead"
   | "resume_lead"
   | "call_now"
-  | "warmup_base";
+  | "warmup_base"
+  | "warmup_dispatch";
 
 export type BasesRequest = {
   action?: BasesAction;
   wa_id?: string;
+  wa_ids?: string[];
   nome?: string;
   telefone?: string;
   text?: string;
@@ -85,7 +87,8 @@ type AuditLogRow = {
     | "bases_pause"
     | "bases_resume"
     | "bases_call_now"
-    | "bases_warmup";
+    | "bases_warmup"
+    | "bases_warmup_dispatch";
   meta_text: string;
   details: Record<string, unknown>;
 };
@@ -697,6 +700,86 @@ export async function runBasesAction(
           dispatch_mode: "selection_only",
           selected_count: selection.length,
           leads: selection,
+        },
+      };
+    }
+
+    if (action === "warmup_dispatch") {
+      const waIds = Array.isArray(payload.wa_ids)
+        ? payload.wa_ids.filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+        : [];
+      const text = normalizeOptionalText(payload.text);
+
+      if (waIds.length === 0) {
+        return { status: 400, body: { ok: false, error: "wa_ids é obrigatório" } };
+      }
+      if (!text) {
+        return { status: 400, body: { ok: false, error: "text é obrigatório" } };
+      }
+
+      const missingCallNowEnvs = missingEnvNames(CALL_NOW_ENVS, envMap);
+      if (missingCallNowEnvs.length > 0) {
+        return {
+          status: 500,
+          body: { ok: false, error: `missing env: ${missingCallNowEnvs.join(", ")}` },
+        };
+      }
+
+      const workerEndpoint = new URL("/__admin__/send", envMap.WORKER_BASE_URL as string);
+
+      type DispatchResult = { wa_id: string; ok: boolean; reason?: string; message_id?: string };
+      const results: DispatchResult[] = [];
+
+      for (const waId of waIds) {
+        const existing = await loadLeadMeta(supabaseUrl, serviceRoleKey, waId);
+        const eligibility = assessCallNowEligibility(existing);
+        if (!eligibility.ok) {
+          results.push({ wa_id: waId, ok: false, reason: eligibility.reason });
+          continue;
+        }
+        try {
+          const workerResponse = await fetch(workerEndpoint, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-enova-admin-key": envMap.ENOVA_ADMIN_KEY as string,
+            },
+            body: JSON.stringify({ wa_id: waId, text }),
+            cache: "no-store",
+          });
+          const workerJson = (await readJsonResponse<Record<string, unknown>>(workerResponse)) ?? {};
+          results.push({
+            wa_id: waId,
+            ok: workerResponse.ok,
+            message_id: typeof workerJson.message_id === "string" ? workerJson.message_id : undefined,
+          });
+        } catch (dispatchErr) {
+          console.error("[warmup_dispatch] failed to dispatch wa_id:", waId, dispatchErr);
+          results.push({ wa_id: waId, ok: false, reason: "DISPATCH_ERROR" });
+        }
+      }
+
+      await insertAuditLogs(
+        supabaseUrl,
+        serviceRoleKey,
+        results.map((r) =>
+          buildAuditRow(r.wa_id, "bases_warmup_dispatch", r.ok ? "Warmup dispatch enviado" : "Warmup dispatch bloqueado", {
+            ok: r.ok,
+            reason: r.reason ?? null,
+            message_id: r.message_id ?? null,
+          }),
+        ),
+      );
+
+      const sentCount = results.filter((r) => r.ok).length;
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          action,
+          sent_count: sentCount,
+          total: waIds.length,
+          results,
         },
       };
     }

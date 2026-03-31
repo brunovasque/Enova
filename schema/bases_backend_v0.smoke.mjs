@@ -271,6 +271,31 @@ try {
     );
   }
 
+  {
+    const { status, body: data } = await runBasesAction({
+      action: "warmup_dispatch",
+      wa_ids: ["5511999990002"],
+      text: "Oi, tudo bem? Passando para retomar contato.",
+    });
+    assert.equal(status, 200);
+    assert.equal(data.ok, true);
+    assert.equal(data.sent_count, 1);
+    assert.equal(data.total, 1);
+    assert.equal(workerCalls.length, 2);
+  }
+
+  {
+    // warmup_dispatch with unknown lead must not dispatch and return sent_count=0
+    const { status, body: data } = await runBasesAction({
+      action: "warmup_dispatch",
+      wa_ids: ["5599000000000"],
+      text: "tentativa",
+    });
+    assert.equal(status, 200);
+    assert.equal(data.sent_count, 0);
+    assert.equal(workerCalls.length, 2);
+  }
+
   const helperSelection = buildWarmupSelection(Array.from(metaRows.values()), {
     lead_pool: "COLD_POOL",
     limit: 10,
@@ -292,6 +317,7 @@ try {
   assert.ok(tags.includes("bases_resume"));
   assert.ok(tags.includes("bases_call_now"));
   assert.ok(tags.includes("bases_warmup"));
+  assert.ok(tags.includes("bases_warmup_dispatch"));
 
   console.log("bases_backend_v0.smoke: ok");
 } finally {

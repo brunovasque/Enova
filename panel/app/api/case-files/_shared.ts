@@ -109,6 +109,7 @@ export function normalizeCaseFiles(waId: string, rows: EnovaDocRow[]): CaseFileI
     const normalizedUrl = normalizeUrl(row);
     const hasLink = Boolean(normalizedUrl);
 
+    // mime type is inferred from the URL extension, so it's only meaningful when a URL is available
     const normalizedMimeType = hasLink ? normalizeMimeType(row) : null;
     items.push({
       file_id: buildStableFileId(waId, row, normalizedUrl, normalizedMimeType, index),

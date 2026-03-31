@@ -731,8 +731,7 @@ export function BasesUI() {
             value={importData.entrada}
             onChange={(e) =>
               setImportData({ ...importData, entrada: e.target.value })
-            }
-                  placeholder="Importação 001"
+            }                  
                 />
               </div>
               <div className={styles.formHint}>

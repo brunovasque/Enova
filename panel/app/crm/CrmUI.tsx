@@ -17,7 +17,15 @@ type CrmLeadRow = {
   origem: string | null;
   lead_pool: string | null;
   lead_temp: string | null;
-  fase_funil: FaseFunil | null;
+  // enova_state funnel fields (read-only, source of truth for phase classification)
+  // fase_funil can be any funnel stage string (envio_docs, aguardando_retorno_correspondente, etc.)
+  fase_funil: string | null;
+  status_funil: string | null;
+  status_docs_funil: string | null;
+  aprovado_funil: boolean | null;
+  reprovado_funil: boolean | null;
+  visita_confirmada_funil: boolean | null;
+  // crm_lead_meta analysis fields
   status_analise: string | null;
   codigo_motivo_analise: string | null;
   motivo_analise: string | null;
@@ -182,17 +190,41 @@ function onStatKeyDown(event: React.KeyboardEvent<HTMLDivElement>, onActivate: (
 }
 
 // ── Classificação CRM: deriva aba operacional a partir do estado real do lead ──
-// Regra: apenas leads que entraram em envio_docs (analysis_status definido) aparecem no CRM.
-// Leads com analysis_status = null são excluídos de todas as abas.
+// Regra de prioridade:
+//   1. CRM-terminal (estado explícito definido pelo operador CRM) → máxima prioridade
+//   2. Estado real do funil (enova_state.fase_conversa, aprovado_funil, etc.) → fonte de verdade
+//   3. States CRM in-progress (DOCS_READY, SENT, etc.)
+//   4. Pasta (envio_docs ou DOCS_PENDING)
+//   5. null → excluído (lead anterior a envio_docs, sem status CRM)
+// Stages posteriores a envio_docs (funil real):
+// aguardando_retorno_correspondente = waiting for correspondent's return → Análise
+// agendamento_visita / visita_confirmada / finalizacao_processo = visit stages → Visita
+// envio_docs = client entered docs flow but has not completed yet → Pasta
+const FASE_FUNIL_ANALISE = ["aguardando_retorno_correspondente"];
+const FASE_FUNIL_VISITA = ["agendamento_visita", "visita_confirmada", "finalizacao_processo"];
+const FASE_FUNIL_PASTA = ["envio_docs"];
 function getEtapaCrm(lead: CrmLeadRow): FaseFunil | null {
-  // Visita tem prioridade se status_visita estiver preenchido
+  const analise = lead.status_analise ?? "";
+
+  // ── P1: CRM-terminal states (operator has explicitly set) ──
   if (lead.status_visita) return "VISITA";
-  const s = lead.status_analise ?? "";
-  if (s === "DOCS_PENDING") return "PASTA";
-  if (["DOCS_READY", "SENT", "UNDER_ANALYSIS", "ADJUSTMENT_REQUIRED"].includes(s)) return "ANALISE";
-  if (["APPROVED_HIGH", "APPROVED_LOW"].includes(s)) return "APROVADO";
-  if (["REJECTED_RECOVERABLE", "REJECTED_HARD"].includes(s)) return "REPROVADO";
-  // analysis_status nulo ou desconhecido → lead ainda não entrou no fluxo operacional do CRM
+  if (["APPROVED_HIGH", "APPROVED_LOW"].includes(analise)) return "APROVADO";
+  if (["REJECTED_RECOVERABLE", "REJECTED_HARD"].includes(analise)) return "REPROVADO";
+
+  // ── P2: Real funnel state (enova_state) ──
+  const fase = lead.fase_funil ?? "";
+  if (lead.aprovado_funil === true || lead.status_funil === "aprovado_correspondente") return "APROVADO";
+  if (lead.reprovado_funil === true || lead.status_funil === "reprovado_correspondente") return "REPROVADO";
+  if (FASE_FUNIL_VISITA.includes(fase) || lead.visita_confirmada_funil === true) return "VISITA";
+  if (FASE_FUNIL_ANALISE.includes(fase)) return "ANALISE";
+
+  // ── P3: CRM in-progress analysis states ──
+  if (["DOCS_READY", "SENT", "UNDER_ANALYSIS", "ADJUSTMENT_REQUIRED"].includes(analise)) return "ANALISE";
+
+  // ── P4: Pasta states (incomplete docs) ──
+  if (analise === "DOCS_PENDING" || FASE_FUNIL_PASTA.includes(fase)) return "PASTA";
+
+  // ── Excluded: no CRM status and before envio_docs ──
   return null;
 }
 

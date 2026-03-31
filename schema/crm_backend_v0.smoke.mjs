@@ -38,6 +38,48 @@ function parseIn(value) {
   return match[1].split(",");
 }
 
+// Split "col.in.(a,b,c),col2.eq.val" respecting parentheses
+function splitOrConditions(str) {
+  const parts = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of str) {
+    if (ch === "(") { depth++; current += ch; }
+    else if (ch === ")") { depth--; current += ch; }
+    else if (ch === "," && depth === 0) { parts.push(current.trim()); current = ""; }
+    else { current += ch; }
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+// Evaluate a single OR condition string against a row object
+// Supports: col.in.(v1,v2), col.eq.val, col.is.true, col.not.is.null
+function evalOrCondition(row, cond) {
+  // col.not.is.null
+  const notNullMatch = cond.match(/^(.+)\.not\.is\.null$/);
+  if (notNullMatch) return row[notNullMatch[1]] != null;
+  // col.is.null
+  const isNullMatch = cond.match(/^(.+)\.is\.null$/);
+  if (isNullMatch) return row[isNullMatch[1]] == null;
+  // col.is.true
+  const isTrueMatch = cond.match(/^(.+)\.is\.true$/);
+  if (isTrueMatch) return row[isTrueMatch[1]] === true;
+  // col.is.false
+  const isFalseMatch = cond.match(/^(.+)\.is\.false$/);
+  if (isFalseMatch) return row[isFalseMatch[1]] === false;
+  // col.eq.val
+  const eqMatch = cond.match(/^(.+)\.eq\.(.+)$/);
+  if (eqMatch) return String(row[eqMatch[1]] ?? "") === eqMatch[2];
+  // col.in.(v1,v2,...)
+  const inMatch = cond.match(/^(.+)\.in\.\((.+)\)$/);
+  if (inMatch) {
+    const vals = inMatch[2].split(",");
+    return vals.includes(String(row[inMatch[1]] ?? ""));
+  }
+  return false;
+}
+
 // Seed a base lead in metaRows for testing
 function seedLead(waId, extra = {}) {
   const base = {
@@ -57,6 +99,13 @@ function seedLead(waId, extra = {}) {
     ultima_acao: null,
     ultimo_contato_at: null,
     status_operacional: null,
+    // enova_state funnel fields (source of truth for phase classification)
+    fase_conversa: null,
+    funil_status: null,
+    docs_status: null,
+    processo_aprovado: null,
+    processo_reprovado: null,
+    visita_confirmada: null,
     // CRM operational fields (all null by default)
     analysis_status: null,
     analysis_reason_code: null,
@@ -201,12 +250,13 @@ globalThis.fetch = async (input, init = {}) => {
       lead_pool: m.lead_pool,
       lead_temp: m.lead_temp,
       origem: m.lead_source,
-      fase_funil: null,
-      status_funil: null,
-      status_docs_funil: null,
-      aprovado_funil: null,
-      reprovado_funil: null,
-      visita_confirmada_funil: null,
+      // enova_state funnel fields (PT-BR aliases from the view)
+      fase_funil: m.fase_conversa,
+      status_funil: m.funil_status,
+      status_docs_funil: m.docs_status,
+      aprovado_funil: m.processo_aprovado,
+      reprovado_funil: m.processo_reprovado,
+      visita_confirmada_funil: m.visita_confirmada,
       visita_agendada_funil: null,
       // Analysis
       status_analise: m.analysis_status,
@@ -298,7 +348,7 @@ globalThis.fetch = async (input, init = {}) => {
       atualizado_em: m.updated_at,
     }));
 
-    // Tab filters — smart enum-based
+    // Tab filters — support both simple and OR-based conditions
     const statusAnalise = url.searchParams.get("status_analise");
     if (statusAnalise) {
       const inValues = parseIn(statusAnalise);
@@ -312,6 +362,15 @@ globalThis.fetch = async (input, init = {}) => {
     if (statusVisita === "not.is.null") rows = rows.filter((r) => r.status_visita != null);
     const statusReserva = url.searchParams.get("status_reserva");
     if (statusReserva === "not.is.null") rows = rows.filter((r) => r.status_reserva != null);
+
+    // OR conditions (PostgREST format: "or=(cond1,cond2)")
+    const orParam = url.searchParams.get("or");
+    if (orParam) {
+      // Parse the or=(cond1,cond2,...) — handles: col.in.(v1,v2), col.eq.val, col.is.true, col.not.is.null
+      const inner = orParam.replace(/^\(|\)$/g, ""); // strip outer parens
+      const conditions = splitOrConditions(inner);
+      rows = rows.filter((r) => conditions.some((cond) => evalOrCondition(r, cond)));
+    }
 
     const limit = Number(url.searchParams.get("limit") || rows.length);
     return jsonResponse(rows.slice(0, limit), 200);
@@ -693,85 +752,130 @@ try {
     assert.equal(status, 500);
   });
 
-  // ── 11. Smart tab filters ──
-  console.log("── Smart tab filters ──");
+  // ── 11. Smart tab filters + funnel-fidelity tests ──
+  console.log("── Smart tab filters + funnel fidelity ──");
 
-  // Set up leads for tab tests
-  // lead 1: APPROVED_HIGH, lead 2: SENT, lead 5: REJECTED_HARD
-  // lead 3: visit_status = CONFIRMED, lead 4: reserve_status = UNDER_REVIEW
-  // lead 6: DOCS_PENDING (pasta incompleta)
-
+  // Funnel-based leads (no CRM analysis_status, but real funnel state)
+  // lead 7: aguardando_retorno_correspondente (no analysis_status) → should appear in ANALISE
+  // lead 8: envio_docs in funnel (no analysis_status) → PASTA
+  // lead 9: processo_aprovado = true (no analysis_status) → APROVADO
+  // lead 10: processo_reprovado = true (no analysis_status) → REPROVADO
+  // lead 11: agendamento_visita (no analysis_status) → VISITA
+  // lead 12: before envio_docs (analysis_status = null, fase_conversa = estado_civil) → EXCLUDED
+  seedLead("5511999990007", { fase_conversa: "aguardando_retorno_correspondente" });
+  seedLead("5511999990008", { fase_conversa: "envio_docs" });
+  seedLead("5511999990009", { processo_aprovado: true, funil_status: "aprovado_correspondente" });
+  seedLead("5511999990010", { processo_reprovado: true, funil_status: "reprovado_correspondente" });
+  seedLead("5511999990011", { fase_conversa: "agendamento_visita" });
+  seedLead("5511999990012", { fase_conversa: "estado_civil" }); // excluded — before envio_docs
+  // lead 6: CRM DOCS_PENDING
   seedLead("5511999990006", { analysis_status: "DOCS_PENDING" });
 
-  await test("tab=pasta returns only DOCS_PENDING leads", async () => {
+  // ── Previously existing leads (still present):
+  // lead 1: APPROVED_HIGH (analysis_status)
+  // lead 2: SENT (analysis_status)
+  // lead 5: REJECTED_HARD (analysis_status)
+  // lead 6: DOCS_PENDING (analysis_status)
+
+  await test("tab=pasta returns DOCS_PENDING leads AND funnel envio_docs leads", async () => {
     const leads = await listCrmLeads(
       "https://supabase.example",
       "service-role",
       { tab: "pasta" },
     );
-    assert.ok(leads.length >= 1, `expected >=1 lead in pasta, got ${leads.length}`);
+    assert.ok(leads.length >= 2, `expected >=2 leads in pasta (DOCS_PENDING + envio_docs funnel), got ${leads.length}`);
     for (const l of leads) {
-      assert.equal(l.status_analise, "DOCS_PENDING", `expected DOCS_PENDING, got ${l.status_analise}`);
+      const isDocsPending = l.status_analise === "DOCS_PENDING";
+      const isEnvioDocs = l.fase_funil === "envio_docs";
+      assert.ok(isDocsPending || isEnvioDocs, `expected DOCS_PENDING or envio_docs, got status=${l.status_analise} fase=${l.fase_funil}`);
     }
   });
 
-  await test("tab=analise returns only DOCS_READY/SENT/UNDER_ANALYSIS/ADJUSTMENT_REQUIRED leads", async () => {
+  await test("tab=analise returns CRM-analysis leads AND aguardando_retorno_correspondente funnel leads", async () => {
     const leads = await listCrmLeads(
       "https://supabase.example",
       "service-role",
       { tab: "analise" },
     );
-    // lead 2 has analysis_status=SENT; leads with APPROVED_HIGH / REJECTED_HARD must NOT appear here
-    assert.ok(leads.length >= 1, `expected >=1 lead in analise, got ${leads.length}`);
+    // lead 2 (SENT) + lead 7 (aguardando_retorno_correspondente, no CRM status)
+    assert.ok(leads.length >= 2, `expected >=2 leads in analise, got ${leads.length}`);
     const ANALISE_STATUSES = ["DOCS_READY", "SENT", "UNDER_ANALYSIS", "ADJUSTMENT_REQUIRED"];
     for (const l of leads) {
-      assert.ok(
-        ANALISE_STATUSES.includes(l.status_analise),
-        `expected analise status, got ${l.status_analise}`,
-      );
+      const hasCrmStatus = ANALISE_STATUSES.includes(l.status_analise);
+      const hasFunnelPhase = l.fase_funil === "aguardando_retorno_correspondente";
+      assert.ok(hasCrmStatus || hasFunnelPhase,
+        `expected analise CRM status or aguardando_retorno_correspondente, got status=${l.status_analise} fase=${l.fase_funil}`);
     }
   });
 
-  await test("tab=aprovados returns only APPROVED_HIGH / APPROVED_LOW", async () => {
+  await test("tab=analise: aguardando_retorno_correspondente lead with no CRM status is included", async () => {
+    const leads = await listCrmLeads(
+      "https://supabase.example",
+      "service-role",
+      { tab: "analise" },
+    );
+    const lead7 = leads.find((l) => l.wa_id === "5511999990007");
+    assert.ok(lead7, "lead 7 (aguardando_retorno_correspondente, no CRM status) should be in analise tab");
+    assert.equal(lead7.status_analise, null, "lead 7 has no CRM analysis_status");
+    assert.equal(lead7.fase_funil, "aguardando_retorno_correspondente", "lead 7 is in aguardando_retorno_correspondente");
+  });
+
+  await test("tab=aprovados returns APPROVED leads AND funnel aprovado leads", async () => {
     const leads = await listCrmLeads(
       "https://supabase.example",
       "service-role",
       { tab: "aprovados" },
     );
-    assert.ok(leads.length >= 1, "at least 1 approved lead");
+    assert.ok(leads.length >= 2, `expected >=2 approved leads (CRM + funnel), got ${leads.length}`);
     for (const l of leads) {
-      assert.ok(
-        l.status_analise === "APPROVED_HIGH" || l.status_analise === "APPROVED_LOW",
-        `expected APPROVED_*, got ${l.status_analise}`,
-      );
+      const hasCrmApproval = l.status_analise === "APPROVED_HIGH" || l.status_analise === "APPROVED_LOW";
+      const hasFunnelApproval = l.aprovado_funil === true || l.status_funil === "aprovado_correspondente";
+      assert.ok(hasCrmApproval || hasFunnelApproval,
+        `expected APPROVED_* or aprovado_funil, got status=${l.status_analise} aprovado=${l.aprovado_funil}`);
     }
   });
 
-  await test("tab=reprovados returns only REJECTED_RECOVERABLE / REJECTED_HARD", async () => {
+  await test("tab=reprovados returns REJECTED leads AND funnel reprovado leads", async () => {
     const leads = await listCrmLeads(
       "https://supabase.example",
       "service-role",
       { tab: "reprovados" },
     );
-    assert.ok(leads.length >= 1, "at least 1 rejected lead");
+    assert.ok(leads.length >= 2, `expected >=2 rejected leads (CRM + funnel), got ${leads.length}`);
     for (const l of leads) {
-      assert.ok(
-        l.status_analise === "REJECTED_RECOVERABLE" || l.status_analise === "REJECTED_HARD",
-        `expected REJECTED_*, got ${l.status_analise}`,
-      );
+      const hasCrmRejection = l.status_analise === "REJECTED_RECOVERABLE" || l.status_analise === "REJECTED_HARD";
+      const hasFunnelRejection = l.reprovado_funil === true || l.status_funil === "reprovado_correspondente";
+      assert.ok(hasCrmRejection || hasFunnelRejection,
+        `expected REJECTED_* or reprovado_funil, got status=${l.status_analise} reprovado=${l.reprovado_funil}`);
     }
   });
 
-  await test("tab=visita returns leads with visit_status set", async () => {
+  await test("tab=visita returns CRM visit leads AND funnel agendamento_visita leads", async () => {
     const leads = await listCrmLeads(
       "https://supabase.example",
       "service-role",
       { tab: "visita" },
     );
-    assert.ok(leads.length >= 1, "at least 1 lead in visita");
+    assert.ok(leads.length >= 2, `expected >=2 visita leads (CRM + funnel), got ${leads.length}`);
     for (const l of leads) {
-      assert.notEqual(l.status_visita, null);
+      const hasCrmVisit = l.status_visita != null;
+      const hasFunnelVisit = ["agendamento_visita", "visita_confirmada", "finalizacao_processo"].includes(l.fase_funil);
+      const hasConfirmedVisit = l.visita_confirmada_funil === true;
+      assert.ok(hasCrmVisit || hasFunnelVisit || hasConfirmedVisit,
+        `expected CRM visit status or funnel visit phase, got status_visita=${l.status_visita} fase=${l.fase_funil}`);
     }
+  });
+
+  await test("lead only in envio_docs funnel (no CRM status) appears in pasta tab", async () => {
+    const leads = await listCrmLeads(
+      "https://supabase.example",
+      "service-role",
+      { tab: "pasta" },
+    );
+    const lead8 = leads.find((l) => l.wa_id === "5511999990008");
+    assert.ok(lead8, "lead 8 (envio_docs in funnel, no CRM status) should appear in pasta tab");
+    assert.equal(lead8.status_analise, null, "lead 8 has no CRM analysis_status");
+    assert.equal(lead8.fase_funil, "envio_docs", "lead 8 is in envio_docs funnel phase");
   });
 
   await test("tab=reserva returns leads with reserve_status set", async () => {

@@ -6,6 +6,7 @@ export type EnovaDocRow = {
   participante: string | null;
   created_at: string | null;
   url: string | null;
+  media_id?: string | null;
   document_url?: string | null;
   download_url?: string | null;
   media_url?: string | null;
@@ -22,22 +23,33 @@ export type CaseFileItem = {
   file_name: string | null;
   size_bytes: number | null;
   previewable: boolean;
+  has_link: boolean;
 };
 
 const URL_FIELDS = ["url", "document_url", "download_url", "media_url", "link"] as const;
+
+const META_API_VERSION = "v20.0";
 
 function normalizeUrl(row: EnovaDocRow): string {
   for (const field of URL_FIELDS) {
     const candidate = String(row[field] || "").trim();
     if (candidate) return candidate;
   }
+  const mediaId = String(row.media_id || "").trim();
+  if (mediaId) {
+    return `https://graph.facebook.com/${META_API_VERSION}/${mediaId}`;
+  }
   return "";
 }
 
 function buildDedupKey(row: EnovaDocRow): string {
   const normalizedUrl = normalizeUrl(row);
+  // Use a "\0" prefix as URL placeholder for rows that have no resolvable URL,
+  // so that null-URL rows are deduped by tipo+participante+created_at instead
+  // of being collapsed with all other null-URL rows under one key.
+  const urlPart = normalizedUrl || "\0";
   return [
-    normalizedUrl,
+    urlPart,
     String(row.tipo || "").trim().toLowerCase(),
     String(row.participante || "").trim().toLowerCase(),
     String(row.created_at || "").trim(),
@@ -48,9 +60,8 @@ function dedupeRows(rows: EnovaDocRow[]): EnovaDocRow[] {
   const deduped: EnovaDocRow[] = [];
   const seen = new Set<string>();
   for (const row of Array.isArray(rows) ? rows : []) {
-    const normalizedUrl = normalizeUrl(row);
     const key = buildDedupKey(row);
-    if (!normalizedUrl || seen.has(key)) continue;
+    if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(row);
   }
@@ -96,11 +107,9 @@ export function normalizeCaseFiles(waId: string, rows: EnovaDocRow[]): CaseFileI
   const items: CaseFileItem[] = [];
   rows.forEach((row, index) => {
     const normalizedUrl = normalizeUrl(row);
-    if (!normalizedUrl) {
-      return;
-    }
+    const hasLink = Boolean(normalizedUrl);
 
-    const normalizedMimeType = normalizeMimeType(row);
+    const normalizedMimeType = hasLink ? normalizeMimeType(row) : null;
     items.push({
       file_id: buildStableFileId(waId, row, normalizedUrl, normalizedMimeType, index),
       wa_id: waId,
@@ -110,7 +119,8 @@ export function normalizeCaseFiles(waId: string, rows: EnovaDocRow[]): CaseFileI
       mime_type: normalizedMimeType,
       file_name: null,
       size_bytes: null,
-      previewable: isPreviewable(normalizedMimeType),
+      previewable: hasLink && isPreviewable(normalizedMimeType),
+      has_link: hasLink,
     });
   });
   return items;
@@ -142,6 +152,7 @@ export function resolveCaseFileById(
         file_name: null,
         size_bytes: null,
         previewable: isPreviewable(normalizedMimeType),
+        has_link: true,
       },
       sourceUrl: normalizedUrl,
     };

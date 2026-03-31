@@ -477,4 +477,70 @@ async function fetchEntryHtml(env) {
   }
 }
 
+// 9) Lookaside URL with mid in querystring (no media_id column) — production legacy scenario.
+//    enova_docs.url = "https://lookaside.fbsbx.com/...?mid=XYZ", media_id absent.
+//    Must extract mid from URL, reconstruct Graph API URL, resolve fresh download URL,
+//    materialize in R2, and update private_object_key / private_materialized_at.
+{
+  const env = buildEnvWithState();
+  const bucket = buildMemoryR2Bucket();
+  env.CORRESPONDENTE_DOCS_BUCKET = bucket;
+  env.__enovaSimulationCtx.docsByWaId = {
+    [waCaso]: [
+      {
+        doc_id: "doc-legacy-mid-url-1",
+        tipo: "rg",
+        participante: "p1",
+        status: "recebido",
+        url: "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=legacy-mid-abc123",
+        file_name: "rg-legacy.pdf"
+        // no media_id property — mirrors real enova_docs schema
+      }
+    ]
+  };
+
+  const originalFetch = globalThis.fetch;
+  let lookaside1Calls = 0;
+  let graphResolveCalls = 0;
+  let lookaside2Calls = 0;
+  globalThis.fetch = async (input, init = {}) => {
+    const asString = String(input || "");
+    // First access to the stored expired lookaside URL returns 401/403
+    if (asString === "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=legacy-mid-abc123") {
+      lookaside1Calls += 1;
+      return new Response("expired", { status: 401 });
+    }
+    // Graph API resolution for extracted mid
+    if (asString === "https://graph.facebook.com/v20.0/legacy-mid-abc123") {
+      graphResolveCalls += 1;
+      assert.equal(String(init?.headers?.Authorization || ""), `Bearer ${env.WHATS_TOKEN}`);
+      return new Response(
+        JSON.stringify({ url: "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=legacy-mid-abc123-fresh" }),
+        { status: 200, headers: { "content-type": "application/json" } }
+      );
+    }
+    // Download from fresh resolved URL
+    if (asString === "https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=legacy-mid-abc123-fresh") {
+      lookaside2Calls += 1;
+      assert.equal(String(init?.headers?.Authorization || ""), `Bearer ${env.WHATS_TOKEN}`);
+      return new Response("RG LEGACY CONTENT", { status: 200, headers: { "content-type": "application/pdf" } });
+    }
+    return originalFetch(input, init);
+  };
+  try {
+    const req = new Request(`https://worker.local/correspondente/doc?pre=000001&t=${token}&doc=doc_doc-legacy-mid-url-1`, { method: "GET" });
+    const res = await worker.fetch(req, env, {});
+    assert.equal(res.status, 200, "legacy lookaside mid-in-url should serve 200");
+    assert.equal(await res.text(), "RG LEGACY CONTENT");
+    assert.equal(lookaside1Calls, 1, "should have attempted the stored lookaside URL first");
+    assert.equal(graphResolveCalls, 1, "should have called Graph API using mid extracted from URL");
+    assert.equal(lookaside2Calls, 1, "should have downloaded from fresh resolved URL");
+    assert.equal(bucket.puts.length, 1, "should have materialized in R2");
+    assert.equal(Boolean(env.__enovaSimulationCtx.docsByWaId[waCaso][0].private_object_key), true, "should persist private_object_key");
+    assert.equal(Boolean(env.__enovaSimulationCtx.docsByWaId[waCaso][0].private_materialized_at), true, "should persist private_materialized_at");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+
 console.log("correspondente_private_docs_r2.smoke: ok");

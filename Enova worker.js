@@ -2274,8 +2274,10 @@ async function runCognitiveV2WithAdapter(env, stage, userText, st) {
   try {
     const knownSlots = {};
     if (st.estado_civil) knownSlots.estado_civil = { value: st.estado_civil };
+    // st.somar_renda mapeia para slot "composicao" (nome diferente no state vs. slot canônico)
     if (st.somar_renda != null) knownSlots.composicao = { value: st.somar_renda };
     if (st.renda) knownSlots.renda = { value: st.renda };
+    // st.regime mapeia para slot "regime_trabalho" (nome diferente no state vs. slot canônico)
     if (st.regime) knownSlots.regime_trabalho = { value: st.regime };
 
     const rawInput = {
@@ -19543,8 +19545,8 @@ async function runFunnel(env, st, userText) {
         st.__cognitive_reply_prefix = null;
       }
 
-      const usedLlm = cognitive?.reason !== "no_llm_or_parse"
-        && cognitive?.reason !== "cognitive_v2_heuristic";
+      const COGNITIVE_HEURISTIC_REASONS = new Set(["no_llm_or_parse", "cognitive_v2_heuristic"]);
+      const usedLlm = !COGNITIVE_HEURISTIC_REASONS.has(cognitive?.reason);
       updateCognitiveTelemetryState(st, {
         used_llm: usedLlm,
         used_heuristic: usedLlm ? false : true,

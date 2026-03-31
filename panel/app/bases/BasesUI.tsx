@@ -167,6 +167,7 @@ export function BasesUI() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [showWarmupModal, setShowWarmupModal] = useState(false);
   const [callNowTarget, setCallNowTarget] = useState<CrmLeadMetaRow | null>(null);
+  const [moveTarget, setMoveTarget] = useState<CrmLeadMetaRow | null>(null);
   const [editingObsWaId, setEditingObsWaId] = useState<string | null>(null);
   const [editingObsText, setEditingObsText] = useState("");
   const [busyStatusWaId, setBusyStatusWaId] = useState<string | null>(null);
@@ -366,12 +367,12 @@ export function BasesUI() {
     setShowImportModal(false);
   };
 
-  const handleMoveLead = async (lead: CrmLeadMetaRow) => {
-    const bases: BaseType[] = ["fria", "morna", "quente"];
-    const current = POOL_TO_BASE[lead.lead_pool];
-    const nextBase = bases[(bases.indexOf(current) + 1) % bases.length];
-    const nextPool = BASE_TO_POOL[nextBase];
+  const openMoveModal = useCallback((lead: CrmLeadMetaRow) => {
+    setMoveTarget(lead);
+  }, []);
 
+  const handleMoveConfirm = async (lead: CrmLeadMetaRow, targetBase: BaseType) => {
+    const nextPool = BASE_TO_POOL[targetBase];
     await runAndRefresh(
       async () =>
         callAction({
@@ -380,8 +381,9 @@ export function BasesUI() {
           lead_pool: nextPool,
           lead_temp: defaultTempForPool(nextPool),
         }),
-      `Lead ${leadLabel(lead)} movido para base ${nextBase}.`,
+      `Lead ${leadLabel(lead)} movido para base ${targetBase}.`,
     );
+    setMoveTarget(null);
   };
 
   const handleTogglePause = async (lead: CrmLeadMetaRow) => {
@@ -601,6 +603,7 @@ export function BasesUI() {
             <div className={styles.filtersRow}>
               <input
                 className={styles.input}
+                style={{ flex: "1 1 auto", minWidth: 240 }}
                 value={filters.busca}
                 onChange={(e) => setFilters({ ...filters, busca: e.target.value })}
                 placeholder="Buscar por nome ou telefone"
@@ -798,14 +801,15 @@ export function BasesUI() {
                     </div>
 
                     <div className={styles.colStatus}>
-                      <span className={lead.is_paused ? styles.statusPaused : styles.statusActive}>
-                        <span className={styles.statusDot} />
-                        {renderStatusLabel(lead)}
-                      </span>
-                      {!lead.is_paused && (
+                      {lead.is_paused ? (
+                        <span className={styles.statusPaused}>
+                          <span className={styles.statusDot} />
+                          Pausado
+                        </span>
+                      ) : (
                         <select
                           className={styles.filterSelect}
-                          style={{ marginLeft: 8, minWidth: 128 }}
+                          style={{ minWidth: 128 }}
                           value={lead.status_operacional ?? "SEM_CONTATO"}
                           disabled={busyStatusWaId === lead.wa_id || actionBusy}
                           onChange={(e) => void handleUpdateStatus(lead, e.target.value)}
@@ -833,7 +837,7 @@ export function BasesUI() {
                       <button
                         type="button"
                         className={styles.actionBtn}
-                        onClick={() => void handleMoveLead(lead)}
+                        onClick={() => openMoveModal(lead)}
                         disabled={actionBusy}
                       >
                         Mover
@@ -1045,6 +1049,43 @@ export function BasesUI() {
           onClose={handleCloseWarmup}
           onDone={(msg) => void handleWarmupDone(msg)}
         />
+      )}
+      {moveTarget && (
+        <div className={styles.overlay} onClick={() => setMoveTarget(null)}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2 className={styles.modalTitle}>Mover lead</h2>
+              <button type="button" className={styles.closeButton} onClick={() => setMoveTarget(null)}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M1 1L13 13M1 13L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            <div className={styles.modalContent}>
+              <div className={styles.formHint}>
+                Mover <strong>{leadLabel(moveTarget)}</strong> para:
+              </div>
+              <div className={styles.modalFooter} style={{ justifyContent: "flex-start", gap: 10, flexWrap: "wrap" }}>
+                {(["fria", "morna", "quente"] as BaseType[])
+                  .filter((b) => b !== POOL_TO_BASE[moveTarget.lead_pool])
+                  .map((b) => (
+                    <button
+                      key={b}
+                      type="button"
+                      className={styles.primaryButton}
+                      disabled={actionBusy}
+                      onClick={() => void handleMoveConfirm(moveTarget, b)}
+                    >
+                      Base {b.charAt(0).toUpperCase() + b.slice(1)}
+                    </button>
+                  ))}
+                <button type="button" className={styles.secondaryButton} onClick={() => setMoveTarget(null)}>
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
       {callNowTarget && (
         <CallNowModal

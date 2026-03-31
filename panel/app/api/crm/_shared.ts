@@ -276,7 +276,8 @@ async function insertOverrideLog(
 }
 
 // Tab filter constants — intentionally explicit subsets of ANALYSIS_STATUS for tab classification
-const ANALYSIS_TAB_STATUS = ANALYSIS_STATUS as readonly string[];
+const PASTA_TAB_STATUS: readonly string[] = ["DOCS_PENDING"];
+const ANALYSIS_TAB_STATUS: readonly string[] = ["DOCS_READY", "SENT", "UNDER_ANALYSIS", "ADJUSTMENT_REQUIRED"];
 const APPROVED_TAB_STATUS: readonly string[] = ["APPROVED_HIGH", "APPROVED_LOW"];
 const REJECTED_TAB_STATUS: readonly string[] = ["REJECTED_RECOVERABLE", "REJECTED_HARD"];
 
@@ -293,7 +294,9 @@ export async function listCrmLeads(
   endpoint.searchParams.set("limit", String(limit));
 
   // Tab-based filtering using analysis_status enums
-  if (options.tab === "analise") {
+  if (options.tab === "pasta") {
+    endpoint.searchParams.set("status_analise", `in.(${PASTA_TAB_STATUS.join(",")})`);
+  } else if (options.tab === "analise") {
     endpoint.searchParams.set("status_analise", `in.(${ANALYSIS_TAB_STATUS.join(",")})`);
   } else if (options.tab === "aprovados") {
     endpoint.searchParams.set("status_analise", `in.(${APPROVED_TAB_STATUS.join(",")})`);

@@ -699,17 +699,36 @@ try {
   // Set up leads for tab tests
   // lead 1: APPROVED_HIGH, lead 2: SENT, lead 5: REJECTED_HARD
   // lead 3: visit_status = CONFIRMED, lead 4: reserve_status = UNDER_REVIEW
+  // lead 6: DOCS_PENDING (pasta incompleta)
 
-  await test("tab=analise returns leads with any analysis_status", async () => {
+  seedLead("5511999990006", { analysis_status: "DOCS_PENDING" });
+
+  await test("tab=pasta returns only DOCS_PENDING leads", async () => {
+    const leads = await listCrmLeads(
+      "https://supabase.example",
+      "service-role",
+      { tab: "pasta" },
+    );
+    assert.ok(leads.length >= 1, `expected >=1 lead in pasta, got ${leads.length}`);
+    for (const l of leads) {
+      assert.equal(l.status_analise, "DOCS_PENDING", `expected DOCS_PENDING, got ${l.status_analise}`);
+    }
+  });
+
+  await test("tab=analise returns only DOCS_READY/SENT/UNDER_ANALYSIS/ADJUSTMENT_REQUIRED leads", async () => {
     const leads = await listCrmLeads(
       "https://supabase.example",
       "service-role",
       { tab: "analise" },
     );
-    // Leads 1 (APPROVED_HIGH), 2 (SENT), 5 (REJECTED_HARD) have analysis_status
-    assert.ok(leads.length >= 3, `expected >=3 leads in analise, got ${leads.length}`);
+    // lead 2 has analysis_status=SENT; leads with APPROVED_HIGH / REJECTED_HARD must NOT appear here
+    assert.ok(leads.length >= 1, `expected >=1 lead in analise, got ${leads.length}`);
+    const ANALISE_STATUSES = ["DOCS_READY", "SENT", "UNDER_ANALYSIS", "ADJUSTMENT_REQUIRED"];
     for (const l of leads) {
-      assert.notEqual(l.status_analise, null);
+      assert.ok(
+        ANALISE_STATUSES.includes(l.status_analise),
+        `expected analise status, got ${l.status_analise}`,
+      );
     }
   });
 

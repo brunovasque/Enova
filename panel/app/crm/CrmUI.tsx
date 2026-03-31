@@ -8,7 +8,7 @@ import { fetchCrmLeadsAction, postCrmActionAction } from "./actions";
    TIPOS - baseados em crm_leads_v1
    =========================================== */
 
-type FaseFunil = "ANALISE" | "APROVADO" | "REPROVADO" | "VISITA";
+type FaseFunil = "PASTA" | "ANALISE" | "APROVADO" | "REPROVADO" | "VISITA";
 
 type CrmLeadRow = {
   wa_id: string;
@@ -111,6 +111,7 @@ type FilterState = {
 };
 
 const FASE_LABELS: Record<FaseFunil, string> = {
+  PASTA: "Pasta incompleta",
   ANALISE: "Análise",
   APROVADO: "Aprovados",
   REPROVADO: "Reprovados",
@@ -118,20 +119,24 @@ const FASE_LABELS: Record<FaseFunil, string> = {
 };
 
 const STATUS_ANALISE_OPTIONS = [
-  "PENDENTE",
-  "ENVIADO",
-  "EM_ANALISE",
-  "RETORNADO",
-  "APROVADO",
-  "REPROVADO",
+  "DOCS_PENDING",
+  "DOCS_READY",
+  "SENT",
+  "UNDER_ANALYSIS",
+  "ADJUSTMENT_REQUIRED",
+  "APPROVED_HIGH",
+  "APPROVED_LOW",
+  "REJECTED_RECOVERABLE",
+  "REJECTED_HARD",
 ];
 
 const STATUS_VISITA_OPTIONS = [
-  "AGENDADA",
-  "CONFIRMADA",
-  "REALIZADA",
-  "CANCELADA",
-  "REAGENDADA",
+  "TO_SCHEDULE",
+  "SCHEDULED",
+  "CONFIRMED",
+  "DONE",
+  "NO_SHOW",
+  "CANCELED",
 ];
 
 const FAIXA_PERFIL_OPTIONS = [
@@ -176,8 +181,23 @@ function onStatKeyDown(event: React.KeyboardEvent<HTMLDivElement>, onActivate: (
   }
 }
 
+// ── Classificação CRM: deriva aba operacional a partir do estado real do lead ──
+// Regra: apenas leads que entraram em envio_docs (analysis_status definido) aparecem no CRM.
+// Leads com analysis_status = null são excluídos de todas as abas.
+function getEtapaCrm(lead: CrmLeadRow): FaseFunil | null {
+  // Visita tem prioridade se status_visita estiver preenchido
+  if (lead.status_visita) return "VISITA";
+  const s = lead.status_analise ?? "";
+  if (s === "DOCS_PENDING") return "PASTA";
+  if (["DOCS_READY", "SENT", "UNDER_ANALYSIS", "ADJUSTMENT_REQUIRED"].includes(s)) return "ANALISE";
+  if (["APPROVED_HIGH", "APPROVED_LOW"].includes(s)) return "APROVADO";
+  if (["REJECTED_RECOVERABLE", "REJECTED_HARD"].includes(s)) return "REPROVADO";
+  // analysis_status nulo ou desconhecido → lead ainda não entrou no fluxo operacional do CRM
+  return null;
+}
+
 export function CrmUI() {
-  const [activeFase, setActiveFase] = useState<FaseFunil>("ANALISE");
+  const [activeFase, setActiveFase] = useState<FaseFunil>("PASTA");
   const [leads, setLeads] = useState<CrmLeadRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -255,16 +275,16 @@ export function CrmUI() {
   );
 
   const faseCounts = useMemo(() => {
-    const counts: Record<FaseFunil, number> = { ANALISE: 0, APROVADO: 0, REPROVADO: 0, VISITA: 0 };
+    const counts: Record<FaseFunil, number> = { PASTA: 0, ANALISE: 0, APROVADO: 0, REPROVADO: 0, VISITA: 0 };
     leads.forEach((lead) => {
-      const fase = lead.fase_funil ?? "ANALISE";
-      if (fase in counts) counts[fase as FaseFunil]++;
+      const fase = getEtapaCrm(lead);
+      if (fase !== null) counts[fase]++;
     });
     return counts;
   }, [leads]);
 
   const faseLeads = useMemo(() => {
-    return leads.filter((lead) => (lead.fase_funil ?? "ANALISE") === activeFase);
+    return leads.filter((lead) => getEtapaCrm(lead) === activeFase);
   }, [leads, activeFase]);
 
   const filterOptions = useMemo(() => {
@@ -350,12 +370,15 @@ export function CrmUI() {
   const getStatusAnaliseLabel = (status: string | null): string => {
     if (!status) return "—";
     const labels: Record<string, string> = {
-      PENDENTE: "Pendente",
-      ENVIADO: "Enviado",
-      EM_ANALISE: "Em análise",
-      RETORNADO: "Retornado",
-      APROVADO: "Aprovado",
-      REPROVADO: "Reprovado",
+      DOCS_PENDING: "Docs pendente",
+      DOCS_READY: "Docs prontos",
+      SENT: "Enviado",
+      UNDER_ANALYSIS: "Em análise",
+      ADJUSTMENT_REQUIRED: "Ajuste solicitado",
+      APPROVED_HIGH: "Aprovado (alto)",
+      APPROVED_LOW: "Aprovado (baixo)",
+      REJECTED_RECOVERABLE: "Reprovado (recuperável)",
+      REJECTED_HARD: "Reprovado (hard)",
     };
     return labels[status] ?? status;
   };
@@ -363,11 +386,12 @@ export function CrmUI() {
   const getStatusVisitaLabel = (status: string | null): string => {
     if (!status) return "—";
     const labels: Record<string, string> = {
-      AGENDADA: "Agendada",
-      CONFIRMADA: "Confirmada",
-      REALIZADA: "Realizada",
-      CANCELADA: "Cancelada",
-      REAGENDADA: "Reagendada",
+      TO_SCHEDULE: "A agendar",
+      SCHEDULED: "Agendada",
+      CONFIRMED: "Confirmada",
+      DONE: "Realizada",
+      NO_SHOW: "Não compareceu",
+      CANCELED: "Cancelada",
     };
     return labels[status] ?? status;
   };
@@ -409,7 +433,7 @@ export function CrmUI() {
 
         <div className={styles.statsBar}>
           <div className={styles.statsGroup}>
-            {(["ANALISE", "APROVADO", "REPROVADO", "VISITA"] as const).map((fase, idx) => (
+            {(["PASTA", "ANALISE", "APROVADO", "REPROVADO", "VISITA"] as const).map((fase, idx) => (
               <div key={fase} style={{ display: "flex", alignItems: "center" }}>
                 {idx > 0 && <div className={styles.statDivider} />}
                 <div
@@ -441,7 +465,7 @@ export function CrmUI() {
 
           <div className={styles.tabsSection}>
             <div className={styles.tabsContainer}>
-              {(["ANALISE", "APROVADO", "REPROVADO", "VISITA"] as const).map((fase) => (
+              {(["PASTA", "ANALISE", "APROVADO", "REPROVADO", "VISITA"] as const).map((fase) => (
                 <button
                   type="button"
                   key={fase}
@@ -487,7 +511,7 @@ export function CrmUI() {
                 ))}
               </select>
 
-              {(activeFase === "ANALISE" || activeFase === "APROVADO" || activeFase === "REPROVADO") && (
+              {(activeFase === "PASTA" || activeFase === "ANALISE" || activeFase === "APROVADO" || activeFase === "REPROVADO") && (
                 <select
                   className={styles.filterSelect}
                   value={filters.statusAnalise}
@@ -594,12 +618,13 @@ export function CrmUI() {
               </div>
             ) : (
               filteredLeads.map((lead) => {
+                const etapa = getEtapaCrm(lead);
                 const faseBadgeClass =
-                  lead.fase_funil === "APROVADO"
+                  etapa === "APROVADO"
                     ? styles.faseBadgeAprovado
-                    : lead.fase_funil === "REPROVADO"
+                    : etapa === "REPROVADO"
                       ? styles.faseBadgeReprovado
-                      : lead.fase_funil === "VISITA"
+                      : etapa === "VISITA"
                         ? styles.faseBadgeVisita
                         : styles.faseBadgeAnalise;
 
@@ -628,18 +653,18 @@ export function CrmUI() {
 
                     <div className={styles.colBase}>
                       <span className={`${styles.baseBadge} ${faseBadgeClass}`}>
-                        {FASE_LABELS[lead.fase_funil ?? "ANALISE"]}
+                        {etapa ? FASE_LABELS[etapa] : "—"}
                       </span>
                     </div>
 
                     <div className={styles.colStatus}>
-                      {lead.fase_funil === "VISITA" ? (
-                        <span className={lead.status_visita === "REALIZADA" ? styles.statusActive : styles.statusPaused}>
+                      {etapa === "VISITA" ? (
+                        <span className={lead.status_visita === "DONE" ? styles.statusActive : styles.statusPaused}>
                           <span className={styles.statusDot} />
                           {getStatusVisitaLabel(lead.status_visita)}
                         </span>
                       ) : (
-                        <span className={lead.status_analise === "APROVADO" ? styles.statusActive : lead.status_analise === "REPROVADO" ? styles.statusPaused : styles.statusActive}>
+                        <span className={["APPROVED_HIGH", "APPROVED_LOW"].includes(lead.status_analise ?? "") ? styles.statusActive : ["REJECTED_RECOVERABLE", "REJECTED_HARD"].includes(lead.status_analise ?? "") ? styles.statusPaused : styles.statusActive}>
                           <span className={styles.statusDot} />
                           {getStatusAnaliseLabel(lead.status_analise)}
                         </span>
@@ -713,7 +738,7 @@ export function CrmUI() {
                   </div>
                   <div className={styles.detailItem}>
                     <span className={styles.detailLabel}>Fase do funil</span>
-                    <span className={styles.detailValue}>{FASE_LABELS[selectedLead.fase_funil ?? "ANALISE"]}</span>
+                    <span className={styles.detailValue}>{(() => { const e = getEtapaCrm(selectedLead); return e ? FASE_LABELS[e] : "—"; })()}</span>
                   </div>
                 </div>
               </div>

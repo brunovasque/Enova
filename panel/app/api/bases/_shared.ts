@@ -172,7 +172,7 @@ export function normalizePhoneToWaId(phone: unknown): string | null {
 export function normalizeLeadMetaInput(
   input: LeadMetaInput,
   options: NormalizeLeadMetaOptions = {},
-): Omit<CrmLeadMetaRow, "created_at"> {
+): Omit<CrmLeadMetaRow, "created_at" | "ultima_acao" | "ultimo_contato_at" | "status_operacional"> {
   const rawWaId = normalizeOptionalText(input.wa_id);
   const rawTelefone = normalizeOptionalText(input.telefone);
   // wa_id can be provided directly or derived from telefone

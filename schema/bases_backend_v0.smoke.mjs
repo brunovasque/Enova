@@ -160,6 +160,8 @@ try {
     assert.equal(status, 200);
     assert.equal(data.ok, true);
     assert.equal(metaRows.get("5511999990001")?.lead_temp, "COLD");
+    // manual add must enter with auto_outreach_enabled=true (no lock)
+    assert.equal(metaRows.get("5511999990001")?.auto_outreach_enabled, true);
     assert.equal(workerCalls.length, 0);
   }
 
@@ -171,14 +173,12 @@ try {
         {
           wa_id: "5511999990002",
           lead_pool: "COLD_POOL",
-          auto_outreach_enabled: true,
           tags: ["importado"],
         },
         {
           wa_id: "5511999990003",
           lead_pool: "HOT_POOL",
           lead_temp: "HOT",
-          auto_outreach_enabled: false,
         },
       ],
     });
@@ -186,6 +186,9 @@ try {
     assert.equal(data.imported_count, 2);
     assert.equal(workerCalls.length, 0);
     assert.equal(metaRows.get("5511999990002")?.import_ref, "import-2026-03-30");
+    // imported leads must enter with auto_outreach_enabled=true (no lock)
+    assert.equal(metaRows.get("5511999990002")?.auto_outreach_enabled, true);
+    assert.equal(metaRows.get("5511999990003")?.auto_outreach_enabled, true);
   }
 
   {
@@ -260,6 +263,37 @@ try {
     assert.equal(data.selected_count, 1);
     assert.equal(data.leads[0].wa_id, "5511999990002");
     assert.equal(workerCalls.length, 1);
+    // warmup must not filter by auto_outreach_enabled — control is is_paused only
+    assert.equal(
+      fetchCalls.some((c) => c.url.includes("auto_outreach_enabled=eq.")),
+      false,
+      "warmup must not filter by auto_outreach_enabled",
+    );
+  }
+
+  {
+    const { status, body: data } = await runBasesAction({
+      action: "warmup_dispatch",
+      wa_ids: ["5511999990002"],
+      text: "Oi, tudo bem? Passando para retomar contato.",
+    });
+    assert.equal(status, 200);
+    assert.equal(data.ok, true);
+    assert.equal(data.sent_count, 1);
+    assert.equal(data.total, 1);
+    assert.equal(workerCalls.length, 2);
+  }
+
+  {
+    // warmup_dispatch with unknown lead must not dispatch and return sent_count=0
+    const { status, body: data } = await runBasesAction({
+      action: "warmup_dispatch",
+      wa_ids: ["5599000000000"],
+      text: "tentativa",
+    });
+    assert.equal(status, 200);
+    assert.equal(data.sent_count, 0);
+    assert.equal(workerCalls.length, 2);
   }
 
   const helperSelection = buildWarmupSelection(Array.from(metaRows.values()), {
@@ -283,6 +317,7 @@ try {
   assert.ok(tags.includes("bases_resume"));
   assert.ok(tags.includes("bases_call_now"));
   assert.ok(tags.includes("bases_warmup"));
+  assert.ok(tags.includes("bases_warmup_dispatch"));
 
   console.log("bases_backend_v0.smoke: ok");
 } finally {

@@ -36,6 +36,8 @@ type ApiActionPayload = {
   imported_count?: number;
   dispatch_mode?: string;
   selected_count?: number;
+  sent_count?: number;
+  total?: number;
   leads?: CrmLeadMetaRow[];
   [key: string]: unknown;
 };
@@ -393,7 +395,6 @@ export default function BasesPage() {
                     <Th>Origem</Th>
                     <Th>Tags</Th>
                     <Th>Obs.</Th>
-                    <Th>Auto-envio</Th>
                     <Th>Status</Th>
                     <Th>Atualizado</Th>
                     <Th>Ações</Th>
@@ -465,16 +466,6 @@ export default function BasesPage() {
                         title={lead.obs_curta ?? ""}
                       >
                         {lead.obs_curta ?? "—"}
-                      </td>
-                      <td style={s({ padding: "9px 10px" })}>
-                        <span
-                          style={s({
-                            color: lead.auto_outreach_enabled ? "#5ce89c" : "#8896a7",
-                            fontSize: "0.8rem",
-                          })}
-                        >
-                          {lead.auto_outreach_enabled ? "sim" : "não"}
-                        </span>
                       </td>
                       <td style={s({ padding: "9px 10px" })}>
                         <span
@@ -639,14 +630,10 @@ export default function BasesPage() {
         <WarmupBaseModal
           activePool={activePool}
           onClose={() => setModal(null)}
-          onSubmit={async (payload) => {
-            const result = await callAction({ action: "warmup_base", ...payload });
-            if (result) {
-              showFeedback(
-                `Warmup concluído: ${result.selected_count ?? 0} lead(s) selecionados (${result.dispatch_mode ?? "selection_only"}).`,
-              );
-              setModal(null);
-            }
+          callAction={callAction}
+          onDone={(msg) => {
+            showFeedback(msg);
+            setModal(null);
           }}
         />
       )}
@@ -976,7 +963,7 @@ function parseImportLines(text: string, defaultPool: LeadPool): Array<Record<str
       // Format A: bare phone/wa_id [,POOL]
       const poolRaw = parts[1] ?? "";
       const pool = IMPORT_POOL_NAMES.has(poolRaw) ? (poolRaw as LeadPool) : defaultPool;
-      leads.push({ wa_id: parts[0], lead_pool: pool, auto_outreach_enabled: false });
+      leads.push({ wa_id: parts[0], lead_pool: pool });
     } else {
       // Format B: nome,telefone[,POOL][,origem][,tags;separadas;por;ponto-e-vírgula]
       const nome = parts[0];
@@ -991,7 +978,6 @@ function parseImportLines(text: string, defaultPool: LeadPool): Array<Record<str
         lead_pool: pool,
         lead_source: origem || undefined,
         tags: tagsRaw ? tagsRaw.split(";").map((t) => t.trim()).filter(Boolean) : [],
-        auto_outreach_enabled: false,
       });
     }
   }
@@ -1172,59 +1158,158 @@ function MoveBaseModal({
 
 // ─── Warmup Base Modal ───────────────────────────────────────────────────────
 
+type WarmupStep = "config" | "preview";
+
 function WarmupBaseModal({
   activePool,
   onClose,
-  onSubmit,
+  callAction,
+  onDone,
 }: {
   activePool: LeadPool;
   onClose: () => void;
-  onSubmit: (payload: Record<string, unknown>) => Promise<void>;
+  callAction: (payload: Record<string, unknown>) => Promise<ApiActionPayload | null>;
+  onDone: (message: string) => void;
 }) {
+  const [step, setStep] = useState<WarmupStep>("config");
   const [leadPool, setLeadPool] = useState<LeadPool>(activePool);
-  const [limit, setLimit] = useState("20");
+  const [limit, setLimit] = useState("10");
   const [busy, setBusy] = useState(false);
+  const [previewLeads, setPreviewLeads] = useState<CrmLeadMetaRow[]>([]);
+  const [dispatchText, setDispatchText] = useState("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSelect = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
-    await onSubmit({ lead_pool: leadPool, limit: Number(limit) });
+    const result = await callAction({ action: "warmup_base", lead_pool: leadPool, limit: Number(limit) });
     setBusy(false);
+    if (!result) return;
+    const leads = (result.leads ?? []) as CrmLeadMetaRow[];
+    setPreviewLeads(leads);
+    setDispatchText(suggestCallNowMessage(leadPool, null));
+    setStep("preview");
+  };
+
+  const handleDispatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    const waIds = previewLeads.map((l) => l.wa_id);
+    const result = await callAction({ action: "warmup_dispatch", wa_ids: waIds, text: dispatchText.trim() });
+    setBusy(false);
+    if (!result) return;
+    onDone(`Warmup: ${result.sent_count ?? 0} de ${result.total ?? 0} lead(s) enviados.`);
   };
 
   return (
     <ModalShell title="Aquecer Base" onClose={onClose}>
-      <p style={{ color: "#8896a7", fontSize: "0.87rem", margin: "0 0 16px" }}>
-        Seleção dos leads elegíveis para aquecimento (dispatch_mode: selection_only).
-      </p>
-      <form onSubmit={handleSubmit}>
-        <Field label="Base">
-          <select
-            style={inputStyle}
-            value={leadPool}
-            onChange={(e) => setLeadPool(e.target.value as LeadPool)}
-          >
-            {POOLS.map(({ pool, label }) => (
-              <option key={pool} value={pool}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Limite de leads (1–50)">
-          <input
-            style={inputStyle}
-            type="number"
-            min="1"
-            max="50"
-            value={limit}
-            onChange={(e) => setLimit(e.target.value)}
-          />
-        </Field>
-        <button type="submit" style={submitStyle} disabled={busy}>
-          {busy ? "Aquecendo…" : "Aquecer Base"}
-        </button>
-      </form>
+      {step === "config" && (
+        <form onSubmit={handleSelect}>
+          <p style={{ color: "#8896a7", fontSize: "0.87rem", margin: "0 0 16px" }}>
+            Selecione os parâmetros para buscar leads elegíveis.
+          </p>
+          <Field label="Base">
+            <select
+              style={inputStyle}
+              value={leadPool}
+              onChange={(e) => setLeadPool(e.target.value as LeadPool)}
+            >
+              {POOLS.map(({ pool, label }) => (
+                <option key={pool} value={pool}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Limite de leads (1–50)">
+            <input
+              style={inputStyle}
+              type="number"
+              min="1"
+              max="50"
+              value={limit}
+              onChange={(e) => setLimit(e.target.value)}
+            />
+          </Field>
+          <button type="submit" style={submitStyle} disabled={busy}>
+            {busy ? "Buscando…" : "Buscar Leads Elegíveis"}
+          </button>
+        </form>
+      )}
+
+      {step === "preview" && (
+        <form onSubmit={handleDispatch}>
+          <p style={{ color: "#8896a7", fontSize: "0.87rem", margin: "0 0 12px" }}>
+            {previewLeads.length === 0
+              ? "Nenhum lead elegível encontrado para esta base."
+              : `${previewLeads.length} lead(s) elegível(is) — revise a mensagem e confirme o envio.`}
+          </p>
+
+          {previewLeads.length > 0 && (
+            <div
+              style={{
+                background: "#0a1420",
+                border: "1px solid #1e2d3d",
+                borderRadius: "6px",
+                padding: "8px 10px",
+                marginBottom: "14px",
+                maxHeight: "140px",
+                overflowY: "auto",
+              }}
+            >
+              {previewLeads.map((lead) => (
+                <div
+                  key={lead.wa_id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    padding: "4px 0",
+                    borderBottom: "1px solid #1a2230",
+                    fontSize: "0.82rem",
+                    color: "#c8d4e0",
+                  }}
+                >
+                  <span>{leadLabel(lead)}</span>
+                  <span style={{ color: TEMP_COLOR[lead.lead_temp] ?? "#8896a7" }}>
+                    {lead.lead_temp}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {previewLeads.length > 0 && (
+            <Field label="Mensagem *">
+              <textarea
+                style={{ ...inputStyle, resize: "vertical", minHeight: "90px" }}
+                value={dispatchText}
+                onChange={(e) => setDispatchText(e.target.value)}
+                placeholder="Digite a mensagem a ser enviada…"
+                disabled={busy}
+              />
+            </Field>
+          )}
+
+          <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
+            <button
+              type="button"
+              style={{ ...submitStyle, color: "#8896a7", borderColor: "#2b3440" }}
+              onClick={() => setStep("config")}
+              disabled={busy}
+            >
+              ← Voltar
+            </button>
+            {previewLeads.length > 0 && (
+              <button
+                type="submit"
+                style={submitStyle}
+                disabled={busy || dispatchText.trim().length === 0}
+              >
+                {busy ? "Enviando…" : `Confirmar e Enviar ${previewLeads.length} lead(s)`}
+              </button>
+            )}
+          </div>
+        </form>
+      )}
     </ModalShell>
   );
 }

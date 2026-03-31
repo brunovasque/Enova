@@ -8,7 +8,7 @@ create table if not exists public.crm_lead_meta (
   tags jsonb not null default '[]'::jsonb,
   obs_curta text,
   import_ref text,
-  auto_outreach_enabled boolean not null default false,
+  auto_outreach_enabled boolean not null default true,
   is_paused boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -18,6 +18,8 @@ create table if not exists public.crm_lead_meta (
 -- manual action required in Supabase if table already exists:
 -- alter table public.crm_lead_meta add column if not exists nome text;
 -- alter table public.crm_lead_meta add column if not exists telefone text;
+-- legacy leads migration (one-time): enable existing leads for outreach
+-- update public.crm_lead_meta set auto_outreach_enabled = true where auto_outreach_enabled = false;
 
 create index if not exists crm_lead_meta_pool_idx
   on public.crm_lead_meta (lead_pool);

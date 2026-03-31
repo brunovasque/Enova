@@ -148,9 +148,9 @@ export function BasesUI() {
   const filterOptions = useMemo(() => {
     const baseLeads = leads.filter((l) => l.base_atual === activeBase);
     return {
-      origens: [...new Set(baseLeads.map((l) => l.origem))],
-      tags: [...new Set(baseLeads.flatMap((l) => l.tags))],
-      entradas: [...new Set(baseLeads.map((l) => l.entrada))],
+      origens: Array.from(new Set(baseLeads.map((l) => l.origem))),
+      tags: Array.from(new Set(baseLeads.flatMap((l) => l.tags))),
+      entradas: Array.from(new Set(baseLeads.map((l) => l.entrada))),
     };
   }, [leads, activeBase]);
 

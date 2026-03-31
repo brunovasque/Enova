@@ -198,7 +198,7 @@ const waId = "554185260518";
 
   // Deve ter exatamente 1 item (canonical com url prevalece, sem duplicata)
   assert.equal(files.length, 1, "9) No-URL row coberta por canonical gera apenas 1 item");
-  assert.ok(files[0].previewable === false || files[0].mime_type === null || true, "9) Item presente");
+  assert.equal(files[0].tipo, "comprovante_renda", "9) Tipo correto do item");
 
   // Deve ser resolvível (canonical tem url)
   const resolved = resolveCaseFileById(waId, files[0].file_id, merged);

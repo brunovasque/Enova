@@ -57,7 +57,7 @@ function dedupeRows(rows: EnovaDocRow[]): EnovaDocRow[] {
 
   const seenFull = new Set<string>();
   const seenPartial = new Set<string>();
-  const urlRows: EnovaDocRow[] = [];
+  const result: EnovaDocRow[] = [];
   const noUrlRows: EnovaDocRow[] = [];
 
   for (const row of rows) {
@@ -70,7 +70,7 @@ function dedupeRows(rows: EnovaDocRow[]): EnovaDocRow[] {
     if (seenFull.has(key)) continue;
     seenFull.add(key);
     seenPartial.add(buildPartialKey(row));
-    urlRows.push(row);
+    result.push(row);
   }
 
   const noUrlSeen = new Set<string>();
@@ -78,10 +78,10 @@ function dedupeRows(rows: EnovaDocRow[]): EnovaDocRow[] {
     const partial = buildPartialKey(row);
     if (seenPartial.has(partial) || noUrlSeen.has(partial)) continue;
     noUrlSeen.add(partial);
-    urlRows.push(row);
+    result.push(row);
   }
 
-  return urlRows;
+  return result;
 }
 
 function normalizeMimeType(row: EnovaDocRow): string | null {

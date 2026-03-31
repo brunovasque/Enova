@@ -2,7 +2,7 @@
  * Smoke tests for bases operational memory (panel-only):
  * - ultima_acao written on call_now, warmup_dispatch, pause, resume, move
  * - ultimo_contato_at written on successful call_now / warmup_dispatch
- * - status_operacional set to CONTATADO / PAUSADO / restored on resume
+ * - status_operacional set to AGUARDANDO_RETORNO / PAUSADO / restored on resume
  * - update_obs action: saves obs_curta and optional status_operacional
  * - No regression: list still returns new columns, actions unchanged
  */
@@ -181,7 +181,7 @@ globalThis.fetch = async (input, init = {}) => {
   const updated = metaRows.get("5511111110001");
   assert.equal(updated.ultima_acao, "CALL_NOW", "ultima_acao = CALL_NOW");
   assert.ok(updated.ultimo_contato_at !== null, "ultimo_contato_at set");
-  assert.equal(updated.status_operacional, "CONTATADO", "status_operacional = CONTATADO");
+  assert.equal(updated.status_operacional, "AGUARDANDO_RETORNO", "status_operacional = AGUARDANDO_RETORNO");
 
   const callLog = logRows.find((r) => r.tag === "bases_call_now");
   assert.ok(callLog, "bases_call_now log present");
@@ -201,7 +201,7 @@ globalThis.fetch = async (input, init = {}) => {
   assert.equal(updated.is_paused, true, "is_paused = true");
 }
 
-// ─── Test: resume after contact sets status_operacional=CONTATADO ─────────────
+// ─── Test: resume after contact sets status_operacional=AGUARDANDO_RETORNO ────
 
 {
   logRows.length = 0;
@@ -211,8 +211,8 @@ globalThis.fetch = async (input, init = {}) => {
 
   const updated = metaRows.get("5511111110001");
   assert.equal(updated.ultima_acao, "RESUME", "ultima_acao = RESUME after resume");
-  // ultimo_contato_at was set → status should be restored to CONTATADO
-  assert.equal(updated.status_operacional, "CONTATADO", "status_operacional = CONTATADO after resume (had contact)");
+  // ultimo_contato_at was set → status should be restored to AGUARDANDO_RETORNO
+  assert.equal(updated.status_operacional, "AGUARDANDO_RETORNO", "status_operacional = AGUARDANDO_RETORNO after resume (had contact)");
   assert.equal(updated.is_paused, false, "is_paused = false after resume");
 }
 
@@ -254,7 +254,7 @@ globalThis.fetch = async (input, init = {}) => {
   const updated = metaRows.get("5511111110002");
   assert.equal(updated.ultima_acao, "WARMUP", "ultima_acao = WARMUP after warmup_dispatch");
   assert.ok(updated.ultimo_contato_at !== null, "ultimo_contato_at set after warmup_dispatch");
-  assert.equal(updated.status_operacional, "CONTATADO", "status_operacional = CONTATADO after warmup_dispatch");
+  assert.equal(updated.status_operacional, "AGUARDANDO_RETORNO", "status_operacional = AGUARDANDO_RETORNO after warmup_dispatch");
 }
 
 // ─── Test: move_base sets ultima_acao=MOVE ───────────────────────────────────

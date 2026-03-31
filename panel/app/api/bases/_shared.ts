@@ -606,7 +606,7 @@ export async function runBasesAction(
       const statusOp: string | null = isPaused
         ? "PAUSADO"
         : existing.ultimo_contato_at
-          ? "CONTATADO"
+          ? "AGUARDANDO_RETORNO"
           : null;
       const savedRow = await patchLeadMetaRow(supabaseUrl, serviceRoleKey, waId, {
         is_paused: isPaused,
@@ -678,7 +678,7 @@ export async function runBasesAction(
         await patchLeadMetaRow(supabaseUrl, serviceRoleKey, waId, {
           ultima_acao: "CALL_NOW",
           ultimo_contato_at: contactedAt,
-          status_operacional: "CONTATADO",
+          status_operacional: "AGUARDANDO_RETORNO",
           updated_at: contactedAt,
         });
       }
@@ -787,7 +787,7 @@ export async function runBasesAction(
             await patchLeadMetaRow(supabaseUrl, serviceRoleKey, waId, {
               ultima_acao: "WARMUP",
               ultimo_contato_at: contactedAt,
-              status_operacional: "CONTATADO",
+              status_operacional: "AGUARDANDO_RETORNO",
               updated_at: contactedAt,
             });
           }

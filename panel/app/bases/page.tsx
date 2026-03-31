@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { suggestCallNowMessage } from "./_callNowSuggest";
 
 type LeadPool = "COLD_POOL" | "WARM_POOL" | "HOT_POOL";
 
@@ -1239,9 +1240,11 @@ function CallNowModal({
   onClose: () => void;
   onSubmit: (text: string) => Promise<void>;
 }) {
-  const [text, setText] = useState("");
+  const suggested = suggestCallNowMessage(lead.lead_pool, lead.nome);
+  const [text, setText] = useState(suggested);
   const [busy, setBusy] = useState(false);
   const canSubmit = text.trim().length > 0 && !lead.is_paused && !busy;
+  const isDirty = text !== suggested;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1278,6 +1281,23 @@ function CallNowModal({
             disabled={lead.is_paused || busy}
           />
         </Field>
+        {isDirty && !lead.is_paused && (
+          <button
+            type="button"
+            onClick={() => setText(suggested)}
+            style={{
+              background: "transparent",
+              border: "none",
+              color: "#888",
+              cursor: "pointer",
+              fontSize: "0.8rem",
+              padding: "0 0 12px 0",
+              textDecoration: "underline",
+            }}
+          >
+            Restaurar sugestão
+          </button>
+        )}
         <button
           type="submit"
           style={{

@@ -393,7 +393,6 @@ export default function BasesPage() {
                     <Th>Origem</Th>
                     <Th>Tags</Th>
                     <Th>Obs.</Th>
-                    <Th>Auto-envio</Th>
                     <Th>Status</Th>
                     <Th>Atualizado</Th>
                     <Th>Ações</Th>
@@ -465,16 +464,6 @@ export default function BasesPage() {
                         title={lead.obs_curta ?? ""}
                       >
                         {lead.obs_curta ?? "—"}
-                      </td>
-                      <td style={s({ padding: "9px 10px" })}>
-                        <span
-                          style={s({
-                            color: lead.auto_outreach_enabled ? "#5ce89c" : "#8896a7",
-                            fontSize: "0.8rem",
-                          })}
-                        >
-                          {lead.auto_outreach_enabled ? "sim" : "não"}
-                        </span>
                       </td>
                       <td style={s({ padding: "9px 10px" })}>
                         <span
@@ -976,7 +965,7 @@ function parseImportLines(text: string, defaultPool: LeadPool): Array<Record<str
       // Format A: bare phone/wa_id [,POOL]
       const poolRaw = parts[1] ?? "";
       const pool = IMPORT_POOL_NAMES.has(poolRaw) ? (poolRaw as LeadPool) : defaultPool;
-      leads.push({ wa_id: parts[0], lead_pool: pool, auto_outreach_enabled: false });
+      leads.push({ wa_id: parts[0], lead_pool: pool });
     } else {
       // Format B: nome,telefone[,POOL][,origem][,tags;separadas;por;ponto-e-vírgula]
       const nome = parts[0];
@@ -991,7 +980,6 @@ function parseImportLines(text: string, defaultPool: LeadPool): Array<Record<str
         lead_pool: pool,
         lead_source: origem || undefined,
         tags: tagsRaw ? tagsRaw.split(";").map((t) => t.trim()).filter(Boolean) : [],
-        auto_outreach_enabled: false,
       });
     }
   }

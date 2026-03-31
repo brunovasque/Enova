@@ -160,6 +160,8 @@ try {
     assert.equal(status, 200);
     assert.equal(data.ok, true);
     assert.equal(metaRows.get("5511999990001")?.lead_temp, "COLD");
+    // manual add must enter with auto_outreach_enabled=true (no lock)
+    assert.equal(metaRows.get("5511999990001")?.auto_outreach_enabled, true);
     assert.equal(workerCalls.length, 0);
   }
 
@@ -171,14 +173,12 @@ try {
         {
           wa_id: "5511999990002",
           lead_pool: "COLD_POOL",
-          auto_outreach_enabled: true,
           tags: ["importado"],
         },
         {
           wa_id: "5511999990003",
           lead_pool: "HOT_POOL",
           lead_temp: "HOT",
-          auto_outreach_enabled: false,
         },
       ],
     });
@@ -186,6 +186,9 @@ try {
     assert.equal(data.imported_count, 2);
     assert.equal(workerCalls.length, 0);
     assert.equal(metaRows.get("5511999990002")?.import_ref, "import-2026-03-30");
+    // imported leads must enter with auto_outreach_enabled=true (no lock)
+    assert.equal(metaRows.get("5511999990002")?.auto_outreach_enabled, true);
+    assert.equal(metaRows.get("5511999990003")?.auto_outreach_enabled, true);
   }
 
   {
@@ -260,6 +263,12 @@ try {
     assert.equal(data.selected_count, 1);
     assert.equal(data.leads[0].wa_id, "5511999990002");
     assert.equal(workerCalls.length, 1);
+    // warmup must not filter by auto_outreach_enabled — control is is_paused only
+    assert.equal(
+      fetchCalls.some((c) => c.url.includes("auto_outreach_enabled=eq.")),
+      false,
+      "warmup must not filter by auto_outreach_enabled",
+    );
   }
 
   const helperSelection = buildWarmupSelection(Array.from(metaRows.values()), {

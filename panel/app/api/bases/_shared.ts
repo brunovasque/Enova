@@ -211,7 +211,7 @@ export function buildWarmupSelection(
 ): CrmLeadMetaRow[] {
   const limit = clampWarmupLimit(options.limit);
   const filtered = rows.filter((row) => {
-    if (!row.auto_outreach_enabled || row.is_paused) {
+    if (row.is_paused) {
       return false;
     }
     if (options.lead_pool && row.lead_pool !== options.lead_pool) {
@@ -310,7 +310,6 @@ async function loadWarmupCandidates(
     "select",
     "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at",
   );
-  endpoint.searchParams.set("auto_outreach_enabled", "eq.true");
   endpoint.searchParams.set("is_paused", "eq.false");
   endpoint.searchParams.set("order", "updated_at.asc,wa_id.asc");
   endpoint.searchParams.set("limit", String(Math.max(50, clampWarmupLimit(payload.limit) * 2)));
@@ -485,7 +484,7 @@ export async function runBasesAction(
     if (action === "add_lead_manual") {
       const row = normalizeLeadMetaInput(payload, {
         defaultLeadSource: "manual",
-        defaultAutoOutreachEnabled: false,
+        defaultAutoOutreachEnabled: true,
         defaultPaused: false,
       });
       const savedRows = await upsertLeadMetaRows(supabaseUrl, serviceRoleKey, [row]);
@@ -513,7 +512,7 @@ export async function runBasesAction(
         normalizeLeadMetaInput(lead, {
           defaultLeadSource: "import",
           defaultImportRef: importRef,
-          defaultAutoOutreachEnabled: false,
+          defaultAutoOutreachEnabled: true,
           defaultPaused: false,
         }),
       );

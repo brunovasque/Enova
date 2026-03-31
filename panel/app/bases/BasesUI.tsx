@@ -44,6 +44,7 @@ type ApiActionPayload = {
 };
 
 type FilterState = {
+  busca: string;
   origem: string;
   tag: string;
   entrada: string;
@@ -61,6 +62,12 @@ const POOL_TO_BASE: Record<LeadPool, BaseType> = {
   WARM_POOL: "morna",
   HOT_POOL: "quente",
 };
+
+const STATUS_OPERACIONAL_VALUES = [
+  "SEM_CONTATO",
+  "CONTATADO",
+  "AGUARDANDO_RETORNO",
+] as const;
 
 function defaultTempForPool(pool: LeadPool): LeadTemp {
   if (pool === "WARM_POOL") return "WARM";
@@ -158,7 +165,13 @@ export function BasesUI() {
   const [actionBusy, setActionBusy] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showWarmupModal, setShowWarmupModal] = useState(false);
+  const [callNowTarget, setCallNowTarget] = useState<CrmLeadMetaRow | null>(null);
+  const [editingObsWaId, setEditingObsWaId] = useState<string | null>(null);
+  const [editingObsText, setEditingObsText] = useState("");
+  const [busyStatusWaId, setBusyStatusWaId] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>({
+    busca: "",
     origem: "",
     tag: "",
     entrada: "",
@@ -254,7 +267,13 @@ export function BasesUI() {
   }, [activeLeads]);
 
   const filteredLeads = useMemo(() => {
+    const q = filters.busca.trim().toLowerCase();
     return activeLeads.filter((lead) => {
+      if (q) {
+        const nameMatch = lead.nome?.toLowerCase().includes(q) ?? false;
+        const phoneMatch = (lead.telefone ?? lead.wa_id).toLowerCase().includes(q);
+        if (!nameMatch && !phoneMatch) return false;
+      }
       if (filters.origem && (lead.lead_source ?? "") !== filters.origem) return false;
       if (filters.tag && !(lead.tags ?? []).includes(filters.tag)) return false;
       if (filters.entrada && (lead.import_ref ?? "") !== filters.entrada) return false;
@@ -265,11 +284,11 @@ export function BasesUI() {
   }, [activeLeads, filters]);
 
   const clearFilters = () => {
-    setFilters({ origem: "", tag: "", entrada: "", status: "todos" });
+    setFilters({ busca: "", origem: "", tag: "", entrada: "", status: "todos" });
   };
 
   const hasActiveFilters =
-    filters.origem || filters.tag || filters.entrada || filters.status !== "todos";
+    filters.busca || filters.origem || filters.tag || filters.entrada || filters.status !== "todos";
 
   const runAndRefresh = useCallback(
     async (runner: () => Promise<ApiActionPayload | null>, successMessage: string) => {
@@ -376,52 +395,96 @@ export function BasesUI() {
     );
   };
 
-  const handleCallLead = async (lead: CrmLeadMetaRow) => {
+  const handleCallNowSubmit = async (lead: CrmLeadMetaRow, text: string) => {
     await runAndRefresh(
-      async () =>
-        callAction({
-          action: "call_now",
-          wa_id: lead.wa_id,
-          text: suggestCallNowMessage(lead.lead_pool, lead.nome),
-        }),
+      async () => callAction({ action: "call_now", wa_id: lead.wa_id, text }),
       `Lead ${leadLabel(lead)} acionado.`,
     );
+    setCallNowTarget(null);
   };
 
-  const handleHeatBatch = async () => {
-    if (filteredLeads.length === 0) return;
-    const leadPool = BASE_TO_POOL[activeBase];
-    const warmupSelection = await callAction({
-      action: "warmup_base",
-      lead_pool: leadPool,
-      limit: Math.min(filteredLeads.length, 50),
-    });
+  const handleUpdateObs = useCallback(
+    async (lead: CrmLeadMetaRow, newObs: string) => {
+      const result = await callAction({ action: "update_obs", wa_id: lead.wa_id, obs_curta: newObs });
+      if (!result) return;
+      setLeadsByBase((prev) => ({
+        ...prev,
+        [activeBase]: prev[activeBase].map((l) =>
+          l.wa_id === lead.wa_id ? { ...l, obs_curta: newObs.trim() || null } : l,
+        ),
+      }));
+      setEditingObsWaId(null);
+      setEditingObsText("");
+    },
+    [callAction, activeBase],
+  );
 
-    if (!warmupSelection) return;
+  const handleUpdateStatus = useCallback(
+    async (lead: CrmLeadMetaRow, newStatus: string) => {
+      setBusyStatusWaId(lead.wa_id);
+      const result = await callAction({
+        action: "update_obs",
+        wa_id: lead.wa_id,
+        status_operacional: newStatus,
+      });
+      setBusyStatusWaId(null);
+      if (!result) return;
+      setLeadsByBase((prev) => ({
+        ...prev,
+        [activeBase]: prev[activeBase].map((l) =>
+          l.wa_id === lead.wa_id
+            ? {
+                ...l,
+                status_operacional: newStatus,
+              }
+            : l,
+        ),
+      }));
+    },
+    [callAction, activeBase],
+  );
 
-    const selected = Array.isArray(warmupSelection.leads) ? warmupSelection.leads : [];
-    if (selected.length === 0) {
-      setFeedback("Nenhum lead elegível para aquecimento.");
+  const handleCancelEditObs = useCallback(() => {
+    setEditingObsWaId(null);
+    setEditingObsText("");
+  }, []);
+
+  const handleCloseWarmup = useCallback(() => {
+    setShowWarmupModal(false);
+  }, []);
+
+  const handleCloseCallNow = useCallback(() => {
+    setCallNowTarget(null);
+  }, []);
+
+  const handleWarmupDone = useCallback(
+    async (msg: string) => {
+      setFeedback(msg);
       setActionError(null);
-      return;
+      setShowWarmupModal(false);
+      await refreshLeads();
+    },
+    [refreshLeads],
+  );
+
+  const openCallNowModal = useCallback((lead: CrmLeadMetaRow) => {
+    setCallNowTarget(lead);
+  }, []);
+
+  const activePool = BASE_TO_POOL[activeBase];
+
+  const renderStatusLabel = (lead: CrmLeadMetaRow) => {
+    if (lead.is_paused) return "Pausado";
+    switch (lead.status_operacional) {
+      case "CONTATADO":
+        return "Contatado";
+      case "AGUARDANDO_RETORNO":
+        return "Aguardando";
+      case "SEM_CONTATO":
+        return "Sem contato";
+      default:
+        return "Ativo";
     }
-
-    const filteredIds = new Set(filteredLeads.map((lead) => lead.wa_id));
-    const waIds = selected
-      .map((lead) => lead.wa_id)
-      .filter((waId) => filteredIds.has(waId));
-
-    const dispatchIds = waIds.length > 0 ? waIds : selected.map((lead) => lead.wa_id);
-
-    await runAndRefresh(
-      async () =>
-        callAction({
-          action: "warmup_dispatch",
-          wa_ids: dispatchIds,
-          text: suggestCallNowMessage(leadPool, null),
-        }),
-      `Aquecimento executado para ${dispatchIds.length} lead(s).`,
-    );
   };
 
   return (
@@ -524,7 +587,7 @@ export function BasesUI() {
               <button
                 type="button"
                 className={styles.heatBatchButton}
-                onClick={() => void handleHeatBatch()}
+                onClick={() => setShowWarmupModal(true)}
                 disabled={filteredLeads.length === 0 || actionBusy}
               >
                 <span className={styles.heatIcon}>↗</span>
@@ -536,6 +599,12 @@ export function BasesUI() {
 
           <div className={styles.filtersSection}>
             <div className={styles.filtersRow}>
+              <input
+                className={styles.input}
+                value={filters.busca}
+                onChange={(e) => setFilters({ ...filters, busca: e.target.value })}
+                placeholder="Buscar por nome ou telefone"
+              />
               <select
                 className={styles.filterSelect}
                 value={filters.origem}
@@ -680,7 +749,46 @@ export function BasesUI() {
                     </div>
 
                     <div className={styles.colObservacao}>
-                      <span className={styles.leadObs}>{lead.obs_curta ?? "—"}</span>
+                      {editingObsWaId === lead.wa_id ? (
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <input
+                            className={styles.input}
+                            style={{ minWidth: 0 }}
+                            value={editingObsText}
+                            maxLength={200}
+                            onChange={(e) => setEditingObsText(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") void handleUpdateObs(lead, editingObsText);
+                              if (e.key === "Escape") handleCancelEditObs();
+                            }}
+                          />
+                          <button type="button" className={styles.actionBtn} onClick={() => void handleUpdateObs(lead, editingObsText)}>
+                            ✓
+                          </button>
+                          <button type="button" className={styles.actionBtn} onClick={handleCancelEditObs}>
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <span
+                          className={styles.leadObs}
+                          onClick={() => {
+                            setEditingObsWaId(lead.wa_id);
+                            setEditingObsText(lead.obs_curta ?? "");
+                          }}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              setEditingObsWaId(lead.wa_id);
+                              setEditingObsText(lead.obs_curta ?? "");
+                            }
+                          }}
+                          tabIndex={0}
+                          style={{ cursor: "text" }}
+                        >
+                          {lead.obs_curta ?? "—"}
+                        </span>
+                      )}
                     </div>
 
                     <div className={styles.colBase}>
@@ -692,8 +800,21 @@ export function BasesUI() {
                     <div className={styles.colStatus}>
                       <span className={lead.is_paused ? styles.statusPaused : styles.statusActive}>
                         <span className={styles.statusDot} />
-                        {lead.is_paused ? "Pausado" : "Ativo"}
+                        {renderStatusLabel(lead)}
                       </span>
+                      {!lead.is_paused && (
+                        <select
+                          className={styles.filterSelect}
+                          style={{ marginLeft: 8, minWidth: 128 }}
+                          value={lead.status_operacional ?? "SEM_CONTATO"}
+                          disabled={busyStatusWaId === lead.wa_id || actionBusy}
+                          onChange={(e) => void handleUpdateStatus(lead, e.target.value)}
+                        >
+                          {STATUS_OPERACIONAL_VALUES.map((st) => (
+                            <option key={st} value={st}>{statusOptionLabel(st)}</option>
+                          ))}
+                        </select>
+                      )}
                     </div>
 
                     <div className={styles.colEntrada}>
@@ -704,7 +825,7 @@ export function BasesUI() {
                       <button
                         type="button"
                         className={styles.actionBtn}
-                        onClick={() => void handleCallLead(lead)}
+                        onClick={() => openCallNowModal(lead)}
                         disabled={actionBusy}
                       >
                         Chamar
@@ -917,6 +1038,221 @@ export function BasesUI() {
           </div>
         </div>
       )}
+      {showWarmupModal && (
+        <WarmupModal
+          activePool={activePool}
+          callAction={callAction}
+          onClose={handleCloseWarmup}
+          onDone={(msg) => void handleWarmupDone(msg)}
+        />
+      )}
+      {callNowTarget && (
+        <CallNowModal
+          lead={callNowTarget}
+          onClose={handleCloseCallNow}
+          onSubmit={(text) => handleCallNowSubmit(callNowTarget, text)}
+        />
+      )}
     </main>
+  );
+}
+
+function statusOptionLabel(value: (typeof STATUS_OPERACIONAL_VALUES)[number]): string {
+  switch (value) {
+    case "SEM_CONTATO":
+      return "Sem contato";
+    case "CONTATADO":
+      return "Contatado";
+    case "AGUARDANDO_RETORNO":
+      return "Aguardando retorno";
+  }
+}
+
+function WarmupModal({
+  activePool,
+  callAction,
+  onClose,
+  onDone,
+}: {
+  activePool: LeadPool;
+  callAction: (payload: Record<string, unknown>) => Promise<ApiActionPayload | null>;
+  onClose: () => void;
+  onDone: (msg: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [leadPool, setLeadPool] = useState<LeadPool>(activePool);
+  const [limit, setLimit] = useState("20");
+  const [previewLeads, setPreviewLeads] = useState<CrmLeadMetaRow[] | null>(null);
+  const [dispatchText, setDispatchText] = useState(suggestCallNowMessage(activePool, null));
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const canDispatch = (previewLeads?.length ?? 0) > 0 && dispatchText.trim().length > 0;
+
+  const runPreview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setValidationError(null);
+    const safeLimit = Number(limit);
+    if (!Number.isFinite(safeLimit) || safeLimit < 1 || safeLimit > 50) {
+      setBusy(false);
+      setValidationError("Informe um limite válido entre 1 e 50.");
+      return;
+    }
+    const result = await callAction({ action: "warmup_base", lead_pool: leadPool, limit: safeLimit });
+    setBusy(false);
+    if (!result) return;
+    const leads = Array.isArray(result.leads) ? result.leads : [];
+    setPreviewLeads(leads);
+    setDispatchText(suggestCallNowMessage(leadPool, null));
+  };
+
+  const runDispatch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canDispatch || !previewLeads) return;
+    setBusy(true);
+    const result = await callAction({
+      action: "warmup_dispatch",
+      wa_ids: previewLeads.map((lead) => lead.wa_id),
+      text: dispatchText.trim(),
+    });
+    setBusy(false);
+    if (!result) return;
+    const sent = typeof result.sent_count === "number" ? result.sent_count : 0;
+    onDone(`Aquecimento executado para ${sent} de ${previewLeads.length} lead(s).`);
+  };
+
+  return (
+    <div className={styles.overlay} onClick={onClose}>
+      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2 className={styles.modalTitle}>Aquecer base</h2>
+          <button type="button" className={styles.closeButton} onClick={onClose}>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M1 1L13 13M1 13L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+
+        {previewLeads === null ? (
+          <form onSubmit={runPreview} className={styles.modalContent}>
+            <div className={styles.formGroup}>
+              <label className={styles.label}>Base</label>
+              <select className={styles.select} value={leadPool} onChange={(e) => setLeadPool(e.target.value as LeadPool)}>
+                <option value="COLD_POOL">Base Fria</option>
+                <option value="WARM_POOL">Base Morna</option>
+                <option value="HOT_POOL">Base Quente</option>
+              </select>
+            </div>
+            <div className={styles.formGroup}>
+              <label className={styles.label}>Limite de leads (1-50)</label>
+              <input
+                className={styles.input}
+                type="number"
+                min={1}
+                max={50}
+                value={limit}
+                onChange={(e) => {
+                  const inputValue = e.currentTarget.valueAsNumber;
+                  if (Number.isNaN(inputValue)) {
+                    setLimit("");
+                    return;
+                  }
+                  const clamped = Math.max(1, Math.min(50, inputValue));
+                  setLimit(String(clamped));
+                }}
+              />
+            </div>
+            {validationError && <div className={styles.formHint}>{validationError}</div>}
+            <div className={styles.modalFooter}>
+              <button type="button" className={styles.secondaryButton} onClick={onClose}>Cancelar</button>
+              <button type="submit" className={styles.primaryButton} disabled={busy}>{busy ? "Buscando..." : "Buscar elegíveis"}</button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={runDispatch} className={styles.modalContent}>
+            <div className={styles.formHint}>
+              {previewLeads.length === 0
+                ? "Nenhum lead elegível encontrado."
+                : `${previewLeads.length} lead(s) elegível(is). Revise e confirme o envio.`}
+            </div>
+            {previewLeads.length > 0 && (
+              <>
+                <div style={{ maxHeight: 180, overflow: "auto", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: 8 }}>
+                  {previewLeads.map((lead) => (
+                    <div key={lead.wa_id} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 13 }}>
+                      <span>{leadLabel(lead)}</span>
+                      <span>{lead.telefone ?? lead.wa_id}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className={styles.formGroup}>
+                  <label className={styles.label}>Mensagem</label>
+                  <textarea className={styles.textarea} value={dispatchText} onChange={(e) => setDispatchText(e.target.value)} />
+                </div>
+              </>
+            )}
+            <div className={styles.modalFooter}>
+              <button type="button" className={styles.secondaryButton} onClick={() => setPreviewLeads(null)} disabled={busy}>Voltar</button>
+              <button type="button" className={styles.secondaryButton} onClick={onClose} disabled={busy}>Cancelar</button>
+              {previewLeads.length > 0 && (
+                <button type="submit" className={styles.primaryButton} disabled={busy || !canDispatch}>
+                  {busy ? "Enviando..." : "Confirmar envio"}
+                </button>
+              )}
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CallNowModal({
+  lead,
+  onClose,
+  onSubmit,
+}: {
+  lead: CrmLeadMetaRow;
+  onClose: () => void;
+  onSubmit: (text: string) => Promise<void>;
+}) {
+  const suggested = suggestCallNowMessage(lead.lead_pool, lead.nome);
+  const [text, setText] = useState(suggested);
+  const [busy, setBusy] = useState(false);
+  const canSubmit = text.trim().length > 0 && !lead.is_paused && !busy;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canSubmit) return;
+    setBusy(true);
+    await onSubmit(text.trim());
+    setBusy(false);
+  };
+
+  return (
+    <div className={styles.overlay} onClick={onClose}>
+      <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+        <div className={styles.modalHeader}>
+          <h2 className={styles.modalTitle}>Chamar lead</h2>
+          <button type="button" className={styles.closeButton} onClick={onClose}>
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+              <path d="M1 1L13 13M1 13L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <form onSubmit={submit} className={styles.modalContent}>
+          <div className={styles.formHint}>Revise a mensagem antes de enviar para {leadLabel(lead)}.</div>
+          {lead.is_paused && <div className={styles.formHint}>Lead pausado — retome antes de chamar.</div>}
+          <div className={styles.formGroup}>
+            <label className={styles.label}>Mensagem</label>
+            <textarea className={styles.textarea} value={text} onChange={(e) => setText(e.target.value)} disabled={lead.is_paused || busy} />
+          </div>
+          <div className={styles.modalFooter}>
+            <button type="button" className={styles.secondaryButton} onClick={onClose}>Cancelar</button>
+            <button type="button" className={styles.secondaryButton} onClick={() => setText(suggested)} disabled={busy || lead.is_paused}>Restaurar sugestão</button>
+            <button type="submit" className={styles.primaryButton} disabled={!canSubmit}>{busy ? "Enviando..." : "Enviar"}</button>
+          </div>
+        </form>
+      </div>
+    </div>
   );
 }

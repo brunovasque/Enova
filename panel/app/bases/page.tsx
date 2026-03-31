@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { suggestCallNowMessage } from "./_callNowSuggest";
 
 type LeadPool = "COLD_POOL" | "WARM_POOL" | "HOT_POOL";
@@ -105,6 +105,44 @@ export default function BasesPage() {
   const [moveTarget, setMoveTarget] = useState<CrmLeadMetaRow | null>(null);
   const [callNowTarget, setCallNowTarget] = useState<CrmLeadMetaRow | null>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Operational filters ──────────────────────────────────────────────────
+  const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "paused">("all");
+  const [originFilter, setOriginFilter] = useState<string>("all");
+  const [tagFilter, setTagFilter] = useState<string>("all");
+
+  const allOrigins = useMemo(() => {
+    const seen = new Set<string>();
+    for (const lead of leads) {
+      if (lead.lead_source) seen.add(lead.lead_source);
+    }
+    return Array.from(seen).sort();
+  }, [leads]);
+
+  const allTags = useMemo(() => {
+    const seen = new Set<string>();
+    for (const lead of leads) {
+      for (const tag of lead.tags ?? []) seen.add(tag);
+    }
+    return Array.from(seen).sort();
+  }, [leads]);
+
+  const filteredLeads = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return leads.filter((lead) => {
+      if (q) {
+        const nameMatch = lead.nome?.toLowerCase().includes(q) ?? false;
+        const phoneMatch = (lead.telefone ?? lead.wa_id).toLowerCase().includes(q);
+        if (!nameMatch && !phoneMatch) return false;
+      }
+      if (statusFilter === "active" && lead.is_paused) return false;
+      if (statusFilter === "paused" && !lead.is_paused) return false;
+      if (originFilter !== "all" && lead.lead_source !== originFilter) return false;
+      if (tagFilter !== "all" && !(lead.tags ?? []).includes(tagFilter)) return false;
+      return true;
+    });
+  }, [leads, searchQuery, statusFilter, originFilter, tagFilter]);
 
   const showFeedback = useCallback((msg: string) => {
     setFeedback(msg);
@@ -324,6 +362,112 @@ export default function BasesPage() {
           })}
         </div>
 
+        {/* Operational Filters */}
+        <div
+          style={s({
+            display: "flex",
+            gap: "8px",
+            flexWrap: "wrap",
+            alignItems: "center",
+            marginBottom: "16px",
+          })}
+        >
+          <input
+            style={s({
+              background: "#0f1620",
+              border: "1px solid #2b3440",
+              borderRadius: "6px",
+              color: "#e6edf3",
+              fontSize: "0.84rem",
+              padding: "6px 10px",
+              outline: "none",
+              minWidth: "180px",
+              flex: "1 1 180px",
+              maxWidth: "260px",
+            })}
+            placeholder="Buscar nome ou telefone…"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          <select
+            style={s({
+              background: "#0f1620",
+              border: "1px solid #2b3440",
+              borderRadius: "6px",
+              color: "#e6edf3",
+              fontSize: "0.84rem",
+              padding: "6px 10px",
+              cursor: "pointer",
+              outline: "none",
+            })}
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as "all" | "active" | "paused")}
+          >
+            <option value="all">Todos os status</option>
+            <option value="active">Ativos</option>
+            <option value="paused">Pausados</option>
+          </select>
+          <select
+            style={s({
+              background: "#0f1620",
+              border: "1px solid #2b3440",
+              borderRadius: "6px",
+              color: "#e6edf3",
+              fontSize: "0.84rem",
+              padding: "6px 10px",
+              cursor: "pointer",
+              outline: "none",
+            })}
+            value={originFilter}
+            onChange={(e) => setOriginFilter(e.target.value)}
+          >
+            <option value="all">Todas as origens</option>
+            {allOrigins.map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+          <select
+            style={s({
+              background: "#0f1620",
+              border: "1px solid #2b3440",
+              borderRadius: "6px",
+              color: "#e6edf3",
+              fontSize: "0.84rem",
+              padding: "6px 10px",
+              cursor: "pointer",
+              outline: "none",
+            })}
+            value={tagFilter}
+            onChange={(e) => setTagFilter(e.target.value)}
+          >
+            <option value="all">Todas as tags</option>
+            {allTags.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+          {(searchQuery || statusFilter !== "all" || originFilter !== "all" || tagFilter !== "all") && (
+            <button
+              onClick={() => {
+                setSearchQuery("");
+                setStatusFilter("all");
+                setOriginFilter("all");
+                setTagFilter("all");
+              }}
+              style={s({
+                background: "none",
+                border: "1px solid #2b3440",
+                borderRadius: "6px",
+                color: "#8896a7",
+                cursor: "pointer",
+                fontSize: "0.82rem",
+                padding: "6px 10px",
+              })}
+            >
+              ✕ Limpar filtros
+            </button>
+          )}
+        </div>
+
         {/* Content */}
         <div
           style={s({
@@ -382,6 +526,17 @@ export default function BasesPage() {
             >
               Nenhum lead nesta base ainda.
             </div>
+          ) : filteredLeads.length === 0 ? (
+            <div
+              style={s({
+                padding: "48px",
+                textAlign: "center",
+                color: "#8896a7",
+                fontSize: "0.9rem",
+              })}
+            >
+              Nenhum lead encontrado com os filtros atuais.
+            </div>
           ) : (
             <div style={s({ overflowX: "auto" })}>
               <table
@@ -401,7 +556,7 @@ export default function BasesPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {leads.map((lead) => (
+                  {filteredLeads.map((lead) => (
                     <tr key={lead.wa_id} style={s({ borderBottom: "1px solid #1a2230" })}>
                       <td style={s({ padding: "9px 10px", maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" })}>
                         {lead.nome ? (
@@ -549,8 +704,10 @@ export default function BasesPage() {
               })}
             >
               <span>
-                {leads.length} lead{leads.length !== 1 ? "s" : ""} —{" "}
-                {POOLS.find((p) => p.pool === activePool)?.label}
+                {filteredLeads.length !== leads.length
+                  ? `${filteredLeads.length} de ${leads.length} lead${leads.length !== 1 ? "s" : ""}`
+                  : `${leads.length} lead${leads.length !== 1 ? "s" : ""}`}{" "}
+                — {POOLS.find((p) => p.pool === activePool)?.label}
               </span>
               <button
                 onClick={() => fetchLeads(activePool)}
@@ -1158,7 +1315,21 @@ function MoveBaseModal({
 
 // ─── Warmup Base Modal ───────────────────────────────────────────────────────
 
-type WarmupStep = "config" | "preview";
+type WarmupStep = "config" | "preview" | "result";
+
+type WarmupSummary = {
+  baseName: string;
+  selected: number;
+  sent: number;
+  failed: number;
+};
+
+function warmupStateLabel(summary: WarmupSummary): { label: string; color: string } {
+  if (summary.selected === 0) return { label: "Nenhuma elegibilidade", color: "#f6a03d" };
+  if (summary.sent === 0) return { label: "Falha total", color: "#f66" };
+  if (summary.failed === 0) return { label: "Sucesso total", color: "#5ce89c" };
+  return { label: "Sucesso parcial", color: "#f6a03d" };
+}
 
 function WarmupBaseModal({
   activePool,
@@ -1177,6 +1348,7 @@ function WarmupBaseModal({
   const [busy, setBusy] = useState(false);
   const [previewLeads, setPreviewLeads] = useState<CrmLeadMetaRow[]>([]);
   const [dispatchText, setDispatchText] = useState("");
+  const [summary, setSummary] = useState<WarmupSummary | null>(null);
 
   const handleSelect = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1197,7 +1369,15 @@ function WarmupBaseModal({
     const result = await callAction({ action: "warmup_dispatch", wa_ids: waIds, text: dispatchText.trim() });
     setBusy(false);
     if (!result) return;
-    onDone(`Warmup: ${result.sent_count ?? 0} de ${result.total ?? 0} lead(s) enviados.`);
+    const sentCount = typeof result.sent_count === "number" ? result.sent_count : 0;
+    const totalCount = typeof result.total === "number" ? result.total : waIds.length;
+    setSummary({
+      baseName: POOL_LABEL[leadPool] ?? leadPool,
+      selected: previewLeads.length,
+      sent: sentCount,
+      failed: totalCount - sentCount,
+    });
+    setStep("result");
   };
 
   return (
@@ -1310,6 +1490,73 @@ function WarmupBaseModal({
           </div>
         </form>
       )}
+
+      {step === "result" && summary && (() => {
+        const { label: stateLabel, color: stateColor } = warmupStateLabel(summary);
+        const doneMsg = `Warmup base ${summary.baseName}: ${summary.sent} de ${summary.selected} enviados.`;
+        return (
+          <div>
+            <div
+              style={{
+                background: "#0a1420",
+                border: "1px solid #1e2d3d",
+                borderRadius: "8px",
+                padding: "16px",
+                marginBottom: "16px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "0.82rem",
+                  color: "#8896a7",
+                  marginBottom: "6px",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                Resultado do aquecimento
+              </div>
+              <div
+                style={{
+                  fontSize: "1rem",
+                  fontWeight: 700,
+                  color: stateColor,
+                  marginBottom: "14px",
+                }}
+              >
+                {stateLabel}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "0.87rem" }}>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "#8896a7" }}>Base aquecida</span>
+                  <span style={{ color: "#e6edf3", fontWeight: 600 }}>{summary.baseName}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "#8896a7" }}>Leads selecionados</span>
+                  <span style={{ color: "#e6edf3" }}>{summary.selected}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between" }}>
+                  <span style={{ color: "#8896a7" }}>Enviados com sucesso</span>
+                  <span style={{ color: "#5ce89c", fontWeight: 600 }}>{summary.sent}</span>
+                </div>
+                {summary.failed > 0 && (
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span style={{ color: "#8896a7" }}>Falhas no envio</span>
+                    <span style={{ color: "#f66", fontWeight: 600 }}>{summary.failed}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+            <button
+              type="button"
+              style={submitStyle}
+              onClick={() => onDone(doneMsg)}
+            >
+              Fechar
+            </button>
+          </div>
+        );
+      })()}
     </ModalShell>
   );
 }

@@ -19,6 +19,9 @@ type CrmLeadMetaRow = {
   is_paused: boolean;
   created_at: string | null;
   updated_at: string | null;
+  ultima_acao: string | null;
+  ultimo_contato_at: string | null;
+  status_operacional: string | null;
 };
 
 type ApiLeadsPayload = {
@@ -105,6 +108,11 @@ export default function BasesPage() {
   const [moveTarget, setMoveTarget] = useState<CrmLeadMetaRow | null>(null);
   const [callNowTarget, setCallNowTarget] = useState<CrmLeadMetaRow | null>(null);
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Inline obs editing ───────────────────────────────────────────────────
+  const [editingObsWaId, setEditingObsWaId] = useState<string | null>(null);
+  const [editingObsText, setEditingObsText] = useState("");
+  const [hoveredObsWaId, setHoveredObsWaId] = useState<string | null>(null);
 
   // ── Operational filters ──────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
@@ -228,6 +236,27 @@ export default function BasesPage() {
     setCallNowTarget(lead);
     setModal("call_now");
     setActionError(null);
+  }, []);
+
+  const handleUpdateObs = useCallback(
+    async (lead: CrmLeadMetaRow, newObs: string) => {
+      const result = await callAction({ action: "update_obs", wa_id: lead.wa_id, obs_curta: newObs });
+      if (result) {
+        setLeads((prev) =>
+          prev.map((l) =>
+            l.wa_id === lead.wa_id ? { ...l, obs_curta: newObs.trim() || null } : l,
+          ),
+        );
+        setEditingObsWaId(null);
+        setEditingObsText("");
+      }
+    },
+    [callAction],
+  );
+
+  const handleCancelEditObs = useCallback(() => {
+    setEditingObsWaId(null);
+    setEditingObsText("");
   }, []);
 
   const accent = POOLS.find((p) => p.pool === activePool)?.accentColor ?? "#3d7ef6";
@@ -551,7 +580,8 @@ export default function BasesPage() {
                     <Th>Tags</Th>
                     <Th>Obs.</Th>
                     <Th>Status</Th>
-                    <Th>Atualizado</Th>
+                    <Th>Ação</Th>
+                    <Th>Contato</Th>
                     <Th>Ações</Th>
                   </tr>
                 </thead>
@@ -609,32 +639,111 @@ export default function BasesPage() {
                           <span style={s({ color: "#3d4d5d" })}>—</span>
                         )}
                       </td>
-                      <td
-                        style={s({
-                          padding: "9px 10px",
-                          color: "#8896a7",
-                          maxWidth: "160px",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        })}
-                        title={lead.obs_curta ?? ""}
-                      >
-                        {lead.obs_curta ?? "—"}
+                      <td style={s({ padding: "9px 10px", maxWidth: "180px" })}>
+                        {editingObsWaId === lead.wa_id ? (
+                          <div style={s({ display: "flex", gap: "4px", alignItems: "center" })}>
+                            <input
+                              autoFocus
+                              style={s({
+                                background: "#0a1018",
+                                border: "1px solid #3d7ef6",
+                                borderRadius: "4px",
+                                color: "#e6edf3",
+                                fontSize: "0.82rem",
+                                padding: "3px 7px",
+                                flex: 1,
+                                minWidth: 0,
+                                outline: "none",
+                                boxShadow: "0 0 0 2px rgba(61,126,246,0.18)",
+                              })}
+                              value={editingObsText}
+                              maxLength={200}
+                              placeholder="Adicionar observação…"
+                              onChange={(e) => setEditingObsText(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") void handleUpdateObs(lead, editingObsText);
+                                if (e.key === "Escape") handleCancelEditObs();
+                              }}
+                            />
+                            <button
+                              onClick={() => void handleUpdateObs(lead, editingObsText)}
+                              title="Salvar (Enter)"
+                              style={s({
+                                background: "#0f2a1a",
+                                border: "1px solid #1a5c33",
+                                borderRadius: "4px",
+                                color: "#5ce89c",
+                                cursor: "pointer",
+                                fontSize: "0.78rem",
+                                padding: "3px 6px",
+                                lineHeight: 1,
+                                flexShrink: 0,
+                              })}
+                            >
+                              ✓
+                            </button>
+                            <button
+                              onClick={handleCancelEditObs}
+                              title="Cancelar (Esc)"
+                              style={s({
+                                background: "none",
+                                border: "1px solid #2c3848",
+                                borderRadius: "4px",
+                                color: "#8896a7",
+                                cursor: "pointer",
+                                fontSize: "0.78rem",
+                                padding: "3px 6px",
+                                lineHeight: 1,
+                                flexShrink: 0,
+                              })}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <span
+                            title={lead.obs_curta ? lead.obs_curta : "Clique para adicionar observação"}
+                            onMouseEnter={() => setHoveredObsWaId(lead.wa_id)}
+                            onMouseLeave={() => setHoveredObsWaId(null)}
+                            onClick={() => {
+                              setEditingObsWaId(lead.wa_id);
+                              setEditingObsText(lead.obs_curta ?? "");
+                            }}
+                            style={s({
+                              cursor: "text",
+                              color: lead.obs_curta ? "#9aabba" : "#3d4d5d",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              maxWidth: "160px",
+                              fontSize: "0.82rem",
+                              padding: "2px 4px",
+                              borderRadius: "3px",
+                              background: hoveredObsWaId === lead.wa_id ? "#1a2230" : "transparent",
+                              border: hoveredObsWaId === lead.wa_id ? "1px solid #2c3848" : "1px solid transparent",
+                              transition: "background 0.1s, border-color 0.1s",
+                            })}
+                          >
+                            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {lead.obs_curta ?? <span style={{ color: "#2c3848", fontStyle: "italic" }}>obs…</span>}
+                            </span>
+                            {hoveredObsWaId === lead.wa_id && (
+                              <span style={{ fontSize: "0.7rem", color: "#4a6080", flexShrink: 0 }}>✏</span>
+                            )}
+                          </span>
+                        )}
                       </td>
                       <td style={s({ padding: "9px 10px" })}>
-                        <span
-                          style={s({
-                            color: lead.is_paused ? "#f6a03d" : "#5ce89c",
-                            fontWeight: 600,
-                            fontSize: "0.8rem",
-                          })}
-                        >
-                          {lead.is_paused ? "pausado" : "ativo"}
-                        </span>
+                        <StatusChip lead={lead} />
+                      </td>
+                      <td style={s({ padding: "9px 10px" })}>
+                        <UltimaAcaoChip acao={lead.ultima_acao} />
                       </td>
                       <td style={s({ padding: "9px 10px", color: "#5d6e7e", fontSize: "0.78rem" })}>
-                        {formatDate(lead.updated_at)}
+                        {formatDate(lead.ultimo_contato_at ?? lead.updated_at)}
                       </td>
                       <td style={s({ padding: "9px 10px" })}>
                         <div style={s({ display: "flex", gap: "6px" })}>
@@ -816,6 +925,58 @@ export default function BasesPage() {
 }
 
 // ─── Small shared components ────────────────────────────────────────────────
+
+const STATUS_OP_CONFIG: Record<string, { label: string; color: string }> = {
+  SEM_CONTATO: { label: "sem contato", color: "#5d6e7e" },
+  CONTATADO: { label: "contatado", color: "#3d7ef6" },
+  AGUARDANDO_RETORNO: { label: "aguardando", color: "#f6a03d" },
+  PAUSADO: { label: "pausado", color: "#8896a7" },
+};
+
+const ACAO_LABEL: Record<string, string> = {
+  CALL_NOW: "📞 call_now",
+  WARMUP: "🔥 warmup",
+  PAUSE: "⏸ pause",
+  RESUME: "▶ resume",
+  ADD: "➕ add",
+  IMPORT: "📥 import",
+  MOVE: "→ move",
+};
+
+function StatusChip({ lead }: { lead: CrmLeadMetaRow }) {
+  const key = lead.is_paused ? "PAUSADO" : (lead.status_operacional ?? "SEM_CONTATO");
+  const cfg = STATUS_OP_CONFIG[key] ?? STATUS_OP_CONFIG.SEM_CONTATO;
+  return (
+    <span
+      style={{
+        color: cfg.color,
+        fontWeight: 600,
+        fontSize: "0.8rem",
+      }}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
+function UltimaAcaoChip({ acao }: { acao: string | null }) {
+  if (!acao) return <span style={{ color: "#3d4d5d", fontSize: "0.78rem" }}>—</span>;
+  return (
+    <span
+      style={{
+        fontSize: "0.78rem",
+        color: "#9aabba",
+        background: "#1a2230",
+        borderRadius: "4px",
+        padding: "2px 6px",
+        display: "inline-block",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {ACAO_LABEL[acao] ?? acao}
+    </span>
+  );
+}
 
 function Th({ children }: { children: React.ReactNode }) {
   return (

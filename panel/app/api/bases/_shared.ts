@@ -18,6 +18,9 @@ export type CrmLeadMetaRow = {
   is_paused: boolean;
   created_at: string | null;
   updated_at: string | null;
+  ultima_acao: string | null;
+  ultimo_contato_at: string | null;
+  status_operacional: string | null;
 };
 
 type LeadMetaInput = {
@@ -57,7 +60,8 @@ export type BasesAction =
   | "resume_lead"
   | "call_now"
   | "warmup_base"
-  | "warmup_dispatch";
+  | "warmup_dispatch"
+  | "update_obs";
 
 export type BasesRequest = {
   action?: BasesAction;
@@ -71,6 +75,7 @@ export type BasesRequest = {
   lead_source?: string;
   tags?: unknown;
   obs_curta?: string;
+  status_operacional?: string;
   import_ref?: string;
   auto_outreach_enabled?: boolean;
   is_paused?: boolean;
@@ -88,13 +93,16 @@ type AuditLogRow = {
     | "bases_resume"
     | "bases_call_now"
     | "bases_warmup"
-    | "bases_warmup_dispatch";
+    | "bases_warmup_dispatch"
+    | "bases_update_obs";
   meta_text: string;
   details: Record<string, unknown>;
 };
 
 export const REQUIRED_ENVS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const;
 export const CALL_NOW_ENVS = ["WORKER_BASE_URL", "ENOVA_ADMIN_KEY"] as const;
+export const VALID_STATUS_OPERACIONAL = ["SEM_CONTATO", "CONTATADO", "AGUARDANDO_RETORNO", "PAUSADO"] as const;
+export type StatusOperacional = (typeof VALID_STATUS_OPERACIONAL)[number];
 
 export function defaultLeadTempForPool(leadPool: LeadPool): LeadTemp {
   if (leadPool === "WARM_POOL") return "WARM";
@@ -164,7 +172,7 @@ export function normalizePhoneToWaId(phone: unknown): string | null {
 export function normalizeLeadMetaInput(
   input: LeadMetaInput,
   options: NormalizeLeadMetaOptions = {},
-): Omit<CrmLeadMetaRow, "created_at"> {
+): Omit<CrmLeadMetaRow, "created_at" | "ultima_acao" | "ultimo_contato_at" | "status_operacional"> {
   const rawWaId = normalizeOptionalText(input.wa_id);
   const rawTelefone = normalizeOptionalText(input.telefone);
   // wa_id can be provided directly or derived from telefone
@@ -284,7 +292,7 @@ async function loadLeadMeta(
   const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
   endpoint.searchParams.set(
     "select",
-    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at",
+    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at,ultima_acao,ultimo_contato_at,status_operacional",
   );
   endpoint.searchParams.set("wa_id", `eq.${waId}`);
   endpoint.searchParams.set("limit", "1");
@@ -311,7 +319,7 @@ async function loadWarmupCandidates(
   const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
   endpoint.searchParams.set(
     "select",
-    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at",
+    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at,ultima_acao,ultimo_contato_at,status_operacional",
   );
   endpoint.searchParams.set("is_paused", "eq.false");
   endpoint.searchParams.set("order", "updated_at.asc,wa_id.asc");
@@ -439,7 +447,7 @@ export async function listLeadsForPanel(
   const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
   endpoint.searchParams.set(
     "select",
-    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at",
+    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at,ultima_acao,ultimo_contato_at,status_operacional",
   );
   endpoint.searchParams.set("order", "updated_at.desc,wa_id.asc");
 
@@ -569,7 +577,10 @@ export async function runBasesAction(
         },
         {},
       );
-      const savedRow = await patchLeadMetaRow(supabaseUrl, serviceRoleKey, waId, normalized);
+      const savedRow = await patchLeadMetaRow(supabaseUrl, serviceRoleKey, waId, {
+        ...normalized,
+        ultima_acao: "MOVE",
+      });
       await insertAuditLogs(supabaseUrl, serviceRoleKey, [
         buildAuditRow(waId, "bases_move", "Lead movido de base", {
           from_pool: existing.lead_pool,
@@ -591,9 +602,17 @@ export async function runBasesAction(
         return { status: 404, body: { ok: false, error: "LEAD_NOT_FOUND" } };
       }
       const isPaused = action === "pause_lead";
+      const now = new Date().toISOString();
+      const statusOp: string | null = isPaused
+        ? "PAUSADO"
+        : existing.ultimo_contato_at
+          ? "AGUARDANDO_RETORNO"
+          : null;
       const savedRow = await patchLeadMetaRow(supabaseUrl, serviceRoleKey, waId, {
         is_paused: isPaused,
-        updated_at: new Date().toISOString(),
+        updated_at: now,
+        ultima_acao: isPaused ? "PAUSE" : "RESUME",
+        status_operacional: statusOp,
       });
       await insertAuditLogs(supabaseUrl, serviceRoleKey, [
         buildAuditRow(
@@ -653,6 +672,16 @@ export async function runBasesAction(
           message_id: workerJson.message_id ?? null,
         }),
       ]);
+
+      if (workerResponse.ok) {
+        const contactedAt = new Date().toISOString();
+        await patchLeadMetaRow(supabaseUrl, serviceRoleKey, waId, {
+          ultima_acao: "CALL_NOW",
+          ultimo_contato_at: contactedAt,
+          status_operacional: "AGUARDANDO_RETORNO",
+          updated_at: contactedAt,
+        });
+      }
 
       return {
         status: workerResponse.status,
@@ -753,6 +782,15 @@ export async function runBasesAction(
             ok: workerResponse.ok,
             message_id: typeof workerJson.message_id === "string" ? workerJson.message_id : undefined,
           });
+          if (workerResponse.ok) {
+            const contactedAt = new Date().toISOString();
+            await patchLeadMetaRow(supabaseUrl, serviceRoleKey, waId, {
+              ultima_acao: "WARMUP",
+              ultimo_contato_at: contactedAt,
+              status_operacional: "AGUARDANDO_RETORNO",
+              updated_at: contactedAt,
+            });
+          }
         } catch (dispatchErr) {
           console.error("[warmup_dispatch] failed to dispatch wa_id:", waId, dispatchErr);
           results.push({ wa_id: waId, ok: false, reason: "DISPATCH_ERROR" });
@@ -782,6 +820,28 @@ export async function runBasesAction(
           results,
         },
       };
+    }
+
+    if (action === "update_obs") {
+      const waId = normalizeOptionalText(payload.wa_id);
+      if (!waId) {
+        return { status: 400, body: { ok: false, error: "wa_id é obrigatório" } };
+      }
+      const patch: Record<string, unknown> = {
+        obs_curta: normalizeOptionalText(payload.obs_curta),
+        updated_at: new Date().toISOString(),
+      };
+      if (payload.status_operacional && VALID_STATUS_OPERACIONAL.includes(payload.status_operacional as StatusOperacional)) {
+        patch.status_operacional = payload.status_operacional;
+      }
+      const savedRow = await patchLeadMetaRow(supabaseUrl, serviceRoleKey, waId, patch);
+      await insertAuditLogs(supabaseUrl, serviceRoleKey, [
+        buildAuditRow(waId, "bases_update_obs", "Obs. curta atualizada em Bases", {
+          obs_curta: patch.obs_curta,
+          status_operacional: patch.status_operacional ?? null,
+        }),
+      ]);
+      return { status: 200, body: { ok: true, action, lead: savedRow } };
     }
 
     return { status: 400, body: { ok: false, error: "UNKNOWN_ACTION" } };

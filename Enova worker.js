@@ -16108,8 +16108,17 @@ async function fetchCorrespondenteDocumentUpstream(env, doc, options = {}) {
     }
   }
 
-  // --- fallback: reconstruct Graph API URL from media_id ---
-  const mediaId = String(doc?.media_id || "").trim();
+  // --- fallback: reconstruct Graph API URL from media_id or from mid in lookaside URL ---
+  let mediaId = String(doc?.media_id || "").trim();
+  if (!mediaId && rawUrl) {
+    try {
+      const midFromUrl = new URL(rawUrl).searchParams.get("mid");
+      if (midFromUrl) {
+        mediaId = String(midFromUrl).trim();
+        if (mediaId) console.log("[correspondente/doc] extracted mid from lookaside url querystring for graph fallback");
+      }
+    } catch {}
+  }
   if (mediaId) {
     const metaApiVersion = String(env?.META_API_VERSION || "v20.0").trim() || "v20.0";
     const graphUrl = `https://graph.facebook.com/${metaApiVersion}/${mediaId}`;

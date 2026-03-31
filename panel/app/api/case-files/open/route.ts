@@ -154,8 +154,15 @@ export async function GET(request: Request) {
       );
     }
 
+    const upstreamHeaders: Record<string, string> = {};
+    const whatsToken = (process.env.WHATS_TOKEN || "").trim();
+    if (whatsToken && CANONICAL_ALLOWED_HOSTS.has(parsedSourceUrl.hostname.toLowerCase())) {
+      upstreamHeaders["Authorization"] = `Bearer ${whatsToken}`;
+    }
+
     const upstream = await fetch(parsedSourceUrl.toString(), {
       method: "GET",
+      headers: upstreamHeaders,
       cache: "no-store",
     });
     if (!upstream.ok || !upstream.body) {

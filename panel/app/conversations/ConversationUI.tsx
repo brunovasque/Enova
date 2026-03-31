@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import styles from "./conversations.module.css";
 import { PdfThumbnail } from "./PdfThumbnail";
+import { SmartFilePreview } from "./SmartFilePreview";
 
 const POLL_INTERVAL_MS = 1000;
 const THREAD_BOTTOM_THRESHOLD_PX = 32;
@@ -1108,6 +1109,10 @@ export function ConversationUI() {
                   const fileIcon = getFileIcon(file.mime_type || file.tipo);
                   const isImage = isImageMime(file.mime_type || file.tipo);
                   const isPdf = isPdfMime(file.mime_type || file.tipo);
+                  // Unknown MIME: URL exists but no file extension (e.g. Graph API URLs).
+                  // SmartFilePreview fetches the file once, reads real Content-Type, and
+                  // dispatches to the correct renderer (image or PDF canvas).
+                  const isUnknownType = !isImage && !isPdf && file.mime_type === null;
                   const metaLine = [
                     file.tipo || file.mime_type || "arquivo",
                     file.size_bytes ? formatFileSize(file.size_bytes) : null,
@@ -1208,6 +1213,73 @@ export function ConversationUI() {
                                 src={openFileUrl(file)}
                                 fallback={pdfFallback}
                                 className={styles.fileCardPdfCanvas}
+                                loadingClassName={styles.fileCardPdfLoading}
+                              />
+                            </span>
+                            <span className={styles.fileCardImageCaption}>
+                              <span className={styles.fileCardName}>{displayName}</span>
+                              <span className={styles.fileCardMeta}>{metaLine}</span>
+                            </span>
+                          </button>
+                          <div className={styles.fileCardFooter}>
+                            <span className={styles.fileCardTimestamp}>
+                              {formatDateTime(file.created_at)}
+                            </span>
+                            <a
+                              href={`${openFileUrl(file)}&download=1`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.fileCardDownloadBtn}
+                              aria-label={`Baixar ${displayName}`}
+                              title="Baixar"
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+                              }}
+                            >
+                              ↓
+                            </a>
+                          </div>
+                        </article>
+                      </div>
+                    );
+                  }
+
+                  // ── Unknown MIME type card: SmartFilePreview auto-detect ──
+                  if (isUnknownType) {
+                    const smartFallback = (
+                      <span className={styles.fileCardDocPreview} aria-hidden="true">
+                        <span className={styles.fileCardDocLinesWrap}>
+                          <span className={styles.fileCardDocLine} />
+                          <span className={styles.fileCardDocLine} />
+                          <span className={styles.fileCardDocLine} />
+                          <span className={styles.fileCardDocLine} />
+                        </span>
+                        <span
+                          className={styles.fileCardDocBadge}
+                          style={{ background: fileIcon.color }}
+                        >
+                          {fileIcon.icon}
+                        </span>
+                      </span>
+                    );
+                    return (
+                      <div key={entry.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
+                        <article
+                          className={`${styles.bubble} ${styles.bubbleIn} ${styles.fileBubble} ${styles.fileBubblePdf}`}
+                        >
+                          <button
+                            type="button"
+                            className={styles.fileCardImageBtn}
+                            onClick={() => handleOpenFile(file)}
+                            aria-label={`Visualizar ${displayName}`}
+                          >
+                            <span className={styles.fileCardPdfWrap}>
+                              <SmartFilePreview
+                                src={openFileUrl(file)}
+                                fallback={smartFallback}
+                                canvasClassName={styles.fileCardPdfCanvas}
+                                imgClassName={styles.fileCardPdfCanvas}
                                 loadingClassName={styles.fileCardPdfLoading}
                               />
                             </span>

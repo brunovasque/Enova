@@ -53,6 +53,25 @@ function buildContentDisposition(fileName: string | null, previewable: boolean):
   return `${mode}; filename="${fallbackName}"; filename*=UTF-8''${encoded}`;
 }
 
+function mimeToExt(mime: string): string | null {
+  const m = mime.split(";")[0].trim().toLowerCase();
+  const map: Record<string, string> = {
+    "application/pdf": "pdf",
+    "image/jpeg": "jpg",
+    "image/jpg": "jpg",
+    "image/png": "png",
+    "image/gif": "gif",
+    "image/webp": "webp",
+    "image/heic": "heic",
+    "image/heif": "heif",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  };
+  return map[m] ?? null;
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const waId = (searchParams.get("wa_id") || "").trim();
@@ -252,12 +271,30 @@ export async function GET(request: Request) {
         ? String(resolved.item.size_bytes)
         : upstream.headers.get("content-length");
 
+    // Use the actual upstream content-type to decide inline vs attachment.
+    // URL-based MIME inference (used to compute resolved.item.previewable) fails
+    // for Meta CDN URLs which carry no file extension, so we re-evaluate here.
+    const effectiveMime = contentType.split(";")[0].trim().toLowerCase();
+    const effectivePreviewable =
+      effectiveMime === "application/pdf" || effectiveMime.startsWith("image/");
+
+    // Build a meaningful filename: prefer explicit file_name, else derive from
+    // tipo + participante + inferred extension so the browser can open the file.
+    const inferredExt = mimeToExt(effectiveMime);
+    // participante can be null — filter removes null/undefined/empty-string parts
+    const baseNameParts = [resolved.item.tipo, resolved.item.participante].filter(
+      (v): v is string => typeof v === "string" && v.length > 0,
+    );
+    const baseName = baseNameParts.length > 0 ? baseNameParts.join("_") : "arquivo";
+    const effectiveFileName =
+      resolved.item.file_name || (inferredExt ? `${baseName}.${inferredExt}` : baseName);
+
     const headers = new Headers();
     headers.set("Cache-Control", "no-store");
     headers.set("Content-Type", contentType);
     headers.set(
       "Content-Disposition",
-      buildContentDisposition(resolved.item.file_name, resolved.item.previewable && !forceDownload),
+      buildContentDisposition(effectiveFileName, effectivePreviewable && !forceDownload),
     );
     if (contentLength) headers.set("Content-Length", contentLength);
     headers.set("X-Content-Type-Options", "nosniff");

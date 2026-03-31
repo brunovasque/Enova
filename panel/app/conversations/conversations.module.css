@@ -458,11 +458,51 @@
 }
 
 .fileCardImageCaption {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   padding: 5px 10px 3px;
 }
 
-/* ── Document card ─────────────────────────────────────────────── */
+/* ── PDF bubble (same proportions as image bubble) ─────────────── */
+
+.fileBubblePdf {
+  padding: 0;
+  min-width: 220px;
+  max-width: min(52ch, 68%);
+  overflow: hidden;
+}
+
+.fileCardPdfWrap {
+  display: block;
+  position: relative;
+  width: 100%;
+  background: #131313;
+  overflow: hidden;
+  min-height: 100px;
+}
+
+.fileCardPdfCanvas {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.fileCardPdfLoading {
+  display: block;
+  width: 100%;
+  height: 160px;
+  background: linear-gradient(90deg, #1c1c1c 25%, #252525 50%, #1c1c1c 75%);
+  background-size: 200% 100%;
+  animation: pdfThumbShimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes pdfThumbShimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+
 
 .fileCardClickable {
   display: flex;

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import styles from "./conversations.module.css";
+import { PdfThumbnail } from "./PdfThumbnail";
 
 const POLL_INTERVAL_MS = 1000;
 const THREAD_BOTTOM_THRESHOLD_PX = 32;
@@ -157,6 +158,14 @@ function isImageMime(mimeOrTipo: string | null): boolean {
   if (!raw.includes("/")) {
     return ["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(raw);
   }
+  return false;
+}
+
+function isPdfMime(mimeOrTipo: string | null): boolean {
+  const raw = (mimeOrTipo ?? "").toLowerCase();
+  if (raw === "application/pdf") return true;
+  // Bare extension / tipo field = "pdf"
+  if (!raw.includes("/")) return raw === "pdf";
   return false;
 }
 
@@ -1098,6 +1107,7 @@ export function ConversationUI() {
                   const displayName = formatFileDisplayName(file);
                   const fileIcon = getFileIcon(file.mime_type || file.tipo);
                   const isImage = isImageMime(file.mime_type || file.tipo);
+                  const isPdf = isPdfMime(file.mime_type || file.tipo);
                   const metaLine = [
                     file.tipo || file.mime_type || "arquivo",
                     file.size_bytes ? formatFileSize(file.size_bytes) : null,
@@ -1164,7 +1174,73 @@ export function ConversationUI() {
                     );
                   }
 
-                  // ── Document card: paper-with-lines preview ───────────
+                  // ── PDF card: real first-page thumbnail via pdfjs ────
+                  if (isPdf) {
+                    const pdfFallback = (
+                      <span className={styles.fileCardDocPreview} aria-hidden="true">
+                        <span className={styles.fileCardDocLinesWrap}>
+                          <span className={styles.fileCardDocLine} />
+                          <span className={styles.fileCardDocLine} />
+                          <span className={styles.fileCardDocLine} />
+                          <span className={styles.fileCardDocLine} />
+                        </span>
+                        <span
+                          className={styles.fileCardDocBadge}
+                          style={{ background: fileIcon.color }}
+                        >
+                          {fileIcon.icon}
+                        </span>
+                      </span>
+                    );
+                    return (
+                      <div key={entry.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
+                        <article
+                          className={`${styles.bubble} ${styles.bubbleIn} ${styles.fileBubble} ${styles.fileBubblePdf}`}
+                        >
+                          <button
+                            type="button"
+                            className={styles.fileCardImageBtn}
+                            onClick={() => handleOpenFile(file)}
+                            aria-label={`Visualizar ${displayName}`}
+                          >
+                            <span className={styles.fileCardPdfWrap}>
+                              <PdfThumbnail
+                                src={openFileUrl(file)}
+                                fallback={pdfFallback}
+                                className={styles.fileCardPdfCanvas}
+                                loadingClassName={styles.fileCardPdfLoading}
+                              />
+                            </span>
+                            <span className={styles.fileCardImageCaption}>
+                              <span className={styles.fileCardName}>{displayName}</span>
+                              <span className={styles.fileCardMeta}>{metaLine}</span>
+                            </span>
+                          </button>
+                          <div className={styles.fileCardFooter}>
+                            <span className={styles.fileCardTimestamp}>
+                              {formatDateTime(file.created_at)}
+                            </span>
+                            <a
+                              href={`${openFileUrl(file)}&download=1`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.fileCardDownloadBtn}
+                              aria-label={`Baixar ${displayName}`}
+                              title="Baixar"
+                              onClick={(e) => e.stopPropagation()}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") e.stopPropagation();
+                              }}
+                            >
+                              ↓
+                            </a>
+                          </div>
+                        </article>
+                      </div>
+                    );
+                  }
+
+                  // ── Generic document card: paper-with-lines fallback ──
                   return (
                     <div key={entry.key} className={`${styles.messageRow} ${styles.messageRowIn}`}>
                       <article className={`${styles.bubble} ${styles.bubbleIn} ${styles.fileBubble}`}>

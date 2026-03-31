@@ -406,7 +406,7 @@
 
 .fileBubbleImage {
   padding: 0;
-  min-width: 220px;
+  min-width: 260px;
   max-width: min(52ch, 68%);
   overflow: hidden;
 }
@@ -426,16 +426,16 @@
   display: block;
   position: relative;
   width: 100%;
+  height: 210px;      /* fixed-height preview frame — same as PDF */
   background: #131313;
   overflow: hidden;
-  min-height: 100px;
 }
 
 .fileCardImageThumb {
   display: block;
   width: 100%;
-  max-height: 260px;
-  object-fit: cover;
+  height: 100%;
+  object-fit: cover;  /* fills frame, cropping edges rather than letter-boxing */
 }
 
 .fileCardImageFallback {
@@ -443,7 +443,6 @@
   inset: 0;
   width: 100%;
   height: 100%;
-  min-height: 100px;
   border-radius: 0;
   display: none; /* hidden by default; shown when img has data-error */
 }
@@ -468,7 +467,7 @@
 
 .fileBubblePdf {
   padding: 0;
-  min-width: 220px;
+  min-width: 260px;
   max-width: min(52ch, 68%);
   overflow: hidden;
 }
@@ -477,21 +476,21 @@
   display: block;
   position: relative;
   width: 100%;
+  height: 210px;      /* fixed-height preview frame — same as image */
   background: #131313;
   overflow: hidden;
-  min-height: 100px;
 }
 
 .fileCardPdfCanvas {
   display: block;
   width: 100%;
-  height: auto;
+  height: auto;       /* natural aspect ratio; container clips below 210px */
 }
 
 .fileCardPdfLoading {
   display: block;
   width: 100%;
-  height: 160px;
+  height: 210px;      /* matches frame height so shimmer fills the frame */
   background: linear-gradient(90deg, #1c1c1c 25%, #252525 50%, #1c1c1c 75%);
   background-size: 200% 100%;
   animation: pdfThumbShimmer 1.4s ease-in-out infinite;

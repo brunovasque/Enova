@@ -180,6 +180,8 @@ O endpoint **serve** para validar o shadow mode porque:
 **Sem mexer em código**, executar o seguinte request no ambiente de teste:
 
 ```bash
+# <test-worker-url> = URL do Worker de teste no Cloudflare (ver dashboard Cloudflare Workers → Enova test)
+# <admin-token> = token de admin configurado na env var do Worker
 curl -X POST https://<test-worker-url>/__admin__/simulate-funnel \
   -H "Authorization: Bearer <admin-token>" \
   -H "Content-Type: application/json" \

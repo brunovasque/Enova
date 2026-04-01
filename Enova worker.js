@@ -4094,6 +4094,8 @@ function enovaV1Scenarios(modeOverride = null) {
     { id: "gates_quem_pode_somar_familiar_generico", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_quem_somar_v1", start_stage: "quem_pode_somar", input: "minha irmã", expected: { type: "multiple", in: ["regime_trabalho_parceiro_familiar","somar_renda_familiar"] } },
     { id: "gates_quem_pode_somar_ninguem", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_quem_somar_v1", start_stage: "quem_pode_somar", input: "não tenho ninguém", expected: { type: "single", equals: "fim_ineligivel" } },
     { id: "gates_quem_pode_somar_fallback", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_quem_somar_v1", start_stage: "quem_pode_somar", input: "talvez", expected: { type: "single", equals: "quem_pode_somar" }, assert_stayed: true },
+    { id: "gates_quem_pode_somar_solo_so_minha_renda", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_quem_somar_v1", start_stage: "quem_pode_somar", input: "vou usar só minha renda", expected: { type: "single", equals: "fim_ineligivel" } },
+    { id: "gates_quem_pode_somar_solo_so_eu", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_quem_somar_v1", start_stage: "quem_pode_somar", input: "só eu vou compor", expected: { type: "single", equals: "fim_ineligivel" } },
 
     { id: "gates_ctps_36_solo_baixa_sim", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_solo_v1", start_stage: "ctps_36", input: "sim", expected: { type: "multiple", in: ["dependente","restricao"] } },
     { id: "gates_ctps_36_solo_baixa_nao", grupo: "gates_finais", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_gate_ctps_solo_v1", start_stage: "ctps_36", input: "não", expected: { type: "multiple", in: ["dependente","restricao"] } },
@@ -24826,7 +24828,7 @@ case "quem_pode_somar": {
   const familia =
     composicaoSignal === "familiar" ||
     /\b(meu\s+pai|minha\s+mae|minha\s+m[aã]e|minha\s+familia|minha\s+família|minha\s+avo|minha\s+av[oó]|meu\s+avo|meus\s+pais)\b/i.test(tLower) ||
-    /(pai|m[aã]e|irma|irm[aã]o|av[oó]|v[oó]|tia|tio|primo|prima|famil)/i.test(tLower);
+    /(pai|m[aã]e|irma|irm[aã]o|av[oó]|(?<!\w)v[oó](?!\w)|tia|tio|primo|prima|famil)/i.test(tLower);
 
   // ============================================================
   // GUARD — MENCIONOU FILHOS/DEPENDENTES (não compõe renda)

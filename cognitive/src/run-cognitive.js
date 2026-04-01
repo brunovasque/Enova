@@ -44,6 +44,7 @@ const VISITA_HINT_PATTERN = /\b(visita|plantao|plantão|hor[aá]rio|dia|remarcar
 const VISITA_RESCHEDULE_PATTERN = /\b(remarcar|reagendar|outro hor[aá]rio|outro dia)\b/i;
 const VISITA_ACCEPT_PATTERN = /\b(quero visitar|aceito visita|vamos agendar|pode agendar|quero agendar)\b/i;
 const VISITA_RESIST_PATTERN = /\b(n[aã]o quero visitar|prefiro n[aã]o visitar|pra que visitar|por que visitar)\b/i;
+const VISITA_ESFRIAMENTO_PATTERN = /\b(vou pensar|preciso pensar|quem sabe|ainda nao decidi|ainda não decidi|deixa eu ver|quando puder|sem pressa)\b/i;
 const ALUGUEL_HINT_PATTERN = /\b(aluguel|alugar|alugo|alugando)\b/i;
 const DOC_TIPO_RESPOSTA_PATTERN =
   /\b(holerite|comprovante(?: de (?:residencia|renda))?|ctps|carteira de trabalho|rg|cnh|cpf|declaracao|imposto de renda|extrato|identidade|documento pessoal)\b/i;
@@ -484,6 +485,13 @@ function getFollowupAttempts(knownSlots) {
   return toNumber(candidate) ?? 0;
 }
 
+function getVisitaSlotStatus(knownSlots) {
+  const raw = normalizeText(getKnownSlotValue(knownSlots, "visita"));
+  if (["confirmada", "aceita", "agendada"].includes(raw)) return "confirmada";
+  if (raw === "convite") return "convite";
+  return null;
+}
+
 function hasVariableIncomeForHolerite(knownSlots, normalizedMessage) {
   const candidateKeys = [
     "renda_variavel",
@@ -739,6 +747,7 @@ function buildCorrespondenteGuidance(request) {
 function buildVisitaGuidance(request) {
   const normalizedMessage = normalizeText(request?.message_text);
   const knownSlots = request?.known_slots || {};
+  const stage = normalizeText(request?.current_stage);
   const followupAttempts = getFollowupAttempts(knownSlots);
   const recusouOnline =
     REMOTE_REFUSAL_PATTERN.test(normalizedMessage) ||
@@ -748,7 +757,18 @@ function buildVisitaGuidance(request) {
     return "Sem problema em não enviar online. Como já tentamos esse follow-up algumas vezes, te convido para o plantão com os documentos do seu perfil. Para evitar perda de tempo sua e do corretor, me confirma se existe mais alguém com poder de decisão para já participarem todos da visita.";
   }
 
+  if (stage === "finalizacao_processo") {
+    return "Tudo certo até aqui. O próximo passo é formalizar sua proposta com o corretor e seguir para o trâmite de contrato. Me confirma se ficou tudo alinhado no plantão ou se tem alguma dúvida para fechar.";
+  }
+
+  const visitaStatus = getVisitaSlotStatus(knownSlots);
+  const visitaConfirmada = stage === "visita_confirmada" || visitaStatus === "confirmada";
+  const visitaConvite = visitaStatus === "convite";
+
   if (VISITA_RESCHEDULE_PATTERN.test(normalizedMessage)) {
+    if (visitaConfirmada) {
+      return "Sem problema, a gente remarca dentro da agenda oficial do plantão. Me confirma qual dia e horário funciona melhor para você que eu já te passo as opções disponíveis.";
+    }
     return "Claro, a gente consegue remarcar dentro dos dias e horários oficiais do plantão, sem perder a organização do seu atendimento.";
   }
   if (VISITA_RESIST_PATTERN.test(normalizedMessage)) {
@@ -762,6 +782,20 @@ function buildVisitaGuidance(request) {
   }
   if (VISITA_ACCEPT_PATTERN.test(normalizedMessage)) {
     return "Perfeito, faz sentido avançar por aqui. Já te conduzo pelas opções oficiais de agenda.";
+  }
+
+  if (VISITA_ESFRIAMENTO_PATTERN.test(normalizedMessage) || AMBIGUOUS_HINTS.test(normalizedMessage) || DEFER_ACTION_PATTERN.test(normalizedMessage)) {
+    if (visitaConfirmada) {
+      return "Entendi. Você já tem a visita encaminhada, que é o passo certo agora. Me confirma se mantém a data ou prefere remarcar para outro horário.";
+    }
+    if (visitaConvite) {
+      return "Queria só confirmar com você sobre a visita que conversamos. É um passo direto, sem compromisso de fechar nada no dia. Me confirma se quer reservar um horário ou prefere retomar online.";
+    }
+    return "Visitar não é compromisso de fechar nada no dia. É o momento de entender as opções reais do seu perfil sem criar expectativa errada pelo WhatsApp. Me confirma se quer avançar com a visita ou prefere continuar por aqui.";
+  }
+
+  if (visitaConfirmada) {
+    return "Você já tem a visita encaminhada, que é o passo certo para entender seu caminho com segurança. Me confirma se consegue comparecer ou precisa remarcar.";
   }
 
   return "A visita ajuda você a avançar com segurança, dentro da agenda oficial do plantão e sem quebrar o trilho do processo.";

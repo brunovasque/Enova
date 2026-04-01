@@ -1028,5 +1028,92 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
       should_request_confirmation: false,
       min_confidence: 0.3
     }
+  },
+  {
+    id: "visita_confirmada_duvida_generica",
+    title: "Visita confirmada — cliente com dúvida genérica pós-confirmação",
+    input: {
+      conversation_id: "fx-visita-005",
+      current_stage: "visita_confirmada",
+      message_text: "Ok, e o que acontece agora?",
+      known_slots: {},
+      pending_slots: ["visita"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "visita_convite_esfriamento",
+    title: "Visita convidada — cliente esfria após convite",
+    input: {
+      conversation_id: "fx-visita-006",
+      current_stage: "agendamento_visita",
+      message_text: "Vou pensar, talvez depois.",
+      known_slots: {
+        visita: "convite"
+      },
+      pending_slots: ["visita"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "visita_persuasao_indeciso",
+    title: "Visita — cliente indeciso, persuasão objetiva",
+    input: {
+      conversation_id: "fx-visita-007",
+      current_stage: "agendamento_visita",
+      message_text: "Não sei, acho que não preciso visitar agora.",
+      known_slots: {},
+      pending_slots: ["visita"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "visita_pos_visita_proximo_passo",
+    title: "Pós-visita — condução para próximo passo objetivo",
+    input: {
+      conversation_id: "fx-visita-008",
+      current_stage: "finalizacao_processo",
+      message_text: "Fiz a visita, e agora?",
+      known_slots: {},
+      pending_slots: [],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "visita_confirmada_remarcar",
+    title: "Visita confirmada — cliente quer remarcar",
+    input: {
+      conversation_id: "fx-visita-009",
+      current_stage: "visita_confirmada",
+      message_text: "Preciso remarcar para outro dia.",
+      known_slots: {},
+      pending_slots: ["visita"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
   }
 ]);

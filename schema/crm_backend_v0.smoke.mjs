@@ -14,7 +14,8 @@ const sharedModule = await import(new URL("../panel/app/api/crm/_shared.ts", imp
 
 const { runCrmAction, listCrmLeads } = sharedModule;
 
-const metaRows = new Map();
+const metaRows = new Map(); // crm_lead_meta rows (keyed by wa_id)
+const stateRows = new Map(); // enova_state rows (keyed by wa_id) — for the new view JOIN direction
 const overrideLogs = [];
 const fetchCalls = [];
 
@@ -38,6 +39,48 @@ function parseIn(value) {
   return match[1].split(",");
 }
 
+// Split "col.in.(a,b,c),col2.eq.val" respecting parentheses
+function splitOrConditions(str) {
+  const parts = [];
+  let depth = 0;
+  let current = "";
+  for (const ch of str) {
+    if (ch === "(") { depth++; current += ch; }
+    else if (ch === ")") { depth--; current += ch; }
+    else if (ch === "," && depth === 0) { parts.push(current.trim()); current = ""; }
+    else { current += ch; }
+  }
+  if (current.trim()) parts.push(current.trim());
+  return parts;
+}
+
+// Evaluate a single OR condition string against a row object
+// Supports: col.in.(v1,v2), col.eq.val, col.is.true, col.not.is.null
+function evalOrCondition(row, cond) {
+  // col.not.is.null
+  const notNullMatch = cond.match(/^(.+)\.not\.is\.null$/);
+  if (notNullMatch) return row[notNullMatch[1]] != null;
+  // col.is.null
+  const isNullMatch = cond.match(/^(.+)\.is\.null$/);
+  if (isNullMatch) return row[isNullMatch[1]] == null;
+  // col.is.true
+  const isTrueMatch = cond.match(/^(.+)\.is\.true$/);
+  if (isTrueMatch) return row[isTrueMatch[1]] === true;
+  // col.is.false
+  const isFalseMatch = cond.match(/^(.+)\.is\.false$/);
+  if (isFalseMatch) return row[isFalseMatch[1]] === false;
+  // col.eq.val
+  const eqMatch = cond.match(/^(.+)\.eq\.(.+)$/);
+  if (eqMatch) return String(row[eqMatch[1]] ?? "") === eqMatch[2];
+  // col.in.(v1,v2,...)
+  const inMatch = cond.match(/^(.+)\.in\.\((.+)\)$/);
+  if (inMatch) {
+    const vals = inMatch[2].split(",");
+    return vals.includes(String(row[inMatch[1]] ?? ""));
+  }
+  return false;
+}
+
 // Seed a base lead in metaRows for testing
 function seedLead(waId, extra = {}) {
   const base = {
@@ -57,6 +100,13 @@ function seedLead(waId, extra = {}) {
     ultima_acao: null,
     ultimo_contato_at: null,
     status_operacional: null,
+    // enova_state funnel fields (source of truth for phase classification)
+    fase_conversa: null,
+    funil_status: null,
+    docs_status: null,
+    processo_aprovado: null,
+    processo_reprovado: null,
+    visita_confirmada: null,
     // CRM operational fields (all null by default)
     analysis_status: null,
     analysis_reason_code: null,
@@ -146,7 +196,43 @@ function seedLead(waId, extra = {}) {
     ...extra,
   };
   metaRows.set(waId, base);
+  // Auto-create a companion enova_state row reflecting funnel fields
+  const stateFunnel = extra.fase_conversa ?? null;
+  if (!stateRows.has(waId)) {
+    stateRows.set(waId, {
+      wa_id: waId,
+      nome: base.nome,
+      fase_conversa: stateFunnel,
+      funil_status: extra.funil_status ?? null,
+      docs_status: extra.docs_status ?? null,
+      processo_aprovado: extra.processo_aprovado ?? null,
+      processo_reprovado: extra.processo_reprovado ?? null,
+      visita_confirmada: extra.visita_confirmada ?? null,
+      visita_dia_hora: null,
+      updated_at: base.updated_at,
+    });
+  }
   return base;
+}
+
+// Seed an enova_state-only row (no crm_lead_meta row).
+// Use this to simulate a lead that is in the funnel but was never CRM-imported.
+function seedState(waId, extra = {}) {
+  const row = {
+    wa_id: waId,
+    nome: extra.nome ?? "Lead " + waId,
+    fase_conversa: extra.fase_conversa ?? null,
+    funil_status: extra.funil_status ?? null,
+    docs_status: extra.docs_status ?? null,
+    processo_aprovado: extra.processo_aprovado ?? null,
+    processo_reprovado: extra.processo_reprovado ?? null,
+    visita_confirmada: extra.visita_confirmada ?? null,
+    visita_dia_hora: null,
+    updated_at: extra.updated_at ?? "2026-03-30T10:00:00.000Z",
+    ...extra,
+  };
+  stateRows.set(waId, row);
+  return row;
 }
 
 const originalFetch = globalThis.fetch;
@@ -193,112 +279,142 @@ globalThis.fetch = async (input, init = {}) => {
   }
 
   // crm_leads_v1 GET (view mock)
+  // New direction: FROM enova_state e LEFT JOIN crm_lead_meta m
+  // Only includes leads with fase_conversa >= envio_docs OR with a CRM status set
   if (url.origin === "https://supabase.example" && url.pathname === "/rest/v1/crm_leads_v1") {
-    let rows = Array.from(metaRows.values()).map((m) => ({
-      wa_id: m.wa_id,
-      nome: m.nome,
-      telefone: m.telefone,
-      lead_pool: m.lead_pool,
-      lead_temp: m.lead_temp,
-      origem: m.lead_source,
-      fase_funil: null,
-      status_funil: null,
-      status_docs_funil: null,
-      aprovado_funil: null,
-      reprovado_funil: null,
-      visita_confirmada_funil: null,
-      visita_agendada_funil: null,
-      // Analysis
-      status_analise: m.analysis_status,
-      codigo_motivo_analise: m.analysis_reason_code,
-      motivo_analise: m.analysis_reason_text,
-      data_envio_analise: m.analysis_last_sent_at,
-      data_retorno_analise: m.analysis_last_return_at,
-      parceiro_analise: m.analysis_partner_name,
-      nota_ajuste_analise: m.analysis_adjustment_note,
-      // Correspondent return
-      resumo_retorno_analise: m.analysis_return_summary,
-      motivo_retorno_analise: m.analysis_return_reason,
-      valor_financiamento_aprovado: m.analysis_financing_amount,
-      valor_subsidio_aprovado: m.analysis_subsidy_amount,
-      valor_entrada_informada: m.analysis_entry_amount,
-      valor_parcela_informada: m.analysis_monthly_payment,
-      retorno_bruto_correspondente: m.analysis_return_raw,
-      correspondente_retorno: m.analysis_returned_by,
-      // Profile snapshot
-      tipo_perfil_analise: m.analysis_profile_type,
-      nome_titular_analise: m.analysis_holder_name,
-      nome_parceiro_analise_snapshot: m.analysis_partner_name_snapshot,
-      estado_civil_analise: m.analysis_marital_status,
-      tipo_composicao_analise: m.analysis_composition_type,
-      renda_total_analise: m.analysis_income_total,
-      renda_titular_analise: m.analysis_income_holder,
-      renda_parceiro_analise: m.analysis_income_partner,
-      renda_familiar_analise: m.analysis_income_family,
-      regime_trabalho_titular_analise: m.analysis_holder_work_regime,
-      regime_trabalho_parceiro_analise: m.analysis_partner_work_regime,
-      regime_trabalho_familiar_analise: m.analysis_family_work_regime,
-      possui_fgts_analise: m.analysis_has_fgts,
-      possui_entrada_analise: m.analysis_has_down_payment,
-      valor_entrada_analise: m.analysis_down_payment_amount,
-      possui_restricao_analise: m.analysis_has_restriction,
-      possui_restricao_parceiro_analise: m.analysis_partner_has_restriction,
-      possui_ir_titular_analise: m.analysis_holder_has_ir,
-      possui_ir_parceiro_analise: m.analysis_partner_has_ir,
-      ctps_36_titular_analise: m.analysis_ctps_36,
-      ctps_36_parceiro_analise: m.analysis_partner_ctps_36,
-      quantidade_dependentes_analise: m.analysis_dependents_count,
-      ticket_desejado_analise: m.analysis_ticket_target,
-      objetivo_imovel_analise: m.analysis_property_goal,
-      resumo_perfil_analise: m.analysis_profile_summary,
-      snapshot_bruto_analise: m.analysis_snapshot_raw,
-      // Score
-      score_perfil_analise: m.analysis_profile_score,
-      faixa_perfil_analise: m.analysis_profile_band,
-      label_score_trabalho: m.analysis_work_score_label,
-      motivo_score_trabalho: m.analysis_work_score_reason,
-      // Approved
-      faixa_aprovacao: m.approved_purchase_band,
-      aderencia_aprovacao: m.approved_target_match,
-      proximo_passo_aprovado: m.approved_next_step,
-      ultimo_contato_aprovado: m.approved_last_contact_at,
-      // Rejected
-      codigo_motivo_reprovacao: m.rejection_reason_code,
-      motivo_reprovacao: m.rejection_reason_label,
-      status_recuperacao: m.recovery_status,
-      estrategia_recuperacao: m.recovery_strategy_code,
-      nota_recuperacao: m.recovery_note_short,
-      proxima_tentativa: m.next_retry_at,
-      ultimo_contato_recuperacao: m.last_retry_contact_at,
-      // Visit
-      status_visita: m.visit_status,
-      contexto_visita: m.visit_context,
-      data_visita: m.visit_date,
-      data_confirmacao_visita: m.visit_confirmed_at,
-      resultado_visita: m.visit_result,
-      codigo_objecao_visita: m.visit_objection_code,
-      proximo_passo_visita: m.visit_next_step,
-      responsavel_visita: m.visit_owner,
-      observacao_visita: m.visit_notes_short,
-      // Reserve
-      status_reserva: m.reserve_status,
-      detalhe_etapa_reserva: m.reserve_stage_detail,
-      nivel_risco_reserva: m.reserve_risk_level,
-      proxima_acao_reserva: m.reserve_next_action_label,
-      prazo_proxima_acao_reserva: m.reserve_next_action_due_at,
-      ultimo_movimento_reserva: m.reserve_last_movement_at,
-      // Financial
-      valor_vgv: m.vgv_value,
-      valor_comissao: m.commission_value,
-      status_comissao: m.commission_status,
-      status_financeiro: m.financial_status,
-      nota_financeiro: m.financial_note_short,
-      ultima_atualizacao_financeiro: m.financial_last_update_at,
-      criado_em: m.created_at,
-      atualizado_em: m.updated_at,
-    }));
+    // Build a union of all wa_ids visible in the view
+    const allWaIds = new Set([
+      ...Array.from(stateRows.keys()),
+      // Also include meta-only rows (CRM operator touched them, possibly in earlier phase)
+      ...Array.from(metaRows.keys()),
+    ]);
 
-    // Tab filters — smart enum-based
+    const CRM_VISIBLE_PHASES = [
+      "envio_docs", "aguardando_retorno_correspondente",
+      "agendamento_visita", "visita_confirmada", "finalizacao_processo",
+    ];
+
+    let rows = Array.from(allWaIds)
+      .map((waId) => {
+        const e = stateRows.get(waId);   // enova_state (can be null for meta-only)
+        const m = metaRows.get(waId);    // crm_lead_meta (can be null for state-only)
+        // View WHERE: fase_conversa IN eligible phases OR CRM status set
+        if (!e && !m) return null;
+        const faseFunil = e?.fase_conversa ?? null;
+        const inEligiblePhase = (faseFunil && CRM_VISIBLE_PHASES.includes(faseFunil))
+          || e?.processo_aprovado === true
+          || e?.processo_reprovado === true
+          || e?.visita_confirmada === true;
+        const hasCrmStatus = !!(m?.analysis_status || m?.visit_status || m?.reserve_status);
+        if (!inEligiblePhase && !hasCrmStatus) return null;
+        return {
+          wa_id: e?.wa_id ?? m?.wa_id,
+          nome: m?.nome ?? e?.nome ?? null,
+          telefone: m?.telefone ?? e?.wa_id ?? null,
+          lead_pool: m?.lead_pool ?? null,
+          lead_temp: m?.lead_temp ?? null,
+          origem: m?.lead_source ?? null,
+          // enova_state funnel fields (PT-BR aliases from the view)
+          fase_funil: faseFunil,
+          status_funil: e?.funil_status ?? null,
+          status_docs_funil: e?.docs_status ?? null,
+          aprovado_funil: e?.processo_aprovado ?? null,
+          reprovado_funil: e?.processo_reprovado ?? null,
+          visita_confirmada_funil: e?.visita_confirmada ?? null,
+          visita_agendada_funil: null,
+          // Analysis
+          status_analise: m?.analysis_status ?? null,
+          codigo_motivo_analise: m?.analysis_reason_code ?? null,
+          motivo_analise: m?.analysis_reason_text ?? null,
+          data_envio_analise: m?.analysis_last_sent_at ?? null,
+          data_retorno_analise: m?.analysis_last_return_at ?? null,
+          parceiro_analise: m?.analysis_partner_name ?? null,
+          nota_ajuste_analise: m?.analysis_adjustment_note ?? null,
+          // Correspondent return
+          resumo_retorno_analise: m?.analysis_return_summary ?? null,
+          motivo_retorno_analise: m?.analysis_return_reason ?? null,
+          valor_financiamento_aprovado: m?.analysis_financing_amount ?? null,
+          valor_subsidio_aprovado: m?.analysis_subsidy_amount ?? null,
+          valor_entrada_informada: m?.analysis_entry_amount ?? null,
+          valor_parcela_informada: m?.analysis_monthly_payment ?? null,
+          retorno_bruto_correspondente: m?.analysis_return_raw ?? null,
+          correspondente_retorno: m?.analysis_returned_by ?? null,
+          // Profile snapshot
+          tipo_perfil_analise: m?.analysis_profile_type ?? null,
+          nome_titular_analise: m?.analysis_holder_name ?? null,
+          nome_parceiro_analise_snapshot: m?.analysis_partner_name_snapshot ?? null,
+          estado_civil_analise: m?.analysis_marital_status ?? null,
+          tipo_composicao_analise: m?.analysis_composition_type ?? null,
+          renda_total_analise: m?.analysis_income_total ?? null,
+          renda_titular_analise: m?.analysis_income_holder ?? null,
+          renda_parceiro_analise: m?.analysis_income_partner ?? null,
+          renda_familiar_analise: m?.analysis_income_family ?? null,
+          regime_trabalho_titular_analise: m?.analysis_holder_work_regime ?? null,
+          regime_trabalho_parceiro_analise: m?.analysis_partner_work_regime ?? null,
+          regime_trabalho_familiar_analise: m?.analysis_family_work_regime ?? null,
+          possui_fgts_analise: m?.analysis_has_fgts ?? null,
+          possui_entrada_analise: m?.analysis_has_down_payment ?? null,
+          valor_entrada_analise: m?.analysis_down_payment_amount ?? null,
+          possui_restricao_analise: m?.analysis_has_restriction ?? null,
+          possui_restricao_parceiro_analise: m?.analysis_partner_has_restriction ?? null,
+          possui_ir_titular_analise: m?.analysis_holder_has_ir ?? null,
+          possui_ir_parceiro_analise: m?.analysis_partner_has_ir ?? null,
+          ctps_36_titular_analise: m?.analysis_ctps_36 ?? null,
+          ctps_36_parceiro_analise: m?.analysis_partner_ctps_36 ?? null,
+          quantidade_dependentes_analise: m?.analysis_dependents_count ?? null,
+          ticket_desejado_analise: m?.analysis_ticket_target ?? null,
+          objetivo_imovel_analise: m?.analysis_property_goal ?? null,
+          resumo_perfil_analise: m?.analysis_profile_summary ?? null,
+          snapshot_bruto_analise: m?.analysis_snapshot_raw ?? null,
+          // Score
+          score_perfil_analise: m?.analysis_profile_score ?? null,
+          faixa_perfil_analise: m?.analysis_profile_band ?? null,
+          label_score_trabalho: m?.analysis_work_score_label ?? null,
+          motivo_score_trabalho: m?.analysis_work_score_reason ?? null,
+          // Approved
+          faixa_aprovacao: m?.approved_purchase_band ?? null,
+          aderencia_aprovacao: m?.approved_target_match ?? null,
+          proximo_passo_aprovado: m?.approved_next_step ?? null,
+          ultimo_contato_aprovado: m?.approved_last_contact_at ?? null,
+          // Rejected
+          codigo_motivo_reprovacao: m?.rejection_reason_code ?? null,
+          motivo_reprovacao: m?.rejection_reason_label ?? null,
+          status_recuperacao: m?.recovery_status ?? null,
+          estrategia_recuperacao: m?.recovery_strategy_code ?? null,
+          nota_recuperacao: m?.recovery_note_short ?? null,
+          proxima_tentativa: m?.next_retry_at ?? null,
+          ultimo_contato_recuperacao: m?.last_retry_contact_at ?? null,
+          // Visit
+          status_visita: m?.visit_status ?? null,
+          contexto_visita: m?.visit_context ?? null,
+          data_visita: m?.visit_date ?? null,
+          data_confirmacao_visita: m?.visit_confirmed_at ?? null,
+          resultado_visita: m?.visit_result ?? null,
+          codigo_objecao_visita: m?.visit_objection_code ?? null,
+          proximo_passo_visita: m?.visit_next_step ?? null,
+          responsavel_visita: m?.visit_owner ?? null,
+          observacao_visita: m?.visit_notes_short ?? null,
+          // Reserve
+          status_reserva: m?.reserve_status ?? null,
+          detalhe_etapa_reserva: m?.reserve_stage_detail ?? null,
+          nivel_risco_reserva: m?.reserve_risk_level ?? null,
+          proxima_acao_reserva: m?.reserve_next_action_label ?? null,
+          prazo_proxima_acao_reserva: m?.reserve_next_action_due_at ?? null,
+          ultimo_movimento_reserva: m?.reserve_last_movement_at ?? null,
+          // Financial
+          valor_vgv: m?.vgv_value ?? null,
+          valor_comissao: m?.commission_value ?? null,
+          status_comissao: m?.commission_status ?? null,
+          status_financeiro: m?.financial_status ?? null,
+          nota_financeiro: m?.financial_note_short ?? null,
+          ultima_atualizacao_financeiro: m?.financial_last_update_at ?? null,
+          criado_em: m?.created_at ?? null,
+          atualizado_em: m?.updated_at ?? e?.updated_at ?? null,
+        };
+      })
+      .filter(Boolean);
+
+    // Tab filters — support both simple and OR-based conditions
     const statusAnalise = url.searchParams.get("status_analise");
     if (statusAnalise) {
       const inValues = parseIn(statusAnalise);
@@ -312,6 +428,15 @@ globalThis.fetch = async (input, init = {}) => {
     if (statusVisita === "not.is.null") rows = rows.filter((r) => r.status_visita != null);
     const statusReserva = url.searchParams.get("status_reserva");
     if (statusReserva === "not.is.null") rows = rows.filter((r) => r.status_reserva != null);
+
+    // OR conditions (PostgREST format: "or=(cond1,cond2)")
+    const orParam = url.searchParams.get("or");
+    if (orParam) {
+      // Parse the or=(cond1,cond2,...) — handles: col.in.(v1,v2), col.eq.val, col.is.true, col.not.is.null
+      const inner = orParam.replace(/^\(|\)$/g, ""); // strip outer parens
+      const conditions = splitOrConditions(inner);
+      rows = rows.filter((r) => conditions.some((cond) => evalOrCondition(r, cond)));
+    }
 
     const limit = Number(url.searchParams.get("limit") || rows.length);
     return jsonResponse(rows.slice(0, limit), 200);
@@ -693,66 +818,139 @@ try {
     assert.equal(status, 500);
   });
 
-  // ── 11. Smart tab filters ──
-  console.log("── Smart tab filters ──");
+  // ── 11. Smart tab filters + funnel-fidelity tests ──
+  console.log("── Smart tab filters + funnel fidelity ──");
 
-  // Set up leads for tab tests
-  // lead 1: APPROVED_HIGH, lead 2: SENT, lead 5: REJECTED_HARD
-  // lead 3: visit_status = CONFIRMED, lead 4: reserve_status = UNDER_REVIEW
+  // Funnel-based leads (no CRM analysis_status, but real funnel state)
+  // lead 7: aguardando_retorno_correspondente (no analysis_status) → should appear in ANALISE
+  // lead 8: envio_docs in funnel (no analysis_status) → PASTA
+  // lead 9: processo_aprovado = true (no analysis_status) → APROVADO
+  // lead 10: processo_reprovado = true (no analysis_status) → REPROVADO
+  // lead 11: agendamento_visita (no analysis_status) → VISITA
+  // lead 12: before envio_docs (analysis_status = null, fase_conversa = estado_civil) → EXCLUDED
+  // lead 7: aguardando_retorno_correspondente with NO crm_lead_meta row
+  //         → this is the critical case that was broken before (view drove FROM crm_lead_meta)
+  seedState("5511999990007", { fase_conversa: "aguardando_retorno_correspondente" });
+  seedLead("5511999990008", { fase_conversa: "envio_docs" });
+  seedLead("5511999990009", { processo_aprovado: true, funil_status: "aprovado_correspondente" });
+  seedLead("5511999990010", { processo_reprovado: true, funil_status: "reprovado_correspondente" });
+  seedLead("5511999990011", { fase_conversa: "agendamento_visita" });
+  // lead 12: before envio_docs → excluded from ALL tabs even with seedState
+  seedState("5511999990012", { fase_conversa: "estado_civil" });
+  // lead 6: CRM DOCS_PENDING (has crm_lead_meta row)
+  seedLead("5511999990006", { analysis_status: "DOCS_PENDING" });
 
-  await test("tab=analise returns leads with any analysis_status", async () => {
+  // ── Previously existing leads (still present):
+  // lead 1: APPROVED_HIGH (analysis_status)
+  // lead 2: SENT (analysis_status)
+  // lead 5: REJECTED_HARD (analysis_status)
+  // lead 6: DOCS_PENDING (analysis_status)
+
+  await test("tab=pasta returns DOCS_PENDING leads AND funnel envio_docs leads", async () => {
+    const leads = await listCrmLeads(
+      "https://supabase.example",
+      "service-role",
+      { tab: "pasta" },
+    );
+    assert.ok(leads.length >= 2, `expected >=2 leads in pasta (DOCS_PENDING + envio_docs funnel), got ${leads.length}`);
+    for (const l of leads) {
+      const isDocsPending = l.status_analise === "DOCS_PENDING";
+      const isEnvioDocs = l.fase_funil === "envio_docs";
+      assert.ok(isDocsPending || isEnvioDocs, `expected DOCS_PENDING or envio_docs, got status=${l.status_analise} fase=${l.fase_funil}`);
+    }
+  });
+
+  await test("tab=analise returns CRM-analysis leads AND aguardando_retorno_correspondente funnel leads", async () => {
     const leads = await listCrmLeads(
       "https://supabase.example",
       "service-role",
       { tab: "analise" },
     );
-    // Leads 1 (APPROVED_HIGH), 2 (SENT), 5 (REJECTED_HARD) have analysis_status
-    assert.ok(leads.length >= 3, `expected >=3 leads in analise, got ${leads.length}`);
+    // lead 2 (SENT) + lead 7 (aguardando_retorno_correspondente, no CRM status)
+    assert.ok(leads.length >= 2, `expected >=2 leads in analise, got ${leads.length}`);
+    const ANALISE_STATUSES = ["DOCS_READY", "SENT", "UNDER_ANALYSIS", "ADJUSTMENT_REQUIRED"];
     for (const l of leads) {
-      assert.notEqual(l.status_analise, null);
+      const hasCrmStatus = ANALISE_STATUSES.includes(l.status_analise);
+      const hasFunnelPhase = l.fase_funil === "aguardando_retorno_correspondente";
+      assert.ok(hasCrmStatus || hasFunnelPhase,
+        `expected analise CRM status or aguardando_retorno_correspondente, got status=${l.status_analise} fase=${l.fase_funil}`);
     }
   });
 
-  await test("tab=aprovados returns only APPROVED_HIGH / APPROVED_LOW", async () => {
+  await test("tab=analise: aguardando_retorno_correspondente lead with NO crm_lead_meta row is included (root cause fix)", async () => {
+    const leads = await listCrmLeads(
+      "https://supabase.example",
+      "service-role",
+      { tab: "analise" },
+    );
+    const lead7 = leads.find((l) => l.wa_id === "5511999990007");
+    assert.ok(lead7, "lead 7 (aguardando_retorno_correspondente, NO crm_lead_meta row) must appear in analise tab — this was the root cause bug");
+    assert.equal(lead7.status_analise, null, "lead 7 has no CRM analysis_status (state-only)");
+    assert.equal(lead7.fase_funil, "aguardando_retorno_correspondente", "lead 7 is in aguardando_retorno_correspondente");
+  });
+
+  await test("lead before envio_docs with no CRM row is excluded from ALL tabs (lead 12)", async () => {
+    const allLeads = await listCrmLeads("https://supabase.example", "service-role", {});
+    const lead12 = allLeads.find((l) => l.wa_id === "5511999990012");
+    assert.equal(lead12, undefined, "lead 12 (estado_civil, no CRM row) must NOT appear in CRM at all");
+  });
+
+  await test("tab=aprovados returns APPROVED leads AND funnel aprovado leads", async () => {
     const leads = await listCrmLeads(
       "https://supabase.example",
       "service-role",
       { tab: "aprovados" },
     );
-    assert.ok(leads.length >= 1, "at least 1 approved lead");
+    assert.ok(leads.length >= 2, `expected >=2 approved leads (CRM + funnel), got ${leads.length}`);
     for (const l of leads) {
-      assert.ok(
-        l.status_analise === "APPROVED_HIGH" || l.status_analise === "APPROVED_LOW",
-        `expected APPROVED_*, got ${l.status_analise}`,
-      );
+      const hasCrmApproval = l.status_analise === "APPROVED_HIGH" || l.status_analise === "APPROVED_LOW";
+      const hasFunnelApproval = l.aprovado_funil === true || l.status_funil === "aprovado_correspondente";
+      assert.ok(hasCrmApproval || hasFunnelApproval,
+        `expected APPROVED_* or aprovado_funil, got status=${l.status_analise} aprovado=${l.aprovado_funil}`);
     }
   });
 
-  await test("tab=reprovados returns only REJECTED_RECOVERABLE / REJECTED_HARD", async () => {
+  await test("tab=reprovados returns REJECTED leads AND funnel reprovado leads", async () => {
     const leads = await listCrmLeads(
       "https://supabase.example",
       "service-role",
       { tab: "reprovados" },
     );
-    assert.ok(leads.length >= 1, "at least 1 rejected lead");
+    assert.ok(leads.length >= 2, `expected >=2 rejected leads (CRM + funnel), got ${leads.length}`);
     for (const l of leads) {
-      assert.ok(
-        l.status_analise === "REJECTED_RECOVERABLE" || l.status_analise === "REJECTED_HARD",
-        `expected REJECTED_*, got ${l.status_analise}`,
-      );
+      const hasCrmRejection = l.status_analise === "REJECTED_RECOVERABLE" || l.status_analise === "REJECTED_HARD";
+      const hasFunnelRejection = l.reprovado_funil === true || l.status_funil === "reprovado_correspondente";
+      assert.ok(hasCrmRejection || hasFunnelRejection,
+        `expected REJECTED_* or reprovado_funil, got status=${l.status_analise} reprovado=${l.reprovado_funil}`);
     }
   });
 
-  await test("tab=visita returns leads with visit_status set", async () => {
+  await test("tab=visita returns CRM visit leads AND funnel agendamento_visita leads", async () => {
     const leads = await listCrmLeads(
       "https://supabase.example",
       "service-role",
       { tab: "visita" },
     );
-    assert.ok(leads.length >= 1, "at least 1 lead in visita");
+    assert.ok(leads.length >= 2, `expected >=2 visita leads (CRM + funnel), got ${leads.length}`);
     for (const l of leads) {
-      assert.notEqual(l.status_visita, null);
+      const hasCrmVisit = l.status_visita != null;
+      const hasFunnelVisit = ["agendamento_visita", "visita_confirmada", "finalizacao_processo"].includes(l.fase_funil);
+      const hasConfirmedVisit = l.visita_confirmada_funil === true;
+      assert.ok(hasCrmVisit || hasFunnelVisit || hasConfirmedVisit,
+        `expected CRM visit status or funnel visit phase, got status_visita=${l.status_visita} fase=${l.fase_funil}`);
     }
+  });
+
+  await test("lead only in envio_docs funnel (no CRM status) appears in pasta tab", async () => {
+    const leads = await listCrmLeads(
+      "https://supabase.example",
+      "service-role",
+      { tab: "pasta" },
+    );
+    const lead8 = leads.find((l) => l.wa_id === "5511999990008");
+    assert.ok(lead8, "lead 8 (envio_docs in funnel, no CRM status) should appear in pasta tab");
+    assert.equal(lead8.status_analise, null, "lead 8 has no CRM analysis_status");
+    assert.equal(lead8.fase_funil, "envio_docs", "lead 8 is in envio_docs funnel phase");
   });
 
   await test("tab=reserva returns leads with reserve_status set", async () => {

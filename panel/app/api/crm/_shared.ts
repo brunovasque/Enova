@@ -276,7 +276,8 @@ async function insertOverrideLog(
 }
 
 // Tab filter constants — intentionally explicit subsets of ANALYSIS_STATUS for tab classification
-const ANALYSIS_TAB_STATUS = ANALYSIS_STATUS as readonly string[];
+const PASTA_TAB_STATUS: readonly string[] = ["DOCS_PENDING"];
+const ANALYSIS_TAB_STATUS: readonly string[] = ["DOCS_READY", "SENT", "UNDER_ANALYSIS", "ADJUSTMENT_REQUIRED"];
 const APPROVED_TAB_STATUS: readonly string[] = ["APPROVED_HIGH", "APPROVED_LOW"];
 const REJECTED_TAB_STATUS: readonly string[] = ["REJECTED_RECOVERABLE", "REJECTED_HARD"];
 
@@ -292,15 +293,34 @@ export async function listCrmLeads(
   const limit = Math.max(1, Math.min(200, Number.isFinite(Number(options.limit)) ? Math.trunc(Number(options.limit)) : 50));
   endpoint.searchParams.set("limit", String(limit));
 
-  // Tab-based filtering using analysis_status enums
-  if (options.tab === "analise") {
-    endpoint.searchParams.set("status_analise", `in.(${ANALYSIS_TAB_STATUS.join(",")})`);
+  // Tab-based filtering: OR combines crm_lead_meta status + real enova_state funnel phase
+  if (options.tab === "pasta") {
+    // Pasta: DOCS_PENDING (CRM) OR envio_docs (funnel — entered docs but no CRM status yet)
+    endpoint.searchParams.set("or", `(status_analise.in.(${PASTA_TAB_STATUS.join(",")}),fase_funil.eq.envio_docs)`);
+  } else if (options.tab === "analise") {
+    // Análise: CRM analysis statuses OR aguardando_retorno_correspondente in funnel
+    endpoint.searchParams.set(
+      "or",
+      `(status_analise.in.(${ANALYSIS_TAB_STATUS.join(",")}),fase_funil.eq.aguardando_retorno_correspondente)`,
+    );
   } else if (options.tab === "aprovados") {
-    endpoint.searchParams.set("status_analise", `in.(${APPROVED_TAB_STATUS.join(",")})`);
+    // Aprovados: CRM approval OR funnel approval flag
+    endpoint.searchParams.set(
+      "or",
+      `(status_analise.in.(${APPROVED_TAB_STATUS.join(",")}),aprovado_funil.is.true,status_funil.eq.aprovado_correspondente)`,
+    );
   } else if (options.tab === "reprovados") {
-    endpoint.searchParams.set("status_analise", `in.(${REJECTED_TAB_STATUS.join(",")})`);
+    // Reprovados: CRM rejection OR funnel rejection flag
+    endpoint.searchParams.set(
+      "or",
+      `(status_analise.in.(${REJECTED_TAB_STATUS.join(",")}),reprovado_funil.is.true,status_funil.eq.reprovado_correspondente)`,
+    );
   } else if (options.tab === "visita") {
-    endpoint.searchParams.set("status_visita", "not.is.null");
+    // Visita: CRM visit status OR funnel visit stages OR confirmed visit flag
+    endpoint.searchParams.set(
+      "or",
+      `(status_visita.not.is.null,fase_funil.in.(agendamento_visita,visita_confirmada,finalizacao_processo),visita_confirmada_funil.is.true)`,
+    );
   } else if (options.tab === "reserva") {
     endpoint.searchParams.set("status_reserva", "not.is.null");
   }

@@ -19829,6 +19829,70 @@ case "inicio": {
   // 🔧 Normaliza texto para interpretar saudação / reset / etc.
   const nt = normalizeText(userText || "");
 
+  // ============================================================
+  // (0) Abertura por base — primeira mensagem do lead
+  // ============================================================
+  if (st.opening_used !== true) {
+    const sourceType = (st.source_type || "fria").toLowerCase();
+
+    let openingMessages;
+    switch (sourceType) {
+      case "campanha":
+        openingMessages = [
+          "Oi, tudo bem? 😊",
+          "Eu sou a Enova, assistente virtual de pré-análise.",
+          "Vi que você demonstrou interesse em um imóvel pelo programa Minha Casa Minha Vida.",
+          "Posso te fazer algumas perguntas rápidas para te orientar da forma certa?"
+        ];
+        break;
+      case "morna":
+        openingMessages = [
+          "Oi, tudo bem? 😊",
+          "Eu sou a Enova, assistente virtual de pré-análise.",
+          "Estou entrando em contato para entender seu perfil e te orientar dentro do programa Minha Casa Minha Vida.",
+          "Posso te fazer algumas perguntas rápidas?"
+        ];
+        break;
+      case "lyx":
+        openingMessages = [
+          "Oi, tudo bem? 😊",
+          "Eu sou a Enova, assistente virtual de pré-análise.",
+          "Estou entrando em contato para entender seu perfil e te orientar da melhor forma dentro do Minha Casa Minha Vida.",
+          "Posso te fazer algumas perguntas rápidas?"
+        ];
+        break;
+      case "fria":
+      default:
+        openingMessages = [
+          "Oi, tudo bem? 😊",
+          "Eu sou a Enova, assistente virtual de pré-análise.",
+          "Estou entrando em contato para entender seu perfil e te orientar sobre a possibilidade de compra de imóvel pelo programa Minha Casa Minha Vida.",
+          "Posso te fazer algumas perguntas rápidas?"
+        ];
+        break;
+    }
+
+    await upsertState(env, st.wa_id, {
+      opening_used: true,
+      opening_variant: `base_opening:${sourceType}`,
+      updated_at: new Date().toISOString()
+    });
+    st.opening_used = true;
+    st.opening_variant = `base_opening:${sourceType}`;
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "inicio_programa",
+      severity: "info",
+      message: `Saindo da fase: inicio → inicio_programa (abertura por base: ${sourceType})`,
+      details: { source_type: sourceType, opening_variant: st.opening_variant }
+    });
+
+    return step(env, st, openingMessages, "inicio_programa");
+  }
+
   // 🧼 Comando de reset / começar do zero
   const isResetCmd =
     nt === "reset" ||

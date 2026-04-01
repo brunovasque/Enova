@@ -76,6 +76,8 @@ SELECT
 
   -- ── Timestamps de registro ──
   a.created_at                                    AS criado_em,
+  -- a.updated_at has NOT NULL DEFAULT now(); fallback to e.updated_at only when
+  -- no attendance_meta row exists yet (LEFT JOIN produces NULL)
   COALESCE(a.updated_at, e.updated_at)            AS atualizado_em
 
 FROM public.enova_state e
@@ -113,10 +115,10 @@ WHERE (
     'ir_declarado'
   )
   -- ── Também leads que o operacional marcou como atendimento ──
+  -- (any non-archived attendance_meta row qualifies the lead)
   OR (
     a.wa_id IS NOT NULL
     AND a.archived_at IS NULL
-    AND (a.current_funnel_stage IS NOT NULL OR a.pending_owner IS NOT NULL)
   )
 )
 -- ── Exclui leads já em envio_docs ou além (esses vão para CRM) ──

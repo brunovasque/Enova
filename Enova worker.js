@@ -252,6 +252,7 @@ async function step(env, st, messages, nextStage, options = {}) {
       }
 
       // 🏥 Attendance Meta — sync stage transition (non-blocking)
+      // Override fase_conversa with nextStage to reflect the NEW stage after transition
       try {
         await syncAttendanceMeta(env, { ...st, fase_conversa: nextStage }, { type: "stage_transition" });
       } catch (_) { /* non-blocking */ }
@@ -1061,9 +1062,10 @@ async function syncAttendanceMeta(env, st, event) {
   }
 
   // Derive operational fields
-  const lastCustomerAt = event?.type === "customer_message"
-    ? now
-    : (st._attendance_last_customer_at || null);
+  // Note: stalled_reason is only derived during customer_message events
+  // (when we have a fresh timestamp). On other events, we skip stalled
+  // derivation to avoid overwriting stalled_at with incorrect values.
+  const lastCustomerAt = event?.type === "customer_message" ? now : null;
 
   const pendingOwner = deriveAttendancePendingOwner(stage, st);
   patch.pending_owner = pendingOwner;
@@ -1075,9 +1077,7 @@ async function syncAttendanceMeta(env, st, event) {
     patch.stalled_stage = stage;
     patch.stalled_reason_code = stalledReason;
     patch.stalled_reason_label = stalledReason === "NO_REPLY" ? "Sem resposta do cliente" : "Aguardando ação humana";
-    if (!event?._stalledAtAlreadySet) {
-      patch.stalled_at = now;
-    }
+    patch.stalled_at = now;
   }
 
   // Next action
@@ -1103,8 +1103,12 @@ async function syncAttendanceMeta(env, st, event) {
   }
 
   // Origin/current base from source_type
+  // origin_base: set on every sync; Supabase UPSERT with merge-duplicates
+  // will only INSERT it on first row; subsequent UPDATEs include it but
+  // overwrite is safe since source_type doesn't change for a given wa_id.
+  // current_base always reflects the latest source_type.
   if (st.source_type) {
-    patch.origin_base = patch.origin_base || st.source_type;
+    patch.origin_base = st.source_type;
     patch.current_base = st.source_type;
   }
 

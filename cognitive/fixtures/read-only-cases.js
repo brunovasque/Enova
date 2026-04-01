@@ -861,5 +861,90 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
       should_request_confirmation: false,
       min_confidence: 0.5
     }
+  },
+  {
+    id: "doc_tipo_incerto_sem_resposta",
+    title: "Documento recebido — tipo não identificado, pede confirmação",
+    input: {
+      conversation_id: "fx-docs-tipo-incerto-001",
+      current_stage: "envio_docs",
+      message_text: "Aqui está o arquivo",
+      known_slots: {
+        doc_tipo_incerto: "sim",
+        regime_trabalho: "clt"
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: true,
+      min_confidence: 0.3
+    }
+  },
+  {
+    id: "doc_tipo_incerto_usuario_respondeu",
+    title: "Documento incerto — usuário confirma que é holerite",
+    input: {
+      conversation_id: "fx-docs-tipo-incerto-002",
+      current_stage: "envio_docs",
+      message_text: "É o holerite do mês passado",
+      known_slots: {
+        aguardando_confirmacao_tipo_doc: "sim",
+        regime_trabalho: "clt"
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.3
+    }
+  },
+  {
+    id: "doc_fora_de_ordem_com_pendencia",
+    title: "Documento fora de ordem — reconhece e redireciona para pendência principal",
+    input: {
+      conversation_id: "fx-docs-fora-ordem-001",
+      current_stage: "envio_docs",
+      message_text: "Mandei o comprovante de residência aqui.",
+      known_slots: {
+        doc_fora_de_ordem: "sim",
+        doc_tipo_recebido: "comprovante de residência",
+        doc_pendencia_principal: "holerite do titular",
+        regime_trabalho: "clt"
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.3
+    }
+  },
+  {
+    id: "docs_por_participante_status",
+    title: "Docs por participante — diferencia o que foi enviado do que falta por pessoa",
+    input: {
+      conversation_id: "fx-docs-participante-status-001",
+      current_stage: "envio_docs",
+      message_text: "Já mandei o holerite, e agora?",
+      known_slots: {
+        composicao: "parceiro",
+        regime_trabalho: "clt",
+        docs_recebidos_titular: "holerite",
+        docs_pendentes_titular: "CTPS",
+        docs_pendentes_parceiro: "comprovante de renda"
+      },
+      pending_slots: ["docs"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.3
+    }
   }
 ]);

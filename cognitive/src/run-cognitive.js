@@ -45,6 +45,8 @@ const VISITA_RESCHEDULE_PATTERN = /\b(remarcar|reagendar|outro hor[aá]rio|outro
 const VISITA_ACCEPT_PATTERN = /\b(quero visitar|aceito visita|vamos agendar|pode agendar|quero agendar)\b/i;
 const VISITA_RESIST_PATTERN = /\b(n[aã]o quero visitar|prefiro n[aã]o visitar|pra que visitar|por que visitar)\b/i;
 const ALUGUEL_HINT_PATTERN = /\b(aluguel|alugar|alugo|alugando)\b/i;
+const DOC_TIPO_RESPOSTA_PATTERN =
+  /\b(holerite|comprovante(?: de (?:residencia|renda))?|ctps|carteira de trabalho|rg|cnh|cpf|declaracao|imposto de renda|extrato|identidade|documento pessoal)\b/i;
 const AUTONOMO_HINT_PATTERN = /\bautonom[oa]|aut[oô]nomo|por conta|bico|uber|taxa\b/i;
 const DEPENDENTE_HINT_PATTERN = /\b(dependente|filho|filha|menor de 18|terceiro grau)\b/i;
 const CTPS_36_HINT_PATTERN = /\b(ctps|carteira de trabalho|36 meses|trinta e seis meses)\b/i;
@@ -381,6 +383,38 @@ function isAluguelContext(request) {
   return ALUGUEL_HINT_PATTERN.test(String(request?.message_text || ""));
 }
 
+function isUnknownDocTypeContext(request) {
+  const knownSlots = request?.known_slots || {};
+  return (
+    normalizeText(getKnownSlotValue(knownSlots, "doc_tipo_incerto")) === "sim" ||
+    normalizeText(getKnownSlotValue(knownSlots, "aguardando_confirmacao_tipo_doc")) === "sim"
+  );
+}
+
+function buildUnknownDocTypeGuidance(request) {
+  const normalizedMessage = normalizeText(request?.message_text);
+  if (DOC_TIPO_RESPOSTA_PATTERN.test(normalizedMessage)) {
+    return "Perfeito, anotei aqui. Vou considerar esse documento no seu checklist e seguimos com os próximos itens.";
+  }
+  return "Recebi seu arquivo aqui, mas não consegui identificar com segurança qual documento ele é. Você pode me dizer se isso é holerite, comprovante de residência, CTPS, documento pessoal ou outro arquivo?";
+}
+
+function isDocForaDeOrdemContext(request) {
+  const knownSlots = request?.known_slots || {};
+  return normalizeText(getKnownSlotValue(knownSlots, "doc_fora_de_ordem")) === "sim";
+}
+
+function buildDocForaDeOrdemGuidance(request) {
+  const knownSlots = request?.known_slots || {};
+  const docRecebido = getKnownSlotValue(knownSlots, "doc_tipo_recebido") || "documento";
+  const pendienciaPrincipal = getKnownSlotValue(knownSlots, "doc_pendencia_principal") || null;
+  const recebimento = `Recebi o ${docRecebido} que você enviou — ele será útil mais adiante.`;
+  if (pendienciaPrincipal) {
+    return `${recebimento} Para seguirmos no trilho correto agora, preciso que você me envie o ${pendienciaPrincipal}.`;
+  }
+  return `${recebimento} Para seguirmos no trilho correto, me manda agora o documento que está como pendência principal do seu checklist.`;
+}
+
 function isAutonomoContext(request, pendingSlots) {
   const stage = normalizeText(request?.current_stage);
   const regime = normalizeText(getKnownSlotValue(request?.known_slots || {}, "regime_trabalho"));
@@ -459,9 +493,35 @@ function hasVariableIncomeForHolerite(knownSlots, normalizedMessage) {
   return HOLERITE_VARIATION_PATTERN.test(messageText);
 }
 
+function buildDocsParticipantStatusGuidance(knownSlots) {
+  const recebidoTitular = getKnownSlotValue(knownSlots, "docs_recebidos_titular");
+  const pendentesTitular = getKnownSlotValue(knownSlots, "docs_pendentes_titular");
+  const recebidoParceiro = getKnownSlotValue(knownSlots, "docs_recebidos_parceiro");
+  const pendentesParceiro = getKnownSlotValue(knownSlots, "docs_pendentes_parceiro");
+  const recebidoFamiliar = getKnownSlotValue(knownSlots, "docs_recebidos_familiar");
+  const pendentesFamiliar = getKnownSlotValue(knownSlots, "docs_pendentes_familiar");
+
+  const hasParticipantData =
+    recebidoTitular || pendentesTitular || recebidoParceiro || pendentesParceiro || recebidoFamiliar || pendentesFamiliar;
+  if (!hasParticipantData) return null;
+
+  const parts = [];
+  if (recebidoTitular) parts.push(`Recebi ${recebidoTitular} do titular.`);
+  if (pendentesTitular) parts.push(`Agora falta ${pendentesTitular} do titular.`);
+  if (recebidoParceiro) parts.push(`Recebi ${recebidoParceiro} do parceiro.`);
+  if (pendentesParceiro) parts.push(`Agora falta ${pendentesParceiro} do parceiro.`);
+  if (recebidoFamiliar) parts.push(`Recebi ${recebidoFamiliar} do familiar.`);
+  if (pendentesFamiliar) parts.push(`Agora falta ${pendentesFamiliar} do familiar.`);
+  return parts.join(" ");
+}
+
 function buildDocsGuidanceByProfile(request) {
   const normalizedMessage = normalizeText(request?.message_text);
   const knownSlots = request?.known_slots || {};
+
+  const participantStatusGuidance = buildDocsParticipantStatusGuidance(knownSlots);
+  if (participantStatusGuidance) return participantStatusGuidance;
+
   const composicao = normalizeText(getKnownSlotValue(knownSlots, "composicao"));
   const regime = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho"));
   const irDeclarado = normalizeText(getKnownSlotValue(knownSlots, "ir_declarado"));
@@ -731,6 +791,8 @@ function buildPhaseGuidanceReply({ request, suggestedNextSlot, pendingSlots }) {
   // Prioridade intencional: temas operacionais específicos antes de temas amplos
   // (docs/correspondente/visita) para evitar resposta genérica quando há regra fechada.
   if (isAluguelContext(request)) return buildAluguelGuidance(request);
+  if (isUnknownDocTypeContext(request)) return buildUnknownDocTypeGuidance(request);
+  if (isDocForaDeOrdemContext(request)) return buildDocForaDeOrdemGuidance(request);
   if (isDocsContext(request, pendingSlots)) return buildDocsGuidanceByProfile(request);
   if (isCorrespondenteContext(request, pendingSlots)) return buildCorrespondenteGuidance(request);
   if (isVisitaContext(request, suggestedNextSlot, pendingSlots)) return buildVisitaGuidance(request);

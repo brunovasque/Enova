@@ -13,6 +13,10 @@ Para qualquer tarefa relacionada ao cognitivo, ler obrigatoriamente antes de agi
 - schema/DECISAO_PRE_IMPLEMENTACAO_COGNITIVO_V2.md
 - schema/ADENDO_FINAL_COBERTURA_SEGURANCA_COGNITIVO_V2.md
 
+Base canônica de observabilidade do shadow:
+- schema/DIAGNOSTICO_SHADOW_MODE_SIMULATE_FUNNEL.md
+- schema/DIAGNOSTICO_FINAL_SHADOW_CANAIS_LOG.md
+
 Se a tarefa for continuação da migração cognitiva, atualizar obrigatoriamente ao final:
 - o contrato, se houver mudança de regra canônica, gate, arquitetura ou protocolo;
 - o planejamento/handoff, se houver avanço operacional, validação, bloqueio ou conclusão de etapa.

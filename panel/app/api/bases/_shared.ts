@@ -575,7 +575,7 @@ export async function runBasesAction(
       await upsertEnovaStateSourceType(
         supabaseUrl,
         serviceRoleKey,
-        rows.map((row) => ({ wa_id: row.wa_id, source_type: row.lead_source })),
+        rows.map((row) => ({ wa_id: row.wa_id, source_type: canonicalSourceType(row.lead_source) })),
       );
       await insertAuditLogs(
         supabaseUrl,

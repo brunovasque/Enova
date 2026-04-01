@@ -135,7 +135,6 @@ function parseImportRows(text: string, leadPool: LeadPool, importRef: string, so
       lead_pool: leadPool,
       lead_temp: defaultTempForPool(leadPool),
       source_type: sourceType,
-      lead_source: sourceType,
       import_ref: importRef,
       auto_outreach_enabled: true,
       is_paused: false,

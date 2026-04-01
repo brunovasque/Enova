@@ -123,8 +123,8 @@ export function isLeadTemp(value: unknown): value is LeadTemp {
 
 export function canonicalSourceType(value: unknown): SourceType {
   if (typeof value === "string") {
-    const lower = value.trim().toLowerCase() as SourceType;
-    if (CANONICAL_SOURCE_TYPES.includes(lower)) return lower;
+    const lower = value.trim().toLowerCase();
+    if ((CANONICAL_SOURCE_TYPES as readonly string[]).includes(lower)) return lower as SourceType;
   }
   return "fria";
 }
@@ -559,7 +559,6 @@ export async function runBasesAction(
         return { status: 400, body: { ok: false, error: "leads é obrigatório" } };
       }
       const importRef = normalizeOptionalText(payload.import_ref);
-      const batchSourceType = canonicalSourceType(payload.source_type);
       const rows = leads.map((lead) => {
         const leadSourceType = canonicalSourceType(lead.source_type ?? payload.source_type);
         return normalizeLeadMetaInput(
@@ -576,7 +575,7 @@ export async function runBasesAction(
       await upsertEnovaStateSourceType(
         supabaseUrl,
         serviceRoleKey,
-        rows.map((row) => ({ wa_id: row.wa_id, source_type: row.lead_source ?? batchSourceType })),
+        rows.map((row) => ({ wa_id: row.wa_id, source_type: row.lead_source })),
       );
       await insertAuditLogs(
         supabaseUrl,

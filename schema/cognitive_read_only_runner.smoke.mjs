@@ -692,5 +692,10 @@ assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "visi
 assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "uniao_estavel_solo"), true);
 assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "uniao_estavel_conjunto"), true);
 assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "casado_civil_conjunto_obrigatorio"), true);
+assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "visita_confirmada_duvida_generica"), true);
+assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "visita_convite_esfriamento"), true);
+assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "visita_persuasao_indeciso"), true);
+assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "visita_pos_visita_proximo_passo"), true);
+assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "visita_confirmada_remarcar"), true);
 
 console.log("cognitive_read_only_runner.smoke: ok");

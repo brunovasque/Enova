@@ -136,6 +136,13 @@ globalThis.fetch = async (input, init = {}) => {
     return new Response("", { status: 201 });
   }
 
+  if (
+    url.origin === "https://supabase.example" &&
+    url.pathname === "/rest/v1/enova_state"
+  ) {
+    return new Response("", { status: 201 });
+  }
+
   throw new Error(`Unexpected fetch: ${url.toString()}`);
 };
 

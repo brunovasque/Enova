@@ -102,7 +102,7 @@ function normalizePhoneToWaId(phone: string): string | null {
   return null;
 }
 
-function parseImportRows(text: string, leadPool: LeadPool, importRef: string): Array<Record<string, unknown>> {
+function parseImportRows(text: string, leadPool: LeadPool, importRef: string, sourceType: string): Array<Record<string, unknown>> {
   const lines = text
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -134,7 +134,8 @@ function parseImportRows(text: string, leadPool: LeadPool, importRef: string): A
       wa_id: waId,
       lead_pool: leadPool,
       lead_temp: defaultTempForPool(leadPool),
-      lead_source: "import",
+      source_type: sourceType,
+      lead_source: sourceType,
       import_ref: importRef,
       auto_outreach_enabled: true,
       is_paused: false,
@@ -182,12 +183,13 @@ export function BasesUI() {
     nome: "",
     telefone: "",
     wa_id: "",
-    origem: "",
+    source_type: "fria",
     observacao: "",
   });
   const [importData, setImportData] = useState({
     arquivo: null as File | null,
     entrada: "",
+    source_type: "fria",
   });
 
   const fetchLeadsForPool = useCallback(async (pool: LeadPool): Promise<CrmLeadMetaRow[]> => {
@@ -326,7 +328,7 @@ export function BasesUI() {
           wa_id: waId,
           lead_pool: leadPool,
           lead_temp: defaultTempForPool(leadPool),
-          lead_source: newLead.origem || "manual",
+          source_type: newLead.source_type || "fria",
           obs_curta: newLead.observacao || null,
           auto_outreach_enabled: true,
           is_paused: false,
@@ -335,7 +337,7 @@ export function BasesUI() {
     );
 
     if (!result) return;
-    setNewLead({ nome: "", telefone: "", wa_id: "", origem: "", observacao: "" });
+    setNewLead({ nome: "", telefone: "", wa_id: "", source_type: "fria", observacao: "" });
     setShowAddModal(false);
   };
 
@@ -345,7 +347,8 @@ export function BasesUI() {
 
     const text = await importData.arquivo.text();
     const leadPool = BASE_TO_POOL[activeBase];
-    const leads = parseImportRows(text, leadPool, importData.entrada.trim());
+    const sourceType = importData.source_type || "fria";
+    const leads = parseImportRows(text, leadPool, importData.entrada.trim(), sourceType);
 
     if (leads.length === 0) {
       setActionError("Arquivo sem leads válidos para importação");
@@ -357,13 +360,14 @@ export function BasesUI() {
         callAction({
           action: "import_base",
           import_ref: importData.entrada.trim(),
+          source_type: sourceType,
           leads,
         }),
       `${leads.length} leads importados.`,
     );
 
     if (!result) return;
-    setImportData({ arquivo: null, entrada: "" });
+    setImportData({ arquivo: null, entrada: "", source_type: "fria" });
     setShowImportModal(false);
   };
 
@@ -923,21 +927,18 @@ export function BasesUI() {
               </div>
               <div className={styles.formGroup}>
                 <label htmlFor="origem" className={styles.label}>
-                  Origem
+                  Origem do lead
                 </label>
                 <select
                   id="origem"
                   className={styles.select}
-                  value={newLead.origem}
-                  onChange={(e) => setNewLead({ ...newLead, origem: e.target.value })}
+                  value={newLead.source_type}
+                  onChange={(e) => setNewLead({ ...newLead, source_type: e.target.value })}
                 >
-                  <option value="">Selecionar origem</option>
-                  <option value="LinkedIn">LinkedIn</option>
-                  <option value="Google Ads">Google Ads</option>
-                  <option value="Meta Ads">Meta Ads</option>
-                  <option value="Orgânico">Orgânico</option>
-                  <option value="Indicação">Indicação</option>
-                  <option value="Outro">Outro</option>
+                  <option value="fria">Fria (sem definição)</option>
+                  <option value="campanha">Campanha</option>
+                  <option value="morna">Morna</option>
+                  <option value="lyx">Lyx</option>
                 </select>
               </div>
               <div className={styles.formGroup}>
@@ -1022,6 +1023,22 @@ export function BasesUI() {
                   value={importData.entrada}
                   onChange={(e) => setImportData({ ...importData, entrada: e.target.value })}
                 />
+              </div>
+              <div className={styles.formGroup}>
+                <label htmlFor="import-source-type" className={styles.label}>
+                  Origem dos leads
+                </label>
+                <select
+                  id="import-source-type"
+                  className={styles.select}
+                  value={importData.source_type}
+                  onChange={(e) => setImportData({ ...importData, source_type: e.target.value })}
+                >
+                  <option value="fria">Fria (sem definição)</option>
+                  <option value="campanha">Campanha</option>
+                  <option value="morna">Morna</option>
+                  <option value="lyx">Lyx</option>
+                </select>
               </div>
               <div className={styles.formHint}>
                 Os leads serão adicionados à base &quot;{activeBase}&quot; com dados reais do painel.

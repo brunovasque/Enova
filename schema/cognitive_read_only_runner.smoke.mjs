@@ -36,7 +36,7 @@ const llmRuntime = {
   fetchImpl: createMockOpenAIFetch()
 };
 
-assert.ok(listReadOnlyCognitiveFixtures().length >= 32);
+assert.ok(listReadOnlyCognitiveFixtures().length >= 36);
 
 const scenarioIds = [
   "autonomo_sem_ir",
@@ -48,6 +48,10 @@ const scenarioIds = [
   "docs_autonomo_site_depois",
   "correspondente_sem_retorno_ansioso",
   "correspondente_aprovado_insiste_detalhes",
+  "correspondente_aguardando_retorno",
+  "correspondente_complemento_pos_analise",
+  "correspondente_reprovado_com_motivo",
+  "correspondente_reprovado_sem_motivo",
   "visita_remarcar_sem_promessa",
   "visita_resistencia_por_que",
   "aluguel_ponte_conversao",
@@ -162,6 +166,26 @@ for (const scenarioId of scenarioIds) {
     assert.match(replyNormalized, /houve aprovacao/);
     assert.match(replyNormalized, /corretor vasques no plantao/);
     assert.doesNotMatch(replyNormalized, /r\$\s*\d|valor aprovado de|credito liberado de|taxa de juros de/);
+  }
+  if (scenarioId === "correspondente_aguardando_retorno") {
+    assert.match(replyNormalized, /seu processo ja foi encaminhado para analise/);
+    assert.match(replyNormalized, /sigo acompanhando aqui/);
+    assert.doesNotMatch(replyNormalized, /r\$\s*\d|taxa de juros|credito liberado|aprovad/);
+  }
+  if (scenarioId === "correspondente_complemento_pos_analise") {
+    assert.match(replyNormalized, /correspondente pediu um complemento/);
+    assert.match(replyNormalized, /nao reinicia o processo/);
+    assert.match(replyNormalized, /extrato bancario dos ultimos 3 meses|extrato bancario/);
+  }
+  if (scenarioId === "correspondente_reprovado_com_motivo") {
+    assert.match(replyNormalized, /correspondente identificou|restricao.*scr|scr.*bacen|bacen/);
+    assert.match(replyNormalized, /registrato|regularizar|extratos/);
+    assert.doesNotMatch(replyNormalized, /aprovad/);
+  }
+  if (scenarioId === "correspondente_reprovado_sem_motivo") {
+    assert.match(replyNormalized, /nao conseguiu avancar nesta analise/);
+    assert.doesNotMatch(replyNormalized, /aprovad/);
+    assert.doesNotMatch(replyNormalized, /r\$\s*\d|taxa de juros/);
   }
   if (scenarioId === "visita_remarcar_sem_promessa") {
     assert.match(replyNormalized, /a gente consegue remarcar/);
@@ -647,6 +671,10 @@ for (const scenarioId of scenarioIds) {
 assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "multiplos_slots"), true);
 assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "docs_clt_objecao_duvida"), true);
 assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "correspondente_aprovado_insiste_detalhes"), true);
+assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "correspondente_aguardando_retorno"), true);
+assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "correspondente_complemento_pos_analise"), true);
+assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "correspondente_reprovado_com_motivo"), true);
+assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "correspondente_reprovado_sem_motivo"), true);
 assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "visita_resistencia_por_que"), true);
 assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "aluguel_ponte_conversao"), true);
 assert.equal(READ_ONLY_COGNITIVE_FIXTURES.some((fixture) => fixture.id === "docs_multi_renda"), true);

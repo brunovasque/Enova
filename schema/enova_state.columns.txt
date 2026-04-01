@@ -182,3 +182,6 @@
 187  corr_lock_assumido_em
 188  corr_entrega_privada_status
 189  corr_entrega_privada_em
+source_type
+opening_used
+opening_variant

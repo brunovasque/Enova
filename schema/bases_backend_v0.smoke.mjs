@@ -7,9 +7,10 @@ process.env.ENOVA_ADMIN_KEY = "adm-key";
 
 const sharedModule = await import(new URL("../panel/app/api/bases/_shared.ts", import.meta.url).href);
 
-const { runBasesAction, buildWarmupSelection, assessCallNowEligibility } = sharedModule;
+const { runBasesAction, buildWarmupSelection, assessCallNowEligibility, canonicalSourceType } = sharedModule;
 
 const metaRows = new Map();
+const stateRows = new Map();
 const logRows = [];
 const workerCalls = [];
 const fetchCalls = [];
@@ -128,6 +129,19 @@ globalThis.fetch = async (input, init = {}) => {
     return new Response("", { status: 201 });
   }
 
+  if (url.origin === "https://supabase.example" && url.pathname === "/rest/v1/enova_state") {
+    const method = String(init.method || "GET").toUpperCase();
+    if (method === "POST") {
+      const payload = JSON.parse(String(init.body || "[]"));
+      const rows = Array.isArray(payload) ? payload : [payload];
+      for (const row of rows) {
+        const existing = stateRows.get(row.wa_id) || {};
+        stateRows.set(row.wa_id, { ...existing, ...row });
+      }
+      return new Response("", { status: 201 });
+    }
+  }
+
   if (url.origin === "https://worker.example" && url.pathname === "/__admin__/send") {
     const payload = JSON.parse(String(init.body || "{}"));
     workerCalls.push(payload);
@@ -139,10 +153,6 @@ globalThis.fetch = async (input, init = {}) => {
       },
       200,
     );
-  }
-
-  if (url.pathname === "/rest/v1/enova_state") {
-    throw new Error("crm_lead_meta flow must not touch enova_state");
   }
 
   throw new Error(`Unexpected fetch: ${url.toString()}`);
@@ -162,13 +172,67 @@ try {
     assert.equal(metaRows.get("5511999990001")?.lead_temp, "COLD");
     // manual add must enter with auto_outreach_enabled=true (no lock)
     assert.equal(metaRows.get("5511999990001")?.auto_outreach_enabled, true);
+    // no source_type provided → fallback "fria"
+    assert.equal(metaRows.get("5511999990001")?.lead_source, "fria");
+    assert.equal(stateRows.get("5511999990001")?.source_type, "fria");
     assert.equal(workerCalls.length, 0);
+  }
+
+  // source_type: campanha — manual lead
+  {
+    const { status, body: data } = await runBasesAction({
+      action: "add_lead_manual",
+      wa_id: "5511999990010",
+      lead_pool: "COLD_POOL",
+      source_type: "campanha",
+    });
+    assert.equal(status, 200);
+    assert.equal(data.ok, true);
+    assert.equal(metaRows.get("5511999990010")?.lead_source, "campanha");
+    assert.equal(stateRows.get("5511999990010")?.source_type, "campanha");
+  }
+
+  // source_type: lyx — manual lead
+  {
+    await runBasesAction({
+      action: "add_lead_manual",
+      wa_id: "5511999990011",
+      lead_pool: "COLD_POOL",
+      source_type: "lyx",
+    });
+    assert.equal(metaRows.get("5511999990011")?.lead_source, "lyx");
+    assert.equal(stateRows.get("5511999990011")?.source_type, "lyx");
+  }
+
+  // source_type: morna — manual lead
+  {
+    await runBasesAction({
+      action: "add_lead_manual",
+      wa_id: "5511999990012",
+      lead_pool: "WARM_POOL",
+      source_type: "morna",
+    });
+    assert.equal(metaRows.get("5511999990012")?.lead_source, "morna");
+    assert.equal(stateRows.get("5511999990012")?.source_type, "morna");
+  }
+
+  // unknown source_type → fallback fria
+  {
+    await runBasesAction({
+      action: "add_lead_manual",
+      wa_id: "5511999990013",
+      lead_pool: "COLD_POOL",
+      source_type: "linkedin",
+    });
+    assert.equal(metaRows.get("5511999990013")?.lead_source, "fria");
+    assert.equal(stateRows.get("5511999990013")?.source_type, "fria");
   }
 
   {
     const { status, body: data } = await runBasesAction({
       action: "import_base",
       import_ref: "import-2026-03-30",
+      source_type: "campanha",
       leads: [
         {
           wa_id: "5511999990002",
@@ -189,9 +253,41 @@ try {
     // imported leads must enter with auto_outreach_enabled=true (no lock)
     assert.equal(metaRows.get("5511999990002")?.auto_outreach_enabled, true);
     assert.equal(metaRows.get("5511999990003")?.auto_outreach_enabled, true);
+    // source_type=campanha must be propagated to lead_source and enova_state
+    assert.equal(metaRows.get("5511999990002")?.lead_source, "campanha");
+    assert.equal(metaRows.get("5511999990003")?.lead_source, "campanha");
+    assert.equal(stateRows.get("5511999990002")?.source_type, "campanha");
+    assert.equal(stateRows.get("5511999990003")?.source_type, "campanha");
+  }
+
+  // import without source_type → fallback fria
+  {
+    await runBasesAction({
+      action: "import_base",
+      import_ref: "import-sem-origem",
+      leads: [{ wa_id: "5511999990020", lead_pool: "COLD_POOL" }],
+    });
+    assert.equal(metaRows.get("5511999990020")?.lead_source, "fria");
+    assert.equal(stateRows.get("5511999990020")?.source_type, "fria");
+  }
+
+  // per-lead source_type override inside import_base
+  {
+    await runBasesAction({
+      action: "import_base",
+      import_ref: "import-mixed",
+      source_type: "campanha",
+      leads: [
+        { wa_id: "5511999990021", lead_pool: "COLD_POOL", source_type: "lyx" },
+        { wa_id: "5511999990022", lead_pool: "COLD_POOL" },
+      ],
+    });
+    assert.equal(stateRows.get("5511999990021")?.source_type, "lyx");
+    assert.equal(stateRows.get("5511999990022")?.source_type, "campanha");
   }
 
   {
+    const stateCountBefore = stateRows.size;
     const { status, body: data } = await runBasesAction({
       action: "move_base",
       wa_id: "5511999990001",
@@ -201,6 +297,9 @@ try {
     assert.equal(data.lead.lead_pool, "WARM_POOL");
     assert.equal(data.lead.lead_temp, "WARM");
     assert.equal(workerCalls.length, 0);
+    // move_base must NOT touch enova_state.source_type (preserve original origin)
+    assert.equal(stateRows.size, stateCountBefore, "move_base must not write new enova_state rows");
+    assert.equal(stateRows.get("5511999990001")?.source_type, "fria", "move_base must not change source_type");
   }
 
   {
@@ -260,8 +359,8 @@ try {
     });
     assert.equal(status, 200);
     assert.equal(data.dispatch_mode, "selection_only");
-    assert.equal(data.selected_count, 1);
-    assert.equal(data.leads[0].wa_id, "5511999990002");
+    assert.ok(data.selected_count >= 1);
+    assert.ok(data.leads.some((l) => l.wa_id === "5511999990002"));
     assert.equal(workerCalls.length, 1);
     // warmup must not filter by auto_outreach_enabled — control is is_paused only
     assert.equal(
@@ -300,14 +399,28 @@ try {
     lead_pool: "COLD_POOL",
     limit: 10,
   });
-  assert.equal(helperSelection.length, 1);
-  assert.equal(helperSelection[0].wa_id, "5511999990002");
+  assert.ok(helperSelection.length >= 1);
+  assert.ok(helperSelection.some((r) => r.wa_id === "5511999990002"));
 
-  assert.equal(
+  // enova_state must be called for add_lead_manual and import_base (source_type persistence)
+  assert.ok(
     fetchCalls.some((call) => call.url.includes("/rest/v1/enova_state")),
-    false,
-    "Bases backend must stay isolated from enova_state",
+    "add_lead_manual and import_base must write source_type to enova_state",
   );
+
+  // canonicalSourceType unit tests
+  assert.equal(canonicalSourceType("campanha"), "campanha");
+  assert.equal(canonicalSourceType("morna"), "morna");
+  assert.equal(canonicalSourceType("fria"), "fria");
+  assert.equal(canonicalSourceType("lyx"), "lyx");
+  assert.equal(canonicalSourceType("CAMPANHA"), "campanha");
+  assert.equal(canonicalSourceType("LYX"), "lyx");
+  assert.equal(canonicalSourceType("linkedin"), "fria");
+  assert.equal(canonicalSourceType("manual"), "fria");
+  assert.equal(canonicalSourceType("import"), "fria");
+  assert.equal(canonicalSourceType(undefined), "fria");
+  assert.equal(canonicalSourceType(null), "fria");
+  assert.equal(canonicalSourceType(""), "fria");
 
   const tags = logRows.map((row) => row.tag);
   assert.ok(tags.includes("bases_add_lead_manual"));

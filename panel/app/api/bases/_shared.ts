@@ -1,8 +1,10 @@
 export const LEAD_POOLS = ["COLD_POOL", "WARM_POOL", "HOT_POOL"] as const;
 export const LEAD_TEMPS = ["COLD", "WARM", "HOT"] as const;
+export const CANONICAL_SOURCE_TYPES = ["campanha", "morna", "fria", "lyx"] as const;
 
 export type LeadPool = (typeof LEAD_POOLS)[number];
 export type LeadTemp = (typeof LEAD_TEMPS)[number];
+export type SourceType = (typeof CANONICAL_SOURCE_TYPES)[number];
 
 export type CrmLeadMetaRow = {
   wa_id: string;
@@ -73,6 +75,7 @@ export type BasesRequest = {
   lead_pool?: string;
   lead_temp?: string;
   lead_source?: string;
+  source_type?: string;
   tags?: unknown;
   obs_curta?: string;
   status_operacional?: string;
@@ -116,6 +119,14 @@ export function isLeadPool(value: unknown): value is LeadPool {
 
 export function isLeadTemp(value: unknown): value is LeadTemp {
   return typeof value === "string" && LEAD_TEMPS.includes(value as LeadTemp);
+}
+
+export function canonicalSourceType(value: unknown): SourceType {
+  if (typeof value === "string") {
+    const lower = value.trim().toLowerCase();
+    if ((CANONICAL_SOURCE_TYPES as readonly string[]).includes(lower)) return lower as SourceType;
+  }
+  return "fria";
 }
 
 export function normalizeOptionalText(value: unknown): string | null {
@@ -433,6 +444,30 @@ function buildAuditRow(
   };
 }
 
+async function upsertEnovaStateSourceType(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  rows: Array<{ wa_id: string; source_type: string }>,
+) {
+  if (rows.length === 0) return;
+
+  const endpoint = new URL("/rest/v1/enova_state", supabaseUrl);
+  endpoint.searchParams.set("on_conflict", "wa_id");
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    headers: buildSupabaseHeaders(serviceRoleKey, {
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    }),
+    body: JSON.stringify(rows),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`FAILED_TO_SET_SOURCE_TYPE:${response.status}`);
+  }
+}
+
 export type ListLeadsOptions = {
   lead_pool?: LeadPool | null;
   lead_temp?: LeadTemp | null;
@@ -493,18 +528,23 @@ export async function runBasesAction(
 
   try {
     if (action === "add_lead_manual") {
-      const row = normalizeLeadMetaInput(payload, {
-        defaultLeadSource: "manual",
+      const sourceType = canonicalSourceType(payload.source_type ?? payload.lead_source);
+      const row = normalizeLeadMetaInput({ ...payload, lead_source: sourceType }, {
+        defaultLeadSource: sourceType,
         defaultAutoOutreachEnabled: true,
         defaultPaused: false,
       });
       const savedRows = await upsertLeadMetaRows(supabaseUrl, serviceRoleKey, [row]);
       const savedRow = savedRows[0] ?? null;
+      await upsertEnovaStateSourceType(supabaseUrl, serviceRoleKey, [
+        { wa_id: row.wa_id, source_type: sourceType },
+      ]);
       await insertAuditLogs(supabaseUrl, serviceRoleKey, [
         buildAuditRow(row.wa_id, "bases_add_lead_manual", "Lead adicionado manualmente em Bases", {
           lead_pool: row.lead_pool,
           lead_temp: row.lead_temp,
           lead_source: row.lead_source,
+          source_type: sourceType,
           import_ref: row.import_ref,
           auto_outreach_enabled: row.auto_outreach_enabled,
           is_paused: row.is_paused,
@@ -519,15 +559,24 @@ export async function runBasesAction(
         return { status: 400, body: { ok: false, error: "leads é obrigatório" } };
       }
       const importRef = normalizeOptionalText(payload.import_ref);
-      const rows = leads.map((lead) =>
-        normalizeLeadMetaInput(lead, {
-          defaultLeadSource: "import",
-          defaultImportRef: importRef,
-          defaultAutoOutreachEnabled: true,
-          defaultPaused: false,
-        }),
-      );
+      const rows = leads.map((lead) => {
+        const leadSourceType = canonicalSourceType(lead.source_type ?? payload.source_type);
+        return normalizeLeadMetaInput(
+          { ...lead, lead_source: leadSourceType },
+          {
+            defaultLeadSource: leadSourceType,
+            defaultImportRef: importRef,
+            defaultAutoOutreachEnabled: true,
+            defaultPaused: false,
+          },
+        );
+      });
       const savedRows = await upsertLeadMetaRows(supabaseUrl, serviceRoleKey, rows);
+      await upsertEnovaStateSourceType(
+        supabaseUrl,
+        serviceRoleKey,
+        rows.map((row) => ({ wa_id: row.wa_id, source_type: canonicalSourceType(row.lead_source) })),
+      );
       await insertAuditLogs(
         supabaseUrl,
         serviceRoleKey,
@@ -536,6 +585,7 @@ export async function runBasesAction(
             lead_pool: row.lead_pool,
             lead_temp: row.lead_temp,
             lead_source: row.lead_source,
+            source_type: row.lead_source,
             import_ref: row.import_ref,
             auto_outreach_enabled: row.auto_outreach_enabled,
             is_paused: row.is_paused,

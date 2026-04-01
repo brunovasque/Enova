@@ -360,6 +360,18 @@ function hasApprovedCorrespondenteStatus(value) {
   return ["aprovado", "aprovada", "sim", "aprovado_condicionado"].includes(normalizeText(value));
 }
 
+function hasAguardandoCorrespondenteStatus(value) {
+  return ["aguardando", "em_analise", "aguardando_retorno", "enviado", "em_analise_correspondente"].includes(normalizeText(value));
+}
+
+function hasReprovadoCorrespondenteStatus(value) {
+  return ["reprovado", "reprovada", "nao_aprovado", "nao_aprovada", "reprovado_correspondente"].includes(normalizeText(value));
+}
+
+function hasComplementoCorrespondenteStatus(value) {
+  return ["complemento", "complemento_pos_analise", "pendencia_complementar", "docs_complementares", "adjustment_required"].includes(normalizeText(value));
+}
+
 function isDocsContext(request, pendingSlots) {
   const stage = normalizeText(request?.current_stage);
   const pending = Array.isArray(pendingSlots) ? pendingSlots.map((slot) => normalizeText(slot)) : [];
@@ -643,23 +655,85 @@ function buildDocsGuidanceByProfile(request) {
     .join(" ");
 }
 
+function buildCorrespondenteReprovacaoGuidance(request, knownSlots) {
+  const normalizedMessage = normalizeText(request?.message_text);
+  const motivoSlot = normalizeText(getKnownSlotValue(knownSlots, "motivo_reprovacao"));
+
+  const hasScrBacen =
+    /^scr[_-]?bacen$/.test(motivoSlot) || /^scr$/.test(motivoSlot) || /^bacen$/.test(motivoSlot) ||
+    /\bscr\b|\bbacen\b|\bregistrato\b/.test(normalizedMessage);
+  const hasSinadConres =
+    /^sinad[_-]?conres$/.test(motivoSlot) || /^sinad$/.test(motivoSlot) || /^conres$/.test(motivoSlot) ||
+    /\bsinad\b|\bconres\b/.test(normalizedMessage);
+  const hasComprometimento =
+    /comprometimento/.test(motivoSlot) ||
+    /\bcomprometimento\b/.test(normalizedMessage) ||
+    /\bemprestimo\b|\bempr[eé]stimo\b/.test(normalizedMessage);
+
+  if (hasScrBacen) {
+    return "O correspondente identificou uma restrição em SCR/BACEN que impediu o avanço do processo. O caminho é consultar o Registrato, levantar os extratos dos últimos 6 meses e, se necessário, regularizar antes de tentar uma nova análise.";
+  }
+  if (hasSinadConres) {
+    return "Houve uma pendência em SINAD ou CONRES que bloqueou o processo no correspondente. Para resolver, o caminho é ir a uma agência da Caixa e conversar diretamente com o gerente de pessoa física.";
+  }
+  if (hasComprometimento) {
+    return "O correspondente identificou comprometimento de renda acima do limite permitido pela Caixa — que é de 30% da renda. Uma alternativa possível é ajuste de entrada, composição de renda com alguém próximo ou reorganização das parcelas existentes.";
+  }
+
+  return "Infelizmente o processo não conseguiu avançar nesta análise do correspondente. Assim que houver mais detalhes ou orientação sobre os próximos passos, eu te oriento por aqui.";
+}
+
+function buildComplementoPosAnaliseGuidance(request, knownSlots) {
+  const docComplementar =
+    getKnownSlotValue(knownSlots, "docs_complementares_banco") ||
+    getKnownSlotValue(knownSlots, "pendencia_complementar") ||
+    getKnownSlotValue(knownSlots, "item_pendente_correspondente");
+
+  if (docComplementar) {
+    return `O correspondente pediu um complemento para seguir com a análise: ${docComplementar}. Isso não reinicia o processo — ele continua em análise, e esse item é o que falta para seguirmos.`;
+  }
+  return "O correspondente pediu um complemento para seguir com a análise. Me confirma qual documento ou informação está sendo solicitada para eu te orientar no envio correto.";
+}
+
 function buildCorrespondenteGuidance(request) {
   const normalizedMessage = normalizeText(request?.message_text);
   const knownSlots = request?.known_slots || {};
   const correspondenteSlot = normalizeText(getKnownSlotValue(knownSlots, "correspondente"));
   const retornoStatus = normalizeText(getKnownSlotValue(knownSlots, "retorno_correspondente_status"));
+  const currentStage = normalizeText(request?.current_stage);
+
   const approved = hasApprovedCorrespondenteStatus(correspondenteSlot) || hasApprovedCorrespondenteStatus(retornoStatus);
+  const reprovado = hasReprovadoCorrespondenteStatus(correspondenteSlot) || hasReprovadoCorrespondenteStatus(retornoStatus);
+  const aguardando =
+    hasAguardandoCorrespondenteStatus(correspondenteSlot) ||
+    hasAguardandoCorrespondenteStatus(retornoStatus) ||
+    /aguardando_retorno_correspondente/.test(currentStage);
+  const complemento =
+    hasComplementoCorrespondenteStatus(retornoStatus) ||
+    Boolean(getKnownSlotValue(knownSlots, "pendencia_complementar")) ||
+    Boolean(getKnownSlotValue(knownSlots, "docs_complementares_banco"));
   const insistsFinancial = FINANCIAL_DETAILS_PATTERN.test(normalizedMessage) || APPROVAL_PROOF_PATTERN.test(normalizedMessage);
 
-  if (!approved) {
-    return "Entendo sua ansiedade, de verdade, e sigo acompanhando com você. Enquanto não houver retorno do correspondente, eu ainda não consigo confirmar aprovação.";
+  if (reprovado) {
+    return buildCorrespondenteReprovacaoGuidance(request, knownSlots);
   }
 
-  if (insistsFinancial || APPROVAL_HINT_PATTERN.test(normalizedMessage)) {
-    return "Queria muito conseguir te abrir isso por aqui, mas eu realmente não tenho acesso ao sistema de aprovação. O que chegou para mim foi só a informação de que houve aprovação, e os detalhes de financiamento, taxas, subsídios e poder de compra são tratados presencialmente com o corretor Vasques no plantão.";
+  if (complemento) {
+    return buildComplementoPosAnaliseGuidance(request, knownSlots);
   }
 
-  return "Recebemos o retorno de aprovação, e agora essa parte de financiamento, taxas, subsídios e poder de compra é tratada presencialmente com o corretor Vasques no plantão.";
+  if (aguardando) {
+    return "Seu processo já foi encaminhado para análise. Esse trâmite leva um tempo, e eu sigo acompanhando aqui. Assim que houver qualquer retorno — aprovação, pedido de complemento ou próxima orientação — eu te aviso.";
+  }
+
+  if (approved) {
+    if (insistsFinancial || APPROVAL_HINT_PATTERN.test(normalizedMessage)) {
+      return "Queria muito conseguir te abrir isso por aqui, mas eu realmente não tenho acesso ao sistema de aprovação. O que chegou para mim foi só a informação de que houve aprovação, e os detalhes de financiamento, taxas, subsídios e poder de compra são tratados presencialmente com o corretor Vasques no plantão.";
+    }
+    return "Recebemos o retorno de aprovação, e agora essa parte de financiamento, taxas, subsídios e poder de compra é tratada presencialmente com o corretor Vasques no plantão.";
+  }
+
+  return "Entendo sua ansiedade, de verdade, e sigo acompanhando com você. Enquanto não houver retorno do correspondente, eu ainda não consigo confirmar aprovação.";
 }
 
 function buildVisitaGuidance(request) {

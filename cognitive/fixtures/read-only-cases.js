@@ -251,6 +251,88 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
     }
   },
   {
+    id: "correspondente_aguardando_retorno",
+    title: "Correspondente em análise — cliente pergunta sobre status",
+    input: {
+      conversation_id: "fx-corr-003",
+      current_stage: "aguardando_retorno_correspondente",
+      message_text: "E aí, tem novidade? Como está meu processo?",
+      known_slots: {
+        correspondente: "aguardando",
+        retorno_correspondente_status: "aguardando"
+      },
+      pending_slots: ["correspondente"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "correspondente_complemento_pos_analise",
+    title: "Correspondente pediu documento complementar pós-análise",
+    input: {
+      conversation_id: "fx-corr-004",
+      current_stage: "aguardando_retorno_correspondente",
+      message_text: "O que precisa agora?",
+      known_slots: {
+        correspondente: "aguardando",
+        retorno_correspondente_status: "complemento",
+        docs_complementares_banco: "extrato bancário dos últimos 3 meses"
+      },
+      pending_slots: ["correspondente"],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "correspondente_reprovado_com_motivo",
+    title: "Reprovação pelo correspondente com motivo mecânico scr_bacen",
+    input: {
+      conversation_id: "fx-corr-005",
+      current_stage: "analise_correspondente",
+      message_text: "Me disseram que fui reprovado.",
+      known_slots: {
+        correspondente: "reprovado",
+        retorno_correspondente_status: "reprovado",
+        motivo_reprovacao: "scr_bacen"
+      },
+      pending_slots: [],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "correspondente_reprovado_sem_motivo",
+    title: "Reprovação pelo correspondente sem motivo detalhado no estado",
+    input: {
+      conversation_id: "fx-corr-006",
+      current_stage: "analise_correspondente",
+      message_text: "Fui reprovado, e agora?",
+      known_slots: {
+        correspondente: "reprovado",
+        retorno_correspondente_status: "reprovado"
+      },
+      pending_slots: [],
+      recent_messages: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
     id: "visita_remarcar_sem_promessa",
     title: "Visita com pedido de remarcação e expectativa comercial",
     input: {

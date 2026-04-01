@@ -961,8 +961,14 @@ function parseEstadoCivil(text) {
   const nt = normalizeText(text);
   if (!nt) return null;
   if (/(solteir|sozinha|sozinho)/.test(nt)) return "solteiro";
-  if (/(casad|casamento civil|casad[oa] no civil|casad[oa] no papel|no papel)/.test(nt)) return "casado";
-  if (/(uniao estavel|uniao|estavel|juntad|moro junto|moramos junto|morar junto|vivemos juntos|amasiad|companheir|marido e mulher)/.test(nt)) return "uniao_estavel";
+  // Negação guard: "não sou casado", "não estou casado", "não é casado", etc.
+  const negaCasado = /nao\s+(?:\w+\s+){0,2}casad/.test(nt);
+  if (!negaCasado && /(casad|casamento civil|casad[oa] no civil|casad[oa] no papel|no papel)/.test(nt)) return "casado";
+  // Negação guard: "não é união estável", "não somos união estável", etc.
+  // Também removidos: moro junto, moramos junto, morar junto, vivemos juntos
+  // — coabitação ≠ confirmação de união estável; deve permanecer em esclarecimento.
+  const negaUniao = /nao\s+(?:\w+\s+){0,2}(?:uniao\s+estavel|estavel)/.test(nt);
+  if (!negaUniao && /(uniao estavel|uniao|estavel|juntad|amasiad|companheir|marido e mulher)/.test(nt)) return "uniao_estavel";
   if (/(separad|separei)/.test(nt)) return "separado";
   if (/(divorciad)/.test(nt)) return "divorciado";
   if (/(viuv)/.test(nt)) return "viuvo";
@@ -3904,10 +3910,18 @@ function enovaV1Scenarios(modeOverride = null) {
 
     { id: "civil_estado_civil_solteiro", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "solteiro", expected: { type: "single", equals: "somar_renda_solteiro" } },
     { id: "civil_estado_civil_casado", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "casado", expected: { type: "single", equals: "confirmar_casamento" } },
+    { id: "civil_estado_civil_casado_no_civil", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "sou casado no civil", expected: { type: "single", equals: "confirmar_casamento" } },
     { id: "civil_estado_civil_uniao_estavel", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "moro junto, união estável", expected: { type: "single", equals: "financiamento_conjunto" } },
+    { id: "civil_estado_civil_uniao_estavel_explicitada", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "sou união estável", expected: { type: "single", equals: "financiamento_conjunto" } },
     { id: "civil_estado_civil_divorciado", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "divorciado", expected: { type: "single", equals: "verificar_averbacao" } },
     { id: "civil_estado_civil_viuvo", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "viúvo", expected: { type: "single", equals: "verificar_inventario" } },
     { id: "civil_estado_civil_fallback", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "não entendi", expected: { type: "single", equals: "estado_civil" }, assert_stayed: true },
+    { id: "civil_estado_civil_moro_junto_fallback", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "moro junto", expected: { type: "single", equals: "estado_civil" }, assert_stayed: true },
+    { id: "civil_estado_civil_moramos_juntos_fallback", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "moramos juntos", expected: { type: "single", equals: "estado_civil" }, assert_stayed: true },
+    { id: "civil_estado_civil_moro_junto_1_ano_fallback", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "moro junto há 1 ano", expected: { type: "single", equals: "estado_civil" }, assert_stayed: true },
+    { id: "civil_estado_civil_moro_junto_nao_casado_fallback", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "moro junto mas não sou casado", expected: { type: "single", equals: "estado_civil" }, assert_stayed: true },
+    { id: "civil_estado_civil_moro_junto_nao_uniao_fallback", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "moro junto mas não é união estável", expected: { type: "single", equals: "estado_civil" }, assert_stayed: true },
+    { id: "civil_estado_civil_moramos_juntos_comprar_sozinho", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_base_topo_v1", start_stage: "estado_civil", input: "moramos juntos mas vou comprar sozinho", expected: { type: "single", equals: "somar_renda_solteiro" } },
 
     { id: "civil_confirmar_casamento_civil", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_composicao_v1", start_stage: "confirmar_casamento", input: "sim", expected: { type: "single", equals: "regime_trabalho" } },
     { id: "civil_confirmar_casamento_uniao", grupo: "civil", mode: "simulate-from-state", allowed_modes: ["simulate-from-state","simulate-funnel"], fixture: "fx_composicao_v1", start_stage: "confirmar_casamento", input: "não", expected: { type: "single", equals: "financiamento_conjunto" } },
@@ -20558,7 +20572,7 @@ case "estado_civil": {
 
   const t = String(userText || "").trim();
   const estadoCivil = parseEstadoCivil(t);
-  // Exemplos cobertos: "casada no civil", "moro junto", "sou divorciado", "viúva"
+  // Exemplos cobertos: "casada no civil", "sou divorciado", "viúva", "união estável"
   const solteiro = estadoCivil === "solteiro";
   const casado = estadoCivil === "casado";
   const uniao = estadoCivil === "uniao_estavel";

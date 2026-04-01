@@ -965,9 +965,10 @@ function parseEstadoCivil(text) {
   const negaCasado = /nao\s+(?:\w+\s+){0,2}casad/.test(nt);
   if (!negaCasado && /(casad|casamento civil|casad[oa] no civil|casad[oa] no papel|no papel)/.test(nt)) return "casado";
   // Negação guard: "não é união estável", "não somos união estável", etc.
+  // Limitado ao composto "uniao estavel" para evitar falsos-positivos com "estavel" isolado.
   // Também removidos: moro junto, moramos junto, morar junto, vivemos juntos
   // — coabitação ≠ confirmação de união estável; deve permanecer em esclarecimento.
-  const negaUniao = /nao\s+(?:\w+\s+){0,2}(?:uniao\s+estavel|estavel)/.test(nt);
+  const negaUniao = /nao\s+(?:\w+\s+){0,2}uniao\s+estavel/.test(nt);
   if (!negaUniao && /(uniao estavel|uniao|estavel|juntad|amasiad|companheir|marido e mulher)/.test(nt)) return "uniao_estavel";
   if (/(separad|separei)/.test(nt)) return "separado";
   if (/(divorciad)/.test(nt)) return "divorciado";

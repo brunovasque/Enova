@@ -292,7 +292,7 @@ function rowToEditState(row: PrefillMetaRow | null): PrefillEditState {
   };
 }
 
-function editStateToPayload(wa_id: string, edit: PrefillEditState, existing: PrefillMetaRow | null): PrefillUpdatePayload {
+function editStateToPayload(wa_id: string, edit: PrefillEditState): PrefillUpdatePayload {
   function textOrNull(v: string) { return v.trim() ? v.trim() : null; }
   function numOrNull(v: string) { const n = parseFloat(v); return isNaN(n) ? null : n; }
   function boolOrNull(v: string): boolean | null {
@@ -300,9 +300,10 @@ function editStateToPayload(wa_id: string, edit: PrefillEditState, existing: Pre
     if (v === "false") return false;
     return null;
   }
-  function deriveStatus(newVal: unknown, existingStatus: PrefillStatus | null | undefined): PrefillStatus {
+  // Admin edit always resets to prefilled_pending_confirmation — even when overwriting
+  // a previously confirmed/divergent value. The client must re-confirm via the funnel.
+  function deriveStatus(newVal: unknown): PrefillStatus {
     if (newVal === null || newVal === undefined || newVal === "") return "empty";
-    if (existingStatus === "confirmed" || existingStatus === "divergent") return existingStatus;
     return "prefilled_pending_confirmation";
   }
 
@@ -320,31 +321,31 @@ function editStateToPayload(wa_id: string, edit: PrefillEditState, existing: Pre
     wa_id,
     nome_prefill: nomeVal,
     nome_source: textOrNull(edit.nome_source) ?? "manual",
-    nome_status: deriveStatus(nomeVal, existing?.nome_status),
+    nome_status: deriveStatus(nomeVal),
     nacionalidade_prefill: nacionalidadeVal,
     nacionalidade_source: textOrNull(edit.nacionalidade_source) ?? "manual",
-    nacionalidade_status: deriveStatus(nacionalidadeVal, existing?.nacionalidade_status),
+    nacionalidade_status: deriveStatus(nacionalidadeVal),
     estado_civil_prefill: estadoCivilVal,
     estado_civil_source: textOrNull(edit.estado_civil_source) ?? "manual",
-    estado_civil_status: deriveStatus(estadoCivilVal, existing?.estado_civil_status),
+    estado_civil_status: deriveStatus(estadoCivilVal),
     regime_trabalho_prefill: regimeVal,
     regime_trabalho_source: textOrNull(edit.regime_trabalho_source) ?? "manual",
-    regime_trabalho_status: deriveStatus(regimeVal, existing?.regime_trabalho_status),
+    regime_trabalho_status: deriveStatus(regimeVal),
     renda_prefill: rendaVal,
     renda_source: textOrNull(edit.renda_source) ?? "manual",
-    renda_status: deriveStatus(rendaVal, existing?.renda_status),
+    renda_status: deriveStatus(rendaVal),
     meses_36_prefill: meses36Val,
     meses_36_source: textOrNull(edit.meses_36_source) ?? "manual",
-    meses_36_status: deriveStatus(meses36Val, existing?.meses_36_status),
+    meses_36_status: deriveStatus(meses36Val),
     dependentes_prefill: dependentesVal,
     dependentes_source: textOrNull(edit.dependentes_source) ?? "manual",
-    dependentes_status: deriveStatus(dependentesVal, existing?.dependentes_status),
+    dependentes_status: deriveStatus(dependentesVal),
     valor_entrada_prefill: entradaVal,
     valor_entrada_source: textOrNull(edit.valor_entrada_source) ?? "manual",
-    valor_entrada_status: deriveStatus(entradaVal, existing?.valor_entrada_status),
+    valor_entrada_status: deriveStatus(entradaVal),
     restricao_prefill: restricaoVal,
     restricao_source: textOrNull(edit.restricao_source) ?? "manual",
-    restricao_status: deriveStatus(restricaoVal, existing?.restricao_status),
+    restricao_status: deriveStatus(restricaoVal),
     origem_lead: textOrNull(edit.origem_lead),
     observacoes_admin: textOrNull(edit.observacoes_admin),
     updated_by: "admin_panel",
@@ -500,7 +501,7 @@ export function AtendimentoUI() {
     setPrefillBusy(true);
     setPrefillFeedback(null);
     setPrefillError(null);
-    const payload = editStateToPayload(selectedLead.wa_id, prefillEdit, prefillData);
+    const payload = editStateToPayload(selectedLead.wa_id, prefillEdit);
     const result = await savePrefillDataAction(payload);
     if (result.ok) {
       const saved = result.prefill ?? null;

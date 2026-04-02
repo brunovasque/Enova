@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./bases.module.css";
+import { savePrefillOnLeadCreateAction } from "./actions";
 
 type BaseType = "fria" | "morna" | "quente";
 type LeadPool = "COLD_POOL" | "WARM_POOL" | "HOT_POOL";
@@ -363,32 +364,36 @@ export function BasesUI() {
 
     if (hasPrefill) {
       try {
-        const payload: Record<string, unknown> = { wa_id: waId, updated_by: "admin_panel" };
-        const addTextField = (key: string, val: string) => {
-          if (val.trim()) { payload[key] = val.trim(); payload[key.replace("_prefill", "_status")] = "prefilled_pending_confirmation"; }
+        type PrefillPayload = Parameters<typeof savePrefillOnLeadCreateAction>[0];
+        const payload: PrefillPayload = { wa_id: waId, updated_by: "admin_panel" };
+        const p = payload as Record<string, unknown>;
+        const addTextField = (key: keyof PrefillPayload, statusKey: keyof PrefillPayload, val: string) => {
+          if (!val.trim()) return;
+          p[key] = val.trim();
+          p[statusKey] = "prefilled_pending_confirmation";
         };
-        const addNumField = (key: string, val: string) => {
-          const n = parseFloat(val); if (!isNaN(n)) { payload[key] = n; payload[key.replace("_prefill", "_status")] = "prefilled_pending_confirmation"; }
+        const addNumField = (key: keyof PrefillPayload, statusKey: keyof PrefillPayload, val: string) => {
+          const n = parseFloat(val);
+          if (isNaN(n)) return;
+          p[key] = n;
+          p[statusKey] = "prefilled_pending_confirmation";
         };
-        const addBoolField = (key: string, val: string) => {
-          if (val === "true" || val === "false") { payload[key] = val === "true"; payload[key.replace("_prefill", "_status")] = "prefilled_pending_confirmation"; }
+        const addBoolField = (key: keyof PrefillPayload, statusKey: keyof PrefillPayload, val: string) => {
+          if (val !== "true" && val !== "false") return;
+          p[key] = val === "true";
+          p[statusKey] = "prefilled_pending_confirmation";
         };
-        addTextField("nacionalidade_prefill", newPrefill.nacionalidade_prefill);
-        addTextField("estado_civil_prefill", newPrefill.estado_civil_prefill);
-        addTextField("regime_trabalho_prefill", newPrefill.regime_trabalho_prefill);
-        addNumField("renda_prefill", newPrefill.renda_prefill);
-        addBoolField("meses_36_prefill", newPrefill.meses_36_prefill);
-        addNumField("dependentes_prefill", newPrefill.dependentes_prefill);
-        addNumField("valor_entrada_prefill", newPrefill.valor_entrada_prefill);
-        addBoolField("restricao_prefill", newPrefill.restricao_prefill);
+        addTextField("nacionalidade_prefill", "nacionalidade_status", newPrefill.nacionalidade_prefill);
+        addTextField("estado_civil_prefill", "estado_civil_status", newPrefill.estado_civil_prefill);
+        addTextField("regime_trabalho_prefill", "regime_trabalho_status", newPrefill.regime_trabalho_prefill);
+        addNumField("renda_prefill", "renda_status", newPrefill.renda_prefill);
+        addBoolField("meses_36_prefill", "meses_36_status", newPrefill.meses_36_prefill);
+        addNumField("dependentes_prefill", "dependentes_status", newPrefill.dependentes_prefill);
+        addNumField("valor_entrada_prefill", "valor_entrada_status", newPrefill.valor_entrada_prefill);
+        addBoolField("restricao_prefill", "restricao_status", newPrefill.restricao_prefill);
         if (newPrefill.observacoes_admin.trim()) payload.observacoes_admin = newPrefill.observacoes_admin.trim();
         payload.origem_lead = newLead.source_type || null;
-        await fetch("/api/prefill", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-          cache: "no-store",
-        });
+        await savePrefillOnLeadCreateAction(payload);
       } catch {
         // Non-blocking: prefill save failure does not block lead creation
       }

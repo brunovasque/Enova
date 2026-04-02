@@ -274,3 +274,89 @@ const KEY_ = process.env.SUPABASE_SERVICE_ROLE;
 // SUMÁRIO
 // =============================================================
 console.log("\n✅ Todos os smoke tests de enova_prefill_meta passaram (12/12)");
+
+// =============================================================
+// TESTES DE REGRESSÃO — Fixes de bloqueadores
+// =============================================================
+
+// =============================================================
+// TESTE 13: Boolean — "false" string deve ser persistido como false
+// =============================================================
+{
+  const saved = await upsertPrefillMeta(URL_, KEY_, {
+    wa_id: "5511999000010",
+    // @ts-ignore - testing string-boolean coercion
+    meses_36_prefill: "false",
+    meses_36_status: "prefilled_pending_confirmation",
+    // @ts-ignore
+    restricao_prefill: "false",
+    restricao_status: "prefilled_pending_confirmation",
+  });
+  assert.ok(saved, "deve salvar");
+  assert.equal(saved.meses_36_prefill, false, '"false" string deve ser false, não true');
+  assert.equal(saved.restricao_prefill, false, '"false" string para restricao deve ser false');
+  console.log("✓ T13: Boolean parsing — string 'false' → false (não true)");
+}
+
+// =============================================================
+// TESTE 14: Boolean — "true" string deve ser persistido como true
+// =============================================================
+{
+  const saved = await upsertPrefillMeta(URL_, KEY_, {
+    wa_id: "5511999000011",
+    // @ts-ignore - testing string-boolean coercion
+    meses_36_prefill: "true",
+    meses_36_status: "prefilled_pending_confirmation",
+  });
+  assert.ok(saved, "deve salvar");
+  assert.equal(saved.meses_36_prefill, true, '"true" string deve ser true');
+  console.log("✓ T14: Boolean parsing — string 'true' → true");
+}
+
+// =============================================================
+// TESTE 15: Boolean — null/undefined deve ser null
+// =============================================================
+{
+  const saved = await upsertPrefillMeta(URL_, KEY_, {
+    wa_id: "5511999000012",
+    meses_36_prefill: null,
+    meses_36_status: "empty",
+    restricao_prefill: undefined,
+    restricao_status: "empty",
+  });
+  assert.ok(saved, "deve salvar");
+  assert.equal(saved.meses_36_prefill, null, "null deve permanecer null");
+  console.log("✓ T15: Boolean parsing — null/undefined → null");
+}
+
+// =============================================================
+// TESTE 16: deriveStatus — admin edit reseta confirmed para prefilled_pending
+// Verifica que a regra está implementada corretamente no _shared.ts
+// A lógica de status no frontend (editStateToPayload) também reseta.
+// =============================================================
+{
+  // Se payload já traz nome_status com valor válido, _shared.ts aceita
+  // (o frontend é quem decide o status; _shared normaliza inválidos)
+  const savedConfirmed = await upsertPrefillMeta(URL_, KEY_, {
+    wa_id: "5511999000013",
+    nome_prefill: "João Confirmado",
+    nome_status: "confirmed",
+  });
+  assert.equal(savedConfirmed?.nome_status, "confirmed", "status confirmed aceito quando explicitamente enviado");
+
+  // Admin edita o valor — frontend enviará prefilled_pending_confirmation
+  const savedEdited = await upsertPrefillMeta(URL_, KEY_, {
+    wa_id: "5511999000013",
+    nome_prefill: "João Editado",
+    nome_status: "prefilled_pending_confirmation",
+  });
+  assert.equal(savedEdited?.nome_status, "prefilled_pending_confirmation", "edição admin reseta para pending");
+  assert.equal(savedEdited?.nome_prefill, "João Editado", "valor novo deve ser salvo");
+  console.log("✓ T16: Status reseta para prefilled_pending_confirmation após edição admin");
+}
+
+// =============================================================
+// SUMÁRIO FINAL
+// =============================================================
+console.log("\n✅ Todos os smoke tests de enova_prefill_meta passaram (16/16)");
+

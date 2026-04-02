@@ -186,12 +186,18 @@ export async function upsertPrefillMeta(
     }
   }
 
-  // Boolean fields
+  // Boolean fields — must be parsed explicitly; Boolean("false") === true
   const boolFields = ["meses_36_prefill", "restricao_prefill"] as const;
   for (const field of boolFields) {
     if (Object.prototype.hasOwnProperty.call(payload, field)) {
       const v = (payload as Record<string, unknown>)[field];
-      row[field] = v === null || v === undefined ? null : Boolean(v);
+      if (v === true || v === "true") {
+        row[field] = true;
+      } else if (v === false || v === "false") {
+        row[field] = false;
+      } else {
+        row[field] = null;
+      }
     }
   }
 

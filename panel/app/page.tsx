@@ -7,6 +7,7 @@ const NAV_LINKS: NavLink[] = [
   { href: "/crm", label: "CRM" },
   { href: "/dossie", label: "Dossiê" },
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/incidentes", label: "Incidentes" },
 ];
 
 export default function HomePage() {

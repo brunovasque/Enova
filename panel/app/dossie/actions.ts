@@ -1,10 +1,11 @@
+"use server";
+
 // ============================================================
-// Dossiê do Correspondente — API Route
-// Escopo: leitura consolidada de enova_state + crm_leads_v1 + enova_attendance_meta
-// FRONT-END ONLY: sem criar backend novo, sem alterar endpoints existentes
-// Lê dados reais já existentes no sistema (campos canônicos)
+// Dossiê do Correspondente — Server Action
+// Escopo: leitura consolidada de crm_leads_v1 + enova_state + enova_attendance_meta
+// Padrão: segue exatamente o mesmo padrão de crm/actions.ts e atendimento/actions.ts
+// Sem criar endpoint HTTP novo. Sem alterar backend canônico.
 // ============================================================
-import { NextResponse } from "next/server";
 
 export type DocItem = {
   tipo: string | null;
@@ -16,7 +17,7 @@ export type DossieData = {
   wa_id: string;
   pre_cadastro_numero: string | null;
 
-  // Dados do cliente (enova_state)
+  // Dados do cliente (via crm_leads_v1 / enova_state)
   nome: string | null;
   fase_conversa: string | null;
   funil_status: string | null;
@@ -108,26 +109,23 @@ function safeBool(value: unknown): boolean | null {
   return null;
 }
 
-const jsonResponse = (body: DossieResponse, status: number) =>
-  NextResponse.json<DossieResponse>(body, {
-    status,
-    headers: { "Cache-Control": "no-store" },
-  });
+async function readJson<T>(response: Response): Promise<T | null> {
+  const text = await response.text();
+  if (!text) return null;
+  return JSON.parse(text) as T;
+}
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
-  const waId = (searchParams.get("wa_id") || "").trim();
+// ── Main server action ──
 
-  if (!waId) {
-    return jsonResponse({ ok: false, data: null, error: "wa_id obrigatório" }, 400);
+export async function fetchDossieDataAction(waId: string): Promise<DossieResponse> {
+  const trimmedId = (waId || "").trim();
+  if (!trimmedId) {
+    return { ok: false, data: null, error: "wa_id obrigatório" };
   }
 
   const missingEnvs = REQUIRED_ENVS.filter((k) => !process.env[k]);
   if (missingEnvs.length > 0) {
-    return jsonResponse(
-      { ok: false, data: null, error: `missing env: ${missingEnvs.join(", ")}` },
-      500,
-    );
+    return { ok: false, data: null, error: `missing env: ${missingEnvs.join(", ")}` };
   }
 
   const supabaseUrl = process.env.SUPABASE_URL as string;
@@ -135,7 +133,8 @@ export async function GET(request: Request) {
   const headers = buildHeaders(serviceRoleKey);
 
   try {
-    // ── 1. enova_state (fonte canônica do funil) ──
+    // ── 1. enova_state — fonte canônica do funil e docs ──
+    // Campos não cobertos pelas views consolidadas (crm_leads_v1, enova_attendance_v1)
     const stateFields = [
       "wa_id",
       "nome",
@@ -164,7 +163,7 @@ export async function GET(request: Request) {
 
     const stateEndpoint = new URL("/rest/v1/enova_state", supabaseUrl);
     stateEndpoint.searchParams.set("select", stateFields);
-    stateEndpoint.searchParams.set("wa_id", `eq.${waId}`);
+    stateEndpoint.searchParams.set("wa_id", `eq.${trimmedId}`);
     stateEndpoint.searchParams.set("limit", "1");
 
     const stateRes = await fetch(stateEndpoint.toString(), {
@@ -175,20 +174,23 @@ export async function GET(request: Request) {
 
     if (!stateRes.ok) {
       const body = await stateRes.text().catch(() => "");
-      return jsonResponse(
-        { ok: false, data: null, error: `enova_state fetch failed (${stateRes.status}) ${body.slice(0, 120)}` },
-        500,
-      );
+      return {
+        ok: false,
+        data: null,
+        error: `enova_state fetch failed (${stateRes.status}) ${body.slice(0, 120)}`,
+      };
     }
 
-    const stateRows = (await stateRes.json()) as Record<string, unknown>[];
-    const stateRow = Array.isArray(stateRows) && stateRows.length > 0 ? stateRows[0] : null;
+    const stateRows = await readJson<Record<string, unknown>[]>(stateRes);
+    const stateRow =
+      Array.isArray(stateRows) && stateRows.length > 0 ? stateRows[0] : null;
 
     if (!stateRow) {
-      return jsonResponse({ ok: false, data: null, error: "lead não encontrado" }, 404);
+      return { ok: false, data: null, error: "lead não encontrado" };
     }
 
-    // ── 2. crm_leads_v1 (dados CRM — read-only) ──
+    // ── 2. crm_leads_v1 — view canônica CRM (enova_state LEFT JOIN crm_lead_meta) ──
+    // Mesma view usada pelo painel CRM (fetchCrmLeadsAction → listCrmLeads)
     const crmFields = [
       "wa_id",
       "status_analise",
@@ -213,7 +215,7 @@ export async function GET(request: Request) {
 
     const crmEndpoint = new URL("/rest/v1/crm_leads_v1", supabaseUrl);
     crmEndpoint.searchParams.set("select", crmFields);
-    crmEndpoint.searchParams.set("wa_id", `eq.${waId}`);
+    crmEndpoint.searchParams.set("wa_id", `eq.${trimmedId}`);
     crmEndpoint.searchParams.set("limit", "1");
 
     let crmRow: Record<string, unknown> | null = null;
@@ -223,11 +225,13 @@ export async function GET(request: Request) {
       cache: "no-store",
     });
     if (crmRes.ok) {
-      const crmRows = (await crmRes.json()) as Record<string, unknown>[];
-      crmRow = Array.isArray(crmRows) && crmRows.length > 0 ? crmRows[0] : null;
+      const crmRows = await readJson<Record<string, unknown>[]>(crmRes);
+      crmRow =
+        Array.isArray(crmRows) && crmRows.length > 0 ? crmRows[0] : null;
     }
 
-    // ── 3. enova_attendance_meta (dados operacionais) ──
+    // ── 3. enova_attendance_meta — dados operacionais ──
+    // Mesma tabela usada pelo painel Atendimento (fetchAttendanceLeadsAction → listAttendanceLeads)
     const attendanceFields = [
       "wa_id",
       "attention_status",
@@ -238,7 +242,7 @@ export async function GET(request: Request) {
 
     const attendanceEndpoint = new URL("/rest/v1/enova_attendance_meta", supabaseUrl);
     attendanceEndpoint.searchParams.set("select", attendanceFields);
-    attendanceEndpoint.searchParams.set("wa_id", `eq.${waId}`);
+    attendanceEndpoint.searchParams.set("wa_id", `eq.${trimmedId}`);
     attendanceEndpoint.searchParams.set("limit", "1");
 
     let attendanceRow: Record<string, unknown> | null = null;
@@ -248,13 +252,14 @@ export async function GET(request: Request) {
       cache: "no-store",
     });
     if (attendanceRes.ok) {
-      const attRows = (await attendanceRes.json()) as Record<string, unknown>[];
-      attendanceRow = Array.isArray(attRows) && attRows.length > 0 ? attRows[0] : null;
+      const attRows = await readJson<Record<string, unknown>[]>(attendanceRes);
+      attendanceRow =
+        Array.isArray(attRows) && attRows.length > 0 ? attRows[0] : null;
     }
 
-    // ── Montar resposta consolidada ──
+    // ── Consolidar resposta ──
     const data: DossieData = {
-      wa_id: waId,
+      wa_id: trimmedId,
       pre_cadastro_numero: safeString(stateRow.pre_cadastro_numero),
 
       nome: safeString(stateRow.nome),
@@ -269,12 +274,24 @@ export async function GET(request: Request) {
       dossie_resumo: safeString(stateRow.dossie_resumo),
       created_at: safeString(stateRow.created_at),
 
-      corr_lock_correspondente_wa_id: safeString(stateRow.corr_lock_correspondente_wa_id),
-      processo_enviado_correspondente: safeBool(stateRow.processo_enviado_correspondente),
-      aguardando_retorno_correspondente: safeBool(stateRow.aguardando_retorno_correspondente),
-      retorno_correspondente_status: safeString(stateRow.retorno_correspondente_status),
-      retorno_correspondente_motivo: safeString(stateRow.retorno_correspondente_motivo),
-      retorno_correspondente_bruto: safeString(stateRow.retorno_correspondente_bruto),
+      corr_lock_correspondente_wa_id: safeString(
+        stateRow.corr_lock_correspondente_wa_id,
+      ),
+      processo_enviado_correspondente: safeBool(
+        stateRow.processo_enviado_correspondente,
+      ),
+      aguardando_retorno_correspondente: safeBool(
+        stateRow.aguardando_retorno_correspondente,
+      ),
+      retorno_correspondente_status: safeString(
+        stateRow.retorno_correspondente_status,
+      ),
+      retorno_correspondente_motivo: safeString(
+        stateRow.retorno_correspondente_motivo,
+      ),
+      retorno_correspondente_bruto: safeString(
+        stateRow.retorno_correspondente_bruto,
+      ),
 
       docs_status: safeString(stateRow.docs_status),
       docs_itens_recebidos: safeArray<DocItem>(stateRow.docs_itens_recebidos),
@@ -285,7 +302,9 @@ export async function GET(request: Request) {
       status_analise: safeString(crmRow?.status_analise),
       resumo_retorno_analise: safeString(crmRow?.resumo_retorno_analise),
       motivo_retorno_analise: safeString(crmRow?.motivo_retorno_analise),
-      valor_financiamento_aprovado: safeNumber(crmRow?.valor_financiamento_aprovado),
+      valor_financiamento_aprovado: safeNumber(
+        crmRow?.valor_financiamento_aprovado,
+      ),
       valor_subsidio_aprovado: safeNumber(crmRow?.valor_subsidio_aprovado),
       valor_entrada_informada: safeNumber(crmRow?.valor_entrada_informada),
       valor_parcela_informada: safeNumber(crmRow?.valor_parcela_informada),
@@ -306,9 +325,9 @@ export async function GET(request: Request) {
       current_base: safeString(attendanceRow?.current_base),
     };
 
-    return jsonResponse({ ok: true, data, error: null }, 200);
+    return { ok: true, data, error: null };
   } catch (error) {
-    console.error("dossie route internal error", error);
-    return jsonResponse({ ok: false, data: null, error: "internal error" }, 500);
+    console.error("fetchDossieDataAction internal error", error);
+    return { ok: false, data: null, error: "internal error" };
   }
 }

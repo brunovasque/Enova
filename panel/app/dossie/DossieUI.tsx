@@ -4,7 +4,8 @@ import Image from "next/image";
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import styles from "./dossie.module.css";
-import type { DossieData, DocItem } from "../api/dossie/route";
+import { fetchDossieDataAction } from "./actions";
+import type { DossieData, DocItem } from "./actions";
 
 // ── Links operacionais fixos (config, não é dado de negócio) ──
 const LINKS_OPERACIONAIS = [
@@ -605,15 +606,14 @@ export default function DossieUI() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/dossie?wa_id=${encodeURIComponent(id)}`, { cache: "no-store" });
-      const payload = await res.json() as { ok: boolean; data: DossieData | null; error: string | null };
-      if (!payload.ok || !payload.data) {
-        setError(payload.error ?? "Erro ao carregar dossiê.");
+      const result = await fetchDossieDataAction(id);
+      if (!result.ok || !result.data) {
+        setError(result.error ?? "Erro ao carregar dossiê.");
       } else {
-        setData(payload.data);
+        setData(result.data);
       }
     } catch {
-      setError("Falha de conexão ao carregar dossiê.");
+      setError("Falha ao carregar dossiê.");
     } finally {
       setLoading(false);
     }

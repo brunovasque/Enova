@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./atendimento.module.css";
+import { fetchAttendanceLeadsAction } from "./actions";
 
 /* ===========================================
    TIPOS - baseados em enova_attendance_v1
@@ -87,239 +88,7 @@ const STATUS_ATENCAO_LABELS: Record<StatusAtencao, string> = {
   CRITICO: "Critico",
 };
 
-// Dados mockados para desenvolvimento da UI
-const MOCK_LEADS: AttendanceRow[] = [
-  {
-    wa_id: "5511999990001",
-    nome: "Maria Silva",
-    telefone: "11 99999-0001",
-    fase_funil: "coleta_documentos",
-    status_funil: "em_andamento",
-    fase_atendimento: "COLETA",
-    fase_travamento: null,
-    codigo_motivo_travamento: null,
-    motivo_travamento: null,
-    travou_em: null,
-    dono_pendencia: "CLIENTE",
-    codigo_pendencia_principal: "DOC_FALTANTE",
-    pendencia_principal: "Aguardando comprovante de renda",
-    codigo_proxima_acao: "ENVIAR_LEMBRETE",
-    proxima_acao: "Enviar lembrete de documento",
-    gatilho_proxima_acao: "TEMPO",
-    prazo_proxima_acao: "2026-04-02T10:00:00Z",
-    proxima_acao_executavel: true,
-    status_atencao: "NORMAL",
-    base_origem: "COLD_POOL",
-    base_atual: "WARM_POOL",
-    movido_base_em: "2026-03-28T14:00:00Z",
-    movido_fase_em: "2026-03-30T09:00:00Z",
-    ultima_interacao_cliente: "2026-03-31T16:30:00Z",
-    ultima_interacao_enova: "2026-03-31T16:45:00Z",
-    ultima_msg_recebida_raw: "Vou enviar o comprovante amanha",
-    estado_civil: "casada",
-    regime_trabalho: "CLT",
-    renda_total: 8500,
-    somar_renda: true,
-    composicao: "casal",
-    ir_declarado: true,
-    ctps_36: true,
-    restricao: false,
-    dependentes_qtd: 2,
-    resumo_curto: "Casal CLT, renda 8.5k, aguardando comprovante de renda do conjuge",
-    tem_incidente_aberto: false,
-    tipo_incidente: null,
-    severidade_incidente: null,
-    arquivado_em: null,
-    codigo_motivo_arquivo: null,
-    nota_arquivo: null,
-    criado_em: "2026-03-20T10:00:00Z",
-    atualizado_em: "2026-03-31T16:45:00Z",
-  },
-  {
-    wa_id: "5511999990002",
-    nome: "Joao Santos",
-    telefone: "11 99999-0002",
-    fase_funil: "qualificacao",
-    status_funil: "em_andamento",
-    fase_atendimento: "QUALIFICACAO",
-    fase_travamento: "QUALIFICACAO",
-    codigo_motivo_travamento: "SEM_RESPOSTA",
-    motivo_travamento: "Cliente nao responde ha 3 dias",
-    travou_em: "2026-03-29T10:00:00Z",
-    dono_pendencia: "CLIENTE",
-    codigo_pendencia_principal: "RESPOSTA_PENDENTE",
-    pendencia_principal: "Aguardando resposta sobre renda",
-    codigo_proxima_acao: "FOLLOW_UP",
-    proxima_acao: "Follow-up ativo",
-    gatilho_proxima_acao: "TEMPO",
-    prazo_proxima_acao: "2026-04-01T14:00:00Z",
-    proxima_acao_executavel: true,
-    status_atencao: "ALERTA",
-    base_origem: "COLD_POOL",
-    base_atual: "COLD_POOL",
-    movido_base_em: null,
-    movido_fase_em: "2026-03-26T11:00:00Z",
-    ultima_interacao_cliente: "2026-03-26T15:00:00Z",
-    ultima_interacao_enova: "2026-03-29T10:00:00Z",
-    ultima_msg_recebida_raw: "Depois respondo",
-    estado_civil: "solteiro",
-    regime_trabalho: null,
-    renda_total: null,
-    somar_renda: false,
-    composicao: "individual",
-    ir_declarado: null,
-    ctps_36: null,
-    restricao: null,
-    dependentes_qtd: 0,
-    resumo_curto: "Solteiro, regime de trabalho e renda nao confirmados",
-    tem_incidente_aberto: false,
-    tipo_incidente: null,
-    severidade_incidente: null,
-    arquivado_em: null,
-    codigo_motivo_arquivo: null,
-    nota_arquivo: null,
-    criado_em: "2026-03-24T08:00:00Z",
-    atualizado_em: "2026-03-29T10:00:00Z",
-  },
-  {
-    wa_id: "5511999990003",
-    nome: "Ana Oliveira",
-    telefone: "11 99999-0003",
-    fase_funil: "entrada",
-    status_funil: "novo",
-    fase_atendimento: "ENTRADA",
-    fase_travamento: null,
-    codigo_motivo_travamento: null,
-    motivo_travamento: null,
-    travou_em: null,
-    dono_pendencia: "ENOVA",
-    codigo_pendencia_principal: "PRIMEIRO_CONTATO",
-    pendencia_principal: "Realizar primeiro contato",
-    codigo_proxima_acao: "INICIAR_CONVERSA",
-    proxima_acao: "Iniciar conversa de boas-vindas",
-    gatilho_proxima_acao: "IMEDIATO",
-    prazo_proxima_acao: "2026-04-01T09:00:00Z",
-    proxima_acao_executavel: true,
-    status_atencao: "NORMAL",
-    base_origem: "HOT_POOL",
-    base_atual: "HOT_POOL",
-    movido_base_em: null,
-    movido_fase_em: null,
-    ultima_interacao_cliente: "2026-04-01T08:30:00Z",
-    ultima_interacao_enova: null,
-    ultima_msg_recebida_raw: "Oi, tenho interesse em financiamento",
-    estado_civil: null,
-    regime_trabalho: null,
-    renda_total: null,
-    somar_renda: null,
-    composicao: null,
-    ir_declarado: null,
-    ctps_36: null,
-    restricao: null,
-    dependentes_qtd: null,
-    resumo_curto: "Lead novo, aguardando primeiro contato",
-    tem_incidente_aberto: false,
-    tipo_incidente: null,
-    severidade_incidente: null,
-    arquivado_em: null,
-    codigo_motivo_arquivo: null,
-    nota_arquivo: null,
-    criado_em: "2026-04-01T08:30:00Z",
-    atualizado_em: "2026-04-01T08:30:00Z",
-  },
-  {
-    wa_id: "5511999990004",
-    nome: "Carlos Ferreira",
-    telefone: "11 99999-0004",
-    fase_funil: "aguardando_documentos",
-    status_funil: "pendente",
-    fase_atendimento: "AGUARDANDO",
-    fase_travamento: "COLETA",
-    codigo_motivo_travamento: "DOC_INVALIDO",
-    motivo_travamento: "Documento enviado ilegivel",
-    travou_em: "2026-03-30T11:00:00Z",
-    dono_pendencia: "CLIENTE",
-    codigo_pendencia_principal: "REENVIO_DOC",
-    pendencia_principal: "Solicitar reenvio de documento legivel",
-    codigo_proxima_acao: "SOLICITAR_REENVIO",
-    proxima_acao: "Pedir novo envio do documento",
-    gatilho_proxima_acao: "TEMPO",
-    prazo_proxima_acao: "2026-04-01T10:00:00Z",
-    proxima_acao_executavel: true,
-    status_atencao: "CRITICO",
-    base_origem: "WARM_POOL",
-    base_atual: "WARM_POOL",
-    movido_base_em: null,
-    movido_fase_em: "2026-03-28T14:00:00Z",
-    ultima_interacao_cliente: "2026-03-30T10:00:00Z",
-    ultima_interacao_enova: "2026-03-30T11:00:00Z",
-    ultima_msg_recebida_raw: null,
-    estado_civil: "casado",
-    regime_trabalho: "AUTONOMO",
-    renda_total: 12000,
-    somar_renda: true,
-    composicao: "casal",
-    ir_declarado: true,
-    ctps_36: false,
-    restricao: false,
-    dependentes_qtd: 1,
-    resumo_curto: "Autonomo com IR, documento do IR ilegivel",
-    tem_incidente_aberto: true,
-    tipo_incidente: "DOC_QUALITY",
-    severidade_incidente: "MEDIA",
-    arquivado_em: null,
-    codigo_motivo_arquivo: null,
-    nota_arquivo: null,
-    criado_em: "2026-03-22T09:00:00Z",
-    atualizado_em: "2026-03-30T11:00:00Z",
-  },
-  {
-    wa_id: "5511999990005",
-    nome: "Fernanda Costa",
-    telefone: "11 99999-0005",
-    fase_funil: "coleta_documentos",
-    status_funil: "em_andamento",
-    fase_atendimento: "COLETA",
-    fase_travamento: null,
-    codigo_motivo_travamento: null,
-    motivo_travamento: null,
-    travou_em: null,
-    dono_pendencia: "ENOVA",
-    codigo_pendencia_principal: "VALIDAR_DOCS",
-    pendencia_principal: "Validar documentos recebidos",
-    codigo_proxima_acao: "VALIDACAO",
-    proxima_acao: "Executar validacao de documentos",
-    gatilho_proxima_acao: "IMEDIATO",
-    prazo_proxima_acao: "2026-04-01T11:00:00Z",
-    proxima_acao_executavel: true,
-    status_atencao: "NORMAL",
-    base_origem: "HOT_POOL",
-    base_atual: "HOT_POOL",
-    movido_base_em: null,
-    movido_fase_em: "2026-03-31T15:00:00Z",
-    ultima_interacao_cliente: "2026-03-31T14:45:00Z",
-    ultima_interacao_enova: "2026-03-31T15:00:00Z",
-    ultima_msg_recebida_raw: "Enviei todos os documentos",
-    estado_civil: "solteira",
-    regime_trabalho: "CLT",
-    renda_total: 6500,
-    somar_renda: false,
-    composicao: "individual",
-    ir_declarado: true,
-    ctps_36: true,
-    restricao: false,
-    dependentes_qtd: 0,
-    resumo_curto: "CLT individual, 6.5k, docs enviados aguardando validacao",
-    tem_incidente_aberto: false,
-    tipo_incidente: null,
-    severidade_incidente: null,
-    arquivado_em: null,
-    codigo_motivo_arquivo: null,
-    nota_arquivo: null,
-    criado_em: "2026-03-25T11:00:00Z",
-    atualizado_em: "2026-03-31T15:00:00Z",
-  },
-];
+
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "—";
@@ -423,8 +192,9 @@ function onStatKeyDown(event: React.KeyboardEvent<HTMLDivElement>, onActivate: (
 }
 
 export function AtendimentoUI() {
-  const [leads] = useState<AttendanceRow[]>(MOCK_LEADS);
-  const [loading] = useState(false);
+  const [leads, setLeads] = useState<AttendanceRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [activeFase, setActiveFase] = useState<FaseAtendimento | "TODOS">("TODOS");
   const [selectedLead, setSelectedLead] = useState<AttendanceRow | null>(null);
   const [filters, setFilters] = useState<FilterState>({
@@ -436,6 +206,27 @@ export function AtendimentoUI() {
     incidente: "todos",
     travamento: "todos",
   });
+
+  const refreshLeads = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const data = await fetchAttendanceLeadsAction();
+      if (!data.ok) {
+        throw new Error(data.error ?? "Erro ao carregar leads de atendimento");
+      }
+      setLeads((data.leads ?? []) as unknown as AttendanceRow[]);
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Nao foi possivel carregar os leads");
+      setLeads([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshLeads();
+  }, [refreshLeads]);
 
   const faseCounts = useMemo(() => {
     const counts: Record<FaseAtendimento | "TODOS", number> = {
@@ -541,12 +332,21 @@ export function AtendimentoUI() {
               type="button"
               className={styles.buttonSecondary}
               disabled={loading}
+              onClick={() => void refreshLeads()}
             >
               <span className={styles.buttonIcon}>↻</span>
               Atualizar
             </button>
           </div>
         </header>
+
+        {loadError && (
+          <div className={styles.filtersSection}>
+            <div className={styles.resultsInfo} style={{ color: "#fca5a5" }}>
+              {loadError}
+            </div>
+          </div>
+        )}
 
         <div className={styles.statsBar}>
           <div className={styles.statsGroup}>
@@ -833,6 +633,14 @@ export function AtendimentoUI() {
                       </span>
                     </div>
                     <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Fase Funil</span>
+                      <span className={styles.detailValue}>{selectedLead.fase_funil ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Status Funil</span>
+                      <span className={styles.detailValue}>{selectedLead.status_funil ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItem}>
                       <span className={styles.detailLabel}>Fase Travada</span>
                       <span className={selectedLead.fase_travamento ? styles.detailValueDanger : styles.detailValue}>
                         {selectedLead.fase_travamento
@@ -843,6 +651,14 @@ export function AtendimentoUI() {
                     <div className={styles.detailItem}>
                       <span className={styles.detailLabel}>Travou em</span>
                       <span className={styles.detailValue}>{formatDateTime(selectedLead.travou_em)}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Cod. Motivo Travamento</span>
+                      <span className={styles.detailValue}>{selectedLead.codigo_motivo_travamento ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Movido Fase em</span>
+                      <span className={styles.detailValue}>{formatDateTime(selectedLead.movido_fase_em)}</span>
                     </div>
                     <div className={styles.detailItemFull}>
                       <span className={styles.detailLabel}>Motivo do Travamento</span>
@@ -873,6 +689,24 @@ export function AtendimentoUI() {
                         {formatDateTime(selectedLead.prazo_proxima_acao)}
                       </span>
                     </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Cod. Pendencia Principal</span>
+                      <span className={styles.detailValue}>{selectedLead.codigo_pendencia_principal ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Cod. Proxima Acao</span>
+                      <span className={styles.detailValue}>{selectedLead.codigo_proxima_acao ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Gatilho Proxima Acao</span>
+                      <span className={styles.detailValue}>{selectedLead.gatilho_proxima_acao ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Acao Executavel</span>
+                      <span className={styles.detailValue}>
+                        {selectedLead.proxima_acao_executavel === null ? "—" : selectedLead.proxima_acao_executavel ? "Sim" : "Nao"}
+                      </span>
+                    </div>
                     <div className={styles.detailItemFull}>
                       <span className={styles.detailLabel}>Pendencia Principal</span>
                       <span className={styles.detailValue}>{selectedLead.pendencia_principal ?? "—"}</span>
@@ -899,6 +733,12 @@ export function AtendimentoUI() {
                     <div className={styles.detailItem}>
                       <span className={styles.detailLabel}>Renda Total</span>
                       <span className={styles.detailValue}>{formatCurrency(selectedLead.renda_total)}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Somar Renda</span>
+                      <span className={styles.detailValue}>
+                        {selectedLead.somar_renda === null ? "—" : selectedLead.somar_renda ? "Sim" : "Nao"}
+                      </span>
                     </div>
                     <div className={styles.detailItem}>
                       <span className={styles.detailLabel}>Composicao</span>
@@ -953,6 +793,12 @@ export function AtendimentoUI() {
                       <span className={styles.detailLabel}>Atualizado em</span>
                       <span className={styles.detailValue}>{formatDateTime(selectedLead.atualizado_em)}</span>
                     </div>
+                    {selectedLead.ultima_msg_recebida_raw && (
+                      <div className={styles.detailItemFull}>
+                        <span className={styles.detailLabel}>Ultima Msg Recebida</span>
+                        <span className={styles.detailValue}>{selectedLead.ultima_msg_recebida_raw}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -969,6 +815,29 @@ export function AtendimentoUI() {
                         <span className={styles.detailLabel}>Severidade</span>
                         <span className={styles.detailValueWarning}>{selectedLead.severidade_incidente ?? "—"}</span>
                       </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Arquivamento */}
+                {selectedLead.arquivado_em && (
+                  <div className={styles.detailBlock}>
+                    <h3 className={styles.detailBlockTitle}>Arquivamento</h3>
+                    <div className={styles.detailGrid}>
+                      <div className={styles.detailItem}>
+                        <span className={styles.detailLabel}>Arquivado em</span>
+                        <span className={styles.detailValue}>{formatDateTime(selectedLead.arquivado_em)}</span>
+                      </div>
+                      <div className={styles.detailItem}>
+                        <span className={styles.detailLabel}>Cod. Motivo Arquivo</span>
+                        <span className={styles.detailValue}>{selectedLead.codigo_motivo_arquivo ?? "—"}</span>
+                      </div>
+                      {selectedLead.nota_arquivo && (
+                        <div className={styles.detailItemFull}>
+                          <span className={styles.detailLabel}>Nota de Arquivo</span>
+                          <span className={styles.detailValue}>{selectedLead.nota_arquivo}</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}

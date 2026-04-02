@@ -19,6 +19,18 @@ const STAGE_DEFAULT_PENDING_SLOTS = Object.freeze({
   regime_trabalho: ["regime_trabalho", "renda", "ir_declarado"],
   autonomo_ir_pergunta: ["ir_declarado", "renda"],
   renda: ["renda", "ir_declarado"],
+  ir_declarado: ["ir_declarado"],
+  autonomo_compor_renda: ["composicao"],
+  ctps_36: ["ctps_36"],
+  ctps_36_parceiro: ["ctps_36_parceiro"],
+  ctps_36_parceiro_p3: ["ctps_36_parceiro_p3"],
+  dependente: ["dependente"],
+  restricao: ["restricao"],
+  restricao_parceiro: ["restricao_parceiro"],
+  restricao_parceiro_p3: ["restricao_parceiro_p3"],
+  regularizacao_restricao: ["regularizacao_restricao"],
+  regularizacao_restricao_parceiro: ["regularizacao_restricao_parceiro"],
+  regularizacao_restricao_p3: ["regularizacao_restricao_p3"],
   inicio_nome: ["nome"],
   inicio_nacionalidade: ["nacionalidade"],
   inicio_rnm: ["rnm_status"],
@@ -122,6 +134,8 @@ const APROFUNDAMENTO_RENDA_STAGES = new Set(["possui_renda_extra", "inicio_multi
 const PARCEIRO_RENDA_STAGES = new Set(["parceiro_tem_renda", "regime_trabalho_parceiro", "inicio_multi_regime_pergunta_parceiro", "inicio_multi_regime_coletar_parceiro", "renda_parceiro", "inicio_multi_renda_pergunta_parceiro", "inicio_multi_renda_coletar_parceiro"]);
 const FAMILIAR_RENDA_STAGES = new Set(["pais_casados_civil_pergunta", "confirmar_avo_familiar", "renda_familiar_valor", "regime_trabalho_parceiro_familiar", "renda_parceiro_familiar", "inicio_multi_regime_familiar_pergunta", "inicio_multi_regime_familiar_loop", "inicio_multi_renda_familiar_pergunta", "inicio_multi_renda_familiar_loop"]);
 const P3_RENDA_STAGES = new Set(["p3_tipo_pergunta", "regime_trabalho_parceiro_familiar_p3", "renda_parceiro_familiar_p3", "inicio_multi_regime_p3_pergunta", "inicio_multi_regime_p3_loop", "inicio_multi_renda_p3_pergunta", "inicio_multi_renda_p3_loop"]);
+const GATE_FINAIS_STAGES = new Set(["ir_declarado", "autonomo_compor_renda", "ctps_36", "ctps_36_parceiro", "ctps_36_parceiro_p3", "dependente", "restricao", "restricao_parceiro", "restricao_parceiro_p3", "regularizacao_restricao", "regularizacao_restricao_parceiro", "regularizacao_restricao_p3"]);
+const OPERACIONAL_FINAL_STAGES = new Set(["envio_docs", "aguardando_retorno_correspondente", "agendamento_visita", "finalizacao_processo"]);
 const REPLY_TEXT_REPLACEMENTS = Object.freeze([
   [/\brunner read-only\b/gi, "atendimento"],
   [/\bmotor cognitivo de teste\b/gi, "atendimento"],
@@ -573,6 +587,14 @@ function isP3RendaContext(request) {
   return P3_RENDA_STAGES.has(normalizeText(request?.current_stage));
 }
 
+function isGateFinaisContext(request) {
+  return GATE_FINAIS_STAGES.has(normalizeText(request?.current_stage));
+}
+
+function isOperacionalFinalContext(request) {
+  return OPERACIONAL_FINAL_STAGES.has(normalizeText(request?.current_stage));
+}
+
 function toNumber(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
@@ -908,6 +930,71 @@ function buildVisitaGuidance(request) {
   }
 
   return "A visita ajuda você a avançar com segurança, dentro da agenda oficial do plantão e sem quebrar o trilho do processo.";
+}
+
+function buildOperacionalFinalGuidance(request) {
+  const stage = normalizeText(request?.current_stage);
+  const normalizedMessage = normalizeText(request?.message_text);
+
+  if (stage === "envio_docs") {
+    if (DEFER_ACTION_PATTERN.test(normalizedMessage) || NO_TIME_PATTERN.test(normalizedMessage)) {
+      return "Sem problema. Sempre que puder, me manda os documentos por aqui que eu adianto sua análise.";
+    }
+    if (FEAR_PATTERN.test(normalizedMessage) || /\bseguro\b|\bconfiavel\b|\bconfiável\b|\bvazar\b|\bgolpe\b/.test(normalizedMessage)) {
+      return "Pode enviar com tranquilidade — o processo é seguro e seus documentos ficam protegidos.";
+    }
+    if (REMOTE_REFUSAL_PATTERN.test(normalizedMessage)) {
+      return "Sem problema, no presencial também conseguimos conferir tudo com você com calma. Me confirma como prefere seguir.";
+    }
+    if (/\b(site|portal)\b/.test(normalizedMessage)) {
+      return "Perfeito, pode enviar pelo site com tranquilidade que seguimos por lá.";
+    }
+    return null;
+  }
+
+  if (stage === "aguardando_retorno_correspondente") {
+    if (/\bquanto tempo\b|\bdemora\b|\btempo\b|\bprazo\b|\bquando\b/.test(normalizedMessage)) {
+      return "Não tenho como informar prazo exato — o retorno depende da análise do correspondente. Sigo acompanhando e te aviso assim que houver novidade.";
+    }
+    if (/\bj[aá]\s*teve\b|\bj[aá]\s*voltou\b|\bj[aá]\s*respondeu\b|\bj[aá]\s*tem\b|\bresposta\b|\bretornou\b/.test(normalizedMessage)) {
+      return "Ainda estou aguardando o retorno. Assim que chegar qualquer informação, eu te aviso aqui.";
+    }
+    if (/\be agora\b|\bo que\s*fa[cç]o\b|\bo que\s*acontece\b|\bpr[oó]ximo\b/.test(normalizedMessage)) {
+      return "Por enquanto, o processo está em análise com o correspondente. Não precisa fazer nada agora — eu te aviso quando houver retorno.";
+    }
+    return null;
+  }
+
+  if (stage === "agendamento_visita") {
+    if (/\bhor[aá]rio\b|\bdia\b|\bquando\b|\bopç[oõ]es\b/.test(normalizedMessage)) {
+      return "Claro. Eu sigo a agenda oficial do plantão e te passo as opções válidas de dia e horário para visita.";
+    }
+    if (/\boutro dia\b|\boutro hor[aá]rio\b|\bremarcar\b|\breagend\b/.test(normalizedMessage)) {
+      return "Sem problema, a gente ajusta dentro dos dias e horários oficiais do plantão.";
+    }
+    if (/\bprecisa levar\b|\bvir acompanhaad\b|\bvir com\b|\blevar algu[eé]m\b|\bacompanhante\b/.test(normalizedMessage)) {
+      return "Para aproveitar melhor a visita, recomendo que venha com quem vai participar da decisão. Isso facilita o alinhamento no plantão.";
+    }
+    if (DEFER_ACTION_PATTERN.test(normalizedMessage) || VISITA_ESFRIAMENTO_PATTERN.test(normalizedMessage)) {
+      return "Sem pressa. Quando estiver pronto, me confirma que eu verifico as opções disponíveis na agenda oficial do plantão.";
+    }
+    return null;
+  }
+
+  if (stage === "finalizacao_processo") {
+    if (/\bo que\s*acontece\b|\bpr[oó]ximo\s*passo\b|\bo que\s*vem\b|\bo que\s*segue\b/.test(normalizedMessage)) {
+      return "O processo segue para as etapas finais de formalização. Assim que houver orientação concreta, eu te informo por aqui.";
+    }
+    if (/\bvoc[eê]s?\s*me\s*avis[ao]\b|\bme\s*avis[ao]\b|\bserei\s*avisad\b|\bvou\s*saber\b/.test(normalizedMessage)) {
+      return "Sim, qualquer movimentação no processo eu te comunico por aqui.";
+    }
+    if (/\bacabou\b|\btermin[ao]u\b|\bfoi\b|\bencerr[ao]u\b|\btudob[eê]m\b/.test(normalizedMessage)) {
+      return "Chegamos ao fim desta etapa. O processo segue pelo trilho correto e eu te mantenho informado sobre qualquer próximo passo.";
+    }
+    return null;
+  }
+
+  return null;
 }
 
 function buildAluguelGuidance() {
@@ -1609,6 +1696,109 @@ function buildP3RendaGuidance(request) {
 }
 
 
+function buildGateFinaisGuidance(request) {
+  const stage = normalizeText(request?.current_stage);
+  const normalizedMessage = normalizeText(request?.message_text);
+
+  if (stage === "ir_declarado") {
+    if (/\bnao\s*declaro\b|\bnão\s*declaro\b|\bsem\s*ir\b|\bsem\s*declarar\b|\bnao\s*tenho\s*ir\b|\bnão\s*tenho\s*ir\b/.test(normalizedMessage)) {
+      return "Tudo bem. Não ter IR não barra automaticamente — o sistema verifica o perfil completo para orientar o melhor caminho. Você declara Imposto de Renda? Responda *sim* ou *não*.";
+    }
+    if (/\bmei\b|\bsou\s*mei\b|\bmicro\s*empreendedor\b/.test(normalizedMessage)) {
+      return "MEI emite CNPJ, mas o financiamento é como pessoa física. O que conta aqui é o IR do titular como PF. Você declara IR como pessoa física? Responda *sim* ou *não*.";
+    }
+    if (/\bainda\s*consigo\b|\bconsigo\s*sem\b|\bpossivel\s*sem\b|\bpossível\s*sem\b/.test(normalizedMessage)) {
+      return "Não ter IR não trava automaticamente — o sistema verifica o perfil completo. Você declara IR? Responda *sim* ou *não*.";
+    }
+    if (/\btrapalha\b|\bprejudica\b|\bimpede\b|\batrapalha\b/.test(normalizedMessage)) {
+      return "IR ajuda a formalizar renda, mas sua ausência não impede por conta própria — o sistema verifica. Você declara IR? Responda *sim* ou *não*.";
+    }
+    return "Me confirma se você declara Imposto de Renda? Responda *sim* ou *não*.";
+  }
+
+  if (stage === "autonomo_compor_renda") {
+    if (/\bposso\s*tentar\s*sozinho\b|\btentar\s*sozinho\b|\bir\s*sozinho\b|\bsem\s*compor\b|\bso\s*eu\b|\bsó\s*eu\b/.test(normalizedMessage)) {
+      return "Você pode sim tentar sozinho — o sistema vai verificar a viabilidade pelo seu perfil. Composição pode ampliar o perfil de análise, mas não é obrigatória.";
+    }
+    if (/\bpreciso\s*compor\b|\bprecisa\s*compor\b|\be\s*obrigatorio\b|\bé\s*obrigatório\b|\btem\s*que\s*compor\b/.test(normalizedMessage)) {
+      return "Composição não é obrigatória. O sistema avalia o melhor caminho pelo seu perfil completo.";
+    }
+    if (/\bmelhora\b|\bmelhora\s*a\s*chance\b|\baumento\b|\baumenta\b|\bajuda\b|\bfaz\s*diferenca\b|\bfaz\s*diferença\b/.test(normalizedMessage)) {
+      return "Compor renda pode ampliar o perfil de análise, mas a decisão de seguir solo ou em conjunto fica com o sistema após avaliar seu caso.";
+    }
+    return "Para autônomo sem IR, composição pode ser sugerida para ampliar o perfil de análise, mas o sistema avalia o melhor caminho.";
+  }
+
+  if (stage === "ctps_36" || stage === "ctps_36_parceiro" || stage === "ctps_36_parceiro_p3") {
+    const pessoa = stage === "ctps_36" ? "você" : stage === "ctps_36_parceiro" ? "o parceiro" : "o P3";
+    const label = stage === "ctps_36" ? "no seu CPF" : stage === "ctps_36_parceiro" ? "do parceiro" : "do P3";
+    if (/\bprecisa\s*ser\s*seguido\b|\bprecisa\s*ser\s*continuo\b|\bininterrupto\b|\btem\s*que\s*ser\s*seguido\b/.test(normalizedMessage)) {
+      return `Não precisa ser um vínculo ininterrupto — o sistema soma os períodos dos registros em CTPS. Me confirma se ${pessoa} soma 36 meses? Responda *sim* ou *não*.`;
+    }
+    if (/\bcarteira\s*digital\b|\bdigital\b/.test(normalizedMessage) && /\bctps\b|\bcarteira\b/.test(normalizedMessage)) {
+      return `Carteira digital é aceita — o que importa é o registro, físico ou digital. Me confirma se ${pessoa} soma 36 meses ${label}? Responda *sim* ou *não*.`;
+    }
+    if (/\bnao\s*tenho\s*tudo\b|\bnão\s*tenho\s*tudo\b|\bnao\s*chego\b|\bnão\s*chego\b|\bfalta\b|\bnao\s*bate\b|\bnão\s*bate\b/.test(normalizedMessage)) {
+      return `Mesmo sem os 36 meses o processo segue — só com impacto diferente na taxa. Me confirma se ${pessoa} soma ou não os 36 meses? Responda *sim* ou *não*.`;
+    }
+    if (stage === "ctps_36") return "Me confirma se você soma 36 meses de CTPS? Responda *sim* ou *não*.";
+    if (stage === "ctps_36_parceiro") return "Me confirma se o parceiro soma 36 meses de CTPS? Responda *sim* ou *não*.";
+    return "Me confirma se o P3 soma 36 meses de CTPS? Responda *sim* ou *não*.";
+  }
+
+  if (stage === "dependente") {
+    if (/\bnao\s*entendi\b|\bnão\s*entendi\b|\bque\s*e\s*isso\b|\bque\s*é\s*isso\b|\bpor\s*que\b|\bpra\s*que\b/.test(normalizedMessage)) {
+      return "Essa etapa verifica se você tem filho menor de 18 anos ou dependente sem renda própria até terceiro grau, pois isso pode impactar o perfil de análise. Você tem dependente? Responda *sim* ou *não*.";
+    }
+    if (/\bnao\s*sei\b|\bnão\s*sei\b|\bnao\s*tenho\s*certeza\b|\bnão\s*tenho\s*certeza\b/.test(normalizedMessage)) {
+      return "Sem problema. Para o sistema, o que conta é filho menor de 18 anos ou dependente sem renda própria até terceiro grau. Você tem dependente? Responda *sim* ou *não*.";
+    }
+    return "Você tem filho menor de 18 anos ou dependente sem renda até terceiro grau? Responda *sim* ou *não*.";
+  }
+
+  if (stage === "restricao" || stage === "restricao_parceiro" || stage === "restricao_parceiro_p3") {
+    const pessoa = stage === "restricao" ? "seu CPF" : stage === "restricao_parceiro" ? "o CPF do parceiro" : "o CPF do P3";
+    const pronome = stage === "restricao" ? "há alguma restrição no seu CPF" : stage === "restricao_parceiro" ? "há alguma restrição no CPF do parceiro" : "há alguma restrição no CPF do P3";
+    if (/\bnome\s*sujo\b|\bcpf\s*sujo\b|\bspc\b|\bserasa\b|\bnegatad[oa]\b|\bnegativad[oa]\b/.test(normalizedMessage)) {
+      return `Entendi. Ter restrição não impede automaticamente — o sistema verifica a natureza e o valor para orientar o caminho certo. Me confirma se ${pronome}? Responda *sim* ou *não*.`;
+    }
+    if (/\bpouca\s*coisa\b|\be\s*pequeno\b|\bé\s*pequeno\b|\bpouco\s*valor\b|\bquase\s*nada\b|\bpequena\s*divida\b|\bpequena\s*dívida\b/.test(normalizedMessage)) {
+      return `Entendido. O sistema verifica a situação completa para orientar o melhor caminho. Me confirma se ${pronome}? Responda *sim* ou *não*.`;
+    }
+    if (/\bestou\s*pagando\b|\bpagando\b|\bem\s*negociacao\b|\bem\s*negociação\b|\bjá\s*paguei\b|\bjá\s*quitei\b/.test(normalizedMessage)) {
+      return `Regularização em andamento é considerada pelo sistema. Me confirma se ainda ${pronome} ativa? Responda *sim* ou *não*.`;
+    }
+    if (/\bisso\s*barra\b|\bvai\s*barrar\b|\bbloqueia\b|\bimpede\b|\bpassa\b|\bconsigo\b/.test(normalizedMessage)) {
+      return `Restrição tem verificação específica no sistema — não é possível afirmar sem a análise completa. Me confirma se ${pronome}? Responda *sim* ou *não*.`;
+    }
+    if (stage === "restricao") return "Há alguma restrição no seu CPF? Responda *sim* ou *não*.";
+    if (stage === "restricao_parceiro") return "Há alguma restrição no CPF do parceiro? Responda *sim* ou *não*.";
+    return "Há alguma restrição no CPF do P3? Responda *sim* ou *não*.";
+  }
+
+  if (stage === "regularizacao_restricao" || stage === "regularizacao_restricao_parceiro" || stage === "regularizacao_restricao_p3") {
+    const pronome = stage === "regularizacao_restricao" ? "a restrição no seu CPF foi regularizada" : stage === "regularizacao_restricao_parceiro" ? "a restrição no CPF do parceiro foi regularizada" : "a restrição no CPF do P3 foi regularizada";
+    if (/\bestou\s*negociando\b|\bem\s*negociacao\b|\bem\s*negociação\b|\bnegociando\b|\bnegociacao\b|\bnegociação\b/.test(normalizedMessage)) {
+      return `Negociação em andamento é um passo importante, mas o sistema precisa que a regularização esteja formalizada no CPF. Me confirma se ${pronome}? Responda *sim* ou *não*.`;
+    }
+    if (/\bjá\s*quitei\b|\bjá\s*paguei\b|\bquitei\b|\bpaguei\b|\bpagamento\s*feito\b/.test(normalizedMessage)) {
+      return `Pagamento feito é um passo importante. Me confirma se ${pronome} e já baixou no CPF? Responda *sim* ou *não*.`;
+    }
+    if (/\bainda\s*nao\s*baixou\b|\bainda\s*não\s*baixou\b|\bnao\s*baixou\b|\bnão\s*baixou\b|\bpendente\s*no\s*cpf\b/.test(normalizedMessage)) {
+      return `Entendido. O sistema precisa que a regularização esteja formal no CPF para considerar. Me confirma se ${pronome}? Responda *sim* ou *não*.`;
+    }
+    if (/\bisso\s*já\s*serve\b|\bjá\s*serve\b|\bjá\s*conta\b|\bjá\s*basta\b/.test(normalizedMessage)) {
+      return `O sistema precisa que a regularização esteja formal no CPF para validar. Me confirma se ${pronome}? Responda *sim* ou *não*.`;
+    }
+    if (stage === "regularizacao_restricao") return "A restrição no seu CPF foi regularizada? Responda *sim* ou *não*.";
+    if (stage === "regularizacao_restricao_parceiro") return "A restrição no CPF do parceiro foi regularizada? Responda *sim* ou *não*.";
+    return "A restrição no CPF do P3 foi regularizada? Responda *sim* ou *não*.";
+  }
+
+  return null;
+}
+
+
 function buildTopoFunilGuidance(request) {
   const stage = normalizeText(request?.current_stage);
   const normalizedMessage = normalizeText(request?.message_text);
@@ -1759,6 +1949,14 @@ function buildPhaseGuidanceReply({ request, suggestedNextSlot, pendingSlots }) {
     const p3Reply = buildP3RendaGuidance(request);
     if (p3Reply) return p3Reply;
   }
+  if (isGateFinaisContext(request)) {
+    const gateFinaisReply = buildGateFinaisGuidance(request);
+    if (gateFinaisReply) return gateFinaisReply;
+  }
+  if (isOperacionalFinalContext(request)) {
+    const operacionalFinalReply = buildOperacionalFinalGuidance(request);
+    if (operacionalFinalReply) return operacionalFinalReply;
+  }
   if (isAluguelContext(request)) return buildAluguelGuidance(request);
   if (isUnknownDocTypeContext(request)) return buildUnknownDocTypeGuidance(request);
   if (isDocForaDeOrdemContext(request)) return buildDocForaDeOrdemGuidance(request);
@@ -1893,6 +2091,28 @@ function buildNextActionPrompt({ request, suggestedNextSlot, pendingSlots }) {
     if (topoStage === "inicio_multi_regime_p3_loop") return "Me diz qual é o *outro regime de trabalho* do P3. Exemplos: *CLT*, *Autônomo*, *Servidor*, *MEI*, *Aposentado*.";
     if (topoStage === "inicio_multi_renda_p3_pergunta") return "O P3 tem *mais alguma renda*? Responda *sim* ou *não*.";
     if (topoStage === "inicio_multi_renda_p3_loop") return "Me diz qual é a *outra renda* do P3 e o *valor mensal*. Exemplo: *Autônomo — 1200*.";
+  }
+
+  if (GATE_FINAIS_STAGES.has(topoStage)) {
+    if (topoStage === "ir_declarado") return "Me confirma se você declara Imposto de Renda? Responda *sim* ou *não*.";
+    if (topoStage === "autonomo_compor_renda") return "Você vai querer compor renda com alguém ou prefere tentar sozinho?";
+    if (topoStage === "ctps_36") return "Me confirma se você soma 36 meses de CTPS? Responda *sim* ou *não*.";
+    if (topoStage === "ctps_36_parceiro") return "Me confirma se o parceiro soma 36 meses de CTPS? Responda *sim* ou *não*.";
+    if (topoStage === "ctps_36_parceiro_p3") return "Me confirma se o P3 soma 36 meses de CTPS? Responda *sim* ou *não*.";
+    if (topoStage === "dependente") return "Você tem filho menor de 18 anos ou dependente sem renda até terceiro grau? Responda *sim* ou *não*.";
+    if (topoStage === "restricao") return "Há alguma restrição no seu CPF? Responda *sim* ou *não*.";
+    if (topoStage === "restricao_parceiro") return "Há alguma restrição no CPF do parceiro? Responda *sim* ou *não*.";
+    if (topoStage === "restricao_parceiro_p3") return "Há alguma restrição no CPF do P3? Responda *sim* ou *não*.";
+    if (topoStage === "regularizacao_restricao") return "A restrição no seu CPF foi regularizada? Responda *sim* ou *não*.";
+    if (topoStage === "regularizacao_restricao_parceiro") return "A restrição no CPF do parceiro foi regularizada? Responda *sim* ou *não*.";
+    if (topoStage === "regularizacao_restricao_p3") return "A restrição no CPF do P3 foi regularizada? Responda *sim* ou *não*.";
+  }
+
+  if (OPERACIONAL_FINAL_STAGES.has(topoStage)) {
+    if (topoStage === "envio_docs") return "Se quiser, já pode me mandar os documentos básicos por aqui que eu adianto sua análise.";
+    if (topoStage === "aguardando_retorno_correspondente") return "Se quiser, eu sigo acompanhando por aqui e te aviso assim que tiver retorno do correspondente.";
+    if (topoStage === "agendamento_visita") return "Se fizer sentido para você, eu já vejo um horário dentro da agenda oficial do plantão.";
+    if (topoStage === "finalizacao_processo") return "Se tiver alguma dúvida sobre o processo, pode me perguntar por aqui.";
   }
 
   return "Se estiver tudo certo até aqui, já me manda os documentos básicos agora que isso adianta sua análise.";
@@ -2315,6 +2535,8 @@ function buildHeuristicResponse(request, analysis, conflictList) {
     : PARCEIRO_RENDA_STAGES.has(request.current_stage) ? 0.70 // parceiro: guidance floor above min
     : FAMILIAR_RENDA_STAGES.has(request.current_stage) ? 0.70 // familiar: guidance floor above min
     : P3_RENDA_STAGES.has(request.current_stage) ? 0.70 // p3: guidance floor above min
+    : GATE_FINAIS_STAGES.has(request.current_stage) ? 0.70 // gate finais: guidance floor above min
+    : OPERACIONAL_FINAL_STAGES.has(request.current_stage) ? 0.70 // bloco operacional final: guidance floor above min
     : CONFIDENCE_RULES.noSlotBase;
   const confidencePenalty =
     conflictList.length * CONFIDENCE_RULES.conflictPenalty +

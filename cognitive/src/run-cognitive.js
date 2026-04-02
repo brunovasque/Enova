@@ -135,6 +135,7 @@ const PARCEIRO_RENDA_STAGES = new Set(["parceiro_tem_renda", "regime_trabalho_pa
 const FAMILIAR_RENDA_STAGES = new Set(["pais_casados_civil_pergunta", "confirmar_avo_familiar", "renda_familiar_valor", "regime_trabalho_parceiro_familiar", "renda_parceiro_familiar", "inicio_multi_regime_familiar_pergunta", "inicio_multi_regime_familiar_loop", "inicio_multi_renda_familiar_pergunta", "inicio_multi_renda_familiar_loop"]);
 const P3_RENDA_STAGES = new Set(["p3_tipo_pergunta", "regime_trabalho_parceiro_familiar_p3", "renda_parceiro_familiar_p3", "inicio_multi_regime_p3_pergunta", "inicio_multi_regime_p3_loop", "inicio_multi_renda_p3_pergunta", "inicio_multi_renda_p3_loop"]);
 const GATE_FINAIS_STAGES = new Set(["ir_declarado", "autonomo_compor_renda", "ctps_36", "ctps_36_parceiro", "ctps_36_parceiro_p3", "dependente", "restricao", "restricao_parceiro", "restricao_parceiro_p3", "regularizacao_restricao", "regularizacao_restricao_parceiro", "regularizacao_restricao_p3"]);
+const OPERACIONAL_FINAL_STAGES = new Set(["envio_docs", "aguardando_retorno_correspondente", "agendamento_visita", "finalizacao_processo"]);
 const REPLY_TEXT_REPLACEMENTS = Object.freeze([
   [/\brunner read-only\b/gi, "atendimento"],
   [/\bmotor cognitivo de teste\b/gi, "atendimento"],
@@ -590,6 +591,10 @@ function isGateFinaisContext(request) {
   return GATE_FINAIS_STAGES.has(normalizeText(request?.current_stage));
 }
 
+function isOperacionalFinalContext(request) {
+  return OPERACIONAL_FINAL_STAGES.has(normalizeText(request?.current_stage));
+}
+
 function toNumber(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : null;
@@ -925,6 +930,71 @@ function buildVisitaGuidance(request) {
   }
 
   return "A visita ajuda você a avançar com segurança, dentro da agenda oficial do plantão e sem quebrar o trilho do processo.";
+}
+
+function buildOperacionalFinalGuidance(request) {
+  const stage = normalizeText(request?.current_stage);
+  const normalizedMessage = normalizeText(request?.message_text);
+
+  if (stage === "envio_docs") {
+    if (DEFER_ACTION_PATTERN.test(normalizedMessage) || NO_TIME_PATTERN.test(normalizedMessage)) {
+      return "Sem problema. Sempre que puder, me manda os documentos por aqui que eu adianto sua análise.";
+    }
+    if (FEAR_PATTERN.test(normalizedMessage) || /\bseguro\b|\bconfiavel\b|\bconfiável\b|\bvazar\b|\bgolpe\b/.test(normalizedMessage)) {
+      return "Pode enviar com tranquilidade — o processo é seguro e seus documentos ficam protegidos.";
+    }
+    if (REMOTE_REFUSAL_PATTERN.test(normalizedMessage)) {
+      return "Sem problema, no presencial também conseguimos conferir tudo com você com calma. Me confirma como prefere seguir.";
+    }
+    if (/\b(site|portal)\b/.test(normalizedMessage)) {
+      return "Perfeito, pode enviar pelo site com tranquilidade que seguimos por lá.";
+    }
+    return null;
+  }
+
+  if (stage === "aguardando_retorno_correspondente") {
+    if (/\bquanto tempo\b|\bdemora\b|\btempo\b|\bprazo\b|\bquando\b/.test(normalizedMessage)) {
+      return "Não tenho como informar prazo exato — o retorno depende da análise do correspondente. Sigo acompanhando e te aviso assim que houver novidade.";
+    }
+    if (/\bj[aá]\s*teve\b|\bj[aá]\s*voltou\b|\bj[aá]\s*respondeu\b|\bj[aá]\s*tem\b|\bresposta\b|\bretornou\b/.test(normalizedMessage)) {
+      return "Ainda estou aguardando o retorno. Assim que chegar qualquer informação, eu te aviso aqui.";
+    }
+    if (/\be agora\b|\bo que\s*fa[cç]o\b|\bo que\s*acontece\b|\bpr[oó]ximo\b/.test(normalizedMessage)) {
+      return "Por enquanto, o processo está em análise com o correspondente. Não precisa fazer nada agora — eu te aviso quando houver retorno.";
+    }
+    return null;
+  }
+
+  if (stage === "agendamento_visita") {
+    if (/\bhor[aá]rio\b|\bdia\b|\bquando\b|\bopç[oõ]es\b/.test(normalizedMessage)) {
+      return "Claro. Eu sigo a agenda oficial do plantão e te passo as opções válidas de dia e horário para visita.";
+    }
+    if (/\boutro dia\b|\boutro hor[aá]rio\b|\bremarcar\b|\breagend\b/.test(normalizedMessage)) {
+      return "Sem problema, a gente ajusta dentro dos dias e horários oficiais do plantão.";
+    }
+    if (/\bprecisa levar\b|\bvir acompanhaad\b|\bvir com\b|\blevar algu[eé]m\b|\bacompanhante\b/.test(normalizedMessage)) {
+      return "Para aproveitar melhor a visita, recomendo que venha com quem vai participar da decisão. Isso facilita o alinhamento no plantão.";
+    }
+    if (DEFER_ACTION_PATTERN.test(normalizedMessage) || VISITA_ESFRIAMENTO_PATTERN.test(normalizedMessage)) {
+      return "Sem pressa. Quando estiver pronto, me confirma que eu verifico as opções disponíveis na agenda oficial do plantão.";
+    }
+    return null;
+  }
+
+  if (stage === "finalizacao_processo") {
+    if (/\bo que\s*acontece\b|\bpr[oó]ximo\s*passo\b|\bo que\s*vem\b|\bo que\s*segue\b/.test(normalizedMessage)) {
+      return "O processo segue para as etapas finais de formalização. Assim que houver orientação concreta, eu te informo por aqui.";
+    }
+    if (/\bvoc[eê]s?\s*me\s*avis[ao]\b|\bme\s*avis[ao]\b|\bserei\s*avisad\b|\bvou\s*saber\b/.test(normalizedMessage)) {
+      return "Sim, qualquer movimentação no processo eu te comunico por aqui.";
+    }
+    if (/\bacabou\b|\btermin[ao]u\b|\bfoi\b|\bencerr[ao]u\b|\btudob[eê]m\b/.test(normalizedMessage)) {
+      return "Chegamos ao fim desta etapa. O processo segue pelo trilho correto e eu te mantenho informado sobre qualquer próximo passo.";
+    }
+    return null;
+  }
+
+  return null;
 }
 
 function buildAluguelGuidance() {
@@ -1883,6 +1953,10 @@ function buildPhaseGuidanceReply({ request, suggestedNextSlot, pendingSlots }) {
     const gateFinaisReply = buildGateFinaisGuidance(request);
     if (gateFinaisReply) return gateFinaisReply;
   }
+  if (isOperacionalFinalContext(request)) {
+    const operacionalFinalReply = buildOperacionalFinalGuidance(request);
+    if (operacionalFinalReply) return operacionalFinalReply;
+  }
   if (isAluguelContext(request)) return buildAluguelGuidance(request);
   if (isUnknownDocTypeContext(request)) return buildUnknownDocTypeGuidance(request);
   if (isDocForaDeOrdemContext(request)) return buildDocForaDeOrdemGuidance(request);
@@ -2032,6 +2106,13 @@ function buildNextActionPrompt({ request, suggestedNextSlot, pendingSlots }) {
     if (topoStage === "regularizacao_restricao") return "A restrição no seu CPF foi regularizada? Responda *sim* ou *não*.";
     if (topoStage === "regularizacao_restricao_parceiro") return "A restrição no CPF do parceiro foi regularizada? Responda *sim* ou *não*.";
     if (topoStage === "regularizacao_restricao_p3") return "A restrição no CPF do P3 foi regularizada? Responda *sim* ou *não*.";
+  }
+
+  if (OPERACIONAL_FINAL_STAGES.has(topoStage)) {
+    if (topoStage === "envio_docs") return "Se quiser, já pode me mandar os documentos básicos por aqui que eu adianto sua análise.";
+    if (topoStage === "aguardando_retorno_correspondente") return "Se quiser, eu sigo acompanhando por aqui e te aviso assim que tiver retorno do correspondente.";
+    if (topoStage === "agendamento_visita") return "Se fizer sentido para você, eu já vejo um horário dentro da agenda oficial do plantão.";
+    if (topoStage === "finalizacao_processo") return "Se tiver alguma dúvida sobre o processo, pode me perguntar por aqui.";
   }
 
   return "Se estiver tudo certo até aqui, já me manda os documentos básicos agora que isso adianta sua análise.";
@@ -2455,6 +2536,7 @@ function buildHeuristicResponse(request, analysis, conflictList) {
     : FAMILIAR_RENDA_STAGES.has(request.current_stage) ? 0.70 // familiar: guidance floor above min
     : P3_RENDA_STAGES.has(request.current_stage) ? 0.70 // p3: guidance floor above min
     : GATE_FINAIS_STAGES.has(request.current_stage) ? 0.70 // gate finais: guidance floor above min
+    : OPERACIONAL_FINAL_STAGES.has(request.current_stage) ? 0.70 // bloco operacional final: guidance floor above min
     : CONFIDENCE_RULES.noSlotBase;
   const confidencePenalty =
     conflictList.length * CONFIDENCE_RULES.conflictPenalty +

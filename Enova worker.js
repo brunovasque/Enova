@@ -2806,7 +2806,11 @@ const COGNITIVE_V1_ALLOWED_STAGES = new Set([
   "restricao_parceiro_p3",
   "regularizacao_restricao",
   "regularizacao_restricao_parceiro",
-  "regularizacao_restricao_p3"
+  "regularizacao_restricao_p3",
+  "envio_docs",
+  "aguardando_retorno_correspondente",
+  "agendamento_visita",
+  "finalizacao_processo"
 ]);
 
 const COGNITIVE_V1_CONFIDENCE_MIN = 0.66;
@@ -2879,7 +2883,11 @@ const COGNITIVE_PLAYBOOK_V1 = {
     restricao_parceiro_p3: ["restricao_p3_sim", "restricao_p3_nao", "nome_sujo_p3", "duvida_barra_p3", "objecao"],
     regularizacao_restricao: ["regularizacao_sim", "regularizacao_nao", "negociando", "quitei", "nao_baixou", "objecao"],
     regularizacao_restricao_parceiro: ["regularizacao_parceiro_sim", "regularizacao_parceiro_nao", "negociando_parceiro", "quitei_parceiro", "objecao"],
-    regularizacao_restricao_p3: ["regularizacao_p3_sim", "regularizacao_p3_nao", "negociando_p3", "quitei_p3", "objecao"]
+    regularizacao_restricao_p3: ["regularizacao_p3_sim", "regularizacao_p3_nao", "negociando_p3", "quitei_p3", "objecao"],
+    envio_docs: ["duvida_seguranca", "objecao_presencial", "deferimento_docs", "duvida_canal", "objecao_tempo_docs"],
+    aguardando_retorno_correspondente: ["duvida_prazo", "duvida_status", "duvida_e_agora", "objecao"],
+    agendamento_visita: ["duvida_horario", "duvida_remarcar", "duvida_acompanhante", "esfriamento_visita", "objecao"],
+    finalizacao_processo: ["duvida_proximo_passo", "duvida_aviso", "duvida_encerramento", "objecao"]
   },
   entities_supported: [
     "estado_civil",
@@ -3212,6 +3220,24 @@ function shouldTriggerCognitiveAssist(stage, text) {
   if (stage === "regularizacao_restricao" || stage === "regularizacao_restricao_parceiro" || stage === "regularizacao_restricao_p3") {
     const regularizacaoHints = /\b(negociando|negociacao|negociação|ja quitei|já quitei|ja paguei|já paguei|quitei|paguei|ainda nao baixou|ainda não baixou|nao baixou|não baixou|isso ja serve|isso já serve|ja serve|já serve|nao consta|não consta)\b/i.test(nt);
     if (regularizacaoHints) return true;
+  }
+
+  // Bloco operacional final — triggers específicos
+  if (stage === "envio_docs") {
+    const envioDocsHints = /\b(posso mandar depois|mando depois|depois eu mando|nao consigo agora|não consigo agora|seguro|confiavel|confiável|golpe|vazar|site|portal|presencial|quero ir presencial|prefiro presencial|nao tenho tempo|não tenho tempo)\b/i.test(nt);
+    if (envioDocsHints) return true;
+  }
+  if (stage === "aguardando_retorno_correspondente") {
+    const aguardandoHints = /\b(quanto tempo|demora|prazo|quando|j[aá] teve|j[aá] voltou|j[aá] respondeu|j[aá] tem resposta|retornou|e agora|o que fa[cç]o|o que acontece|pr[oó]ximo passo)\b/i.test(nt);
+    if (aguardandoHints) return true;
+  }
+  if (stage === "agendamento_visita") {
+    const agendamentoHints = /\b(hor[aá]rio|dia|quando|outro dia|remarcar|reagend|acompanhante|precisa levar|vou pensar|preciso pensar|quem sabe|ainda nao decidi|ainda não decidi|sem pressa)\b/i.test(nt);
+    if (agendamentoHints) return true;
+  }
+  if (stage === "finalizacao_processo") {
+    const finalizacaoHints = /\b(o que acontece|pr[oó]ximo passo|voc[eê]s? me avis[ao]|me avis[ao]|serei avisad|acabou|encerr[ao]u|terminou|o que vem|o que segue)\b/i.test(nt);
+    if (finalizacaoHints) return true;
   }
 
   return hasQuestion || hasConnector || offtrackHints || fearHints;

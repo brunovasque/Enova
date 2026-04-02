@@ -18,7 +18,9 @@ const STAGE_DEFAULT_PENDING_SLOTS = Object.freeze({
   somar_renda_familiar: ["familiar", "p3"],
   regime_trabalho: ["regime_trabalho", "renda", "ir_declarado"],
   autonomo_ir_pergunta: ["ir_declarado", "renda"],
-  renda: ["renda", "ir_declarado"]
+  renda: ["renda", "ir_declarado"],
+  inicio_nome: ["nome"],
+  inicio_nacionalidade: ["nacionalidade"]
 });
 
 const BRL_CURRENCY_PATTERN = /(?<!\d)(?:r\$\s*)?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{2})?(?!\d)/i;
@@ -83,7 +85,7 @@ const COGNITIVE_SLOT_DEPENDENCIES = Object.freeze({
   docs: ["correspondente"],
   correspondente: ["visita"]
 });
-const TOPO_FUNIL_STAGES = new Set(["inicio", "inicio_decisao", "inicio_programa"]);
+const TOPO_FUNIL_STAGES = new Set(["inicio", "inicio_decisao", "inicio_programa", "inicio_nome", "inicio_nacionalidade"]);
 const REPLY_TEXT_REPLACEMENTS = Object.freeze([
   [/\brunner read-only\b/gi, "atendimento"],
   [/\bmotor cognitivo de teste\b/gi, "atendimento"],
@@ -955,6 +957,37 @@ function buildTopoFunilGuidance(request) {
     return "Posso te explicar qualquer detalhe. Para te orientar certinho, me confirma como prefere prosseguir.";
   }
 
+  if (stage === "inicio_nome") {
+    if (/\b(pra que|para que|por que|porque)\b.*\b(nome|chamar|precisar?)\b/i.test(normalizedMessage) ||
+        /\b(precisar? do|usar o|guardar o|registrar o)\b.*\bnome\b/i.test(normalizedMessage)) {
+      return "Seu nome é usado para identificar seu atendimento aqui e facilitar a comunicação.";
+    }
+    if (/\b(so o primeiro|só o primeiro|primeiro nome|apelido|me chama de|pode ser so|pode ser só)\b/i.test(normalizedMessage)) {
+      return "Pode me passar o nome completo, com nome e sobrenome — assim fica certinho no sistema.";
+    }
+    if (DEFER_ACTION_PATTERN.test(normalizedMessage)) {
+      return "Não tem problema, é rapidinho. Me manda só o *nome completo* para eu registrar certinho.";
+    }
+    return "Me passa seu *nome completo* (nome e sobrenome) para eu registrar no seu atendimento.";
+  }
+
+  if (stage === "inicio_nacionalidade") {
+    if (/\b(o que e|o que é|o que significa|significa|rnm|registro nacional|registro migrat)\b/i.test(normalizedMessage)) {
+      return "RNM é o Registro Nacional Migratório, documento oficial para estrangeiros residentes no Brasil. O sistema precisa verificar essa situação para seguir corretamente.";
+    }
+    if (/\b(estrangeiro|estrangeira)\b.*\b(pode|consigo|conseg|tentar|tenho chance|funciona)\b/i.test(normalizedMessage) ||
+        /\b(ainda posso|posso sim|posso tentar)\b/i.test(normalizedMessage)) {
+      return "Estrangeiro pode sim avançar, mas o sistema precisa verificar a situação documental para te orientar corretamente.";
+    }
+    if (/\b(muda|diferente|diferenca|diferença|muda alguma)\b/i.test(normalizedMessage)) {
+      return "Para estrangeiro, o sistema verifica a situação do RNM antes de seguir. O caminho pode ser diferente dependendo da documentação.";
+    }
+    if (/\b(por que|pra que|para que|porque)\b.*\b(nacionalidade|brasileiro|estrangeiro)\b/i.test(normalizedMessage)) {
+      return "A nacionalidade define qual caminho o sistema vai seguir — o processo para estrangeiros tem etapas adicionais de documentação.";
+    }
+    return "Você é *brasileiro(a)* ou *estrangeiro(a)*?";
+  }
+
   return null;
 }
 
@@ -1041,6 +1074,8 @@ function buildNextActionPrompt({ request, suggestedNextSlot, pendingSlots }) {
   if (TOPO_FUNIL_STAGES.has(topoStage)) {
     if (topoStage === "inicio_decisao") return "Digite *1* para continuar de onde paramos ou *2* para começar do zero.";
     if (topoStage === "inicio_programa") return "Você *já sabe como funciona* o programa ou prefere que eu explique rapidinho?";
+    if (topoStage === "inicio_nome") return "Me manda seu *nome completo* (nome e sobrenome).";
+    if (topoStage === "inicio_nacionalidade") return "Você é *brasileiro(a)* ou *estrangeiro(a)*?";
     return "Pode continuar por aqui — são só algumas perguntas rápidas.";
   }
 

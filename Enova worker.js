@@ -2404,6 +2404,8 @@ const COGNITIVE_V1_ALLOWED_STAGES = new Set([
   "inicio",
   "inicio_decisao",
   "inicio_programa",
+  "inicio_nome",
+  "inicio_nacionalidade",
   "estado_civil",
   "quem_pode_somar",
   "interpretar_composicao",
@@ -2430,6 +2432,8 @@ const COGNITIVE_PLAYBOOK_V1 = {
     inicio: ["saudacao", "duvida_programa", "duvida_fgts", "duvida_entrada", "objecao_tempo", "medo"],
     inicio_decisao: ["continuar", "reiniciar", "duvida_retomada"],
     inicio_programa: ["duvida_mcmv", "duvida_fgts", "duvida_estrangeiro", "duvida_entrada", "duvida_renda_minima", "objecao_tempo", "medo"],
+    inicio_nome: ["duvida_nome", "resistencia_nome", "apelido", "deferimento"],
+    inicio_nacionalidade: ["duvida_rnm", "duvida_estrangeiro_elegibilidade", "duvida_caminho_estrangeiro", "duvida_por_que_nacionalidade"],
     estado_civil: ["estado_civil_hibrido", "duvida_composicao", "duvida_imovel_pre_analise", "objecao"],
     quem_pode_somar: ["composicao_familiar", "composicao_parceiro", "duvida_conjuge", "objecao"],
     interpretar_composicao: ["composicao_familiar", "composicao_parceiro", "sozinho", "objecao"],
@@ -2523,6 +2527,12 @@ function shouldTriggerCognitiveAssist(stage, text) {
   const hasConnector = /\b(mas|porem|porém|so que|só que|ao mesmo tempo)\b/i.test(nt);
   const offtrackHints = /\b(imovel|casa|apartamento|bairro|regiao|entrada|parcela|fgts|valor|preco)\b/i.test(nt);
   const fearHints = /\b(medo|receio|reprovad|enganad|vergonha|nao quero passar|não quero passar)\b/i.test(nt);
+
+  // Bloco B topo — triggers específicos para inicio_nome e inicio_nacionalidade
+  if (stage === "inicio_nome") {
+    const nomeHints = /\b(depois eu mando|depois mando|mando depois|me chama de|pode ser so|só o primeiro|primeiro nome|apelido|pra que|para que|por que|porque)\b/i.test(nt);
+    if (nomeHints) return true;
+  }
 
   return hasQuestion || hasConnector || offtrackHints || fearHints;
 }

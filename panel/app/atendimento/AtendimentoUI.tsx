@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./atendimento.module.css";
-import { fetchAttendanceLeadsAction, fetchPrefillDataAction, savePrefillDataAction } from "./actions";
-import type { PrefillMetaRow, PrefillStatus, PrefillUpdatePayload } from "../api/prefill/_shared";
+import { fetchAttendanceLeadsAction, fetchClientProfileAction, saveClientProfileAction } from "./actions";
+import type { ClientProfileRow, ProfileSource } from "../api/client-profile/_shared";
 
 /* ===========================================
    TIPOS - baseados em enova_attendance_v1
@@ -49,6 +49,7 @@ type AttendanceRow = {
   ultima_msg_recebida_raw: string | null;
   estado_civil: string | null;
   regime_trabalho: string | null;
+  renda: number | null;
   renda_total: number | null;
   somar_renda: boolean | null;
   composicao: string | null;
@@ -56,6 +57,8 @@ type AttendanceRow = {
   ctps_36: boolean | null;
   restricao: boolean | null;
   dependentes_qtd: number | null;
+  nacionalidade: string | null;
+  entrada_valor: number | null;
   resumo_curto: string | null;
   tem_incidente_aberto: boolean | null;
   tipo_incidente: string | null;
@@ -236,131 +239,57 @@ function getIncidenteBadgeClass(severidade: string | null): string {
 }
 
 /* ===========================================
-   PREFILL HELPERS
+   PROFILE HELPERS — campo operacional único
    =========================================== */
 
-const PREFILL_STATUS_LABELS: Record<PrefillStatus, string> = {
-  empty: "Vazio",
-  prefilled_pending_confirmation: "Pré-preenchido",
-  confirmed: "Confirmado",
-  divergent: "Divergente",
-};
+// Labels discretos de origem do campo operacional
+function sourceLabel(source: ProfileSource | null | undefined): string {
+  switch (source) {
+    case "admin": return "atualizado por admin";
+    case "admin_inicial": return "origem: cadastro manual";
+    case "funil": return "confirmado pelo cliente";
+    case "manual": return "origem: cadastro manual";
+    default: return "";
+  }
+}
 
-function prefillStatusClass(status: PrefillStatus | null | undefined): string {
-  switch (status) {
-    case "prefilled_pending_confirmation": return styles.prefillStatusPending;
-    case "confirmed": return styles.prefillStatusConfirmed;
-    case "divergent": return styles.prefillStatusDivergent;
+function sourceBadgeClass(source: ProfileSource | null | undefined): string {
+  switch (source) {
+    case "funil": return styles.prefillStatusConfirmed;
+    case "admin":
+    case "admin_inicial":
+    case "manual": return styles.prefillStatusPending;
     default: return styles.prefillStatusEmpty;
   }
 }
 
-type PrefillEditState = {
-  nome_prefill: string;
-  nome_source: string;
-  nacionalidade_prefill: string;
-  nacionalidade_source: string;
-  estado_civil_prefill: string;
-  estado_civil_source: string;
-  regime_trabalho_prefill: string;
-  regime_trabalho_source: string;
-  renda_prefill: string;
-  renda_source: string;
-  meses_36_prefill: string;
-  meses_36_source: string;
-  dependentes_prefill: string;
-  dependentes_source: string;
-  valor_entrada_prefill: string;
-  valor_entrada_source: string;
-  restricao_prefill: string;
-  restricao_source: string;
+type ProfileEditState = {
+  nome: string;
+  nacionalidade: string;
+  estado_civil: string;
+  regime_trabalho: string;
+  renda: string;
+  ctps_36: string;
+  dependentes_qtd: string;
+  entrada_valor: string;
+  restricao: string;
   origem_lead: string;
   observacoes_admin: string;
 };
 
-function rowToEditState(row: PrefillMetaRow | null): PrefillEditState {
+function profileToEditState(row: ClientProfileRow | null): ProfileEditState {
   return {
-    nome_prefill: row?.nome_prefill ?? "",
-    nome_source: row?.nome_source ?? "manual",
-    nacionalidade_prefill: row?.nacionalidade_prefill ?? "",
-    nacionalidade_source: row?.nacionalidade_source ?? "manual",
-    estado_civil_prefill: row?.estado_civil_prefill ?? "",
-    estado_civil_source: row?.estado_civil_source ?? "manual",
-    regime_trabalho_prefill: row?.regime_trabalho_prefill ?? "",
-    regime_trabalho_source: row?.regime_trabalho_source ?? "manual",
-    renda_prefill: row?.renda_prefill != null ? String(row.renda_prefill) : "",
-    renda_source: row?.renda_source ?? "manual",
-    meses_36_prefill: row?.meses_36_prefill != null ? String(row.meses_36_prefill) : "",
-    meses_36_source: row?.meses_36_source ?? "manual",
-    dependentes_prefill: row?.dependentes_prefill != null ? String(row.dependentes_prefill) : "",
-    dependentes_source: row?.dependentes_source ?? "manual",
-    valor_entrada_prefill: row?.valor_entrada_prefill != null ? String(row.valor_entrada_prefill) : "",
-    valor_entrada_source: row?.valor_entrada_source ?? "manual",
-    restricao_prefill: row?.restricao_prefill != null ? String(row.restricao_prefill) : "",
-    restricao_source: row?.restricao_source ?? "manual",
+    nome: row?.nome ?? "",
+    nacionalidade: row?.nacionalidade ?? "",
+    estado_civil: row?.estado_civil ?? "",
+    regime_trabalho: row?.regime_trabalho ?? "",
+    renda: row?.renda != null ? String(row.renda) : "",
+    ctps_36: row?.ctps_36 != null ? String(row.ctps_36) : "",
+    dependentes_qtd: row?.dependentes_qtd != null ? String(row.dependentes_qtd) : "",
+    entrada_valor: row?.entrada_valor != null ? String(row.entrada_valor) : "",
+    restricao: row?.restricao != null ? String(row.restricao) : "",
     origem_lead: row?.origem_lead ?? "",
     observacoes_admin: row?.observacoes_admin ?? "",
-  };
-}
-
-function editStateToPayload(wa_id: string, edit: PrefillEditState): PrefillUpdatePayload {
-  function textOrNull(v: string) { return v.trim() ? v.trim() : null; }
-  function numOrNull(v: string) { const n = parseFloat(v); return isNaN(n) ? null : n; }
-  function boolOrNull(v: string): boolean | null {
-    if (v === "true") return true;
-    if (v === "false") return false;
-    return null;
-  }
-
-  // Admin edit always resets to prefilled_pending_confirmation — even when overwriting
-  // a previously confirmed/divergent value. The client must re-confirm via the funnel.
-  function deriveStatus(newVal: unknown): PrefillStatus {
-    if (newVal === null || newVal === undefined || newVal === "") return "empty";
-    return "prefilled_pending_confirmation";
-  }
-
-  const nomeVal = textOrNull(edit.nome_prefill);
-  const nacionalidadeVal = textOrNull(edit.nacionalidade_prefill);
-  const estadoCivilVal = textOrNull(edit.estado_civil_prefill);
-  const regimeVal = textOrNull(edit.regime_trabalho_prefill);
-  const rendaVal = numOrNull(edit.renda_prefill);
-  const meses36Val = boolOrNull(edit.meses_36_prefill);
-  const dependentesVal = numOrNull(edit.dependentes_prefill);
-  const entradaVal = numOrNull(edit.valor_entrada_prefill);
-  const restricaoVal = boolOrNull(edit.restricao_prefill);
-
-  return {
-    wa_id,
-    nome_prefill: nomeVal,
-    nome_source: textOrNull(edit.nome_source) ?? "manual",
-    nome_status: deriveStatus(nomeVal),
-    nacionalidade_prefill: nacionalidadeVal,
-    nacionalidade_source: textOrNull(edit.nacionalidade_source) ?? "manual",
-    nacionalidade_status: deriveStatus(nacionalidadeVal),
-    estado_civil_prefill: estadoCivilVal,
-    estado_civil_source: textOrNull(edit.estado_civil_source) ?? "manual",
-    estado_civil_status: deriveStatus(estadoCivilVal),
-    regime_trabalho_prefill: regimeVal,
-    regime_trabalho_source: textOrNull(edit.regime_trabalho_source) ?? "manual",
-    regime_trabalho_status: deriveStatus(regimeVal),
-    renda_prefill: rendaVal,
-    renda_source: textOrNull(edit.renda_source) ?? "manual",
-    renda_status: deriveStatus(rendaVal),
-    meses_36_prefill: meses36Val,
-    meses_36_source: textOrNull(edit.meses_36_source) ?? "manual",
-    meses_36_status: deriveStatus(meses36Val),
-    dependentes_prefill: dependentesVal,
-    dependentes_source: textOrNull(edit.dependentes_source) ?? "manual",
-    dependentes_status: deriveStatus(dependentesVal),
-    valor_entrada_prefill: entradaVal,
-    valor_entrada_source: textOrNull(edit.valor_entrada_source) ?? "manual",
-    valor_entrada_status: deriveStatus(entradaVal),
-    restricao_prefill: restricaoVal,
-    restricao_source: textOrNull(edit.restricao_source) ?? "manual",
-    restricao_status: deriveStatus(restricaoVal),
-    origem_lead: textOrNull(edit.origem_lead),
-    observacoes_admin: textOrNull(edit.observacoes_admin),
-    updated_by: "admin_panel",
   };
 }
 
@@ -381,12 +310,12 @@ export function AtendimentoUI() {
     travamento: "todos",
   });
 
-  // Prefill state — loaded on demand when detail opens
-  const [prefillData, setPrefillData] = useState<PrefillMetaRow | null>(null);
-  const [prefillEdit, setPrefillEdit] = useState<PrefillEditState | null>(null);
-  const [prefillBusy, setPrefillBusy] = useState(false);
-  const [prefillFeedback, setPrefillFeedback] = useState<string | null>(null);
-  const [prefillError, setPrefillError] = useState<string | null>(null);
+  // Profile state — loaded on demand when detail opens
+  const [clientProfile, setClientProfile] = useState<ClientProfileRow | null>(null);
+  const [profileEdit, setProfileEdit] = useState<ProfileEditState | null>(null);
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileFeedback, setProfileFeedback] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
 
   const refreshLeads = useCallback(async () => {
     setLoading(true);
@@ -486,46 +415,80 @@ export function AtendimentoUI() {
 
   const openDetail = useCallback((lead: AttendanceRow) => {
     setSelectedLead(lead);
-    setPrefillData(null);
-    setPrefillEdit(null);
-    setPrefillFeedback(null);
-    setPrefillError(null);
-    // Load prefill data async — non-blocking
-    void fetchPrefillDataAction(lead.wa_id).then((result) => {
+    setClientProfile(null);
+    setProfileEdit(null);
+    setProfileFeedback(null);
+    setProfileError(null);
+    // Load client profile async — non-blocking
+    void fetchClientProfileAction(lead.wa_id).then((result) => {
       if (result.ok) {
-        const row = result.prefill ?? null;
-        setPrefillData(row);
-        setPrefillEdit(rowToEditState(row));
+        const row = result.profile ?? null;
+        setClientProfile(row);
+        setProfileEdit(profileToEditState(row));
       }
     });
   }, []);
 
   const closeDetail = useCallback(() => {
     setSelectedLead(null);
-    setPrefillData(null);
-    setPrefillEdit(null);
-    setPrefillBusy(false);
-    setPrefillFeedback(null);
-    setPrefillError(null);
+    setClientProfile(null);
+    setProfileEdit(null);
+    setProfileBusy(false);
+    setProfileFeedback(null);
+    setProfileError(null);
   }, []);
 
-  const handleSavePrefill = useCallback(async () => {
-    if (!selectedLead || !prefillEdit) return;
-    setPrefillBusy(true);
-    setPrefillFeedback(null);
-    setPrefillError(null);
-    const payload = editStateToPayload(selectedLead.wa_id, prefillEdit);
-    const result = await savePrefillDataAction(payload);
-    if (result.ok) {
-      const saved = result.prefill ?? null;
-      setPrefillData(saved);
-      setPrefillEdit(rowToEditState(saved));
-      setPrefillFeedback("Dados salvos com sucesso.");
-    } else {
-      setPrefillError(result.error ?? "Erro ao salvar");
+  // ESC to close detail panel
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeDetail();
     }
-    setPrefillBusy(false);
-  }, [selectedLead, prefillEdit, prefillData]);
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [closeDetail]);
+
+  const handleSaveProfile = useCallback(async () => {
+    if (!selectedLead || !profileEdit) return;
+    setProfileBusy(true);
+    setProfileFeedback(null);
+    setProfileError(null);
+
+    function textOrNull(v: string) { return v.trim() ? v.trim() : null; }
+    function numOrNull(v: string) { const n = parseFloat(v); return isNaN(n) ? null : n; }
+    function boolOrNull(v: string): boolean | null {
+      if (v === "true") return true;
+      if (v === "false") return false;
+      return null;
+    }
+
+    const payload = {
+      wa_id: selectedLead.wa_id,
+      nome: textOrNull(profileEdit.nome),
+      nacionalidade: textOrNull(profileEdit.nacionalidade),
+      estado_civil: textOrNull(profileEdit.estado_civil),
+      regime_trabalho: textOrNull(profileEdit.regime_trabalho),
+      renda: numOrNull(profileEdit.renda),
+      ctps_36: boolOrNull(profileEdit.ctps_36),
+      dependentes_qtd: numOrNull(profileEdit.dependentes_qtd),
+      entrada_valor: numOrNull(profileEdit.entrada_valor),
+      restricao: boolOrNull(profileEdit.restricao),
+      origem_lead: textOrNull(profileEdit.origem_lead),
+      observacoes_admin: textOrNull(profileEdit.observacoes_admin),
+      updated_by: "admin_panel",
+      source: "admin" as const,
+    };
+
+    const result = await saveClientProfileAction(payload);
+    if (result.ok) {
+      const saved = result.profile ?? null;
+      setClientProfile(saved);
+      setProfileEdit(profileToEditState(saved));
+      setProfileFeedback("Perfil salvo com sucesso.");
+    } else {
+      setProfileError(result.error ?? "Erro ao salvar");
+    }
+    setProfileBusy(false);
+  }, [selectedLead, profileEdit]);
 
   return (
     <main className={styles.pageMain}>
@@ -828,216 +791,236 @@ export function AtendimentoUI() {
                   </div>
                 </div>
 
-                {/* Informações Pré-preenchidas (admin) */}
-                {prefillEdit !== null && (
-                  <div className={styles.detailBlock}>
-                    <h3 className={styles.detailBlockTitle}>Informações Pré-preenchidas</h3>
-                    <p className={styles.prefillDisclaimer}>
-                      Dados inseridos manualmente. Não são confirmados até que o cliente valide no funil.
+                {/* Perfil do Cliente — campo operacional único */}
+                <div className={styles.detailBlock}>
+                  <h3 className={styles.detailBlockTitle}>Perfil do Cliente</h3>
+                  {profileEdit !== null ? (
+                    <>
+                      <div className={styles.detailGrid} style={{ marginTop: "8px" }}>
+                        {/* nome */}
+                        <div className={styles.prefillFieldRow}>
+                          <div className={styles.prefillFieldHeader}>
+                            <span className={styles.detailLabel}>Nome</span>
+                            {clientProfile?.nome_source && (
+                              <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.nome_source)}`}>
+                                {sourceLabel(clientProfile.nome_source)}
+                              </span>
+                            )}
+                          </div>
+                          <input
+                            type="text"
+                            className={styles.prefillInput}
+                            value={profileEdit.nome}
+                            onChange={(e) => setProfileEdit({ ...profileEdit, nome: e.target.value })}
+                            placeholder="Nome do cliente"
+                          />
+                        </div>
+                        {/* nacionalidade */}
+                        <div className={styles.prefillFieldRow}>
+                          <div className={styles.prefillFieldHeader}>
+                            <span className={styles.detailLabel}>Nacionalidade</span>
+                            {clientProfile?.nacionalidade_source && (
+                              <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.nacionalidade_source)}`}>
+                                {sourceLabel(clientProfile.nacionalidade_source)}
+                              </span>
+                            )}
+                          </div>
+                          <input
+                            type="text"
+                            className={styles.prefillInput}
+                            value={profileEdit.nacionalidade}
+                            onChange={(e) => setProfileEdit({ ...profileEdit, nacionalidade: e.target.value })}
+                            placeholder="Ex: brasileira"
+                          />
+                        </div>
+                        {/* estado_civil */}
+                        <div className={styles.prefillFieldRow}>
+                          <div className={styles.prefillFieldHeader}>
+                            <span className={styles.detailLabel}>Estado Civil</span>
+                            {clientProfile?.estado_civil_source && (
+                              <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.estado_civil_source)}`}>
+                                {sourceLabel(clientProfile.estado_civil_source)}
+                              </span>
+                            )}
+                          </div>
+                          <select
+                            className={styles.prefillSelect}
+                            value={profileEdit.estado_civil}
+                            onChange={(e) => setProfileEdit({ ...profileEdit, estado_civil: e.target.value })}
+                          >
+                            <option value="">— não informado —</option>
+                            <option value="solteiro">Solteiro(a)</option>
+                            <option value="casado">Casado(a)</option>
+                            <option value="divorciado">Divorciado(a)</option>
+                            <option value="viuvo">Viúvo(a)</option>
+                            <option value="uniao_estavel">União Estável</option>
+                          </select>
+                        </div>
+                        {/* regime_trabalho */}
+                        <div className={styles.prefillFieldRow}>
+                          <div className={styles.prefillFieldHeader}>
+                            <span className={styles.detailLabel}>Regime de Trabalho</span>
+                            {clientProfile?.regime_trabalho_source && (
+                              <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.regime_trabalho_source)}`}>
+                                {sourceLabel(clientProfile.regime_trabalho_source)}
+                              </span>
+                            )}
+                          </div>
+                          <select
+                            className={styles.prefillSelect}
+                            value={profileEdit.regime_trabalho}
+                            onChange={(e) => setProfileEdit({ ...profileEdit, regime_trabalho: e.target.value })}
+                          >
+                            <option value="">— não informado —</option>
+                            <option value="clt">CLT</option>
+                            <option value="autonomo">Autônomo</option>
+                            <option value="servidor_publico">Servidor Público</option>
+                            <option value="aposentado">Aposentado / Pensionista</option>
+                            <option value="misto">Misto</option>
+                          </select>
+                        </div>
+                        {/* renda */}
+                        <div className={styles.prefillFieldRow}>
+                          <div className={styles.prefillFieldHeader}>
+                            <span className={styles.detailLabel}>Renda (R$)</span>
+                            {clientProfile?.renda_source && (
+                              <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.renda_source)}`}>
+                                {sourceLabel(clientProfile.renda_source)}
+                              </span>
+                            )}
+                          </div>
+                          <input
+                            type="number"
+                            className={styles.prefillInput}
+                            value={profileEdit.renda}
+                            onChange={(e) => setProfileEdit({ ...profileEdit, renda: e.target.value })}
+                            placeholder="Ex: 2800"
+                            min="0"
+                          />
+                        </div>
+                        {/* ctps_36 */}
+                        <div className={styles.prefillFieldRow}>
+                          <div className={styles.prefillFieldHeader}>
+                            <span className={styles.detailLabel}>CTPS 36 meses</span>
+                            {clientProfile?.meses_36_source && (
+                              <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.meses_36_source)}`}>
+                                {sourceLabel(clientProfile.meses_36_source)}
+                              </span>
+                            )}
+                          </div>
+                          <select
+                            className={styles.prefillSelect}
+                            value={profileEdit.ctps_36}
+                            onChange={(e) => setProfileEdit({ ...profileEdit, ctps_36: e.target.value })}
+                          >
+                            <option value="">— não informado —</option>
+                            <option value="true">Sim (tem CTPS 36 meses)</option>
+                            <option value="false">Não</option>
+                          </select>
+                        </div>
+                        {/* dependentes_qtd */}
+                        <div className={styles.prefillFieldRow}>
+                          <div className={styles.prefillFieldHeader}>
+                            <span className={styles.detailLabel}>Dependentes</span>
+                            {clientProfile?.dependentes_source && (
+                              <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.dependentes_source)}`}>
+                                {sourceLabel(clientProfile.dependentes_source)}
+                              </span>
+                            )}
+                          </div>
+                          <input
+                            type="number"
+                            className={styles.prefillInput}
+                            value={profileEdit.dependentes_qtd}
+                            onChange={(e) => setProfileEdit({ ...profileEdit, dependentes_qtd: e.target.value })}
+                            placeholder="Ex: 0"
+                            min="0"
+                          />
+                        </div>
+                        {/* entrada_valor */}
+                        <div className={styles.prefillFieldRow}>
+                          <div className={styles.prefillFieldHeader}>
+                            <span className={styles.detailLabel}>Valor Entrada (R$)</span>
+                            {clientProfile?.valor_entrada_source && (
+                              <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.valor_entrada_source)}`}>
+                                {sourceLabel(clientProfile.valor_entrada_source)}
+                              </span>
+                            )}
+                          </div>
+                          <input
+                            type="number"
+                            className={styles.prefillInput}
+                            value={profileEdit.entrada_valor}
+                            onChange={(e) => setProfileEdit({ ...profileEdit, entrada_valor: e.target.value })}
+                            placeholder="Ex: 10000"
+                            min="0"
+                          />
+                        </div>
+                        {/* restricao */}
+                        <div className={styles.prefillFieldRow}>
+                          <div className={styles.prefillFieldHeader}>
+                            <span className={styles.detailLabel}>Restrição</span>
+                            {clientProfile?.restricao_source && (
+                              <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.restricao_source)}`}>
+                                {sourceLabel(clientProfile.restricao_source)}
+                              </span>
+                            )}
+                          </div>
+                          <select
+                            className={styles.prefillSelect}
+                            value={profileEdit.restricao}
+                            onChange={(e) => setProfileEdit({ ...profileEdit, restricao: e.target.value })}
+                          >
+                            <option value="">— não informado —</option>
+                            <option value="true">Sim (tem restrição)</option>
+                            <option value="false">Não (sem restrição)</option>
+                          </select>
+                        </div>
+                        {/* origem_lead */}
+                        <div className={styles.prefillFieldRow}>
+                          <div className={styles.prefillFieldHeader}>
+                            <span className={styles.detailLabel}>Origem do Lead</span>
+                          </div>
+                          <input
+                            type="text"
+                            className={styles.prefillInput}
+                            value={profileEdit.origem_lead}
+                            onChange={(e) => setProfileEdit({ ...profileEdit, origem_lead: e.target.value })}
+                            placeholder="Ex: lyx, campanha-x"
+                          />
+                        </div>
+                        {/* observacoes_admin */}
+                        <div className={styles.detailItemFull}>
+                          <div className={styles.prefillFieldHeader}>
+                            <span className={styles.detailLabel}>Observações Admin</span>
+                          </div>
+                          <textarea
+                            className={styles.prefillTextarea}
+                            value={profileEdit.observacoes_admin}
+                            onChange={(e) => setProfileEdit({ ...profileEdit, observacoes_admin: e.target.value })}
+                            placeholder="Observações internas (não visível ao cliente)"
+                          />
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "12px" }}>
+                        <button
+                          type="button"
+                          className={styles.prefillSaveButton}
+                          onClick={() => void handleSaveProfile()}
+                          disabled={profileBusy}
+                        >
+                          {profileBusy ? "Salvando..." : "Salvar perfil"}
+                        </button>
+                        {profileFeedback && <span className={styles.prefillFeedback}>{profileFeedback}</span>}
+                        {profileError && <span className={styles.prefillError}>{profileError}</span>}
+                      </div>
+                    </>
+                  ) : (
+                    <p className={styles.prefillDisclaimer} style={{ marginTop: 8 }}>
+                      Carregando perfil do cliente...
                     </p>
-                    <div className={styles.detailGrid} style={{ marginTop: "12px" }}>
-                      {/* nome */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Nome</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.nome_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.nome_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <input
-                          type="text"
-                          className={styles.prefillInput}
-                          value={prefillEdit.nome_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, nome_prefill: e.target.value })}
-                          placeholder="Nome do cliente"
-                        />
-                      </div>
-                      {/* nacionalidade */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Nacionalidade</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.nacionalidade_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.nacionalidade_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <input
-                          type="text"
-                          className={styles.prefillInput}
-                          value={prefillEdit.nacionalidade_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, nacionalidade_prefill: e.target.value })}
-                          placeholder="Ex: brasileira"
-                        />
-                      </div>
-                      {/* estado_civil */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Estado Civil</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.estado_civil_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.estado_civil_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <select
-                          className={styles.prefillSelect}
-                          value={prefillEdit.estado_civil_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, estado_civil_prefill: e.target.value })}
-                        >
-                          <option value="">— não informado —</option>
-                          <option value="solteiro">Solteiro(a)</option>
-                          <option value="casado">Casado(a)</option>
-                          <option value="divorciado">Divorciado(a)</option>
-                          <option value="viuvo">Viúvo(a)</option>
-                          <option value="uniao_estavel">União Estável</option>
-                        </select>
-                      </div>
-                      {/* regime_trabalho */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Regime Trabalho</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.regime_trabalho_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.regime_trabalho_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <select
-                          className={styles.prefillSelect}
-                          value={prefillEdit.regime_trabalho_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, regime_trabalho_prefill: e.target.value })}
-                        >
-                          <option value="">— não informado —</option>
-                          <option value="clt">CLT</option>
-                          <option value="autonomo">Autônomo</option>
-                          <option value="servidor_publico">Servidor Público</option>
-                          <option value="empresario">Empresário</option>
-                          <option value="aposentado">Aposentado/Pensionista</option>
-                          <option value="misto">Misto</option>
-                        </select>
-                      </div>
-                      {/* renda */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Renda (R$)</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.renda_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.renda_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <input
-                          type="number"
-                          className={styles.prefillInput}
-                          value={prefillEdit.renda_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, renda_prefill: e.target.value })}
-                          placeholder="Ex: 3500"
-                          min="0"
-                        />
-                      </div>
-                      {/* 36_meses */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>36 Meses (CTPS)</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.meses_36_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.meses_36_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <select
-                          className={styles.prefillSelect}
-                          value={prefillEdit.meses_36_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, meses_36_prefill: e.target.value })}
-                        >
-                          <option value="">— não informado —</option>
-                          <option value="true">Sim</option>
-                          <option value="false">Não</option>
-                        </select>
-                      </div>
-                      {/* dependentes */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Dependentes</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.dependentes_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.dependentes_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <input
-                          type="number"
-                          className={styles.prefillInput}
-                          value={prefillEdit.dependentes_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, dependentes_prefill: e.target.value })}
-                          placeholder="Ex: 0"
-                          min="0"
-                        />
-                      </div>
-                      {/* valor_entrada */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Valor Entrada (R$)</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.valor_entrada_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.valor_entrada_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <input
-                          type="number"
-                          className={styles.prefillInput}
-                          value={prefillEdit.valor_entrada_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, valor_entrada_prefill: e.target.value })}
-                          placeholder="Ex: 10000"
-                          min="0"
-                        />
-                      </div>
-                      {/* restricao */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Restrição</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.restricao_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.restricao_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <select
-                          className={styles.prefillSelect}
-                          value={prefillEdit.restricao_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, restricao_prefill: e.target.value })}
-                        >
-                          <option value="">— não informado —</option>
-                          <option value="true">Sim (tem restrição)</option>
-                          <option value="false">Não (sem restrição)</option>
-                        </select>
-                      </div>
-                      {/* origem_lead */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Origem do Lead</span>
-                        </div>
-                        <input
-                          type="text"
-                          className={styles.prefillInput}
-                          value={prefillEdit.origem_lead}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, origem_lead: e.target.value })}
-                          placeholder="Ex: lyx, campanha-x"
-                        />
-                      </div>
-                      {/* observacoes_admin */}
-                      <div className={styles.detailItemFull}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Observações Admin</span>
-                        </div>
-                        <textarea
-                          className={styles.prefillTextarea}
-                          value={prefillEdit.observacoes_admin}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, observacoes_admin: e.target.value })}
-                          placeholder="Observações internas (não visível ao cliente)"
-                        />
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "12px" }}>
-                      <button
-                        type="button"
-                        className={styles.prefillSaveButton}
-                        onClick={() => void handleSavePrefill()}
-                        disabled={prefillBusy}
-                      >
-                        {prefillBusy ? "Salvando..." : "Salvar pré-dados"}
-                      </button>
-                      {prefillFeedback && <span className={styles.prefillFeedback}>{prefillFeedback}</span>}
-                      {prefillError && <span className={styles.prefillError}>{prefillError}</span>}
-                    </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {/* Status Operacional */}
                 <div className={styles.detailBlock}>
@@ -1141,61 +1124,6 @@ export function AtendimentoUI() {
                     <div className={styles.detailItemFull}>
                       <span className={styles.detailLabel}>Proxima Acao</span>
                       <span className={styles.detailValueHighlight}>{selectedLead.proxima_acao ?? "—"}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Perfil Parcial */}
-                <div className={styles.detailBlock}>
-                  <h3 className={styles.detailBlockTitle}>Perfil Parcial Confirmado</h3>
-                  <div className={styles.detailGrid}>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Estado Civil</span>
-                      <span className={styles.detailValue}>{selectedLead.estado_civil ?? "—"}</span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Regime Trabalho</span>
-                      <span className={styles.detailValue}>{selectedLead.regime_trabalho ?? "—"}</span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Renda Total</span>
-                      <span className={styles.detailValue}>{formatCurrency(selectedLead.renda_total)}</span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Somar Renda</span>
-                      <span className={styles.detailValue}>
-                        {selectedLead.somar_renda === null ? "—" : selectedLead.somar_renda ? "Sim" : "Nao"}
-                      </span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Composicao</span>
-                      <span className={styles.detailValue}>{selectedLead.composicao ?? "—"}</span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>IR Declarado</span>
-                      <span className={styles.detailValue}>
-                        {selectedLead.ir_declarado === null ? "—" : selectedLead.ir_declarado ? "Sim" : "Nao"}
-                      </span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>CTPS 36 meses</span>
-                      <span className={styles.detailValue}>
-                        {selectedLead.ctps_36 === null ? "—" : selectedLead.ctps_36 ? "Sim" : "Nao"}
-                      </span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Restricao</span>
-                      <span className={selectedLead.restricao ? styles.detailValueDanger : styles.detailValue}>
-                        {selectedLead.restricao === null ? "—" : selectedLead.restricao ? "Sim" : "Nao"}
-                      </span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Dependentes</span>
-                      <span className={styles.detailValue}>{selectedLead.dependentes_qtd ?? "—"}</span>
-                    </div>
-                    <div className={styles.detailItemFull}>
-                      <span className={styles.detailLabel}>Resumo Curto</span>
-                      <span className={styles.detailValue}>{selectedLead.resumo_curto ?? "—"}</span>
                     </div>
                   </div>
                 </div>

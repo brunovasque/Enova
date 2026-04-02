@@ -691,6 +691,20 @@ async function getState(env, wa_id) {
 // Atualiza ou cria estado do funil (UPSERT manual, sem 409)
 // =============================================================
 async function upsertState(env, wa_id, payload) {
+  const result = await _upsertStateCore(env, wa_id, payload);
+  // ── Metadados de perfil (não-bloqueante) ──────────────────────────────
+  // Se o payload contém campos de perfil do cliente, registra source='funil'
+  // em enova_prefill_meta. Falha silenciosa — nunca interfere no trilho.
+  const profileFieldsInPayload = new Set(
+    Object.keys(payload || {}).filter((k) => PROFILE_META_FIELDS.has(k))
+  );
+  if (profileFieldsInPayload.size > 0) {
+    updateProfileFieldsMeta(env, wa_id, profileFieldsInPayload, "funil").catch(() => {});
+  }
+  return result;
+}
+
+async function _upsertStateCore(env, wa_id, payload) {
   const simCtx = getSimulationContext(env);
   const optionalMissingEnovaStateColumns = new Set([
     "last_message_id_prev",
@@ -1432,6 +1446,81 @@ async function getPrefillMeta(env, wa_id) {
     return rows?.[0] || null;
   } catch (_) {
     return null;
+  }
+}
+
+// =============================================================
+// PROFILE_META_FIELDS — campos de perfil rastreados com metadados de origem
+// updateProfileFieldsMeta — atualiza {campo}_source e {campo}_updated_at em
+// enova_prefill_meta quando o funil escreve um campo de perfil em enova_state.
+// REGRA: não-bloqueante; falha silenciosa; não interfere no trilho.
+// GUARDRAIL: somente campos desta lista são permitidos — nenhum campo de
+// controle de fluxo (fase_conversa, nextStage, etc.) é registrado.
+// =============================================================
+const PROFILE_META_FIELDS = new Set([
+  "nome",
+  "nacionalidade",
+  "estado_civil",
+  "regime_trabalho",
+  "renda",
+  "ctps_36",
+  "dependentes_qtd",
+  "entrada_valor",
+  "restricao",
+]);
+
+// Map enova_state field name → enova_prefill_meta source column name
+const PROFILE_FIELD_TO_META_SOURCE = {
+  nome: "nome_source",
+  nacionalidade: "nacionalidade_source",
+  estado_civil: "estado_civil_source",
+  regime_trabalho: "regime_trabalho_source",
+  renda: "renda_source",
+  ctps_36: "meses_36_source",
+  dependentes_qtd: "dependentes_source",
+  entrada_valor: "valor_entrada_source",
+  restricao: "restricao_source",
+};
+
+// Map enova_state field name → enova_prefill_meta updated_at column name
+const PROFILE_FIELD_TO_META_UPDATED_AT = {
+  nome: "nome_updated_at",
+  nacionalidade: "nacionalidade_updated_at",
+  estado_civil: "estado_civil_updated_at",
+  regime_trabalho: "regime_trabalho_updated_at",
+  renda: "renda_updated_at",
+  ctps_36: "meses_36_updated_at",
+  dependentes_qtd: "dependentes_updated_at",
+  entrada_valor: "valor_entrada_updated_at",
+  restricao: "restricao_updated_at",
+};
+
+async function updateProfileFieldsMeta(env, wa_id, fieldNames, source) {
+  if (!wa_id || !fieldNames || fieldNames.size === 0) return;
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) return; // skip metadata updates in simulation
+
+  try {
+    const now = new Date().toISOString();
+    const patch = { wa_id, updated_at: now };
+    for (const field of fieldNames) {
+      const sourceCol = PROFILE_FIELD_TO_META_SOURCE[field];
+      const updatedAtCol = PROFILE_FIELD_TO_META_UPDATED_AT[field];
+      if (sourceCol) patch[sourceCol] = source;
+      if (updatedAtCol) patch[updatedAtCol] = now;
+    }
+    await supabaseProxyFetch(env, {
+      path: "/rest/v1/enova_prefill_meta",
+      method: "POST",
+      query: { on_conflict: "wa_id" },
+      headers: {
+        Prefer: "resolution=merge-duplicates,return=minimal",
+        Accept: "application/json",
+      },
+      body: patch,
+    });
+  } catch (_) {
+    // Non-blocking: metadata update failure must never affect the trilho
   }
 }
 /**

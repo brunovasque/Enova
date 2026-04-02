@@ -496,6 +496,14 @@ export function AtendimentoUI() {
     setPrefillError(null);
   }, []);
 
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" && selectedLead) closeDetail();
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [selectedLead, closeDetail]);
+
   const handleSavePrefill = useCallback(async () => {
     if (!selectedLead || !prefillEdit) return;
     setPrefillBusy(true);
@@ -806,10 +814,71 @@ export function AtendimentoUI() {
                   </div>
                 </div>
 
+                {/* Perfil Parcial — confirmado pelo funil */}
+                <div className={styles.detailBlock}>
+                  <h3 className={styles.detailBlockTitle}>
+                    Perfil Parcial Confirmado
+                    <span style={{ marginLeft: 8, fontSize: "0.7rem", fontWeight: 400, color: "#34d399", letterSpacing: "0.03em", textTransform: "uppercase" }}>confirmado no funil</span>
+                  </h3>
+                  <div className={styles.detailGrid}>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Estado Civil</span>
+                      <span className={styles.detailValue}>{selectedLead.estado_civil ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Regime Trabalho</span>
+                      <span className={styles.detailValue}>{selectedLead.regime_trabalho ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Renda Total</span>
+                      <span className={styles.detailValue}>{formatCurrency(selectedLead.renda_total)}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Somar Renda</span>
+                      <span className={styles.detailValue}>
+                        {selectedLead.somar_renda === null ? "—" : selectedLead.somar_renda ? "Sim" : "Não"}
+                      </span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Composicao</span>
+                      <span className={styles.detailValue}>{selectedLead.composicao ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>IR Declarado</span>
+                      <span className={styles.detailValue}>
+                        {selectedLead.ir_declarado === null ? "—" : selectedLead.ir_declarado ? "Sim" : "Não"}
+                      </span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>CTPS 36 meses</span>
+                      <span className={styles.detailValue}>
+                        {selectedLead.ctps_36 === null ? "—" : selectedLead.ctps_36 ? "Sim" : "Não"}
+                      </span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Restricao</span>
+                      <span className={selectedLead.restricao ? styles.detailValueDanger : styles.detailValue}>
+                        {selectedLead.restricao === null ? "—" : selectedLead.restricao ? "Sim" : "Não"}
+                      </span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Dependentes</span>
+                      <span className={styles.detailValue}>{selectedLead.dependentes_qtd ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItemFull}>
+                      <span className={styles.detailLabel}>Resumo Curto</span>
+                      <span className={styles.detailValue}>{selectedLead.resumo_curto ?? "—"}</span>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Informações Pré-preenchidas (admin) */}
                 {prefillEdit !== null && (
                   <div className={styles.detailBlock}>
-                    <h3 className={styles.detailBlockTitle}>Informações Pré-preenchidas</h3>
+                    <h3 className={styles.detailBlockTitle}>
+                      Informações Pré-preenchidas
+                      <span style={{ marginLeft: 8, fontSize: "0.7rem", fontWeight: 400, color: "#fbbf24", letterSpacing: "0.03em", textTransform: "uppercase" }}>pendente confirmação</span>
+                    </h3>
                     <p className={styles.prefillDisclaimer}>
                       Dados inseridos manualmente. Não são confirmados até que o cliente valide no funil.
                     </p>
@@ -1119,61 +1188,6 @@ export function AtendimentoUI() {
                     <div className={styles.detailItemFull}>
                       <span className={styles.detailLabel}>Proxima Acao</span>
                       <span className={styles.detailValueHighlight}>{selectedLead.proxima_acao ?? "—"}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Perfil Parcial */}
-                <div className={styles.detailBlock}>
-                  <h3 className={styles.detailBlockTitle}>Perfil Parcial Confirmado</h3>
-                  <div className={styles.detailGrid}>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Estado Civil</span>
-                      <span className={styles.detailValue}>{selectedLead.estado_civil ?? "—"}</span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Regime Trabalho</span>
-                      <span className={styles.detailValue}>{selectedLead.regime_trabalho ?? "—"}</span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Renda Total</span>
-                      <span className={styles.detailValue}>{formatCurrency(selectedLead.renda_total)}</span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Somar Renda</span>
-                      <span className={styles.detailValue}>
-                        {selectedLead.somar_renda === null ? "—" : selectedLead.somar_renda ? "Sim" : "Nao"}
-                      </span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Composicao</span>
-                      <span className={styles.detailValue}>{selectedLead.composicao ?? "—"}</span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>IR Declarado</span>
-                      <span className={styles.detailValue}>
-                        {selectedLead.ir_declarado === null ? "—" : selectedLead.ir_declarado ? "Sim" : "Nao"}
-                      </span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>CTPS 36 meses</span>
-                      <span className={styles.detailValue}>
-                        {selectedLead.ctps_36 === null ? "—" : selectedLead.ctps_36 ? "Sim" : "Nao"}
-                      </span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Restricao</span>
-                      <span className={selectedLead.restricao ? styles.detailValueDanger : styles.detailValue}>
-                        {selectedLead.restricao === null ? "—" : selectedLead.restricao ? "Sim" : "Nao"}
-                      </span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Dependentes</span>
-                      <span className={styles.detailValue}>{selectedLead.dependentes_qtd ?? "—"}</span>
-                    </div>
-                    <div className={styles.detailItemFull}>
-                      <span className={styles.detailLabel}>Resumo Curto</span>
-                      <span className={styles.detailValue}>{selectedLead.resumo_curto ?? "—"}</span>
                     </div>
                   </div>
                 </div>

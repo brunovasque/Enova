@@ -95,6 +95,7 @@ function resolveCognitiveTelemetrySlot(stage, cognitiveOutput) {
   if (safeSignal.startsWith("composicao:")) return "composicao";
   if (safeSignal.startsWith("renda:")) return "renda";
   if (safeSignal.startsWith("ir:")) return "ir_declarado";
+  if (safeSignal.startsWith("regime:")) return "regime_trabalho";
   return null;
 }
 
@@ -2415,7 +2416,9 @@ const COGNITIVE_V1_ALLOWED_STAGES = new Set([
   "quem_pode_somar",
   "interpretar_composicao",
   "renda",
-  "ir_declarado"
+  "ir_declarado",
+  "regime_trabalho",
+  "autonomo_ir_pergunta"
 ]);
 
 const COGNITIVE_V1_CONFIDENCE_MIN = 0.66;
@@ -2447,7 +2450,9 @@ const COGNITIVE_PLAYBOOK_V1 = {
     quem_pode_somar: ["composicao_familiar", "composicao_parceiro", "duvida_conjuge", "objecao"],
     interpretar_composicao: ["composicao_familiar", "composicao_parceiro", "sozinho", "objecao"],
     renda: ["renda_hibrida", "autonomo_ir", "duvida_valor_sem_analise", "objecao"],
-    ir_declarado: ["ir_sim", "ir_nao", "autonomo_ir", "objecao"]
+    ir_declarado: ["ir_sim", "ir_nao", "autonomo_ir", "objecao"],
+    regime_trabalho: ["clt", "autonomo", "mei", "aposentadoria", "duvida_regime", "objecao"],
+    autonomo_ir_pergunta: ["ir_sim", "ir_nao", "duvida_ir_autonomo", "duvida_mei_ir", "objecao"]
   },
   entities_supported: [
     "estado_civil",
@@ -2536,6 +2541,12 @@ function hasClearStageAnswer(stage, text) {
     const sozinho = /(so\s*(a\s*)?minha|so\s*eu|sozinh|ninguem|sem ninguem)/i.test(nt);
     return Boolean(composicao || sozinho);
   }
+  if (stage === "regime_trabalho") {
+    return Boolean(parseRegimeTrabalho(text));
+  }
+  if (stage === "autonomo_ir_pergunta") {
+    return isYes(text) || isNo(text);
+  }
   return false;
 }
 
@@ -2561,6 +2572,20 @@ function shouldTriggerCognitiveAssist(stage, text) {
     if (composicaoHints) return true;
   }
 
+  // Bloco renda/trabalho — triggers específicos
+  if (stage === "regime_trabalho") {
+    const regimeHints = /\b(mei|microempreendedor|nao sei qual|não sei qual|bico|uber|ifood|freela|informal|aposentad|servidor|registrado|carteira)\b/i.test(nt);
+    if (regimeHints) return true;
+  }
+  if (stage === "autonomo_ir_pergunta") {
+    const irHints = /\b(nao declaro|não declaro|nao tenho ir|não tenho ir|da tempo|dá tempo|prazo|mei|sou mei|nao consigo|não consigo)\b/i.test(nt);
+    if (irHints) return true;
+  }
+  if (stage === "renda") {
+    const rendaHints = /\b(bruto|liquido|líquido|varia|variavel|variável|depende do mes|depende do mês|nao sei|não sei|extra|bonus|bônus|comissao|comissão|gira em torno|mais ou menos|aproximadamente)\b/i.test(nt);
+    if (rendaHints) return true;
+  }
+
   return hasQuestion || hasConnector || offtrackHints || fearHints;
 }
 
@@ -2580,7 +2605,9 @@ function isStageSignalCompatible(stage, safeStageSignal) {
     quem_pode_somar: ["composicao"],
     interpretar_composicao: ["composicao"],
     renda: ["renda", "regime", "ir_possible"],
-    ir_declarado: ["ir"]
+    ir_declarado: ["ir"],
+    regime_trabalho: ["regime"],
+    autonomo_ir_pergunta: ["ir"]
   };
   const allowed = map[stage] || [];
   return allowed.some((prefix) => String(safeStageSignal).startsWith(prefix));
@@ -2634,6 +2661,27 @@ function extractCompatibleStageAnswerFromCognitive(stage, cognitiveOutput) {
   }
 
   if (stage === "ir_declarado") {
+    const ir = normalizeText(String(entities.ir_declarado ?? stageSignals.ir_declarado ?? ""));
+    if (ir === "sim" || ir === "true") return "sim";
+    if (ir === "nao" || ir === "false") return "nao";
+    const safeMatch = safe.match(/^ir:(.+)$/);
+    if (safeMatch?.[1]) {
+      const v = normalizeText(safeMatch[1]);
+      if (v === "sim" || v === "true") return "sim";
+      if (v === "nao" || v === "false") return "nao";
+    }
+    return null;
+  }
+
+  if (stage === "regime_trabalho") {
+    const reg = normalizeText(String(entities.regime_trabalho ?? stageSignals.regime_trabalho ?? ""));
+    if (reg) return reg;
+    const safeMatch = safe.match(/^regime:(.+)$/);
+    if (safeMatch?.[1]) return normalizeText(safeMatch[1]);
+    return null;
+  }
+
+  if (stage === "autonomo_ir_pergunta") {
     const ir = normalizeText(String(entities.ir_declarado ?? stageSignals.ir_declarado ?? ""));
     if (ir === "sim" || ir === "true") return "sim";
     if (ir === "nao" || ir === "false") return "nao";
@@ -2709,6 +2757,10 @@ function adaptCognitiveV2Output(stage, v2Result) {
   } else if (stage === "renda" && entities.renda != null) {
     safeStageSignal = "renda:" + String(entities.renda);
   } else if (stage === "ir_declarado" && entities.ir_declarado) {
+    safeStageSignal = "ir:" + String(entities.ir_declarado);
+  } else if (stage === "regime_trabalho" && entities.regime_trabalho) {
+    safeStageSignal = "regime:" + String(entities.regime_trabalho);
+  } else if (stage === "autonomo_ir_pergunta" && entities.ir_declarado) {
     safeStageSignal = "ir:" + String(entities.ir_declarado);
   }
 

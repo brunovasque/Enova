@@ -89,6 +89,7 @@ const COGNITIVE_SLOT_DEPENDENCIES = Object.freeze({
 });
 const TOPO_FUNIL_STAGES = new Set(["inicio", "inicio_decisao", "inicio_programa", "inicio_nome", "inicio_nacionalidade", "inicio_rnm", "inicio_rnm_validade"]);
 const COMPOSICAO_INICIAL_STAGES = new Set(["somar_renda_solteiro", "somar_renda_familiar", "quem_pode_somar", "interpretar_composicao"]);
+const RENDA_TRABALHO_STAGES = new Set(["regime_trabalho", "autonomo_ir_pergunta", "renda"]);
 const REPLY_TEXT_REPLACEMENTS = Object.freeze([
   [/\brunner read-only\b/gi, "atendimento"],
   [/\bmotor cognitivo de teste\b/gi, "atendimento"],
@@ -478,6 +479,10 @@ function isTopoFunilContext(request) {
 
 function isComposicaoInicialContext(request) {
   return COMPOSICAO_INICIAL_STAGES.has(normalizeText(request?.current_stage));
+}
+
+function isRendaTrabalhoContext(request) {
+  return RENDA_TRABALHO_STAGES.has(normalizeText(request?.current_stage));
 }
 
 function toNumber(value) {
@@ -986,6 +991,71 @@ function buildComposicaoInicialGuidance(request) {
   return null;
 }
 
+function buildRendaTrabalhoGuidance(request) {
+  const stage = normalizeText(request?.current_stage);
+  const normalizedMessage = normalizeText(request?.message_text);
+
+  if (stage === "regime_trabalho") {
+    if (/\b(clt|carteira assinada|registrad|de carteira)\b/i.test(normalizedMessage)) {
+      return "CLT entendido. O sistema vai registrar corretamente. Você é *CLT*, *autônomo* ou tem outro tipo de renda?";
+    }
+    if (/\bmei\b|\bmicro\s*empreendedor\b/i.test(normalizedMessage)) {
+      return "MEI entra como autônomo no sistema — o que importa é o CPF como pessoa física. Você é *CLT*, *autônomo/MEI* ou tem outro tipo de renda?";
+    }
+    if (/\baposentad\b/i.test(normalizedMessage)) {
+      return "Aposentadoria é um regime reconhecido. O sistema vai verificar as condições. Você é *aposentado(a)* ou tem também outra renda ativa?";
+    }
+    if (/\bbico\b|\binformal\b|\bfreela\b|\buber\b|\bifood\b/i.test(normalizedMessage)) {
+      return "Trabalho informal entra como autônomo. O sistema vai verificar o melhor caminho pelo seu perfil. Você é *CLT*, *autônomo* ou tem outro tipo de renda?";
+    }
+    if (/\bnao sei\b|\bnão sei\b|\bnao tenho certeza\b|\bnão tenho certeza\b|\bnao sei qual\b|\bnão sei qual\b/i.test(normalizedMessage)) {
+      return "Sem problema. A mais comum: *CLT* = carteira assinada; *autônomo* = por conta própria, MEI ou informal; *aposentado* = renda de benefício. Qual se encaixa no seu caso?";
+    }
+    return "Preciso saber como você recebe sua renda para seguir corretamente. Você é *CLT*, *autônomo* ou tem outro tipo de renda?";
+  }
+
+  if (stage === "autonomo_ir_pergunta") {
+    if (/\bnao declaro\b|\bnão declaro\b|\bnao tenho ir\b|\bnão tenho ir\b|\bnao declarei\b|\bnão declarei\b/i.test(normalizedMessage)) {
+      return "Tudo bem. O IR ajuda a formalizar a renda, mas a ausência não impede automaticamente — o sistema vai verificar o caminho mais seguro. Você já declarou IR nos últimos anos? Responda *sim* ou *não*.";
+    }
+    if (/\bnao consigo\b|\bnão consigo\b|\bnao vou conseguir\b|\bnão vou conseguir\b|\bse eu nao tiver\b|\bse eu não tiver\b/i.test(normalizedMessage)) {
+      return "Não ter IR não trava automaticamente. Vai depender do perfil completo na análise. Você já declarou IR? Responda *sim* ou *não*.";
+    }
+    if (/\bda tempo\b|\bdá tempo\b|\bainda da\b|\bainda dá\b|\bprazo\b/i.test(normalizedMessage)) {
+      return "O prazo de declaração depende do calendário da Receita. Por aqui, o importante é saber se você já declarou ou não. Você já declarou IR? Responda *sim* ou *não*.";
+    }
+    if (/\bmei\b|\bsou mei\b/i.test(normalizedMessage)) {
+      return "MEI emite CNPJ, mas o financiamento é como pessoa física. O IR do titular como PF é o que conta aqui. Você já declarou IR como pessoa física? Responda *sim* ou *não*.";
+    }
+    return "O IR ajuda a formalizar renda autônoma na análise. Você já declarou IR? Responda *sim* ou *não*.";
+  }
+
+  if (stage === "renda") {
+    if (/\bbruto\b|\bliquido\b|\blíquido\b/i.test(normalizedMessage)) {
+      return "Use o valor que você recebe na mão (líquido), descontando impostos e contribuições quando houver. Qual é o seu valor mensal?";
+    }
+    if (/\bvaria\b|\bvari[aá]vel\b|\bdepende do mes\b|\bdepende do mês\b|\bnao e fixo\b|\bnão é fixo\b/i.test(normalizedMessage)) {
+      return "Quando a renda varia, use a média dos últimos meses como referência. Qual é a sua média mensal aproximada?";
+    }
+    if (/\bnao sei\b|\bnão sei\b|\bnao sei ao certo\b|\bnão sei ao certo\b|\bnao sei exato\b|\bnão sei exato\b/i.test(normalizedMessage)) {
+      return "Sem problema — uma estimativa já ajuda. Qual valor você recebe por mês, em média?";
+    }
+    if (/\bextra\b|\badicional\b|\bbonus\b|\bbônus\b|\bcomissao\b|\bcomissão\b/i.test(normalizedMessage)) {
+      return "Para esta etapa, informe apenas a renda principal. Renda extra e composição são tratados em etapas específicas. Qual é o seu valor mensal principal?";
+    }
+    if (/\bgira em torno\b|\baproximadamente\b|\bmais ou menos\b|\bpor volta de\b/i.test(normalizedMessage)) {
+      const money = detectMoney(request?.message_text);
+      if (Number.isFinite(money) && money > 300) {
+        return `Entendido, valor aproximado registrado. O sistema vai usar R$ ${money.toLocaleString("pt-BR")} como referência. Confirma esse valor mensal?`;
+      }
+      return "Entendido. Me confirma o valor aproximado mensal para eu seguir?";
+    }
+    return "Qual é o seu valor de renda mensal?";
+  }
+
+  return null;
+}
+
 function buildTopoFunilGuidance(request) {
   const stage = normalizeText(request?.current_stage);
   const normalizedMessage = normalizeText(request?.message_text);
@@ -1116,6 +1186,10 @@ function buildPhaseGuidanceReply({ request, suggestedNextSlot, pendingSlots }) {
     const composicaoReply = buildComposicaoInicialGuidance(request);
     if (composicaoReply) return composicaoReply;
   }
+  if (isRendaTrabalhoContext(request)) {
+    const rendaTrabalhoReply = buildRendaTrabalhoGuidance(request);
+    if (rendaTrabalhoReply) return rendaTrabalhoReply;
+  }
   if (isAluguelContext(request)) return buildAluguelGuidance(request);
   if (isUnknownDocTypeContext(request)) return buildUnknownDocTypeGuidance(request);
   if (isDocForaDeOrdemContext(request)) return buildDocForaDeOrdemGuidance(request);
@@ -1204,6 +1278,12 @@ function buildNextActionPrompt({ request, suggestedNextSlot, pendingSlots }) {
     if (topoStage === "somar_renda_familiar") return "Me diz com qual familiar você pretende compor renda?";
     if (topoStage === "quem_pode_somar") return "Me confirma com quem você pretende compor renda?";
     if (topoStage === "interpretar_composicao") return "Me confirma se vai seguir com parceiro, familiar ou sozinho?";
+  }
+
+  if (RENDA_TRABALHO_STAGES.has(topoStage)) {
+    if (topoStage === "regime_trabalho") return "Você é *CLT*, *autônomo* ou tem outro tipo de renda?";
+    if (topoStage === "autonomo_ir_pergunta") return "Você já declarou IR? Responda *sim* ou *não*.";
+    if (topoStage === "renda") return "Qual é o seu valor de renda mensal?";
   }
 
   return "Se estiver tudo certo até aqui, já me manda os documentos básicos agora que isso adianta sua análise.";
@@ -1621,6 +1701,7 @@ function buildHeuristicResponse(request, analysis, conflictList) {
     : analysis.offtrack ? CONFIDENCE_RULES.offtrackBase
     : TOPO_FUNIL_STAGES.has(request.current_stage) ? 0.72 // topo: phase guidance is the signal; floor above COGNITIVE_V1_CONFIDENCE_MIN (0.66)
     : COMPOSICAO_INICIAL_STAGES.has(request.current_stage) ? 0.70 // composicao inicial: guidance floor above min
+    : RENDA_TRABALHO_STAGES.has(request.current_stage) ? 0.70 // renda/trabalho: guidance floor above min
     : CONFIDENCE_RULES.noSlotBase;
   const confidencePenalty =
     conflictList.length * CONFIDENCE_RULES.conflictPenalty +

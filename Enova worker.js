@@ -358,6 +358,9 @@ async function step(env, st, messages, nextStage, options = {}) {
 
     console.error("Erro no step():", err);
 
+    // 🚨 INCIDENT — step critical error (objective proof: caught exception)
+    try { await openIncidentIfNeeded(env, st, { incident_type: "WORKER_EXCEPTION", incident_severity: "CRITICAL", error_message_short: "Erro crítico no step()", error_message_raw: err?.stack || String(err), suspected_trigger: "step_catch" }); } catch (_) { /* non-blocking */ }
+
     if (requireSendSuccess) {
       throw err;
     }
@@ -457,6 +460,8 @@ async function sendMessage(env, wa_id, text, options = {}) {
     });
 
     console.error("Erro sendMessage (network):", err);
+    // 🚨 INCIDENT — network failure sending message (objective proof: fetch exception)
+    try { await openIncidentIfNeeded(env, { wa_id, fase_conversa: "sendMessage" }, { incident_type: "MESSAGE_SEND_FAILURE", incident_severity: "CRITICAL", error_message_short: "Falha de rede ao enviar mensagem WhatsApp", error_message_raw: err?.stack || String(err), suspected_trigger: "sendMessage_network_catch" }); } catch (_) { /* non-blocking */ }
     if (options.returnMeta) {
       return {
         ok: false,
@@ -498,6 +503,8 @@ async function sendMessage(env, wa_id, text, options = {}) {
     });
 
     console.error("Erro sendMessage (HTTP):", res.status, textErr);
+    // 🚨 INCIDENT — HTTP error sending message (objective proof: non-2xx status)
+    try { await openIncidentIfNeeded(env, { wa_id, fase_conversa: "sendMessage" }, { incident_type: "MESSAGE_SEND_FAILURE", incident_severity: res.status === 429 ? "MEDIUM" : "HIGH", error_message_short: `Erro HTTP ${res.status} na API Meta WhatsApp`, error_message_raw: textErr ? String(textErr).slice(0, 4000) : null, suspected_trigger: `sendMessage_http_${res.status}` }); } catch (_) { /* non-blocking */ }
     if (options.returnMeta) {
       return {
         ok: false,
@@ -835,6 +842,8 @@ async function upsertState(env, wa_id, payload) {
       `upsertState: erro geral para wa_id=${wa_id}`,
       err
     );
+    // 🚨 INCIDENT — persistence failure (objective proof: Supabase upsert exception)
+    try { await openIncidentIfNeeded(env, { wa_id, fase_conversa: payload?.fase_conversa }, { incident_type: "PERSISTENCE_FAILURE", incident_severity: "CRITICAL", error_message_short: "Falha de persistência no upsertState", error_message_raw: err?.stack || String(err), suspected_trigger: "upsertState_catch" }); } catch (_) { /* non-blocking */ }
     throw err;
   }
 }
@@ -1095,6 +1104,232 @@ async function getAttendanceMeta(env, wa_id) {
   }
 }
 
+// =============================================================
+// 🚨 INCIDENTES — Helpers de persistência (enova_incidents)
+// =============================================================
+
+/** Valid incident types (canonical enum) */
+const INCIDENT_TYPES = new Set([
+  "WORKER_EXCEPTION",
+  "FUNNEL_LOOP_DETECTED",
+  "STAGE_STALL_INTERNAL",
+  "MESSAGE_SEND_FAILURE",
+  "PARSER_FAILURE",
+  "INVALID_TRANSITION",
+  "TIMEOUT",
+  "PERSISTENCE_FAILURE",
+  "UNKNOWN_INTERNAL_ERROR"
+]);
+
+/** Valid incident severities (canonical enum) */
+const INCIDENT_SEVERITIES = new Set(["LOW", "MEDIUM", "HIGH", "CRITICAL"]);
+
+/** Valid incident statuses (canonical enum) */
+const INCIDENT_STATUSES = new Set(["OPEN", "ACKNOWLEDGED", "RESOLVED"]);
+
+/**
+ * Insert a new incident into enova_incidents.
+ * Non-blocking — never breaks the funnel.
+ * Returns the inserted row or null on failure.
+ */
+async function insertIncident(env, incident) {
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) {
+    simCtx._incidents = simCtx._incidents || [];
+    const simRow = { incident_id: `sim-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, ...incident, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    simCtx._incidents.push(simRow);
+    return simRow;
+  }
+
+  try {
+    const now = new Date().toISOString();
+    const body = {
+      wa_id: incident.wa_id,
+      incident_type: incident.incident_type,
+      incident_severity: incident.incident_severity || "HIGH",
+      incident_status: incident.incident_status || "OPEN",
+      funnel_stage_at_error: incident.funnel_stage_at_error || null,
+      base_at_error: incident.base_at_error || null,
+      error_message_short: incident.error_message_short || null,
+      error_message_raw: incident.error_message_raw ? String(incident.error_message_raw).slice(0, 4000) : null,
+      suspected_trigger: incident.suspected_trigger || null,
+      request_id: incident.request_id || null,
+      trace_id: incident.trace_id || null,
+      worker_env: incident.worker_env || null,
+      last_customer_message_at: incident.last_customer_message_at || null,
+      last_enova_action_at: incident.last_enova_action_at || null,
+      needs_human_review: incident.needs_human_review !== false,
+      opened_at: now,
+      created_at: now,
+      updated_at: now
+    };
+
+    const result = await sbFetch(env, "/rest/v1/enova_incidents", {
+      method: "POST",
+      body: JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+        apikey: env.SUPABASE_SERVICE_ROLE,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE}`
+      }
+    });
+
+    const rows = normalizeSupabaseRows(result);
+    return rows?.[0] || null;
+  } catch (err) {
+    const errMsg = String(err?.data?.message || err?.message || err || "");
+    if (/enova_incidents/.test(errMsg) && /schema cache|does not exist|relation/i.test(errMsg)) {
+      console.log("INCIDENT_SKIP: tabela enova_incidents ainda não existe no Supabase. Ignorando insert.");
+      return null;
+    }
+    console.error("INCIDENT_INSERT_ERROR:", errMsg);
+    return null;
+  }
+}
+
+/**
+ * Get the most recent OPEN incident for a wa_id.
+ * Returns the row or null if none / table doesn't exist.
+ */
+async function getOpenIncident(env, wa_id) {
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) {
+    const incidents = simCtx._incidents || [];
+    return incidents.filter(i => i.wa_id === wa_id && i.incident_status === "OPEN").sort((a, b) => (b.opened_at || "").localeCompare(a.opened_at || ""))[0] || null;
+  }
+
+  try {
+    const result = await sbFetch(env, "/rest/v1/enova_incidents", {
+      method: "GET",
+      query: `wa_id=eq.${encodeURIComponent(wa_id)}&incident_status=eq.OPEN&order=opened_at.desc&limit=1`,
+      headers: {
+        "Content-Type": "application/json",
+        apikey: env.SUPABASE_SERVICE_ROLE,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE}`
+      }
+    });
+    const rows = normalizeSupabaseRows(result);
+    return rows?.[0] || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Resolve an incident by ID.
+ * Non-blocking — never breaks the funnel.
+ */
+async function resolveIncident(env, incident_id, resolution_note) {
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) {
+    const incidents = simCtx._incidents || [];
+    const found = incidents.find(i => i.incident_id === incident_id);
+    if (found) {
+      found.incident_status = "RESOLVED";
+      found.resolved_at = new Date().toISOString();
+      found.resolution_note = resolution_note || null;
+      found.updated_at = new Date().toISOString();
+    }
+    return found || null;
+  }
+
+  try {
+    const now = new Date().toISOString();
+    const result = await sbFetch(env, "/rest/v1/enova_incidents", {
+      method: "PATCH",
+      query: `incident_id=eq.${encodeURIComponent(incident_id)}`,
+      body: JSON.stringify({
+        incident_status: "RESOLVED",
+        resolved_at: now,
+        resolution_note: resolution_note || null,
+        updated_at: now
+      }),
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "return=representation",
+        apikey: env.SUPABASE_SERVICE_ROLE,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE}`
+      }
+    });
+    const rows = normalizeSupabaseRows(result);
+    return rows?.[0] || null;
+  } catch (err) {
+    console.error("INCIDENT_RESOLVE_ERROR:", String(err?.message || err));
+    return null;
+  }
+}
+
+/**
+ * Open an incident with objective proof.
+ * Deduplicates: won't open a new OPEN incident of the same type for the same wa_id
+ * if one already exists (within the same funnel stage).
+ * Non-blocking — never breaks the funnel.
+ */
+async function openIncidentIfNeeded(env, st, params) {
+  if (!st?.wa_id) return null;
+  if (!params?.incident_type || !INCIDENT_TYPES.has(params.incident_type)) return null;
+
+  const severity = params.incident_severity && INCIDENT_SEVERITIES.has(params.incident_severity)
+    ? params.incident_severity
+    : "HIGH";
+
+  // Dedup check: don't open if same type + stage already OPEN for this wa_id
+  try {
+    const existing = await getOpenIncident(env, st.wa_id);
+    if (existing && existing.incident_type === params.incident_type && existing.funnel_stage_at_error === (st.fase_conversa || "inicio")) {
+      return existing; // Already tracked, don't duplicate
+    }
+  } catch (_) {
+    // Continue even if dedup check fails
+  }
+
+  const incident = {
+    wa_id: st.wa_id,
+    incident_type: params.incident_type,
+    incident_severity: severity,
+    incident_status: "OPEN",
+    funnel_stage_at_error: st.fase_conversa || "inicio",
+    base_at_error: st.base_origem || st.utm_source || null,
+    error_message_short: params.error_message_short || null,
+    error_message_raw: params.error_message_raw || null,
+    suspected_trigger: params.suspected_trigger || null,
+    request_id: params.request_id || null,
+    trace_id: params.trace_id || null,
+    worker_env: env.ENVIRONMENT || env.CF_WORKER_ENV || null,
+    last_customer_message_at: st.last_incoming_at || null,
+    last_enova_action_at: st.updated_at || null,
+    needs_human_review: params.needs_human_review !== false
+  };
+
+  return await insertIncident(env, incident);
+}
+
+/**
+ * Sync attendance_meta incident flags from enova_incidents.
+ * Called inside syncAttendanceMeta to update has_open_incident, open_incident_type, open_incident_severity.
+ * Non-blocking.
+ */
+async function deriveIncidentFlags(env, wa_id) {
+  try {
+    const open = await getOpenIncident(env, wa_id);
+    if (open) {
+      return {
+        has_open_incident: true,
+        open_incident_type: open.incident_type,
+        open_incident_severity: open.incident_severity
+      };
+    }
+  } catch (_) {
+    // Non-blocking
+  }
+  return {
+    has_open_incident: false,
+    open_incident_type: null,
+    open_incident_severity: null
+  };
+}
+
 /**
  * Sync attendance meta after a stage transition or interaction event.
  * Called from step() and handleMetaWebhook() — surgical, non-blocking.
@@ -1231,8 +1466,18 @@ async function syncAttendanceMeta(env, st, event) {
   // Summary
   patch.enova_summary_short = buildAttendanceSummaryShort(st, stage);
 
-  // Incidents — safe defaults (no incident table yet)
-  patch.has_open_incident = false;
+  // Incidents — derive flags from enova_incidents table
+  try {
+    const incidentFlags = await deriveIncidentFlags(env, st.wa_id);
+    patch.has_open_incident = incidentFlags.has_open_incident;
+    patch.open_incident_type = incidentFlags.open_incident_type;
+    patch.open_incident_severity = incidentFlags.open_incident_severity;
+  } catch (_) {
+    // Non-blocking fallback
+    patch.has_open_incident = false;
+    patch.open_incident_type = null;
+    patch.open_incident_severity = null;
+  }
 
   try {
     await upsertAttendanceMeta(env, st.wa_id, patch);
@@ -7687,6 +7932,9 @@ try {
       message: "Erro ao processar mensagem no funil",
       details: safeDetails
     });
+
+    // 🚨 INCIDENT — runFunnel exception (objective proof: caught exception in webhook handler)
+    try { await openIncidentIfNeeded(env, { wa_id: waId, fase_conversa: safeDetails.stageDetectado }, { incident_type: "WORKER_EXCEPTION", incident_severity: "CRITICAL", error_message_short: "Erro no runFunnel: " + (safeDetails.message || "").slice(0, 200), error_message_raw: safeDetails.stack || safeDetails.message, suspected_trigger: "handleMetaWebhook_runFunnel_catch" }); } catch (_) { /* non-blocking */ }
 
     // Mesmo com erro, devolve 200 para a META não reenviar
     return metaWebhookResponse(200, {

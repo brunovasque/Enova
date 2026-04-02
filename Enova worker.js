@@ -2401,6 +2401,9 @@ async function maybeHandleEtapa1VisitaInformativoInput(env, st, t, withEtapa1Inf
 }
 
 const COGNITIVE_V1_ALLOWED_STAGES = new Set([
+  "inicio",
+  "inicio_decisao",
+  "inicio_programa",
   "estado_civil",
   "quem_pode_somar",
   "interpretar_composicao",
@@ -2424,6 +2427,9 @@ const COGNITIVE_PLAYBOOK_V1 = {
     "Simulação detalhada e escolha do imóvel só após aprovação, no plantão."
   ],
   intents_by_stage: {
+    inicio: ["saudacao", "duvida_programa", "duvida_fgts", "duvida_entrada", "objecao_tempo", "medo"],
+    inicio_decisao: ["continuar", "reiniciar", "duvida_retomada"],
+    inicio_programa: ["duvida_mcmv", "duvida_fgts", "duvida_estrangeiro", "duvida_entrada", "duvida_renda_minima", "objecao_tempo", "medo"],
     estado_civil: ["estado_civil_hibrido", "duvida_composicao", "duvida_imovel_pre_analise", "objecao"],
     quem_pode_somar: ["composicao_familiar", "composicao_parceiro", "duvida_conjuge", "objecao"],
     interpretar_composicao: ["composicao_familiar", "composicao_parceiro", "sozinho", "objecao"],
@@ -19887,6 +19893,10 @@ async function runFunnel(env, st, userText) {
   // ============================================================
   try {
     if (shouldTriggerCognitiveAssist(stage, userText)) {
+      // Guard: preservar abertura mecânica soberana no primeiro contato em "inicio"
+      if (stage === "inicio" && st.opening_used !== true) {
+        st.__cognitive_reply_prefix = null;
+      } else {
       const clearAnswer = hasClearStageAnswer(stage, userText);
       const v2Mode = String(env.COGNITIVE_V2_MODE || "off").toLowerCase();
 
@@ -19993,6 +20003,7 @@ async function runFunnel(env, st, userText) {
       });
 
       st.__cognitive_stage_answer = null;
+      }
     }
   } catch (e) {
     console.error("COGNITIVE_V1_RUNFUNNEL_ERROR:", e);

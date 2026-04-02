@@ -785,6 +785,7 @@ function buildDocsGuidanceByProfile(request) {
 
   let deferNote = "";
   if (DEFER_ACTION_PATTERN.test(normalizedMessage) || NO_TIME_PATTERN.test(normalizedMessage)) {
+    // Gentle urgency nudge when user defers sending documents
     deferNote = "Quanto antes você me enviar os documentos, mais rápido consigo adiantar sua análise.";
   }
 
@@ -1230,7 +1231,7 @@ function buildRendaTrabalhoGuidance(request) {
     if (DOCS_HINT_PATTERN.test(request?.message_text)) return null;
     // Visita question while in renda stage: defer to buildVisitaGuidance
     if (/\bvisit/.test(normalizedMessage)) return null;
-    // User is directly providing their income: let LLM parse and reply
+    // User is directly providing their income (>R$300): let LLM parse and reply
     const moneyDetected = detectMoney(request?.message_text);
     if (Number.isFinite(moneyDetected) && moneyDetected > 300) return null;
     if (/\bbruto\b|\bliquido\b|\blíquido\b/i.test(normalizedMessage)) {
@@ -1790,7 +1791,8 @@ function buildGateFinaisGuidance(request) {
 
   if (stage === "restricao" || stage === "restricao_parceiro" || stage === "restricao_parceiro_p3") {
     // If message has reprovação context (SCR/BACEN/SINAD etc.), defer to buildReprovacaoGuidance
-    if (REPROVACAO_HINT_PATTERN.test(normalizedMessage) && /\breprovad\b|\bscr\b|\bbacen\b|\bsinad\b|\bconres\b|\bcomprometimento\b/.test(normalizedMessage)) {
+    // Reprovação context (SCR/BACEN/SINAD/CONRES/comprometimento): defer to buildReprovacaoGuidance
+    if (/\breprovad\b|\bscr\b|\bbacen\b|\bsinad\b|\bconres\b|\bcomprometimento\b/.test(normalizedMessage)) {
       return null;
     }
     const pessoa = stage === "restricao" ? "seu CPF" : stage === "restricao_parceiro" ? "o CPF do parceiro" : "o CPF do P3";

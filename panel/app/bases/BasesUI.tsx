@@ -1018,32 +1018,21 @@ export function BasesUI() {
               </div>
 
               {/* Informações já conhecidas (opcional) */}
-              <div className={styles.formGroup}>
+              <div className={styles.prefillSection}>
                 <button
                   type="button"
-                  style={{
-                    background: "none",
-                    border: "1px dashed rgba(255,255,255,0.1)",
-                    borderRadius: "6px",
-                    color: "#71717a",
-                    padding: "8px 12px",
-                    fontSize: "0.8125rem",
-                    cursor: "pointer",
-                    width: "100%",
-                    textAlign: "left",
-                  }}
+                  className={styles.prefillToggle}
                   onClick={() => setNewPrefill({ ...newPrefill, showPrefill: !newPrefill.showPrefill })}
                 >
                   {newPrefill.showPrefill ? "▾" : "▸"} Informações já conhecidas (opcional)
                 </button>
-              </div>
 
-              {newPrefill.showPrefill && (
-                <>
-                  <p style={{ fontSize: "0.75rem", color: "#52525b", margin: "0 0 8px", lineHeight: "1.5", borderLeft: "2px solid rgba(251,191,36,0.3)", paddingLeft: "8px" }}>
-                    Estes dados são pré-preenchidos. Não substituem a confirmação pelo cliente no funil.
-                  </p>
-                  <div className={styles.formRow}>
+                {newPrefill.showPrefill && (
+                  <>
+                    <p className={styles.prefillHint}>
+                      Estes dados são pré-preenchidos. Não substituem a confirmação pelo cliente no funil.
+                    </p>
+                    <div className={styles.formRow}>
                     <div className={styles.formGroup}>
                       <label className={styles.label}>Nacionalidade</label>
                       <input
@@ -1158,8 +1147,9 @@ export function BasesUI() {
                       placeholder="Observações internas (não visível ao cliente)"
                     />
                   </div>
-                </>
-              )}
+                  </>
+                )}
+              </div>
             </form>
             <div className={styles.modalFooter}>
               <button

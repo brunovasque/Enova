@@ -766,9 +766,8 @@ export function AtendimentoUI() {
 
         {/* Detail Panel */}
         {selectedLead && (
-          <>
-            <div className={styles.overlay} onClick={closeDetail} />
-            <div className={styles.detailPanel}>
+          <div className={styles.overlay} onClick={closeDetail}>
+            <div className={styles.detailPanel} onClick={(e) => e.stopPropagation()}>
               <div className={styles.detailHeader}>
                 <h2 className={styles.detailTitle}>{leadLabel(selectedLead)}</h2>
                 <button type="button" className={styles.closeButton} onClick={closeDetail}>
@@ -806,6 +805,217 @@ export function AtendimentoUI() {
                     </div>
                   </div>
                 </div>
+
+                {/* Informações Pré-preenchidas (admin) */}
+                {prefillEdit !== null && (
+                  <div className={styles.detailBlock}>
+                    <h3 className={styles.detailBlockTitle}>Informações Pré-preenchidas</h3>
+                    <p className={styles.prefillDisclaimer}>
+                      Dados inseridos manualmente. Não são confirmados até que o cliente valide no funil.
+                    </p>
+                    <div className={styles.detailGrid} style={{ marginTop: "12px" }}>
+                      {/* nome */}
+                      <div className={styles.prefillFieldRow}>
+                        <div className={styles.prefillFieldHeader}>
+                          <span className={styles.detailLabel}>Nome</span>
+                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.nome_status)}`}>
+                            {PREFILL_STATUS_LABELS[prefillData?.nome_status ?? "empty"]}
+                          </span>
+                        </div>
+                        <input
+                          type="text"
+                          className={styles.prefillInput}
+                          value={prefillEdit.nome_prefill}
+                          onChange={(e) => setPrefillEdit({ ...prefillEdit, nome_prefill: e.target.value })}
+                          placeholder="Nome do cliente"
+                        />
+                      </div>
+                      {/* nacionalidade */}
+                      <div className={styles.prefillFieldRow}>
+                        <div className={styles.prefillFieldHeader}>
+                          <span className={styles.detailLabel}>Nacionalidade</span>
+                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.nacionalidade_status)}`}>
+                            {PREFILL_STATUS_LABELS[prefillData?.nacionalidade_status ?? "empty"]}
+                          </span>
+                        </div>
+                        <input
+                          type="text"
+                          className={styles.prefillInput}
+                          value={prefillEdit.nacionalidade_prefill}
+                          onChange={(e) => setPrefillEdit({ ...prefillEdit, nacionalidade_prefill: e.target.value })}
+                          placeholder="Ex: brasileira"
+                        />
+                      </div>
+                      {/* estado_civil */}
+                      <div className={styles.prefillFieldRow}>
+                        <div className={styles.prefillFieldHeader}>
+                          <span className={styles.detailLabel}>Estado Civil</span>
+                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.estado_civil_status)}`}>
+                            {PREFILL_STATUS_LABELS[prefillData?.estado_civil_status ?? "empty"]}
+                          </span>
+                        </div>
+                        <select
+                          className={styles.prefillSelect}
+                          value={prefillEdit.estado_civil_prefill}
+                          onChange={(e) => setPrefillEdit({ ...prefillEdit, estado_civil_prefill: e.target.value })}
+                        >
+                          <option value="">— não informado —</option>
+                          <option value="solteiro">Solteiro(a)</option>
+                          <option value="casado">Casado(a)</option>
+                          <option value="divorciado">Divorciado(a)</option>
+                          <option value="viuvo">Viúvo(a)</option>
+                          <option value="uniao_estavel">União Estável</option>
+                        </select>
+                      </div>
+                      {/* regime_trabalho */}
+                      <div className={styles.prefillFieldRow}>
+                        <div className={styles.prefillFieldHeader}>
+                          <span className={styles.detailLabel}>Regime Trabalho</span>
+                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.regime_trabalho_status)}`}>
+                            {PREFILL_STATUS_LABELS[prefillData?.regime_trabalho_status ?? "empty"]}
+                          </span>
+                        </div>
+                        <select
+                          className={styles.prefillSelect}
+                          value={prefillEdit.regime_trabalho_prefill}
+                          onChange={(e) => setPrefillEdit({ ...prefillEdit, regime_trabalho_prefill: e.target.value })}
+                        >
+                          <option value="">— não informado —</option>
+                          <option value="clt">CLT</option>
+                          <option value="autonomo">Autônomo</option>
+                          <option value="servidor_publico">Servidor Público</option>
+                          <option value="empresario">Empresário</option>
+                          <option value="aposentado">Aposentado/Pensionista</option>
+                          <option value="misto">Misto</option>
+                        </select>
+                      </div>
+                      {/* renda */}
+                      <div className={styles.prefillFieldRow}>
+                        <div className={styles.prefillFieldHeader}>
+                          <span className={styles.detailLabel}>Renda (R$)</span>
+                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.renda_status)}`}>
+                            {PREFILL_STATUS_LABELS[prefillData?.renda_status ?? "empty"]}
+                          </span>
+                        </div>
+                        <input
+                          type="number"
+                          className={styles.prefillInput}
+                          value={prefillEdit.renda_prefill}
+                          onChange={(e) => setPrefillEdit({ ...prefillEdit, renda_prefill: e.target.value })}
+                          placeholder="Ex: 3500"
+                          min="0"
+                        />
+                      </div>
+                      {/* 36_meses */}
+                      <div className={styles.prefillFieldRow}>
+                        <div className={styles.prefillFieldHeader}>
+                          <span className={styles.detailLabel}>36 Meses (CTPS)</span>
+                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.meses_36_status)}`}>
+                            {PREFILL_STATUS_LABELS[prefillData?.meses_36_status ?? "empty"]}
+                          </span>
+                        </div>
+                        <select
+                          className={styles.prefillSelect}
+                          value={prefillEdit.meses_36_prefill}
+                          onChange={(e) => setPrefillEdit({ ...prefillEdit, meses_36_prefill: e.target.value })}
+                        >
+                          <option value="">— não informado —</option>
+                          <option value="true">Sim</option>
+                          <option value="false">Não</option>
+                        </select>
+                      </div>
+                      {/* dependentes */}
+                      <div className={styles.prefillFieldRow}>
+                        <div className={styles.prefillFieldHeader}>
+                          <span className={styles.detailLabel}>Dependentes</span>
+                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.dependentes_status)}`}>
+                            {PREFILL_STATUS_LABELS[prefillData?.dependentes_status ?? "empty"]}
+                          </span>
+                        </div>
+                        <input
+                          type="number"
+                          className={styles.prefillInput}
+                          value={prefillEdit.dependentes_prefill}
+                          onChange={(e) => setPrefillEdit({ ...prefillEdit, dependentes_prefill: e.target.value })}
+                          placeholder="Ex: 0"
+                          min="0"
+                        />
+                      </div>
+                      {/* valor_entrada */}
+                      <div className={styles.prefillFieldRow}>
+                        <div className={styles.prefillFieldHeader}>
+                          <span className={styles.detailLabel}>Valor Entrada (R$)</span>
+                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.valor_entrada_status)}`}>
+                            {PREFILL_STATUS_LABELS[prefillData?.valor_entrada_status ?? "empty"]}
+                          </span>
+                        </div>
+                        <input
+                          type="number"
+                          className={styles.prefillInput}
+                          value={prefillEdit.valor_entrada_prefill}
+                          onChange={(e) => setPrefillEdit({ ...prefillEdit, valor_entrada_prefill: e.target.value })}
+                          placeholder="Ex: 10000"
+                          min="0"
+                        />
+                      </div>
+                      {/* restricao */}
+                      <div className={styles.prefillFieldRow}>
+                        <div className={styles.prefillFieldHeader}>
+                          <span className={styles.detailLabel}>Restrição</span>
+                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.restricao_status)}`}>
+                            {PREFILL_STATUS_LABELS[prefillData?.restricao_status ?? "empty"]}
+                          </span>
+                        </div>
+                        <select
+                          className={styles.prefillSelect}
+                          value={prefillEdit.restricao_prefill}
+                          onChange={(e) => setPrefillEdit({ ...prefillEdit, restricao_prefill: e.target.value })}
+                        >
+                          <option value="">— não informado —</option>
+                          <option value="true">Sim (tem restrição)</option>
+                          <option value="false">Não (sem restrição)</option>
+                        </select>
+                      </div>
+                      {/* origem_lead */}
+                      <div className={styles.prefillFieldRow}>
+                        <div className={styles.prefillFieldHeader}>
+                          <span className={styles.detailLabel}>Origem do Lead</span>
+                        </div>
+                        <input
+                          type="text"
+                          className={styles.prefillInput}
+                          value={prefillEdit.origem_lead}
+                          onChange={(e) => setPrefillEdit({ ...prefillEdit, origem_lead: e.target.value })}
+                          placeholder="Ex: lyx, campanha-x"
+                        />
+                      </div>
+                      {/* observacoes_admin */}
+                      <div className={styles.detailItemFull}>
+                        <div className={styles.prefillFieldHeader}>
+                          <span className={styles.detailLabel}>Observações Admin</span>
+                        </div>
+                        <textarea
+                          className={styles.prefillTextarea}
+                          value={prefillEdit.observacoes_admin}
+                          onChange={(e) => setPrefillEdit({ ...prefillEdit, observacoes_admin: e.target.value })}
+                          placeholder="Observações internas (não visível ao cliente)"
+                        />
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "12px" }}>
+                      <button
+                        type="button"
+                        className={styles.prefillSaveButton}
+                        onClick={() => void handleSavePrefill()}
+                        disabled={prefillBusy}
+                      >
+                        {prefillBusy ? "Salvando..." : "Salvar pré-dados"}
+                      </button>
+                      {prefillFeedback && <span className={styles.prefillFeedback}>{prefillFeedback}</span>}
+                      {prefillError && <span className={styles.prefillError}>{prefillError}</span>}
+                    </div>
+                  </div>
+                )}
 
                 {/* Status Operacional */}
                 <div className={styles.detailBlock}>
@@ -1037,219 +1247,9 @@ export function AtendimentoUI() {
                   </div>
                 )}
 
-                {/* Informações Pré-preenchidas (admin) */}
-                {prefillEdit !== null && (
-                  <div className={styles.detailBlock}>
-                    <h3 className={styles.detailBlockTitle}>Informações Pré-preenchidas</h3>
-                    <p className={styles.prefillDisclaimer}>
-                      Dados inseridos manualmente. Não são confirmados até que o cliente valide no funil.
-                    </p>
-                    <div className={styles.detailGrid} style={{ marginTop: "12px" }}>
-                      {/* nome */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Nome</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.nome_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.nome_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <input
-                          type="text"
-                          className={styles.prefillInput}
-                          value={prefillEdit.nome_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, nome_prefill: e.target.value })}
-                          placeholder="Nome do cliente"
-                        />
-                      </div>
-                      {/* nacionalidade */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Nacionalidade</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.nacionalidade_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.nacionalidade_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <input
-                          type="text"
-                          className={styles.prefillInput}
-                          value={prefillEdit.nacionalidade_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, nacionalidade_prefill: e.target.value })}
-                          placeholder="Ex: brasileira"
-                        />
-                      </div>
-                      {/* estado_civil */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Estado Civil</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.estado_civil_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.estado_civil_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <select
-                          className={styles.prefillSelect}
-                          value={prefillEdit.estado_civil_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, estado_civil_prefill: e.target.value })}
-                        >
-                          <option value="">— não informado —</option>
-                          <option value="solteiro">Solteiro(a)</option>
-                          <option value="casado">Casado(a)</option>
-                          <option value="divorciado">Divorciado(a)</option>
-                          <option value="viuvo">Viúvo(a)</option>
-                          <option value="uniao_estavel">União Estável</option>
-                        </select>
-                      </div>
-                      {/* regime_trabalho */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Regime Trabalho</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.regime_trabalho_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.regime_trabalho_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <select
-                          className={styles.prefillSelect}
-                          value={prefillEdit.regime_trabalho_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, regime_trabalho_prefill: e.target.value })}
-                        >
-                          <option value="">— não informado —</option>
-                          <option value="clt">CLT</option>
-                          <option value="autonomo">Autônomo</option>
-                          <option value="servidor_publico">Servidor Público</option>
-                          <option value="empresario">Empresário</option>
-                          <option value="aposentado">Aposentado/Pensionista</option>
-                          <option value="misto">Misto</option>
-                        </select>
-                      </div>
-                      {/* renda */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Renda (R$)</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.renda_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.renda_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <input
-                          type="number"
-                          className={styles.prefillInput}
-                          value={prefillEdit.renda_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, renda_prefill: e.target.value })}
-                          placeholder="Ex: 3500"
-                          min="0"
-                        />
-                      </div>
-                      {/* 36_meses */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>36 Meses (CTPS)</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.meses_36_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.meses_36_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <select
-                          className={styles.prefillSelect}
-                          value={prefillEdit.meses_36_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, meses_36_prefill: e.target.value })}
-                        >
-                          <option value="">— não informado —</option>
-                          <option value="true">Sim</option>
-                          <option value="false">Não</option>
-                        </select>
-                      </div>
-                      {/* dependentes */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Dependentes</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.dependentes_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.dependentes_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <input
-                          type="number"
-                          className={styles.prefillInput}
-                          value={prefillEdit.dependentes_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, dependentes_prefill: e.target.value })}
-                          placeholder="Ex: 0"
-                          min="0"
-                        />
-                      </div>
-                      {/* valor_entrada */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Valor Entrada (R$)</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.valor_entrada_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.valor_entrada_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <input
-                          type="number"
-                          className={styles.prefillInput}
-                          value={prefillEdit.valor_entrada_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, valor_entrada_prefill: e.target.value })}
-                          placeholder="Ex: 10000"
-                          min="0"
-                        />
-                      </div>
-                      {/* restricao */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Restrição</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.restricao_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.restricao_status ?? "empty"]}
-                          </span>
-                        </div>
-                        <select
-                          className={styles.prefillSelect}
-                          value={prefillEdit.restricao_prefill}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, restricao_prefill: e.target.value })}
-                        >
-                          <option value="">— não informado —</option>
-                          <option value="true">Sim (tem restrição)</option>
-                          <option value="false">Não (sem restrição)</option>
-                        </select>
-                      </div>
-                      {/* origem_lead */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Origem do Lead</span>
-                        </div>
-                        <input
-                          type="text"
-                          className={styles.prefillInput}
-                          value={prefillEdit.origem_lead}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, origem_lead: e.target.value })}
-                          placeholder="Ex: lyx, campanha-x"
-                        />
-                      </div>
-                      {/* observacoes_admin */}
-                      <div className={styles.detailItemFull}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Observações Admin</span>
-                        </div>
-                        <textarea
-                          className={styles.prefillTextarea}
-                          value={prefillEdit.observacoes_admin}
-                          onChange={(e) => setPrefillEdit({ ...prefillEdit, observacoes_admin: e.target.value })}
-                          placeholder="Observações internas (não visível ao cliente)"
-                        />
-                      </div>
-                    </div>
-                    <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "12px" }}>
-                      <button
-                        type="button"
-                        className={styles.prefillSaveButton}
-                        onClick={() => void handleSavePrefill()}
-                        disabled={prefillBusy}
-                      >
-                        {prefillBusy ? "Salvando..." : "Salvar pré-dados"}
-                      </button>
-                      {prefillFeedback && <span className={styles.prefillFeedback}>{prefillFeedback}</span>}
-                      {prefillError && <span className={styles.prefillError}>{prefillError}</span>}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
-          </>
+          </div>
         )}
       </div>
     </main>

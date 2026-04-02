@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import DossieUI from "./DossieUI";
 
 export default function DossiePage() {
-  return <DossieUI />;
+  return (
+    <Suspense>
+      <DossieUI />
+    </Suspense>
+  );
 }

@@ -5,6 +5,7 @@ const NAV_LINKS: NavLink[] = [
   { href: "/bases", label: "Bases" },
   { href: "/atendimento", label: "Atendimento" },
   { href: "/crm", label: "CRM" },
+  { href: "/dossie", label: "Dossiê" },
   { href: "/dashboard", label: "Dashboard" },
 ];
 

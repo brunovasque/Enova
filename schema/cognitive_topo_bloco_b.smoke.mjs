@@ -172,7 +172,7 @@ await asyncTest('7. inicio_nacionalidade: "o que é RNM?" — resposta cognitiva
   assert.strictEqual(result.response.should_advance_stage, false, "should_advance_stage must be false");
   const reply = normalizeForMatch(result.response.reply_text);
   assert.ok(
-    /rnm|registro nacional|migrat|estrangeiro|documentac|documental/.test(reply),
+    /rnm|registro nacional|migrat|estrangeiro|documentacao|documental/.test(reply),
     `reply_text should explain RNM, got: "${result.response.reply_text.slice(0, 120)}"`
   );
   assert.doesNotMatch(
@@ -201,8 +201,8 @@ await asyncTest('8. inicio_nacionalidade: "sou estrangeiro, ainda posso tentar?"
   assert.strictEqual(result.response.should_advance_stage, false, "should_advance_stage must be false");
   const reply = normalizeForMatch(result.response.reply_text);
   assert.ok(
-    /estrangeiro|documentac|documental|sistema|rnm|verificar/.test(reply),
-    `reply_text should address estrangeiro elegibility carefully, got: "${result.response.reply_text.slice(0, 120)}"`
+    /estrangeiro|documentacao|documental|sistema|rnm|verificar/.test(reply),
+    `reply_text should address estrangeiro eligibility carefully, got: "${result.response.reply_text.slice(0, 120)}"`
   );
   assert.doesNotMatch(
     reply,

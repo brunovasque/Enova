@@ -734,6 +734,10 @@ console.log("\n📋 GRUPO 7 — Trilho mecânico inalterado\n");
 test("7.1 — ATTENDANCE_PRE_DOCS_STAGES inalterada (mesma contagem)", () => {
   // Se este teste falhar, alguém mexeu nas stages pré-docs
   assert.ok(ATTENDANCE_PRE_DOCS_STAGES.size >= 49, `Deve ter ≥49 stages (tem ${ATTENDANCE_PRE_DOCS_STAGES.size})`);
+  // Spot check critical stages
+  for (const s of ["inicio", "estado_civil", "renda", "regime_trabalho", "restricao", "dependente", "ctps_36", "finalizacao"]) {
+    assert.ok(ATTENDANCE_PRE_DOCS_STAGES.has(s), `Stage crítica '${s}' deve estar presente`);
+  }
 });
 
 test("7.2 — Incidente NÃO altera fase_conversa do state", () => {

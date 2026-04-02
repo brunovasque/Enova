@@ -783,12 +783,19 @@ function buildDocsGuidanceByProfile(request) {
     empathyNote = "Entendo sua preocupação, e dá para fazer isso com calma e segurança.";
   }
 
+  let deferNote = "";
+  if (DEFER_ACTION_PATTERN.test(normalizedMessage) || NO_TIME_PATTERN.test(normalizedMessage)) {
+    // Gentle urgency nudge when user defers sending documents
+    deferNote = "Quanto antes você me enviar os documentos, mais rápido consigo adiantar sua análise.";
+  }
+
   return [
     empathyNote,
     `Pelo seu perfil, para adiantar sua análise, o ideal é separar ${humanJoinList(docs)}.`,
     autonomoIrNote,
     doubtNote,
-    channelNote
+    channelNote,
+    deferNote
   ]
     .filter(Boolean)
     .join(" ");
@@ -937,6 +944,12 @@ function buildOperacionalFinalGuidance(request) {
   const normalizedMessage = normalizeText(request?.message_text);
 
   if (stage === "envio_docs") {
+    // When the profile (regime) is already known, delegate to buildDocsGuidanceByProfile
+    // so the response includes the full doc list + empathy/defer/channel notes
+    const knownSlots = request?.known_slots || {};
+    const regime = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho"));
+    if (regime) return null;
+
     if (DEFER_ACTION_PATTERN.test(normalizedMessage) || NO_TIME_PATTERN.test(normalizedMessage)) {
       return "Sem problema. Sempre que puder, me manda os documentos por aqui que eu adianto sua análise.";
     }
@@ -969,9 +982,8 @@ function buildOperacionalFinalGuidance(request) {
     if (/\bhor[aá]rio\b|\bdia\b|\bquando\b|\bopç[oõ]es\b/.test(normalizedMessage)) {
       return "Claro. Eu sigo a agenda oficial do plantão e te passo as opções válidas de dia e horário para visita.";
     }
-    if (/\boutro dia\b|\boutro hor[aá]rio\b|\bremarcar\b|\breagend\b/.test(normalizedMessage)) {
-      return "Sem problema, a gente ajusta dentro dos dias e horários oficiais do plantão.";
-    }
+    // Reschedule requests (remarcar/reagendar/outro dia/outro horário) defer to buildVisitaGuidance
+    // which produces the canonical "a gente consegue remarcar" response
     if (/\bprecisa levar\b|\bvir acompanhaad\b|\bvir com\b|\blevar algu[eé]m\b|\bacompanhante\b/.test(normalizedMessage)) {
       return "Para aproveitar melhor a visita, recomendo que venha com quem vai participar da decisão. Isso facilita o alinhamento no plantão.";
     }
@@ -1190,6 +1202,11 @@ function buildRendaTrabalhoGuidance(request) {
   }
 
   if (stage === "autonomo_ir_pergunta") {
+    // If ir_declarado is already known, defer to buildAutonomoGuidance for contextual advice
+    const knownSlotsForIr = request?.known_slots || {};
+    const irAlreadyKnown = normalizeText(getKnownSlotValue(knownSlotsForIr, "ir_declarado"));
+    if (irAlreadyKnown) return null;
+
     if (/\bnao declaro\b|\bnão declaro\b|\bnao tenho ir\b|\bnão tenho ir\b|\bnao declarei\b|\bnão declarei\b/i.test(normalizedMessage)) {
       return "Tudo bem. O IR ajuda a formalizar a renda, mas a ausência não impede automaticamente — o sistema vai verificar o caminho mais seguro. Você já declarou IR nos últimos anos? Responda *sim* ou *não*.";
     }
@@ -1206,6 +1223,17 @@ function buildRendaTrabalhoGuidance(request) {
   }
 
   if (stage === "renda") {
+    // Aluguel off-topic: defer to buildAluguelGuidance
+    if (ALUGUEL_HINT_PATTERN.test(normalizedMessage)) return null;
+    // Off-track questions (entrada/parcela/imóvel): let LLM handle with full context
+    if (OFFTRACK_HINTS.test(normalizedMessage)) return null;
+    // Docs question while in renda stage: defer to buildDocsGuidanceByProfile
+    if (DOCS_HINT_PATTERN.test(request?.message_text)) return null;
+    // Visita question while in renda stage: defer to buildVisitaGuidance
+    if (/\bvisit/.test(normalizedMessage)) return null;
+    // User is directly providing their income (>R$300): let LLM parse and reply
+    const moneyDetected = detectMoney(request?.message_text);
+    if (Number.isFinite(moneyDetected) && moneyDetected > 300) return null;
     if (/\bbruto\b|\bliquido\b|\blíquido\b/i.test(normalizedMessage)) {
       return "Use o valor que você recebe na mão (líquido), descontando impostos e contribuições quando houver. Qual é o seu valor mensal?";
     }
@@ -1747,6 +1775,11 @@ function buildGateFinaisGuidance(request) {
   }
 
   if (stage === "dependente") {
+    // If composicao is known, buildDependenteGuidance provides better context-aware guidance
+    const knownSlotsGate = request?.known_slots || {};
+    const composicaoKnown = normalizeText(getKnownSlotValue(knownSlotsGate, "composicao"));
+    if (composicaoKnown) return null;
+
     if (/\bnao\s*entendi\b|\bnão\s*entendi\b|\bque\s*e\s*isso\b|\bque\s*é\s*isso\b|\bpor\s*que\b|\bpra\s*que\b/.test(normalizedMessage)) {
       return "Essa etapa verifica se você tem filho menor de 18 anos ou dependente sem renda própria até terceiro grau, pois isso pode impactar o perfil de análise. Você tem dependente? Responda *sim* ou *não*.";
     }
@@ -1757,6 +1790,11 @@ function buildGateFinaisGuidance(request) {
   }
 
   if (stage === "restricao" || stage === "restricao_parceiro" || stage === "restricao_parceiro_p3") {
+    // If message has reprovação context (SCR/BACEN/SINAD etc.), defer to buildReprovacaoGuidance
+    // Reprovação context (SCR/BACEN/SINAD/CONRES/comprometimento): defer to buildReprovacaoGuidance
+    if (/\breprovad\b|\bscr\b|\bbacen\b|\bsinad\b|\bconres\b|\bcomprometimento\b/.test(normalizedMessage)) {
+      return null;
+    }
     const pessoa = stage === "restricao" ? "seu CPF" : stage === "restricao_parceiro" ? "o CPF do parceiro" : "o CPF do P3";
     const pronome = stage === "restricao" ? "há alguma restrição no seu CPF" : stage === "restricao_parceiro" ? "há alguma restrição no CPF do parceiro" : "há alguma restrição no CPF do P3";
     if (/\bnome\s*sujo\b|\bcpf\s*sujo\b|\bspc\b|\bserasa\b|\bnegatad[oa]\b|\bnegativad[oa]\b/.test(normalizedMessage)) {

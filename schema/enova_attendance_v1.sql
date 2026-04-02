@@ -85,34 +85,57 @@ LEFT JOIN public.enova_attendance_meta a ON a.wa_id = e.wa_id
 WHERE (
   -- ── Leads em fluxo ativo ANTES de envio_docs ──
   e.fase_conversa IN (
-    'inicio',
-    'inicio_programa',
-    'inicio_nome',
-    'inicio_nacionalidade',
-    'inicio_rnm',
-    'inicio_rnm_validade',
-    'estado_civil',
-    'regime_trabalho',
-    'inicio_multi_regime',
-    'inicio_multi_regime_detalhe',
-    'renda',
-    'renda_parceiro',
-    'possui_renda_extra',
-    'renda_mista_detalhe',
-    'inicio_multi_renda',
-    'inicio_multi_renda_detalhe',
-    'somar_renda_solteiro',
+    -- Início / setup
+    'inicio', 'inicio_decisao', 'inicio_programa', 'inicio_nome',
+    'inicio_nacionalidade', 'inicio_rnm', 'inicio_rnm_validade',
+    -- Estado civil / casamento
+    'estado_civil', 'confirmar_casamento', 'financiamento_conjunto',
+    'pais_casados_civil_pergunta',
+    -- Composição de renda
+    'somar_renda_solteiro', 'somar_renda_familiar',
+    'quem_pode_somar', 'interpretar_composicao', 'sugerir_composicao_mista',
     'parceiro_tem_renda',
-    'somar_renda_familiar',
-    'regime_trabalho_parceiro_familiar',
+    -- Regime de trabalho (titular + multi)
+    'regime_trabalho',
+    'inicio_multi_regime_pergunta', 'inicio_multi_regime_coletar',
+    -- Regime de trabalho (parceiro)
+    'regime_trabalho_parceiro',
+    'inicio_multi_regime_pergunta_parceiro', 'inicio_multi_regime_coletar_parceiro',
+    -- Regime de trabalho (familiar / P3)
+    'regime_trabalho_parceiro_familiar', 'regime_trabalho_parceiro_familiar_p3',
+    'inicio_multi_regime_familiar_pergunta', 'inicio_multi_regime_familiar_loop',
+    'inicio_multi_regime_p3_pergunta', 'inicio_multi_regime_p3_loop',
+    -- Renda (titular + multi)
+    'renda', 'possui_renda_extra', 'renda_mista_detalhe',
+    'inicio_multi_renda_pergunta', 'inicio_multi_renda_coletar',
+    'clt_renda_perfil_informativo',
+    -- Renda (parceiro + multi)
+    'renda_parceiro',
+    'inicio_multi_renda_pergunta_parceiro', 'inicio_multi_renda_coletar_parceiro',
+    -- Renda (familiar / P3)
+    'renda_familiar_valor', 'renda_parceiro_familiar', 'renda_parceiro_familiar_p3',
+    'confirmar_avo_familiar',
+    'inicio_multi_renda_familiar_pergunta', 'inicio_multi_renda_familiar_loop',
+    'inicio_multi_renda_p3_pergunta', 'inicio_multi_renda_p3_loop',
+    -- P3
+    'p3_tipo_pergunta',
+    -- Autônomo / IR
+    'autonomo_ir_pergunta', 'autonomo_sem_ir_ir_este_ano',
+    'autonomo_sem_ir_caminho', 'autonomo_sem_ir_entrada',
+    'autonomo_compor_renda',
+    'ir_declarado',
+    -- Dependente
     'dependente',
-    'ctps_36',
-    'ctps_36_parceiro',
-    'restricao',
-    'regularizacao_restricao',
-    'quem_pode_somar',
-    'interpretar_composicao',
-    'ir_declarado'
+    -- CTPS 36 meses
+    'ctps_36', 'ctps_36_parceiro', 'ctps_36_parceiro_p3',
+    -- Restrição
+    'restricao', 'regularizacao_restricao',
+    'restricao_parceiro', 'regularizacao_restricao_parceiro',
+    'restricao_parceiro_p3', 'regularizacao_restricao_p3',
+    -- Verificação / elegibilidade
+    'verificar_averbacao', 'verificar_inventario',
+    -- Terminal pré-docs
+    'fim_ineligivel', 'fim_inelegivel', 'finalizacao'
   )
   -- ── Também leads que o operacional marcou como atendimento ──
   -- (any non-archived attendance_meta row qualifies the lead)

@@ -857,19 +857,57 @@ function extractMissingEnovaStateColumnFromSupabaseError(err) {
 // =============================================================
 
 const ATTENDANCE_PRE_DOCS_STAGES = new Set([
-  "inicio", "inicio_programa", "inicio_nome",
+  // ── Início / setup ──
+  "inicio", "inicio_decisao", "inicio_programa", "inicio_nome",
   "inicio_nacionalidade", "inicio_rnm", "inicio_rnm_validade",
-  "estado_civil",
-  "regime_trabalho", "inicio_multi_regime", "inicio_multi_regime_detalhe",
-  "renda", "renda_parceiro", "possui_renda_extra", "renda_mista_detalhe",
-  "inicio_multi_renda", "inicio_multi_renda_detalhe",
-  "somar_renda_solteiro", "parceiro_tem_renda", "somar_renda_familiar",
-  "regime_trabalho_parceiro_familiar",
-  "quem_pode_somar", "interpretar_composicao",
+  // ── Estado civil / casamento ──
+  "estado_civil", "confirmar_casamento", "financiamento_conjunto",
+  "pais_casados_civil_pergunta",
+  // ── Composição de renda ──
+  "somar_renda_solteiro", "somar_renda_familiar",
+  "quem_pode_somar", "interpretar_composicao", "sugerir_composicao_mista",
+  "parceiro_tem_renda",
+  // ── Regime de trabalho (titular + multi) ──
+  "regime_trabalho",
+  "inicio_multi_regime_pergunta", "inicio_multi_regime_coletar",
+  // ── Regime de trabalho (parceiro) ──
+  "regime_trabalho_parceiro",
+  "inicio_multi_regime_pergunta_parceiro", "inicio_multi_regime_coletar_parceiro",
+  // ── Regime de trabalho (familiar / P3) ──
+  "regime_trabalho_parceiro_familiar", "regime_trabalho_parceiro_familiar_p3",
+  "inicio_multi_regime_familiar_pergunta", "inicio_multi_regime_familiar_loop",
+  "inicio_multi_regime_p3_pergunta", "inicio_multi_regime_p3_loop",
+  // ── Renda (titular + multi) ──
+  "renda", "possui_renda_extra", "renda_mista_detalhe",
+  "inicio_multi_renda_pergunta", "inicio_multi_renda_coletar",
+  "clt_renda_perfil_informativo",
+  // ── Renda (parceiro + multi) ──
+  "renda_parceiro",
+  "inicio_multi_renda_pergunta_parceiro", "inicio_multi_renda_coletar_parceiro",
+  // ── Renda (familiar / P3) ──
+  "renda_familiar_valor", "renda_parceiro_familiar", "renda_parceiro_familiar_p3",
+  "confirmar_avo_familiar",
+  "inicio_multi_renda_familiar_pergunta", "inicio_multi_renda_familiar_loop",
+  "inicio_multi_renda_p3_pergunta", "inicio_multi_renda_p3_loop",
+  // ── P3 ──
+  "p3_tipo_pergunta",
+  // ── Autônomo / IR ──
+  "autonomo_ir_pergunta", "autonomo_sem_ir_ir_este_ano",
+  "autonomo_sem_ir_caminho", "autonomo_sem_ir_entrada",
+  "autonomo_compor_renda",
+  "ir_declarado",
+  // ── Dependente ──
   "dependente",
-  "ctps_36", "ctps_36_parceiro",
+  // ── CTPS 36 meses ──
+  "ctps_36", "ctps_36_parceiro", "ctps_36_parceiro_p3",
+  // ── Restrição ──
   "restricao", "regularizacao_restricao",
-  "ir_declarado"
+  "restricao_parceiro", "regularizacao_restricao_parceiro",
+  "restricao_parceiro_p3", "regularizacao_restricao_p3",
+  // ── Verificação / elegibilidade ──
+  "verificar_averbacao", "verificar_inventario",
+  // ── Terminal pré-docs ──
+  "fim_ineligivel", "fim_inelegivel", "finalizacao"
 ]);
 
 const ATTENDANCE_POST_DOCS_STAGES = new Set([
@@ -924,14 +962,24 @@ function deriveAttendanceAttentionStatus(stalledReason, lastCustomerAt) {
 /**
  * Derive enova_next_action based on current stage, owner, stalledReason.
  * V1 — simple, safe, explainable derivation.
+ * Also derives due_at coherent with attention_status thresholds.
  */
-function deriveEnovaNextAction(stage, pendingOwner, stalledReason, st) {
+function deriveEnovaNextAction(stage, pendingOwner, stalledReason, st, lastCustomerAt) {
+  // due_at derivation: based on last customer interaction + action urgency
+  function computeDueAt(hoursFromLastCustomer) {
+    if (!lastCustomerAt) return null;
+    const base = new Date(lastCustomerAt).getTime();
+    if (isNaN(base)) return null;
+    return new Date(base + hoursFromLastCustomer * 60 * 60 * 1000).toISOString();
+  }
+
   if (pendingOwner === "HUMANO") {
     return {
       code: "AWAIT_HUMAN",
       label: "Aguardar ação do atendente humano",
       trigger: "human_takeover",
-      executable: false
+      executable: false,
+      due_at: computeDueAt(8) // DUE_SOON threshold
     };
   }
   if (stalledReason === "NO_REPLY" && pendingOwner === "CLIENTE") {
@@ -939,7 +987,8 @@ function deriveEnovaNextAction(stage, pendingOwner, stalledReason, st) {
       code: "FOLLOW_UP",
       label: "Enviar follow-up ao cliente",
       trigger: "no_reply_timeout",
-      executable: true
+      executable: true,
+      due_at: computeDueAt(8) // follow-up should happen before DUE_SOON
     };
   }
   if (pendingOwner === "ENOVA" && (!stage || stage === "inicio" || stage === "inicio_programa")) {
@@ -947,14 +996,16 @@ function deriveEnovaNextAction(stage, pendingOwner, stalledReason, st) {
       code: "SEND_OPENING",
       label: "Enviar abertura ao cliente",
       trigger: "new_lead_entry",
-      executable: true
+      executable: true,
+      due_at: new Date(Date.now() + 1 * 60 * 60 * 1000).toISOString() // 1h from now
     };
   }
   return {
     code: "AWAIT_CLIENT",
     label: "Aguardar resposta do cliente",
     trigger: "client_turn",
-    executable: false
+    executable: false,
+    due_at: computeDueAt(24) // OVERDUE threshold
   };
 }
 
@@ -1017,8 +1068,37 @@ async function upsertAttendanceMeta(env, wa_id, patch) {
 }
 
 /**
+ * Read existing attendance meta row for a wa_id.
+ * Returns null if not found or table doesn't exist.
+ */
+async function getAttendanceMeta(env, wa_id) {
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) {
+    return simCtx._attendanceMeta?.[wa_id] || null;
+  }
+  try {
+    const result = await sbFetch(env, "/rest/v1/enova_attendance_meta", {
+      method: "GET",
+      query: `wa_id=eq.${encodeURIComponent(wa_id)}&limit=1`,
+      headers: {
+        "Content-Type": "application/json",
+        apikey: env.SUPABASE_SERVICE_ROLE,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE}`
+      }
+    });
+    const rows = normalizeSupabaseRows(result);
+    return rows?.[0] || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
  * Sync attendance meta after a stage transition or interaction event.
  * Called from step() and handleMetaWebhook() — surgical, non-blocking.
+ *
+ * Fetches the existing attendance_meta row to use persisted timestamps
+ * for stalled/attention derivation (not just the current event's `now`).
  */
 async function syncAttendanceMeta(env, st, event) {
   if (!st?.wa_id) return;
@@ -1041,6 +1121,13 @@ async function syncAttendanceMeta(env, st, event) {
   }
 
   const now = new Date().toISOString();
+
+  // Fetch existing row for persisted timestamps and origin_base protection
+  let existing = null;
+  try {
+    existing = await getAttendanceMeta(env, st.wa_id);
+  } catch (_) { /* non-blocking: if we can't read, derive from event only */ }
+
   const patch = {};
 
   // Always sync current stage
@@ -1061,11 +1148,12 @@ async function syncAttendanceMeta(env, st, event) {
     patch.last_enova_interaction_at = now;
   }
 
-  // Derive operational fields
-  // Note: stalled_reason is only derived during customer_message events
-  // (when we have a fresh timestamp). On other events, we skip stalled
-  // derivation to avoid overwriting stalled_at with incorrect values.
-  const lastCustomerAt = event?.type === "customer_message" ? now : null;
+  // ── Stalled / attention derivation using PERSISTED timestamp ──
+  // Use the real last_customer_interaction_at from the database row,
+  // updated with the current event if it's a customer_message.
+  const lastCustomerAt = event?.type === "customer_message"
+    ? now
+    : (existing?.last_customer_interaction_at || null);
 
   const pendingOwner = deriveAttendancePendingOwner(stage, st);
   patch.pending_owner = pendingOwner;
@@ -1074,18 +1162,28 @@ async function syncAttendanceMeta(env, st, event) {
   patch.attention_status = deriveAttendanceAttentionStatus(stalledReason, lastCustomerAt);
 
   if (stalledReason) {
+    // Only set stalled_at if not already stalled (preserve original stalled_at)
     patch.stalled_stage = stage;
     patch.stalled_reason_code = stalledReason;
     patch.stalled_reason_label = stalledReason === "NO_REPLY" ? "Sem resposta do cliente" : "Aguardando ação humana";
-    patch.stalled_at = now;
+    if (!existing?.stalled_at) {
+      patch.stalled_at = now;
+    }
+  } else {
+    // Clear stalled fields if no longer stalled
+    patch.stalled_stage = null;
+    patch.stalled_reason_code = null;
+    patch.stalled_reason_label = null;
+    patch.stalled_at = null;
   }
 
-  // Next action
-  const nextAction = deriveEnovaNextAction(stage, pendingOwner, stalledReason, st);
+  // Next action (with due_at)
+  const nextAction = deriveEnovaNextAction(stage, pendingOwner, stalledReason, st, lastCustomerAt);
   patch.enova_next_action_code = nextAction.code;
   patch.enova_next_action_label = nextAction.label;
   patch.enova_next_action_trigger = nextAction.trigger;
   patch.enova_next_action_executable = nextAction.executable;
+  patch.enova_next_action_due_at = nextAction.due_at || null;
 
   // Main pending
   if (pendingOwner === "CLIENTE") {
@@ -1102,14 +1200,30 @@ async function syncAttendanceMeta(env, st, event) {
     patch.main_pending_label = null;
   }
 
-  // Origin/current base from source_type
-  // origin_base: set on every sync; Supabase UPSERT with merge-duplicates
-  // will only INSERT it on first row; subsequent UPDATEs include it but
-  // overwrite is safe since source_type doesn't change for a given wa_id.
-  // current_base always reflects the latest source_type.
-  if (st.source_type) {
-    patch.origin_base = st.source_type;
-    patch.current_base = st.source_type;
+  // ── Origin / current base ──
+  // origin_base: IMMUTABLE — only set on first insert (when no existing row).
+  // current_base: always reflects the latest source_type.
+  // moved_to_current_base_at: only set when current_base actually changes.
+  const newBase = st.source_type || null;
+
+  if (!existing) {
+    // First insert: both origin and current are the same
+    if (newBase) {
+      patch.origin_base = newBase;
+      patch.current_base = newBase;
+      patch.moved_to_current_base_at = now;
+    }
+  } else {
+    // Existing row: never overwrite origin_base
+    if (newBase && newBase !== existing.current_base) {
+      // Real base change detected
+      patch.current_base = newBase;
+      patch.moved_to_current_base_at = now;
+    } else if (newBase) {
+      // Same base, just ensure it's set
+      patch.current_base = newBase;
+    }
+    // origin_base is NEVER included in the update patch
   }
 
   // Summary

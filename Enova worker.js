@@ -1189,8 +1189,9 @@ async function insertIncident(env, incident) {
 }
 
 /**
- * Get the most recent OPEN incident for a wa_id.
- * Returns the row or null if none / table doesn't exist.
+ * Get the most recent OPEN incident for a wa_id (any type/stage).
+ * Used by deriveIncidentFlags to populate attendance badge.
+ * NOT used for dedup — use findOpenIncidentByKey() for that.
  */
 async function getOpenIncident(env, wa_id) {
   const simCtx = getSimulationContext(env);
@@ -1203,6 +1204,43 @@ async function getOpenIncident(env, wa_id) {
     const result = await sbFetch(env, "/rest/v1/enova_incidents", {
       method: "GET",
       query: `wa_id=eq.${encodeURIComponent(wa_id)}&incident_status=eq.OPEN&order=opened_at.desc&limit=1`,
+      headers: {
+        "Content-Type": "application/json",
+        apikey: env.SUPABASE_SERVICE_ROLE,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE}`
+      }
+    });
+    const rows = normalizeSupabaseRows(result);
+    return rows?.[0] || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Dedup check: find an existing OPEN incident by its natural key
+ * (wa_id + incident_type + funnel_stage_at_error).
+ * This is the correct dedup function — it checks the exact key,
+ * NOT "most recent OPEN" which would miss older open incidents of the same type.
+ * Returns the matching row or null if none / table doesn't exist.
+ */
+async function findOpenIncidentByKey(env, wa_id, incident_type, funnel_stage_at_error) {
+  const stage = funnel_stage_at_error || "inicio";
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) {
+    const incidents = simCtx._incidents || [];
+    return incidents.find(i =>
+      i.wa_id === wa_id &&
+      i.incident_type === incident_type &&
+      i.funnel_stage_at_error === stage &&
+      i.incident_status === "OPEN"
+    ) || null;
+  }
+
+  try {
+    const result = await sbFetch(env, "/rest/v1/enova_incidents", {
+      method: "GET",
+      query: `wa_id=eq.${encodeURIComponent(wa_id)}&incident_type=eq.${encodeURIComponent(incident_type)}&funnel_stage_at_error=eq.${encodeURIComponent(stage)}&incident_status=eq.OPEN&limit=1`,
       headers: {
         "Content-Type": "application/json",
         apikey: env.SUPABASE_SERVICE_ROLE,
@@ -1262,8 +1300,36 @@ async function resolveIncident(env, incident_id, resolution_note) {
 
 /**
  * Open an incident with objective proof.
- * Deduplicates: won't open a new OPEN incident of the same type for the same wa_id
- * if one already exists (within the same funnel stage).
+ *
+ * COVERAGE STATUS — what opens automatically vs what is schema-only:
+ *
+ *   ACTIVELY HOOKED (opens incident automatically with objective proof):
+ *   ─────────────────────────────────────────────────────────────────
+ *   WORKER_EXCEPTION      → step() outer catch (L~362)
+ *                         → handleMetaWebhook() runFunnel catch (L~7937)
+ *   MESSAGE_SEND_FAILURE  → sendMessage() network catch (L~464)
+ *                         → sendMessage() HTTP error (L~507)
+ *   PERSISTENCE_FAILURE   → upsertState() outer catch (L~846)
+ *
+ *   PREPARED IN SCHEMA ONLY (enum + table column ready, no auto-hook yet):
+ *   ─────────────────────────────────────────────────────────────────
+ *   FUNNEL_LOOP_DETECTED  → schema/enum ready; auto-hook pending next PR
+ *   STAGE_STALL_INTERNAL  → schema/enum ready; auto-hook pending next PR
+ *   PARSER_FAILURE        → schema/enum ready; auto-hook pending next PR
+ *   INVALID_TRANSITION    → schema/enum ready; auto-hook pending next PR
+ *   TIMEOUT               → schema/enum ready; auto-hook pending next PR
+ *   UNKNOWN_INTERNAL_ERROR → schema/enum ready; manual use via this fn
+ *
+ * DEDUP STRATEGY:
+ *   Uses findOpenIncidentByKey(wa_id, incident_type, funnel_stage_at_error).
+ *   Checks all three fields — NOT just "most recent OPEN" — to avoid duplicates
+ *   when multiple OPEN incidents of different types coexist for the same wa_id.
+ *
+ * CORRELATION FIELDS:
+ *   request_id and trace_id are always null in the current Worker.
+ *   No distributed trace infrastructure exists today. Fields are reserved
+ *   in the schema for future use when infra is added.
+ *
  * Non-blocking — never breaks the funnel.
  */
 async function openIncidentIfNeeded(env, st, params) {
@@ -1274,11 +1340,15 @@ async function openIncidentIfNeeded(env, st, params) {
     ? params.incident_severity
     : "HIGH";
 
-  // Dedup check: don't open if same type + stage already OPEN for this wa_id
+  const stage = st.fase_conversa || "inicio";
+
+  // Dedup check: don't open if same wa_id + incident_type + funnel_stage already OPEN.
+  // Uses findOpenIncidentByKey (not getOpenIncident) to query the exact key —
+  // avoids false "no duplicate" when other OPEN incidents exist for the same wa_id.
   try {
-    const existing = await getOpenIncident(env, st.wa_id);
-    if (existing && existing.incident_type === params.incident_type && existing.funnel_stage_at_error === (st.fase_conversa || "inicio")) {
-      return existing; // Already tracked, don't duplicate
+    const existing = await findOpenIncidentByKey(env, st.wa_id, params.incident_type, stage);
+    if (existing) {
+      return existing; // Already tracked with this key, don't duplicate
     }
   } catch (_) {
     // Continue even if dedup check fails
@@ -1289,11 +1359,12 @@ async function openIncidentIfNeeded(env, st, params) {
     incident_type: params.incident_type,
     incident_severity: severity,
     incident_status: "OPEN",
-    funnel_stage_at_error: st.fase_conversa || "inicio",
+    funnel_stage_at_error: stage,
     base_at_error: st.base_origem || st.utm_source || null,
     error_message_short: params.error_message_short || null,
     error_message_raw: params.error_message_raw || null,
     suspected_trigger: params.suspected_trigger || null,
+    // request_id / trace_id: always null today (no distributed trace infra yet)
     request_id: params.request_id || null,
     trace_id: params.trace_id || null,
     worker_env: env.ENVIRONMENT || env.CF_WORKER_ENV || null,

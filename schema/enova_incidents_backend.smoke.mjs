@@ -86,6 +86,16 @@ function getOpenIncidentSim(store, wa_id) {
     .sort((a, b) => (b.opened_at || "").localeCompare(a.opened_at || ""))[0] || null;
 }
 
+function findOpenIncidentByKeySim(store, wa_id, incident_type, funnel_stage_at_error) {
+  const stage = funnel_stage_at_error || "inicio";
+  return store.incidents.find(i =>
+    i.wa_id === wa_id &&
+    i.incident_type === incident_type &&
+    i.funnel_stage_at_error === stage &&
+    i.incident_status === "OPEN"
+  ) || null;
+}
+
 function resolveIncidentSim(store, incident_id, resolution_note) {
   const found = store.incidents.find(i => i.incident_id === incident_id);
   if (found) {
@@ -105,9 +115,12 @@ function openIncidentIfNeededSim(store, st, params) {
     ? params.incident_severity
     : "HIGH";
 
-  // Dedup: don't open if same type + stage already OPEN
-  const existing = getOpenIncidentSim(store, st.wa_id);
-  if (existing && existing.incident_type === params.incident_type && existing.funnel_stage_at_error === (st.fase_conversa || "inicio")) {
+  const stage = st.fase_conversa || "inicio";
+
+  // Dedup: check by exact key (wa_id + incident_type + funnel_stage_at_error)
+  // NOT "most recent OPEN" — avoids false miss when other OPEN incidents coexist
+  const existing = findOpenIncidentByKeySim(store, st.wa_id, params.incident_type, stage);
+  if (existing) {
     return existing;
   }
 
@@ -116,10 +129,10 @@ function openIncidentIfNeededSim(store, st, params) {
     incident_type: params.incident_type,
     incident_severity: severity,
     incident_status: "OPEN",
-    funnel_stage_at_error: st.fase_conversa || "inicio",
+    funnel_stage_at_error: stage,
     base_at_error: st.base_origem || st.utm_source || null,
     error_message_short: params.error_message_short || null,
-    error_message_raw: params.error_message_raw || null,
+    error_message_raw: params.error_message_raw ? String(params.error_message_raw).slice(0, 4000) : null, // truncated to match insertIncident() limit (prevents oversized Supabase payloads)
     suspected_trigger: params.suspected_trigger || null,
     request_id: params.request_id || null,
     trace_id: params.trace_id || null,
@@ -620,6 +633,42 @@ test("5.1 — Mesmo tipo + mesma fase não duplica", () => {
   assert.equal(store.incidents.length, 1);
 });
 
+test("5.1b — DEDUP REAL: incidente A OPEN + incidente B OPEN mais recente → novo A não duplica", () => {
+  // This is the exact bug scenario that was fixed (BLOQUEIO 1):
+  // incidentA = WORKER_EXCEPTION @ estado_civil (OPEN, older)
+  // incidentB = MESSAGE_SEND_FAILURE @ renda (OPEN, more recent)
+  // new WORKER_EXCEPTION @ estado_civil occurs → OLD code would look at incidentB (most recent),
+  //   find no match, and INSERT DUPLICATE. NEW code queries by key, finds incidentA, deduplicates.
+  const store = createSimStore();
+
+  const stA = { wa_id: "5511999990099", fase_conversa: "estado_civil" };
+  const incA = openIncidentIfNeededSim(store, stA, {
+    incident_type: "WORKER_EXCEPTION",
+    incident_severity: "CRITICAL"
+  });
+
+  // Open a different incident (most recent for this wa_id)
+  const stB = { wa_id: "5511999990099", fase_conversa: "renda" };
+  openIncidentIfNeededSim(store, stB, {
+    incident_type: "MESSAGE_SEND_FAILURE",
+    incident_severity: "HIGH"
+  });
+
+  assert.equal(store.incidents.length, 2, "Should have 2 different incidents");
+
+  // Now the WORKER_EXCEPTION @ estado_civil occurs again
+  // With the OLD dedup (getOpenIncident = most recent = MESSAGE_SEND_FAILURE@renda),
+  // it would find no match and insert a duplicate.
+  // With the NEW dedup (findOpenIncidentByKey = WORKER_EXCEPTION@estado_civil), it finds incA.
+  const incA2 = openIncidentIfNeededSim(store, stA, {
+    incident_type: "WORKER_EXCEPTION",
+    incident_severity: "CRITICAL"
+  });
+
+  assert.equal(store.incidents.length, 2, "Must still be 2 — no duplicate inserted");
+  assert.equal(incA2.incident_id, incA.incident_id, "Must return original incidentA (dedup by key)");
+});
+
 test("5.2 — Mesmo tipo + fase diferente cria novo", () => {
   const store = createSimStore();
   const st1 = { wa_id: "5511999990061", fase_conversa: "estado_civil" };
@@ -771,6 +820,85 @@ test("7.4 — Incidente NÃO cria campo em enova_state (isolamento)", () => {
   // O incidente é registrado em store.incidents, não no state
   assert.equal(st.incident_id, undefined, "incident_id não deve existir no enova_state");
   assert.equal(st.incident_type, undefined, "incident_type não deve existir no enova_state");
+});
+
+// ══════════════════════════════════════════════════════════════
+// GRUPO 8 — Cobertura real vs schema-only + campos de rastreio
+// ══════════════════════════════════════════════════════════════
+
+console.log("\n📋 GRUPO 8 — Cobertura real vs schema-only + rastreio\n");
+
+test("8.1 — ATIVAMENTE HOOKED: WORKER_EXCEPTION pode ser aberto via openIncidentIfNeeded", () => {
+  const store = createSimStore();
+  const st = { wa_id: "5511999990090", fase_conversa: "estado_civil" };
+  const result = openIncidentIfNeededSim(store, st, { incident_type: "WORKER_EXCEPTION", incident_severity: "CRITICAL" });
+  assert.ok(result, "WORKER_EXCEPTION deve abrir");
+  assert.equal(result.incident_type, "WORKER_EXCEPTION");
+});
+
+test("8.2 — ATIVAMENTE HOOKED: MESSAGE_SEND_FAILURE pode ser aberto via openIncidentIfNeeded", () => {
+  const store = createSimStore();
+  const st = { wa_id: "5511999990091", fase_conversa: "renda" };
+  const result = openIncidentIfNeededSim(store, st, { incident_type: "MESSAGE_SEND_FAILURE", incident_severity: "CRITICAL" });
+  assert.ok(result);
+  assert.equal(result.incident_type, "MESSAGE_SEND_FAILURE");
+});
+
+test("8.3 — ATIVAMENTE HOOKED: PERSISTENCE_FAILURE pode ser aberto via openIncidentIfNeeded", () => {
+  const store = createSimStore();
+  const st = { wa_id: "5511999990092", fase_conversa: "inicio" };
+  const result = openIncidentIfNeededSim(store, st, { incident_type: "PERSISTENCE_FAILURE", incident_severity: "CRITICAL" });
+  assert.ok(result);
+  assert.equal(result.incident_type, "PERSISTENCE_FAILURE");
+});
+
+test("8.4 — SCHEMA-ONLY: FUNNEL_LOOP_DETECTED é válido no enum (sem auto-hook ainda)", () => {
+  // This type is defined in INCIDENT_TYPES and accepted by openIncidentIfNeeded,
+  // but has NO automatic hook in the Worker today — it can only be opened manually.
+  // Auto-hook is pending next PR.
+  assert.ok(INCIDENT_TYPES.has("FUNNEL_LOOP_DETECTED"), "FUNNEL_LOOP_DETECTED deve estar no enum");
+  const store = createSimStore();
+  const st = { wa_id: "5511999990093", fase_conversa: "inicio" };
+  const result = openIncidentIfNeededSim(store, st, { incident_type: "FUNNEL_LOOP_DETECTED", incident_severity: "HIGH" });
+  assert.ok(result, "Pode ser aberto manualmente quando houver prova objetiva");
+});
+
+test("8.5 — SCHEMA-ONLY: STAGE_STALL_INTERNAL, PARSER_FAILURE, INVALID_TRANSITION, TIMEOUT são válidos no enum", () => {
+  // These types are schema-only in this PR — no auto-hooks yet. Pending next PR.
+  for (const t of ["STAGE_STALL_INTERNAL", "PARSER_FAILURE", "INVALID_TRANSITION", "TIMEOUT"]) {
+    assert.ok(INCIDENT_TYPES.has(t), `${t} deve estar no enum`);
+  }
+});
+
+test("8.6 — request_id e trace_id são null quando não fornecidos (sem infra de trace hoje)", () => {
+  // request_id / trace_id are always null in the current Worker.
+  // No distributed trace infrastructure exists. Fields reserved for future use.
+  const store = createSimStore();
+  const st = { wa_id: "5511999990094", fase_conversa: "inicio" };
+  const result = openIncidentIfNeededSim(store, st, {
+    incident_type: "WORKER_EXCEPTION",
+    incident_severity: "HIGH"
+    // request_id and trace_id not passed — simulates current Worker behavior
+  });
+  assert.equal(result.request_id, null, "request_id deve ser null (sem infra de trace hoje)");
+  assert.equal(result.trace_id, null, "trace_id deve ser null (sem infra de trace hoje)");
+});
+
+test("8.7 — findOpenIncidentByKey localiza por chave exata (A inserido antes de B, B é o mais recente)", () => {
+  const store = createSimStore();
+  const wa_id = "5511999990095";
+
+  // Insert A first, then B — so B is the most-recent OPEN by array position.
+  // findOpenIncidentByKey must still find A when searching for its key.
+  const incA = insertIncidentSim(store, { wa_id, incident_type: "WORKER_EXCEPTION", incident_severity: "CRITICAL", incident_status: "OPEN", funnel_stage_at_error: "estado_civil", opened_at: "2026-04-01T10:00:00.000Z" });
+  insertIncidentSim(store, { wa_id, incident_type: "MESSAGE_SEND_FAILURE", incident_severity: "HIGH", incident_status: "OPEN", funnel_stage_at_error: "renda", opened_at: "2026-04-01T11:00:00.000Z" });
+
+  // findOpenIncidentByKey must find A by its exact key — not the last-inserted B
+  const found = findOpenIncidentByKeySim(store, wa_id, "WORKER_EXCEPTION", "estado_civil");
+  assert.ok(found, "Deve encontrar incidente A por chave");
+  assert.equal(found.incident_id, incA.incident_id);
+  assert.equal(found.incident_type, "WORKER_EXCEPTION");
+  assert.equal(found.funnel_stage_at_error, "estado_civil");
 });
 
 // ══════════════════════════════════════════════════════════════

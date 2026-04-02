@@ -19894,6 +19894,8 @@ async function runFunnel(env, st, userText) {
   try {
     if (shouldTriggerCognitiveAssist(stage, userText)) {
       // Guard: preservar abertura mecânica soberana no primeiro contato em "inicio"
+      // step() em L159-168 lê st.__cognitive_reply_prefix e o prepende às mensagens;
+      // garantir null aqui evita que a casca cognitiva apareça antes da abertura mecânica.
       if (stage === "inicio" && st.opening_used !== true) {
         st.__cognitive_reply_prefix = null;
       } else {

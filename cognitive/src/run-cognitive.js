@@ -1457,7 +1457,7 @@ function buildHeuristicResponse(request, analysis, conflictList) {
   const confidenceBase = slotsDetectedCount
     ? CONFIDENCE_RULES.detectedBase + Math.min(slotsDetectedCount, 4) * CONFIDENCE_RULES.detectedIncrement
     : analysis.offtrack ? CONFIDENCE_RULES.offtrackBase
-    : TOPO_FUNIL_STAGES.has(request.current_stage) ? 0.72
+    : TOPO_FUNIL_STAGES.has(request.current_stage) ? 0.72 // topo: phase guidance is the signal; floor above COGNITIVE_V1_CONFIDENCE_MIN (0.66)
     : CONFIDENCE_RULES.noSlotBase;
   const confidencePenalty =
     conflictList.length * CONFIDENCE_RULES.conflictPenalty +

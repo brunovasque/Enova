@@ -2418,7 +2418,12 @@ const COGNITIVE_V1_ALLOWED_STAGES = new Set([
   "renda",
   "ir_declarado",
   "regime_trabalho",
-  "autonomo_ir_pergunta"
+  "autonomo_ir_pergunta",
+  "possui_renda_extra",
+  "inicio_multi_regime_pergunta",
+  "inicio_multi_regime_coletar",
+  "inicio_multi_renda_pergunta",
+  "inicio_multi_renda_coletar"
 ]);
 
 const COGNITIVE_V1_CONFIDENCE_MIN = 0.66;
@@ -2452,7 +2457,12 @@ const COGNITIVE_PLAYBOOK_V1 = {
     renda: ["renda_hibrida", "autonomo_ir", "duvida_valor_sem_analise", "objecao"],
     ir_declarado: ["ir_sim", "ir_nao", "autonomo_ir", "objecao"],
     regime_trabalho: ["clt", "autonomo", "mei", "aposentadoria", "duvida_regime", "objecao"],
-    autonomo_ir_pergunta: ["ir_sim", "ir_nao", "duvida_ir_autonomo", "duvida_mei_ir", "objecao"]
+    autonomo_ir_pergunta: ["ir_sim", "ir_nao", "duvida_ir_autonomo", "duvida_mei_ir", "objecao"],
+    possui_renda_extra: ["renda_extra_sim", "renda_extra_nao", "duvida_bico", "duvida_venda", "duvida_conta"],
+    inicio_multi_regime_pergunta: ["multi_regime_sim", "multi_regime_nao", "duvida_clt_extra", "duvida_mei_clt", "duvida_aposentado_bico"],
+    inicio_multi_regime_coletar: ["regime_clt", "regime_autonomo", "regime_mei", "regime_servidor", "regime_aposentado", "duvida_regime_ambiguo"],
+    inicio_multi_renda_pergunta: ["multi_renda_sim", "multi_renda_nao", "duvida_renda_variavel", "duvida_conta_separada"],
+    inicio_multi_renda_coletar: ["renda_extra_valor", "renda_extra_aproximada", "duvida_valor_variavel", "duvida_nao_sei"]
   },
   entities_supported: [
     "estado_civil",
@@ -2547,6 +2557,16 @@ function hasClearStageAnswer(stage, text) {
   if (stage === "autonomo_ir_pergunta") {
     return isYes(text) || isNo(text);
   }
+  if (stage === "possui_renda_extra" || stage === "inicio_multi_regime_pergunta" || stage === "inicio_multi_renda_pergunta") {
+    return isYes(text) || isNo(text);
+  }
+  if (stage === "inicio_multi_regime_coletar") {
+    return Boolean(parseRegimeTrabalho(text));
+  }
+  if (stage === "inicio_multi_renda_coletar") {
+    const money = parseMoneyBR(text);
+    return Number.isFinite(money) && money > 100;
+  }
   return false;
 }
 
@@ -2584,6 +2604,28 @@ function shouldTriggerCognitiveAssist(stage, text) {
   if (stage === "renda") {
     const rendaHints = /\b(bruto|liquido|líquido|varia|variavel|variável|depende do mes|depende do mês|nao sei|não sei|extra|bonus|bônus|comissao|comissão|gira em torno|mais ou menos|aproximadamente)\b/i.test(nt);
     if (rendaHints) return true;
+  }
+
+  // Bloco aprofundamento renda — triggers específicos
+  if (stage === "possui_renda_extra") {
+    const rendaExtraHints = /\b(bico|bicos|freela|vendo|vendendo|por fora|precisa entrar|conta|entra|uber|ifood|informal)\b/i.test(nt);
+    if (rendaExtraHints) return true;
+  }
+  if (stage === "inicio_multi_regime_pergunta") {
+    const multiRegimeHints = /\b(clt e|mei e|aposentado e|aposentada e|tambem trabalho|também trabalho|dois empregos|dois trampos|dois regimes|mais de um regime|outro trampo|outro emprego)\b/i.test(nt);
+    if (multiRegimeHints) return true;
+  }
+  if (stage === "inicio_multi_regime_coletar") {
+    const multiRegimeColetarHints = /\b(mei|microempreendedor|nao sei|não sei|informal|bico|freela|uber|ifood|nao sei qual|não sei qual|trabalhando|trampo)\b/i.test(nt);
+    if (multiRegimeColetarHints) return true;
+  }
+  if (stage === "inicio_multi_renda_pergunta") {
+    const multiRendaHints = /\b(varia|variavel|variável|nao sei se conta|não sei se conta|nao sei se e renda|não sei se é renda|tambem tenho|também tenho|salario e|salário e)\b/i.test(nt);
+    if (multiRendaHints) return true;
+  }
+  if (stage === "inicio_multi_renda_coletar") {
+    const multiRendaColetarHints = /\b(depende|varia|gira em torno|mais ou menos|aproximadamente|nao sei|não sei|por volta de)\b/i.test(nt);
+    if (multiRendaColetarHints) return true;
   }
 
   return hasQuestion || hasConnector || offtrackHints || fearHints;

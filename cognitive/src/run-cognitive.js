@@ -22,7 +22,12 @@ const STAGE_DEFAULT_PENDING_SLOTS = Object.freeze({
   inicio_nome: ["nome"],
   inicio_nacionalidade: ["nacionalidade"],
   inicio_rnm: ["rnm_status"],
-  inicio_rnm_validade: ["rnm_validade"]
+  inicio_rnm_validade: ["rnm_validade"],
+  possui_renda_extra: ["renda_extra"],
+  inicio_multi_regime_pergunta: ["multi_regime"],
+  inicio_multi_regime_coletar: ["multi_regime"],
+  inicio_multi_renda_pergunta: ["multi_renda"],
+  inicio_multi_renda_coletar: ["multi_renda"]
 });
 
 const BRL_CURRENCY_PATTERN = /(?<!\d)(?:r\$\s*)?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{2})?(?!\d)/i;
@@ -90,6 +95,7 @@ const COGNITIVE_SLOT_DEPENDENCIES = Object.freeze({
 const TOPO_FUNIL_STAGES = new Set(["inicio", "inicio_decisao", "inicio_programa", "inicio_nome", "inicio_nacionalidade", "inicio_rnm", "inicio_rnm_validade"]);
 const COMPOSICAO_INICIAL_STAGES = new Set(["somar_renda_solteiro", "somar_renda_familiar", "quem_pode_somar", "interpretar_composicao"]);
 const RENDA_TRABALHO_STAGES = new Set(["regime_trabalho", "autonomo_ir_pergunta", "renda"]);
+const APROFUNDAMENTO_RENDA_STAGES = new Set(["possui_renda_extra", "inicio_multi_regime_pergunta", "inicio_multi_regime_coletar", "inicio_multi_renda_pergunta", "inicio_multi_renda_coletar"]);
 const REPLY_TEXT_REPLACEMENTS = Object.freeze([
   [/\brunner read-only\b/gi, "atendimento"],
   [/\bmotor cognitivo de teste\b/gi, "atendimento"],
@@ -109,7 +115,10 @@ const SLOT_LABELS = Object.freeze({
   ir_declarado: "Imposto de Renda",
   docs: "documentos",
   correspondente: "documentos pendentes",
-  visita: "visita no plantão"
+  visita: "visita no plantão",
+  renda_extra: "renda extra",
+  multi_regime: "segundo regime de trabalho",
+  multi_renda: "renda adicional"
 });
 const SLOT_ACTION_PROMPTS = Object.freeze({
   estado_civil: "Me confirma seu estado civil hoje: solteiro, casado no civil ou união estável?",
@@ -123,7 +132,10 @@ const SLOT_ACTION_PROMPTS = Object.freeze({
   correspondente: "Se quiser, eu sigo acompanhando por aqui e te aviso assim que tiver retorno do correspondente.",
   visita: "Se fizer sentido para você, eu já vejo um horário dentro da agenda oficial do plantão.",
   rnm_status: "Você possui *RNM*? Responda *sim* ou *não*.",
-  rnm_validade: "Seu RNM é *com validade* (data definida) ou *indeterminado* (sem prazo)?"
+  rnm_validade: "Seu RNM é *com validade* (data definida) ou *indeterminado* (sem prazo)?",
+  renda_extra: "Você tem alguma renda extra além da sua renda principal? Responda *sim* ou *não*.",
+  multi_regime: "Você tem *mais algum regime de trabalho* além desse? Responda *sim* ou *não*.",
+  multi_renda: "Você tem *mais alguma renda* além da principal? Responda *sim* ou *não*."
 });
 const COGNITIVE_SLOT_CONTRACT = Object.freeze([
   {
@@ -483,6 +495,10 @@ function isComposicaoInicialContext(request) {
 
 function isRendaTrabalhoContext(request) {
   return RENDA_TRABALHO_STAGES.has(normalizeText(request?.current_stage));
+}
+
+function isAprofundamentoRendaContext(request) {
+  return APROFUNDAMENTO_RENDA_STAGES.has(normalizeText(request?.current_stage));
 }
 
 function toNumber(value) {
@@ -1056,6 +1072,85 @@ function buildRendaTrabalhoGuidance(request) {
   return null;
 }
 
+function buildAprofundamentoRendaGuidance(request) {
+  const stage = normalizeText(request?.current_stage);
+  const normalizedMessage = normalizeText(request?.message_text);
+
+  if (stage === "possui_renda_extra") {
+    if (/\bbico\b|\bbicos\b|\bfreela\b|\bfreelas\b|\binformal\b/i.test(normalizedMessage)) {
+      return "Bicos e trabalhos informais podem entrar como renda extra. O sistema vai verificar o que se encaixa no seu perfil. Você tem alguma renda extra além da principal? Responda *sim* ou *não*.";
+    }
+    if (/\bvendo\b|\bvendendo\b|\bvenda\b|\bvendas\b/i.test(normalizedMessage)) {
+      return "Renda de vendas pode ser considerada extra. O sistema avalia o que entra na composição. Você tem alguma renda extra além da principal? Responda *sim* ou *não*.";
+    }
+    if (/\bpor fora\b|\brecebo por fora\b|\bganho por fora\b/i.test(normalizedMessage)) {
+      return "Renda extra informal pode ser considerada. O sistema verifica o que entra. Você tem alguma renda extra além da principal? Responda *sim* ou *não*.";
+    }
+    if (/\bprecisa entrar\b|\btem que entrar\b|\bconta\b|\bentra\b/i.test(normalizedMessage)) {
+      return "A decisão de o que entra ou não na composição fica com o sistema. Aqui só precisamos saber se você tem alguma renda extra. Você tem alguma renda extra além da principal? Responda *sim* ou *não*.";
+    }
+    return "Você tem alguma renda extra além da sua renda principal? Responda *sim* ou *não*.";
+  }
+
+  if (stage === "inicio_multi_regime_pergunta") {
+    if (/\bclt\b|\bcarteira assinada\b|\bregistrad[oa]\b/i.test(normalizedMessage) && /\bextra\b|\bbico\b|\bautonom[oa]\b/i.test(normalizedMessage)) {
+      return "Entendido que pode haver mais de um regime. O sistema registra cada um — aqui só coletamos a informação, sem classificar. Você tem *mais algum regime de trabalho* além do principal? Responda *sim* ou *não*.";
+    }
+    if (/\bmei\b|\bmicro\s*empreendedor\b/i.test(normalizedMessage) && /\bclt\b|\btrabalhando registrad[oa]\b|\bcarteira\b/i.test(normalizedMessage)) {
+      return "MEI junto com CLT é uma situação que o sistema verifica corretamente. Aqui só precisamos confirmar. Você tem *mais algum regime de trabalho* além do principal? Responda *sim* ou *não*.";
+    }
+    if (/\baposentad[oa]\b/i.test(normalizedMessage) && /\bbico\b|\bextra\b|\bfreela\b|\bautonom[oa]\b/i.test(normalizedMessage)) {
+      return "Aposentado com renda adicional é uma situação que o sistema avalia. Aqui só confirmamos a existência. Você tem *mais algum regime de trabalho* além do principal? Responda *sim* ou *não*.";
+    }
+    return "Verificar múltiplos regimes ajuda a montar o perfil completo de renda. Você tem *mais algum regime de trabalho*? Responda *sim* ou *não*.";
+  }
+
+  if (stage === "inicio_multi_regime_coletar") {
+    if (/\bmei\b|\bmicro\s*empreendedor\b/i.test(normalizedMessage)) {
+      return "MEI é reconhecido pelo sistema. Me diz qual é o regime: *CLT*, *Autônomo/MEI*, *Servidor* ou *Aposentado*?";
+    }
+    if (/\bnao sei\b|\bnão sei\b|\bnao tenho certeza\b|\bnão tenho certeza\b/i.test(normalizedMessage)) {
+      return "Sem problema. Os regimes mais comuns: *CLT* = carteira assinada; *Autônomo* = por conta própria, MEI ou informal; *Aposentado* = renda de benefício. Qual se encaixa?";
+    }
+    if (/\btrabalhando\b|\btrampo\b|\bemprego\b/i.test(normalizedMessage) && !/\bclt\b|\bautonom[oa]\b|\bservidor\b|\baposentad[oa]\b/i.test(normalizedMessage)) {
+      return "Me diz o regime específico: *CLT*, *Autônomo*, *Servidor* ou *Aposentado*? Preciso do regime para o sistema seguir corretamente.";
+    }
+    return "Me diz qual é o *outro regime de trabalho*. Exemplos: *CLT*, *Autônomo*, *Servidor*, *MEI*, *Aposentado*.";
+  }
+
+  if (stage === "inicio_multi_renda_pergunta") {
+    if (/\bvaria\b|\bvari[aá]vel\b|\bdepende\b|\bnao e fixo\b|\bnão é fixo\b/i.test(normalizedMessage)) {
+      return "Renda variável pode ser considerada — usamos a média como referência. O sistema vai verificar o que se encaixa. Você tem *mais alguma renda* além dessa? Responda *sim* ou *não*.";
+    }
+    if (/\bsal[aá]rio\b.*\bextra\b|\bextra\b.*\bsal[aá]rio\b|\btambem tenho\b|\btambém tenho\b/i.test(normalizedMessage)) {
+      return "Ter salário e uma renda extra é uma situação que o sistema avalia. Aqui só confirmamos a existência. Você tem *mais alguma renda* além da principal? Responda *sim* ou *não*.";
+    }
+    if (/\bnao sei se conta\b|\bnão sei se conta\b|\bnao sei se e renda\b|\bnão sei se é renda\b|\bnao sei se essa\b|\bnão sei se essa\b/i.test(normalizedMessage)) {
+      return "A decisão de o que conta como renda separada fica com o sistema. Aqui só precisamos saber se há mais alguma fonte de renda. Você tem *mais alguma renda*? Responda *sim* ou *não*.";
+    }
+    return "Verificar múltiplas rendas ajuda a montar o perfil completo. Você tem *mais alguma renda* além da principal? Responda *sim* ou *não*.";
+  }
+
+  if (stage === "inicio_multi_renda_coletar") {
+    if (/\bgira em torno\b|\baproximadamente\b|\bmais ou menos\b|\bpor volta de\b/i.test(normalizedMessage)) {
+      const money = detectMoney(request?.message_text);
+      if (Number.isFinite(money) && money > 100) {
+        return `Valor aproximado registrado como referência. Me confirma o valor mensal aproximado da renda extra para o sistema seguir?`;
+      }
+      return "Entendido. Me confirma um valor mensal aproximado para a renda extra?";
+    }
+    if (/\bdepende\b|\bvaria\b|\bnao e fixo\b|\bnão é fixo\b/i.test(normalizedMessage)) {
+      return "Quando a renda varia, use a média dos últimos meses. Me confirma um valor mensal aproximado para a renda extra?";
+    }
+    if (/\bnao sei\b|\bnão sei\b|\bnao sei ao certo\b|\bnão sei ao certo\b/i.test(normalizedMessage)) {
+      return "Sem problema — uma estimativa já ajuda. Me diz um valor aproximado mensal para a renda extra?";
+    }
+    return "Me diz qual é a *outra renda* e o *valor mensal*. Exemplo: *Bico — 1200*.";
+  }
+
+  return null;
+}
+
 function buildTopoFunilGuidance(request) {
   const stage = normalizeText(request?.current_stage);
   const normalizedMessage = normalizeText(request?.message_text);
@@ -1190,6 +1285,10 @@ function buildPhaseGuidanceReply({ request, suggestedNextSlot, pendingSlots }) {
     const rendaTrabalhoReply = buildRendaTrabalhoGuidance(request);
     if (rendaTrabalhoReply) return rendaTrabalhoReply;
   }
+  if (isAprofundamentoRendaContext(request)) {
+    const aprofundamentoReply = buildAprofundamentoRendaGuidance(request);
+    if (aprofundamentoReply) return aprofundamentoReply;
+  }
   if (isAluguelContext(request)) return buildAluguelGuidance(request);
   if (isUnknownDocTypeContext(request)) return buildUnknownDocTypeGuidance(request);
   if (isDocForaDeOrdemContext(request)) return buildDocForaDeOrdemGuidance(request);
@@ -1284,6 +1383,14 @@ function buildNextActionPrompt({ request, suggestedNextSlot, pendingSlots }) {
     if (topoStage === "regime_trabalho") return "Você é *CLT*, *autônomo* ou tem outro tipo de renda?";
     if (topoStage === "autonomo_ir_pergunta") return "Você já declarou IR? Responda *sim* ou *não*.";
     if (topoStage === "renda") return "Qual é o seu valor de renda mensal?";
+  }
+
+  if (APROFUNDAMENTO_RENDA_STAGES.has(topoStage)) {
+    if (topoStage === "possui_renda_extra") return "Você tem alguma renda extra além da principal? Responda *sim* ou *não*.";
+    if (topoStage === "inicio_multi_regime_pergunta") return "Você tem *mais algum regime de trabalho* além desse? Responda *sim* ou *não*.";
+    if (topoStage === "inicio_multi_regime_coletar") return "Me diz qual é o *outro regime de trabalho*. Exemplos: *CLT*, *Autônomo*, *Servidor*, *MEI*, *Aposentado*.";
+    if (topoStage === "inicio_multi_renda_pergunta") return "Você tem *mais alguma renda* além da principal? Responda *sim* ou *não*.";
+    if (topoStage === "inicio_multi_renda_coletar") return "Me diz qual é a *outra renda* e o *valor mensal*. Exemplo: *Bico — 1200*.";
   }
 
   return "Se estiver tudo certo até aqui, já me manda os documentos básicos agora que isso adianta sua análise.";
@@ -1702,6 +1809,7 @@ function buildHeuristicResponse(request, analysis, conflictList) {
     : TOPO_FUNIL_STAGES.has(request.current_stage) ? 0.72 // topo: phase guidance is the signal; floor above COGNITIVE_V1_CONFIDENCE_MIN (0.66)
     : COMPOSICAO_INICIAL_STAGES.has(request.current_stage) ? 0.70 // composicao inicial: guidance floor above min
     : RENDA_TRABALHO_STAGES.has(request.current_stage) ? 0.70 // renda/trabalho: guidance floor above min
+    : APROFUNDAMENTO_RENDA_STAGES.has(request.current_stage) ? 0.70 // aprofundamento renda: guidance floor above min
     : CONFIDENCE_RULES.noSlotBase;
   const confidencePenalty =
     conflictList.length * CONFIDENCE_RULES.conflictPenalty +

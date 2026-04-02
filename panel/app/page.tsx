@@ -3,6 +3,7 @@ type NavLink = { href: string; label: string };
 const NAV_LINKS: NavLink[] = [
   { href: "/conversations", label: "Conversas" },
   { href: "/bases", label: "Bases" },
+  { href: "/atendimento", label: "Atendimento" },
   { href: "/crm", label: "CRM" },
   { href: "/dashboard", label: "Dashboard" },
 ];

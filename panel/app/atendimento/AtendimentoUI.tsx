@@ -1,0 +1,982 @@
+"use client";
+
+import { useCallback, useMemo, useState } from "react";
+import styles from "./atendimento.module.css";
+
+/* ===========================================
+   TIPOS - baseados em enova_attendance_v1
+   =========================================== */
+
+type FaseAtendimento =
+  | "ENTRADA"
+  | "QUALIFICACAO"
+  | "COLETA"
+  | "AGUARDANDO"
+  | "TRAVADO";
+
+type StatusAtencao = "NORMAL" | "ALERTA" | "CRITICO";
+
+type AttendanceRow = {
+  wa_id: string;
+  nome: string | null;
+  telefone: string | null;
+  fase_funil: string | null;
+  status_funil: string | null;
+  fase_atendimento: string | null;
+  fase_travamento: string | null;
+  codigo_motivo_travamento: string | null;
+  motivo_travamento: string | null;
+  travou_em: string | null;
+  dono_pendencia: string | null;
+  codigo_pendencia_principal: string | null;
+  pendencia_principal: string | null;
+  codigo_proxima_acao: string | null;
+  proxima_acao: string | null;
+  gatilho_proxima_acao: string | null;
+  prazo_proxima_acao: string | null;
+  proxima_acao_executavel: boolean | null;
+  status_atencao: StatusAtencao | null;
+  base_origem: string | null;
+  base_atual: string | null;
+  movido_base_em: string | null;
+  movido_fase_em: string | null;
+  ultima_interacao_cliente: string | null;
+  ultima_interacao_enova: string | null;
+  ultima_msg_recebida_raw: string | null;
+  estado_civil: string | null;
+  regime_trabalho: string | null;
+  renda_total: number | null;
+  somar_renda: boolean | null;
+  composicao: string | null;
+  ir_declarado: boolean | null;
+  ctps_36: boolean | null;
+  restricao: boolean | null;
+  dependentes_qtd: number | null;
+  resumo_curto: string | null;
+  tem_incidente_aberto: boolean | null;
+  tipo_incidente: string | null;
+  severidade_incidente: string | null;
+  arquivado_em: string | null;
+  codigo_motivo_arquivo: string | null;
+  nota_arquivo: string | null;
+  criado_em: string | null;
+  atualizado_em: string | null;
+};
+
+type FilterState = {
+  busca: string;
+  fase: string;
+  baseAtual: string;
+  donoPendencia: string;
+  statusAtencao: string;
+  incidente: "todos" | "com_incidente" | "sem_incidente";
+  travamento: "todos" | "travados" | "nao_travados";
+};
+
+const FASE_LABELS: Record<string, string> = {
+  ENTRADA: "Entrada",
+  QUALIFICACAO: "Qualificacao",
+  COLETA: "Coleta",
+  AGUARDANDO: "Aguardando",
+  TRAVADO: "Travado",
+};
+
+const STATUS_ATENCAO_LABELS: Record<StatusAtencao, string> = {
+  NORMAL: "Normal",
+  ALERTA: "Alerta",
+  CRITICO: "Critico",
+};
+
+// Dados mockados para desenvolvimento da UI
+const MOCK_LEADS: AttendanceRow[] = [
+  {
+    wa_id: "5511999990001",
+    nome: "Maria Silva",
+    telefone: "11 99999-0001",
+    fase_funil: "coleta_documentos",
+    status_funil: "em_andamento",
+    fase_atendimento: "COLETA",
+    fase_travamento: null,
+    codigo_motivo_travamento: null,
+    motivo_travamento: null,
+    travou_em: null,
+    dono_pendencia: "CLIENTE",
+    codigo_pendencia_principal: "DOC_FALTANTE",
+    pendencia_principal: "Aguardando comprovante de renda",
+    codigo_proxima_acao: "ENVIAR_LEMBRETE",
+    proxima_acao: "Enviar lembrete de documento",
+    gatilho_proxima_acao: "TEMPO",
+    prazo_proxima_acao: "2026-04-02T10:00:00Z",
+    proxima_acao_executavel: true,
+    status_atencao: "NORMAL",
+    base_origem: "COLD_POOL",
+    base_atual: "WARM_POOL",
+    movido_base_em: "2026-03-28T14:00:00Z",
+    movido_fase_em: "2026-03-30T09:00:00Z",
+    ultima_interacao_cliente: "2026-03-31T16:30:00Z",
+    ultima_interacao_enova: "2026-03-31T16:45:00Z",
+    ultima_msg_recebida_raw: "Vou enviar o comprovante amanha",
+    estado_civil: "casada",
+    regime_trabalho: "CLT",
+    renda_total: 8500,
+    somar_renda: true,
+    composicao: "casal",
+    ir_declarado: true,
+    ctps_36: true,
+    restricao: false,
+    dependentes_qtd: 2,
+    resumo_curto: "Casal CLT, renda 8.5k, aguardando comprovante de renda do conjuge",
+    tem_incidente_aberto: false,
+    tipo_incidente: null,
+    severidade_incidente: null,
+    arquivado_em: null,
+    codigo_motivo_arquivo: null,
+    nota_arquivo: null,
+    criado_em: "2026-03-20T10:00:00Z",
+    atualizado_em: "2026-03-31T16:45:00Z",
+  },
+  {
+    wa_id: "5511999990002",
+    nome: "Joao Santos",
+    telefone: "11 99999-0002",
+    fase_funil: "qualificacao",
+    status_funil: "em_andamento",
+    fase_atendimento: "QUALIFICACAO",
+    fase_travamento: "QUALIFICACAO",
+    codigo_motivo_travamento: "SEM_RESPOSTA",
+    motivo_travamento: "Cliente nao responde ha 3 dias",
+    travou_em: "2026-03-29T10:00:00Z",
+    dono_pendencia: "CLIENTE",
+    codigo_pendencia_principal: "RESPOSTA_PENDENTE",
+    pendencia_principal: "Aguardando resposta sobre renda",
+    codigo_proxima_acao: "FOLLOW_UP",
+    proxima_acao: "Follow-up ativo",
+    gatilho_proxima_acao: "TEMPO",
+    prazo_proxima_acao: "2026-04-01T14:00:00Z",
+    proxima_acao_executavel: true,
+    status_atencao: "ALERTA",
+    base_origem: "COLD_POOL",
+    base_atual: "COLD_POOL",
+    movido_base_em: null,
+    movido_fase_em: "2026-03-26T11:00:00Z",
+    ultima_interacao_cliente: "2026-03-26T15:00:00Z",
+    ultima_interacao_enova: "2026-03-29T10:00:00Z",
+    ultima_msg_recebida_raw: "Depois respondo",
+    estado_civil: "solteiro",
+    regime_trabalho: null,
+    renda_total: null,
+    somar_renda: false,
+    composicao: "individual",
+    ir_declarado: null,
+    ctps_36: null,
+    restricao: null,
+    dependentes_qtd: 0,
+    resumo_curto: "Solteiro, regime de trabalho e renda nao confirmados",
+    tem_incidente_aberto: false,
+    tipo_incidente: null,
+    severidade_incidente: null,
+    arquivado_em: null,
+    codigo_motivo_arquivo: null,
+    nota_arquivo: null,
+    criado_em: "2026-03-24T08:00:00Z",
+    atualizado_em: "2026-03-29T10:00:00Z",
+  },
+  {
+    wa_id: "5511999990003",
+    nome: "Ana Oliveira",
+    telefone: "11 99999-0003",
+    fase_funil: "entrada",
+    status_funil: "novo",
+    fase_atendimento: "ENTRADA",
+    fase_travamento: null,
+    codigo_motivo_travamento: null,
+    motivo_travamento: null,
+    travou_em: null,
+    dono_pendencia: "ENOVA",
+    codigo_pendencia_principal: "PRIMEIRO_CONTATO",
+    pendencia_principal: "Realizar primeiro contato",
+    codigo_proxima_acao: "INICIAR_CONVERSA",
+    proxima_acao: "Iniciar conversa de boas-vindas",
+    gatilho_proxima_acao: "IMEDIATO",
+    prazo_proxima_acao: "2026-04-01T09:00:00Z",
+    proxima_acao_executavel: true,
+    status_atencao: "NORMAL",
+    base_origem: "HOT_POOL",
+    base_atual: "HOT_POOL",
+    movido_base_em: null,
+    movido_fase_em: null,
+    ultima_interacao_cliente: "2026-04-01T08:30:00Z",
+    ultima_interacao_enova: null,
+    ultima_msg_recebida_raw: "Oi, tenho interesse em financiamento",
+    estado_civil: null,
+    regime_trabalho: null,
+    renda_total: null,
+    somar_renda: null,
+    composicao: null,
+    ir_declarado: null,
+    ctps_36: null,
+    restricao: null,
+    dependentes_qtd: null,
+    resumo_curto: "Lead novo, aguardando primeiro contato",
+    tem_incidente_aberto: false,
+    tipo_incidente: null,
+    severidade_incidente: null,
+    arquivado_em: null,
+    codigo_motivo_arquivo: null,
+    nota_arquivo: null,
+    criado_em: "2026-04-01T08:30:00Z",
+    atualizado_em: "2026-04-01T08:30:00Z",
+  },
+  {
+    wa_id: "5511999990004",
+    nome: "Carlos Ferreira",
+    telefone: "11 99999-0004",
+    fase_funil: "aguardando_documentos",
+    status_funil: "pendente",
+    fase_atendimento: "AGUARDANDO",
+    fase_travamento: "COLETA",
+    codigo_motivo_travamento: "DOC_INVALIDO",
+    motivo_travamento: "Documento enviado ilegivel",
+    travou_em: "2026-03-30T11:00:00Z",
+    dono_pendencia: "CLIENTE",
+    codigo_pendencia_principal: "REENVIO_DOC",
+    pendencia_principal: "Solicitar reenvio de documento legivel",
+    codigo_proxima_acao: "SOLICITAR_REENVIO",
+    proxima_acao: "Pedir novo envio do documento",
+    gatilho_proxima_acao: "TEMPO",
+    prazo_proxima_acao: "2026-04-01T10:00:00Z",
+    proxima_acao_executavel: true,
+    status_atencao: "CRITICO",
+    base_origem: "WARM_POOL",
+    base_atual: "WARM_POOL",
+    movido_base_em: null,
+    movido_fase_em: "2026-03-28T14:00:00Z",
+    ultima_interacao_cliente: "2026-03-30T10:00:00Z",
+    ultima_interacao_enova: "2026-03-30T11:00:00Z",
+    ultima_msg_recebida_raw: null,
+    estado_civil: "casado",
+    regime_trabalho: "AUTONOMO",
+    renda_total: 12000,
+    somar_renda: true,
+    composicao: "casal",
+    ir_declarado: true,
+    ctps_36: false,
+    restricao: false,
+    dependentes_qtd: 1,
+    resumo_curto: "Autonomo com IR, documento do IR ilegivel",
+    tem_incidente_aberto: true,
+    tipo_incidente: "DOC_QUALITY",
+    severidade_incidente: "MEDIA",
+    arquivado_em: null,
+    codigo_motivo_arquivo: null,
+    nota_arquivo: null,
+    criado_em: "2026-03-22T09:00:00Z",
+    atualizado_em: "2026-03-30T11:00:00Z",
+  },
+  {
+    wa_id: "5511999990005",
+    nome: "Fernanda Costa",
+    telefone: "11 99999-0005",
+    fase_funil: "coleta_documentos",
+    status_funil: "em_andamento",
+    fase_atendimento: "COLETA",
+    fase_travamento: null,
+    codigo_motivo_travamento: null,
+    motivo_travamento: null,
+    travou_em: null,
+    dono_pendencia: "ENOVA",
+    codigo_pendencia_principal: "VALIDAR_DOCS",
+    pendencia_principal: "Validar documentos recebidos",
+    codigo_proxima_acao: "VALIDACAO",
+    proxima_acao: "Executar validacao de documentos",
+    gatilho_proxima_acao: "IMEDIATO",
+    prazo_proxima_acao: "2026-04-01T11:00:00Z",
+    proxima_acao_executavel: true,
+    status_atencao: "NORMAL",
+    base_origem: "HOT_POOL",
+    base_atual: "HOT_POOL",
+    movido_base_em: null,
+    movido_fase_em: "2026-03-31T15:00:00Z",
+    ultima_interacao_cliente: "2026-03-31T14:45:00Z",
+    ultima_interacao_enova: "2026-03-31T15:00:00Z",
+    ultima_msg_recebida_raw: "Enviei todos os documentos",
+    estado_civil: "solteira",
+    regime_trabalho: "CLT",
+    renda_total: 6500,
+    somar_renda: false,
+    composicao: "individual",
+    ir_declarado: true,
+    ctps_36: true,
+    restricao: false,
+    dependentes_qtd: 0,
+    resumo_curto: "CLT individual, 6.5k, docs enviados aguardando validacao",
+    tem_incidente_aberto: false,
+    tipo_incidente: null,
+    severidade_incidente: null,
+    arquivado_em: null,
+    codigo_motivo_arquivo: null,
+    nota_arquivo: null,
+    criado_em: "2026-03-25T11:00:00Z",
+    atualizado_em: "2026-03-31T15:00:00Z",
+  },
+];
+
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "2-digit",
+    }).format(new Date(dateStr));
+  } catch {
+    return "—";
+  }
+}
+
+function formatDateTime(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(new Date(dateStr));
+  } catch {
+    return "—";
+  }
+}
+
+function formatCurrency(value: number | null): string {
+  if (value === null || value === undefined) return "—";
+  return new Intl.NumberFormat("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function leadLabel(lead: AttendanceRow): string {
+  return lead.nome ?? lead.telefone ?? lead.wa_id;
+}
+
+function getBaseLabel(pool: string | null): string {
+  if (!pool) return "—";
+  switch (pool) {
+    case "COLD_POOL": return "Fria";
+    case "WARM_POOL": return "Morna";
+    case "HOT_POOL": return "Quente";
+    default: return pool;
+  }
+}
+
+function getBaseBadgeClass(pool: string | null): string {
+  switch (pool) {
+    case "COLD_POOL": return styles.baseBadgeFria;
+    case "WARM_POOL": return styles.baseBadgeMorna;
+    case "HOT_POOL": return styles.baseBadgeQuente;
+    default: return "";
+  }
+}
+
+function getAtencaoClass(status: StatusAtencao | null): string {
+  switch (status) {
+    case "NORMAL": return styles.atencaoNormal;
+    case "ALERTA": return styles.atencaoAlerta;
+    case "CRITICO": return styles.atencaoCritico;
+    default: return styles.atencaoNormal;
+  }
+}
+
+function getFaseBadgeClass(fase: string | null): string {
+  switch (fase) {
+    case "ENTRADA": return styles.faseBadgeActive;
+    case "QUALIFICACAO": return styles.faseBadgeActive;
+    case "COLETA": return styles.faseBadgeActive;
+    case "AGUARDANDO": return styles.faseBadgeWarning;
+    case "TRAVADO": return styles.faseBadgeDanger;
+    default: return styles.faseBadgeDefault;
+  }
+}
+
+function isPrazoVencido(prazo: string | null): boolean {
+  if (!prazo) return false;
+  return new Date(prazo) < new Date();
+}
+
+function isPrazoProximo(prazo: string | null): boolean {
+  if (!prazo) return false;
+  const prazoDate = new Date(prazo);
+  const now = new Date();
+  const diff = prazoDate.getTime() - now.getTime();
+  const hoursUntil = diff / (1000 * 60 * 60);
+  return hoursUntil > 0 && hoursUntil <= 24;
+}
+
+function onStatKeyDown(event: React.KeyboardEvent<HTMLDivElement>, onActivate: () => void) {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    onActivate();
+  }
+}
+
+export function AtendimentoUI() {
+  const [leads] = useState<AttendanceRow[]>(MOCK_LEADS);
+  const [loading] = useState(false);
+  const [activeFase, setActiveFase] = useState<FaseAtendimento | "TODOS">("TODOS");
+  const [selectedLead, setSelectedLead] = useState<AttendanceRow | null>(null);
+  const [filters, setFilters] = useState<FilterState>({
+    busca: "",
+    fase: "",
+    baseAtual: "",
+    donoPendencia: "",
+    statusAtencao: "",
+    incidente: "todos",
+    travamento: "todos",
+  });
+
+  const faseCounts = useMemo(() => {
+    const counts: Record<FaseAtendimento | "TODOS", number> = {
+      TODOS: 0,
+      ENTRADA: 0,
+      QUALIFICACAO: 0,
+      COLETA: 0,
+      AGUARDANDO: 0,
+      TRAVADO: 0,
+    };
+    leads.forEach((lead) => {
+      counts.TODOS++;
+      const fase = (lead.fase_atendimento ?? "ENTRADA") as FaseAtendimento;
+      if (counts[fase] !== undefined) {
+        counts[fase]++;
+      }
+      if (lead.fase_travamento) {
+        counts.TRAVADO++;
+      }
+    });
+    return counts;
+  }, [leads]);
+
+  const faseLeads = useMemo(() => {
+    if (activeFase === "TODOS") return leads;
+    if (activeFase === "TRAVADO") {
+      return leads.filter((lead) => lead.fase_travamento !== null);
+    }
+    return leads.filter((lead) => lead.fase_atendimento === activeFase);
+  }, [leads, activeFase]);
+
+  const filterOptions = useMemo(() => {
+    return {
+      fases: Array.from(new Set(faseLeads.map((l) => l.fase_atendimento).filter(Boolean) as string[])),
+      bases: Array.from(new Set(faseLeads.map((l) => l.base_atual).filter(Boolean) as string[])),
+      donos: Array.from(new Set(faseLeads.map((l) => l.dono_pendencia).filter(Boolean) as string[])),
+      atencoes: Array.from(new Set(faseLeads.map((l) => l.status_atencao).filter(Boolean) as string[])),
+    };
+  }, [faseLeads]);
+
+  const filteredLeads = useMemo(() => {
+    const q = filters.busca.trim().toLowerCase();
+    return faseLeads.filter((lead) => {
+      if (q) {
+        const nameMatch = lead.nome?.toLowerCase().includes(q) ?? false;
+        const phoneMatch = (lead.telefone ?? lead.wa_id).toLowerCase().includes(q);
+        const waIdMatch = lead.wa_id.toLowerCase().includes(q);
+        if (!nameMatch && !phoneMatch && !waIdMatch) return false;
+      }
+      if (filters.fase && (lead.fase_atendimento ?? "") !== filters.fase) return false;
+      if (filters.baseAtual && (lead.base_atual ?? "") !== filters.baseAtual) return false;
+      if (filters.donoPendencia && (lead.dono_pendencia ?? "") !== filters.donoPendencia) return false;
+      if (filters.statusAtencao && (lead.status_atencao ?? "") !== filters.statusAtencao) return false;
+      if (filters.incidente === "com_incidente" && !lead.tem_incidente_aberto) return false;
+      if (filters.incidente === "sem_incidente" && lead.tem_incidente_aberto) return false;
+      if (filters.travamento === "travados" && !lead.fase_travamento) return false;
+      if (filters.travamento === "nao_travados" && lead.fase_travamento) return false;
+      return true;
+    });
+  }, [faseLeads, filters]);
+
+  const clearFilters = useCallback(() => {
+    setFilters({
+      busca: "",
+      fase: "",
+      baseAtual: "",
+      donoPendencia: "",
+      statusAtencao: "",
+      incidente: "todos",
+      travamento: "todos",
+    });
+  }, []);
+
+  const hasActiveFilters =
+    filters.busca ||
+    filters.fase ||
+    filters.baseAtual ||
+    filters.donoPendencia ||
+    filters.statusAtencao ||
+    filters.incidente !== "todos" ||
+    filters.travamento !== "todos";
+
+  const openDetail = useCallback((lead: AttendanceRow) => {
+    setSelectedLead(lead);
+  }, []);
+
+  const closeDetail = useCallback(() => {
+    setSelectedLead(null);
+  }, []);
+
+  return (
+    <main className={styles.pageMain}>
+      <div className={styles.shell}>
+        <header className={styles.header}>
+          <div className={styles.headerContent}>
+            <h1 className={styles.headerTitle}>Atendimento</h1>
+            <p className={styles.headerSubtitle}>
+              Operacao pre-envio de documentos — acompanhamento do funil antes do CRM
+            </p>
+          </div>
+          <div className={styles.headerActions}>
+            <button
+              type="button"
+              className={styles.buttonSecondary}
+              disabled={loading}
+            >
+              <span className={styles.buttonIcon}>↻</span>
+              Atualizar
+            </button>
+          </div>
+        </header>
+
+        <div className={styles.statsBar}>
+          <div className={styles.statsGroup}>
+            {(["TODOS", "ENTRADA", "QUALIFICACAO", "COLETA", "AGUARDANDO", "TRAVADO"] as const).map((fase, idx) => (
+              <div key={fase} style={{ display: "flex", alignItems: "center" }}>
+                {idx > 0 && <div className={styles.statDivider} />}
+                <div
+                  className={`${styles.statItem} ${activeFase === fase ? styles.statItemActive : ""}`}
+                  onClick={() => setActiveFase(fase)}
+                  onKeyDown={(event) => onStatKeyDown(event, () => setActiveFase(fase))}
+                  role="button"
+                  tabIndex={0}
+                >
+                  <span className={styles.statLabel}>
+                    {fase === "TODOS" ? "Todos" : FASE_LABELS[fase] ?? fase}
+                  </span>
+                  <span className={styles.statValue}>{faseCounts[fase]}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className={styles.statsSummary}>
+            <span className={styles.statsSummaryText}>Total: {leads.length} leads</span>
+          </div>
+        </div>
+
+        <div className={styles.content}>
+          <div className={styles.tabsSection}>
+            <div className={styles.tabsContainer}>
+              {(["TODOS", "ENTRADA", "QUALIFICACAO", "COLETA", "AGUARDANDO", "TRAVADO"] as const).map((fase) => (
+                <button
+                  type="button"
+                  key={fase}
+                  className={`${styles.tab} ${activeFase === fase ? styles.tabActive : ""}`}
+                  onClick={() => setActiveFase(fase)}
+                >
+                  <span className={styles.tabLabel}>
+                    {fase === "TODOS" ? "Todos" : FASE_LABELS[fase] ?? fase}
+                  </span>
+                  <span className={styles.tabCount}>{faseCounts[fase]}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.filtersSection}>
+            <div className={styles.filtersRow}>
+              <input
+                className={styles.input}
+                style={{ flex: "1 1 auto", minWidth: 200 }}
+                value={filters.busca}
+                onChange={(e) => setFilters({ ...filters, busca: e.target.value })}
+                placeholder="Buscar por nome, telefone ou wa_id"
+              />
+
+              <select
+                className={styles.filterSelect}
+                value={filters.baseAtual}
+                onChange={(e) => setFilters({ ...filters, baseAtual: e.target.value })}
+              >
+                <option value="">Todas as bases</option>
+                {filterOptions.bases.map((base) => (
+                  <option key={base} value={base}>{getBaseLabel(base)}</option>
+                ))}
+              </select>
+
+              <select
+                className={styles.filterSelect}
+                value={filters.donoPendencia}
+                onChange={(e) => setFilters({ ...filters, donoPendencia: e.target.value })}
+              >
+                <option value="">Dono da pendencia</option>
+                {filterOptions.donos.map((dono) => (
+                  <option key={dono} value={dono}>{dono}</option>
+                ))}
+              </select>
+
+              <select
+                className={styles.filterSelect}
+                value={filters.statusAtencao}
+                onChange={(e) => setFilters({ ...filters, statusAtencao: e.target.value })}
+              >
+                <option value="">Status de atencao</option>
+                {filterOptions.atencoes.map((atencao) => (
+                  <option key={atencao} value={atencao}>
+                    {STATUS_ATENCAO_LABELS[atencao as StatusAtencao] ?? atencao}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                className={styles.filterSelect}
+                value={filters.incidente}
+                onChange={(e) => setFilters({ ...filters, incidente: e.target.value as FilterState["incidente"] })}
+              >
+                <option value="todos">Incidentes</option>
+                <option value="com_incidente">Com incidente</option>
+                <option value="sem_incidente">Sem incidente</option>
+              </select>
+
+              <select
+                className={styles.filterSelect}
+                value={filters.travamento}
+                onChange={(e) => setFilters({ ...filters, travamento: e.target.value as FilterState["travamento"] })}
+              >
+                <option value="todos">Travamento</option>
+                <option value="travados">Travados</option>
+                <option value="nao_travados">Nao travados</option>
+              </select>
+
+              {hasActiveFilters && (
+                <button type="button" className={styles.clearFilters} onClick={clearFilters}>
+                  Limpar filtros
+                </button>
+              )}
+            </div>
+            <div className={styles.resultsInfo}>
+              {filteredLeads.length} de {faseLeads.length} leads
+            </div>
+          </div>
+
+          <div className={styles.tableHeader}>
+            <span>Lead</span>
+            <span>Fase</span>
+            <span>Travamento</span>
+            <span>Pendencia</span>
+            <span>Atencao</span>
+            <span>Base</span>
+            <span>Prazo</span>
+          </div>
+
+          <div className={styles.leadsTable}>
+            {loading ? (
+              <div className={styles.loadingState}>
+                <div className={styles.loadingSpinner} />
+                <span className={styles.loadingText}>Carregando leads...</span>
+              </div>
+            ) : filteredLeads.length === 0 ? (
+              <div className={styles.emptyState}>
+                <div className={styles.emptyIcon}>○</div>
+                <h3 className={styles.emptyTitle}>Nenhum lead encontrado</h3>
+                <p className={styles.emptySubtitle}>
+                  {hasActiveFilters
+                    ? "Tente ajustar os filtros de busca"
+                    : "Nao ha leads nesta fase de atendimento"}
+                </p>
+              </div>
+            ) : (
+              filteredLeads.map((lead) => (
+                <div
+                  key={lead.wa_id}
+                  className={`${styles.leadRow} ${selectedLead?.wa_id === lead.wa_id ? styles.leadRowSelected : ""}`}
+                  onClick={() => openDetail(lead)}
+                >
+                  <div className={styles.colNome}>
+                    <span className={styles.leadName}>{leadLabel(lead)}</span>
+                    <span className={styles.leadPhone}>{lead.telefone ?? lead.wa_id}</span>
+                  </div>
+
+                  <div className={styles.colFase}>
+                    <span className={`${styles.faseBadge} ${getFaseBadgeClass(lead.fase_atendimento)}`}>
+                      {FASE_LABELS[lead.fase_atendimento ?? ""] ?? lead.fase_atendimento ?? "—"}
+                    </span>
+                    {lead.fase_travamento && (
+                      <span className={styles.faseTravada}>
+                        Travou em: {FASE_LABELS[lead.fase_travamento] ?? lead.fase_travamento}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className={styles.colTravamento}>
+                    {lead.motivo_travamento ? (
+                      <span className={styles.travamentoMotivo}>{lead.motivo_travamento}</span>
+                    ) : (
+                      <span className={styles.travamentoNone}>—</span>
+                    )}
+                  </div>
+
+                  <div className={styles.colPendencia}>
+                    <span className={styles.pendenciaDono}>{lead.dono_pendencia ?? "—"}</span>
+                    <span className={styles.pendenciaAcao}>{lead.proxima_acao ?? "—"}</span>
+                  </div>
+
+                  <div className={styles.colAtencao}>
+                    <span className={`${styles.atencaoBadge} ${getAtencaoClass(lead.status_atencao)}`}>
+                      <span className={styles.atencaoDot} />
+                      {STATUS_ATENCAO_LABELS[lead.status_atencao ?? "NORMAL"] ?? "Normal"}
+                    </span>
+                  </div>
+
+                  <div className={styles.colBase}>
+                    <span className={`${styles.baseBadge} ${getBaseBadgeClass(lead.base_atual)}`}>
+                      {getBaseLabel(lead.base_atual)}
+                    </span>
+                  </div>
+
+                  <div className={styles.colPrazo}>
+                    <span
+                      className={`${styles.prazoText} ${
+                        isPrazoVencido(lead.prazo_proxima_acao)
+                          ? styles.prazoVencido
+                          : isPrazoProximo(lead.prazo_proxima_acao)
+                          ? styles.prazoProximo
+                          : ""
+                      }`}
+                    >
+                      {formatDateTime(lead.prazo_proxima_acao)}
+                    </span>
+                    {lead.tem_incidente_aberto && (
+                      <span className={styles.incidenteBadge}>
+                        Incidente
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Detail Panel */}
+        {selectedLead && (
+          <>
+            <div className={styles.overlay} onClick={closeDetail} />
+            <div className={styles.detailPanel}>
+              <div className={styles.detailHeader}>
+                <h2 className={styles.detailTitle}>{leadLabel(selectedLead)}</h2>
+                <button type="button" className={styles.closeButton} onClick={closeDetail}>
+                  ✕
+                </button>
+              </div>
+              <div className={styles.detailContent}>
+                {/* Identificacao */}
+                <div className={styles.detailBlock}>
+                  <h3 className={styles.detailBlockTitle}>Identificacao</h3>
+                  <div className={styles.detailGrid}>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Nome</span>
+                      <span className={styles.detailValue}>{selectedLead.nome ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Telefone</span>
+                      <span className={styles.detailValue}>{selectedLead.telefone ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>WA ID</span>
+                      <span className={styles.detailValue}>{selectedLead.wa_id}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Base Origem</span>
+                      <span className={styles.detailValue}>{getBaseLabel(selectedLead.base_origem)}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Base Atual</span>
+                      <span className={styles.detailValueHighlight}>{getBaseLabel(selectedLead.base_atual)}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Movido Base em</span>
+                      <span className={styles.detailValue}>{formatDateTime(selectedLead.movido_base_em)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Status Operacional */}
+                <div className={styles.detailBlock}>
+                  <h3 className={styles.detailBlockTitle}>Status Operacional</h3>
+                  <div className={styles.detailGrid}>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Fase Atual</span>
+                      <span className={styles.detailValueHighlight}>
+                        {FASE_LABELS[selectedLead.fase_atendimento ?? ""] ?? selectedLead.fase_atendimento ?? "—"}
+                      </span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Status Atencao</span>
+                      <span className={
+                        selectedLead.status_atencao === "CRITICO"
+                          ? styles.detailValueDanger
+                          : selectedLead.status_atencao === "ALERTA"
+                          ? styles.detailValueWarning
+                          : styles.detailValue
+                      }>
+                        {STATUS_ATENCAO_LABELS[selectedLead.status_atencao ?? "NORMAL"]}
+                      </span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Fase Travada</span>
+                      <span className={selectedLead.fase_travamento ? styles.detailValueDanger : styles.detailValue}>
+                        {selectedLead.fase_travamento
+                          ? FASE_LABELS[selectedLead.fase_travamento] ?? selectedLead.fase_travamento
+                          : "—"}
+                      </span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Travou em</span>
+                      <span className={styles.detailValue}>{formatDateTime(selectedLead.travou_em)}</span>
+                    </div>
+                    <div className={styles.detailItemFull}>
+                      <span className={styles.detailLabel}>Motivo do Travamento</span>
+                      <span className={selectedLead.motivo_travamento ? styles.detailValueDanger : styles.detailValue}>
+                        {selectedLead.motivo_travamento ?? "—"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Pendencia e Proxima Acao */}
+                <div className={styles.detailBlock}>
+                  <h3 className={styles.detailBlockTitle}>Pendencia e Proxima Acao</h3>
+                  <div className={styles.detailGrid}>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Dono da Pendencia</span>
+                      <span className={styles.detailValueHighlight}>{selectedLead.dono_pendencia ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Prazo Proxima Acao</span>
+                      <span className={
+                        isPrazoVencido(selectedLead.prazo_proxima_acao)
+                          ? styles.detailValueDanger
+                          : isPrazoProximo(selectedLead.prazo_proxima_acao)
+                          ? styles.detailValueWarning
+                          : styles.detailValue
+                      }>
+                        {formatDateTime(selectedLead.prazo_proxima_acao)}
+                      </span>
+                    </div>
+                    <div className={styles.detailItemFull}>
+                      <span className={styles.detailLabel}>Pendencia Principal</span>
+                      <span className={styles.detailValue}>{selectedLead.pendencia_principal ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItemFull}>
+                      <span className={styles.detailLabel}>Proxima Acao</span>
+                      <span className={styles.detailValueHighlight}>{selectedLead.proxima_acao ?? "—"}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Perfil Parcial */}
+                <div className={styles.detailBlock}>
+                  <h3 className={styles.detailBlockTitle}>Perfil Parcial Confirmado</h3>
+                  <div className={styles.detailGrid}>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Estado Civil</span>
+                      <span className={styles.detailValue}>{selectedLead.estado_civil ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Regime Trabalho</span>
+                      <span className={styles.detailValue}>{selectedLead.regime_trabalho ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Renda Total</span>
+                      <span className={styles.detailValue}>{formatCurrency(selectedLead.renda_total)}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Composicao</span>
+                      <span className={styles.detailValue}>{selectedLead.composicao ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>IR Declarado</span>
+                      <span className={styles.detailValue}>
+                        {selectedLead.ir_declarado === null ? "—" : selectedLead.ir_declarado ? "Sim" : "Nao"}
+                      </span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>CTPS 36 meses</span>
+                      <span className={styles.detailValue}>
+                        {selectedLead.ctps_36 === null ? "—" : selectedLead.ctps_36 ? "Sim" : "Nao"}
+                      </span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Restricao</span>
+                      <span className={selectedLead.restricao ? styles.detailValueDanger : styles.detailValue}>
+                        {selectedLead.restricao === null ? "—" : selectedLead.restricao ? "Sim" : "Nao"}
+                      </span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Dependentes</span>
+                      <span className={styles.detailValue}>{selectedLead.dependentes_qtd ?? "—"}</span>
+                    </div>
+                    <div className={styles.detailItemFull}>
+                      <span className={styles.detailLabel}>Resumo Curto</span>
+                      <span className={styles.detailValue}>{selectedLead.resumo_curto ?? "—"}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Timestamps */}
+                <div className={styles.detailBlock}>
+                  <h3 className={styles.detailBlockTitle}>Timestamps Operacionais</h3>
+                  <div className={styles.detailGrid}>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Ultima Interacao Cliente</span>
+                      <span className={styles.detailValue}>{formatDateTime(selectedLead.ultima_interacao_cliente)}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Ultima Interacao Enova</span>
+                      <span className={styles.detailValue}>{formatDateTime(selectedLead.ultima_interacao_enova)}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Criado em</span>
+                      <span className={styles.detailValue}>{formatDate(selectedLead.criado_em)}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Atualizado em</span>
+                      <span className={styles.detailValue}>{formatDateTime(selectedLead.atualizado_em)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Incidente */}
+                {selectedLead.tem_incidente_aberto && (
+                  <div className={styles.detailBlock}>
+                    <h3 className={styles.detailBlockTitle}>Incidente Aberto</h3>
+                    <div className={styles.detailGrid}>
+                      <div className={styles.detailItem}>
+                        <span className={styles.detailLabel}>Tipo</span>
+                        <span className={styles.detailValueDanger}>{selectedLead.tipo_incidente ?? "—"}</span>
+                      </div>
+                      <div className={styles.detailItem}>
+                        <span className={styles.detailLabel}>Severidade</span>
+                        <span className={styles.detailValueWarning}>{selectedLead.severidade_incidente ?? "—"}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </main>
+  );
+}

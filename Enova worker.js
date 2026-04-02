@@ -2430,7 +2430,16 @@ const COGNITIVE_V1_ALLOWED_STAGES = new Set([
   "inicio_multi_regime_coletar_parceiro",
   "renda_parceiro",
   "inicio_multi_renda_pergunta_parceiro",
-  "inicio_multi_renda_coletar_parceiro"
+  "inicio_multi_renda_coletar_parceiro",
+  "pais_casados_civil_pergunta",
+  "confirmar_avo_familiar",
+  "renda_familiar_valor",
+  "regime_trabalho_parceiro_familiar",
+  "renda_parceiro_familiar",
+  "inicio_multi_regime_familiar_pergunta",
+  "inicio_multi_regime_familiar_loop",
+  "inicio_multi_renda_familiar_pergunta",
+  "inicio_multi_renda_familiar_loop"
 ]);
 
 const COGNITIVE_V1_CONFIDENCE_MIN = 0.66;
@@ -2476,7 +2485,16 @@ const COGNITIVE_PLAYBOOK_V1 = {
     inicio_multi_regime_coletar_parceiro: ["regime_clt_parceiro", "regime_autonomo_parceiro", "regime_mei_parceiro", "regime_servidor_parceiro", "regime_aposentado_parceiro", "duvida_regime_ambiguo_parceiro"],
     renda_parceiro: ["renda_parceiro_valor", "duvida_bruto_liquido_parceiro", "duvida_renda_variavel_parceiro", "duvida_nao_sei_parceiro"],
     inicio_multi_renda_pergunta_parceiro: ["multi_renda_parceiro_sim", "multi_renda_parceiro_nao", "duvida_renda_variavel_parceiro", "duvida_conta_separada_parceiro"],
-    inicio_multi_renda_coletar_parceiro: ["renda_extra_parceiro_valor", "renda_extra_parceiro_aproximada", "duvida_valor_variavel_parceiro", "duvida_nao_sei_parceiro"]
+    inicio_multi_renda_coletar_parceiro: ["renda_extra_parceiro_valor", "renda_extra_parceiro_aproximada", "duvida_valor_variavel_parceiro", "duvida_nao_sei_parceiro"],
+    pais_casados_civil_pergunta: ["pais_casados_sim", "pais_casados_nao", "duvida_separados", "duvida_moram_juntos", "duvida_uniao_estavel_pais", "duvida_nao_sei_pais"],
+    confirmar_avo_familiar: ["confirmar_avo_sim", "confirmar_avo_nao", "duvida_tipo_familiar", "duvida_nao_sei_familiar"],
+    renda_familiar_valor: ["renda_familiar_valor_declarado", "duvida_bruto_liquido_familiar", "duvida_renda_variavel_familiar", "duvida_nao_sei_familiar"],
+    regime_trabalho_parceiro_familiar: ["clt_familiar", "autonomo_familiar", "mei_familiar", "aposentadoria_familiar", "duvida_regime_familiar"],
+    renda_parceiro_familiar: ["renda_parceiro_familiar_valor", "duvida_bruto_liquido_parceiro_familiar", "duvida_renda_variavel_parceiro_familiar", "duvida_nao_sei_parceiro_familiar"],
+    inicio_multi_regime_familiar_pergunta: ["multi_regime_familiar_sim", "multi_regime_familiar_nao", "duvida_clt_extra_familiar", "duvida_mei_clt_familiar", "duvida_aposentado_bico_familiar"],
+    inicio_multi_regime_familiar_loop: ["regime_clt_familiar", "regime_autonomo_familiar", "regime_mei_familiar", "regime_servidor_familiar", "regime_aposentado_familiar", "duvida_regime_ambiguo_familiar"],
+    inicio_multi_renda_familiar_pergunta: ["multi_renda_familiar_sim", "multi_renda_familiar_nao", "duvida_renda_variavel_familiar", "duvida_conta_separada_familiar"],
+    inicio_multi_renda_familiar_loop: ["renda_extra_familiar_valor", "renda_extra_familiar_aproximada", "duvida_valor_variavel_familiar", "duvida_nao_sei_familiar"]
   },
   entities_supported: [
     "estado_civil",
@@ -2595,6 +2613,20 @@ function hasClearStageAnswer(stage, text) {
     const money = parseMoneyBR(text);
     return Number.isFinite(money) && money > 100;
   }
+  if (stage === "pais_casados_civil_pergunta" || stage === "confirmar_avo_familiar") return isYes(text) || isNo(text);
+  if (stage === "regime_trabalho_parceiro_familiar") return Boolean(parseRegimeTrabalho(text));
+  if (stage === "renda_familiar_valor" || stage === "renda_parceiro_familiar") {
+    const money = parseMoneyBR(text);
+    return Number.isFinite(money) && money > 100;
+  }
+  if (stage === "inicio_multi_regime_familiar_pergunta" || stage === "inicio_multi_renda_familiar_pergunta") {
+    return isYes(text) || isNo(text);
+  }
+  if (stage === "inicio_multi_regime_familiar_loop") return Boolean(parseRegimeTrabalho(text));
+  if (stage === "inicio_multi_renda_familiar_loop") {
+    const money = parseMoneyBR(text);
+    return Number.isFinite(money) && money > 100;
+  }
   return false;
 }
 
@@ -2684,6 +2716,44 @@ function shouldTriggerCognitiveAssist(stage, text) {
   if (stage === "inicio_multi_renda_coletar_parceiro") {
     const multiRendaColetarParceiroHints = /\b(depende|varia|gira em torno|mais ou menos|aproximadamente|nao sei|não sei|por volta de)\b/i.test(nt);
     if (multiRendaColetarParceiroHints) return true;
+  }
+
+  // Bloco familiar — triggers específicos
+  if (stage === "pais_casados_civil_pergunta") {
+    const paisCasadosHints = /\b(separad[oa]|divorciad[oa]|moram juntos|vivem juntos|juntos mas|uniao estavel|uni[aã]o est[aá]vel|nao sei|não sei|nao eram casados|não eram casados)\b/i.test(nt);
+    if (paisCasadosHints) return true;
+  }
+  if (stage === "confirmar_avo_familiar") {
+    const confirmarAvoHints = /\b(av[oó]|avozinha|avozinho|aposentad[oa]|rural|beneficio|benefício|nao sei|não sei|nao tenho certeza|não tenho certeza)\b/i.test(nt);
+    if (confirmarAvoHints) return true;
+  }
+  if (stage === "renda_familiar_valor") {
+    const rendaFamiliarHints = /\b(bruto|liquido|líquido|varia|variavel|variável|depende|nao sei|não sei|gira em torno|mais ou menos|aproximadamente)\b/i.test(nt);
+    if (rendaFamiliarHints) return true;
+  }
+  if (stage === "regime_trabalho_parceiro_familiar") {
+    const regimeFamiliarHints = /\b(mei|microempreendedor|nao sei qual|não sei qual|bico|freela|informal|aposentad|servidor|registrado|carteira|autonomo|autônomo|nao sei|não sei)\b/i.test(nt);
+    if (regimeFamiliarHints) return true;
+  }
+  if (stage === "renda_parceiro_familiar") {
+    const rendaParceiroFamiliarHints = /\b(bruto|liquido|líquido|varia|variavel|variável|depende|nao sei|não sei|gira em torno|mais ou menos|aproximadamente)\b/i.test(nt);
+    if (rendaParceiroFamiliarHints) return true;
+  }
+  if (stage === "inicio_multi_regime_familiar_pergunta") {
+    const multiRegimeFamiliarHints = /\b(clt e|mei e|aposentado e|aposentada e|tambem trabalha|também trabalha|dois empregos|dois regimes|mais de um regime|outro emprego)\b/i.test(nt);
+    if (multiRegimeFamiliarHints) return true;
+  }
+  if (stage === "inicio_multi_regime_familiar_loop") {
+    const multiRegimeFamiliarLoopHints = /\b(mei|microempreendedor|nao sei|não sei|informal|bico|freela|trabalhando|trampo)\b/i.test(nt);
+    if (multiRegimeFamiliarLoopHints) return true;
+  }
+  if (stage === "inicio_multi_renda_familiar_pergunta") {
+    const multiRendaFamiliarHints = /\b(varia|variavel|variável|nao sei se conta|não sei se conta|nao sei se e renda|não sei se é renda|tambem tem|também tem|salario e|salário e)\b/i.test(nt);
+    if (multiRendaFamiliarHints) return true;
+  }
+  if (stage === "inicio_multi_renda_familiar_loop") {
+    const multiRendaFamiliarLoopHints = /\b(depende|varia|gira em torno|mais ou menos|aproximadamente|nao sei|não sei|por volta de)\b/i.test(nt);
+    if (multiRendaFamiliarLoopHints) return true;
   }
 
   return hasQuestion || hasConnector || offtrackHints || fearHints;

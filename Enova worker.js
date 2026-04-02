@@ -2762,7 +2762,18 @@ const COGNITIVE_V1_ALLOWED_STAGES = new Set([
   "inicio_multi_regime_p3_pergunta",
   "inicio_multi_regime_p3_loop",
   "inicio_multi_renda_p3_pergunta",
-  "inicio_multi_renda_p3_loop"
+  "inicio_multi_renda_p3_loop",
+  "autonomo_compor_renda",
+  "ctps_36",
+  "ctps_36_parceiro",
+  "ctps_36_parceiro_p3",
+  "dependente",
+  "restricao",
+  "restricao_parceiro",
+  "restricao_parceiro_p3",
+  "regularizacao_restricao",
+  "regularizacao_restricao_parceiro",
+  "regularizacao_restricao_p3"
 ]);
 
 const COGNITIVE_V1_CONFIDENCE_MIN = 0.66;
@@ -2824,7 +2835,18 @@ const COGNITIVE_PLAYBOOK_V1 = {
     inicio_multi_regime_p3_pergunta: ["multi_regime_p3_sim", "multi_regime_p3_nao", "duvida_clt_extra_p3", "duvida_mei_clt_p3", "duvida_aposentado_bico_p3"],
     inicio_multi_regime_p3_loop: ["regime_clt_p3", "regime_autonomo_p3", "regime_mei_p3", "regime_servidor_p3", "regime_aposentado_p3", "duvida_regime_ambiguo_p3"],
     inicio_multi_renda_p3_pergunta: ["multi_renda_p3_sim", "multi_renda_p3_nao", "duvida_renda_variavel_p3", "duvida_conta_separada_p3"],
-    inicio_multi_renda_p3_loop: ["renda_extra_p3_valor", "renda_extra_p3_aproximada", "duvida_valor_variavel_p3", "duvida_nao_sei_p3"]
+    inicio_multi_renda_p3_loop: ["renda_extra_p3_valor", "renda_extra_p3_aproximada", "duvida_valor_variavel_p3", "duvida_nao_sei_p3"],
+    autonomo_compor_renda: ["compor_sim", "compor_nao", "duvida_sozinho", "duvida_precisa_compor", "duvida_melhora", "objecao"],
+    ctps_36: ["ctps_sim", "ctps_nao", "duvida_seguido", "duvida_digital", "duvida_nao_tem_tudo", "objecao"],
+    ctps_36_parceiro: ["ctps_parceiro_sim", "ctps_parceiro_nao", "duvida_seguido_parceiro", "duvida_digital_parceiro", "duvida_nao_tem_tudo_parceiro", "objecao"],
+    ctps_36_parceiro_p3: ["ctps_p3_sim", "ctps_p3_nao", "duvida_seguido_p3", "duvida_digital_p3", "objecao"],
+    dependente: ["dependente_sim", "dependente_nao", "duvida_o_que_e_dependente", "duvida_nao_sei", "objecao"],
+    restricao: ["restricao_sim", "restricao_nao", "nome_sujo", "duvida_barra", "duvida_pouca_coisa", "duvida_pagando", "objecao"],
+    restricao_parceiro: ["restricao_parceiro_sim", "restricao_parceiro_nao", "nome_sujo_parceiro", "duvida_barra_parceiro", "objecao"],
+    restricao_parceiro_p3: ["restricao_p3_sim", "restricao_p3_nao", "nome_sujo_p3", "duvida_barra_p3", "objecao"],
+    regularizacao_restricao: ["regularizacao_sim", "regularizacao_nao", "negociando", "quitei", "nao_baixou", "objecao"],
+    regularizacao_restricao_parceiro: ["regularizacao_parceiro_sim", "regularizacao_parceiro_nao", "negociando_parceiro", "quitei_parceiro", "objecao"],
+    regularizacao_restricao_p3: ["regularizacao_p3_sim", "regularizacao_p3_nao", "negociando_p3", "quitei_p3", "objecao"]
   },
   entities_supported: [
     "estado_civil",
@@ -2970,6 +2992,11 @@ function hasClearStageAnswer(stage, text) {
     const money = parseMoneyBR(text);
     return Number.isFinite(money) && money > 100;
   }
+  if (stage === "autonomo_compor_renda") return isYes(text) || isNo(text);
+  if (stage === "ctps_36" || stage === "ctps_36_parceiro" || stage === "ctps_36_parceiro_p3") return isYes(text) || isNo(text);
+  if (stage === "dependente") return isYes(text) || isNo(text);
+  if (stage === "restricao" || stage === "restricao_parceiro" || stage === "restricao_parceiro_p3") return isYes(text) || isNo(text);
+  if (stage === "regularizacao_restricao" || stage === "regularizacao_restricao_parceiro" || stage === "regularizacao_restricao_p3") return isYes(text) || isNo(text);
   return false;
 }
 
@@ -3126,6 +3153,32 @@ function shouldTriggerCognitiveAssist(stage, text) {
   if (stage === "inicio_multi_renda_p3_loop") {
     const multiRendaP3LoopHints = /\b(depende|varia|gira em torno|mais ou menos|aproximadamente|nao sei|não sei|por volta de)\b/i.test(nt);
     if (multiRendaP3LoopHints) return true;
+  }
+
+  // Bloco gate finais — triggers específicos
+  if (stage === "ir_declarado") {
+    const irDeclaradoHints = /\b(nao declaro|não declaro|sem ir|sem declarar|nao tenho ir|não tenho ir|ainda consigo|consigo sem|mei|sou mei|trapalha|prejudica|impede|atrapalha|isso muda|isso atrapalha)\b/i.test(nt);
+    if (irDeclaradoHints) return true;
+  }
+  if (stage === "autonomo_compor_renda") {
+    const comporHints = /\b(sozinho|solo|posso tentar|preciso compor|precisa compor|sem compor|melhora|muda|faz diferenca|faz diferença|obrigatorio|obrigatório|tem que)\b/i.test(nt);
+    if (comporHints) return true;
+  }
+  if (stage === "ctps_36" || stage === "ctps_36_parceiro" || stage === "ctps_36_parceiro_p3") {
+    const ctpsHints = /\b(precisa ser seguido|seguido|continuo|ininterrupto|carteira digital|digital|nao tenho tudo|não tenho tudo|nao chego|não chego|falta|pra que|por que|para que|serve|reduz|juros|taxa)\b/i.test(nt);
+    if (ctpsHints) return true;
+  }
+  if (stage === "dependente") {
+    const dependenteHints = /\b(dependente|filho|filha|menor|terceiro grau|nao entendi|não entendi|o que e|o que é|pra que|por que|para que|nao sei|não sei)\b/i.test(nt);
+    if (dependenteHints) return true;
+  }
+  if (stage === "restricao" || stage === "restricao_parceiro" || stage === "restricao_parceiro_p3") {
+    const restricaoHints = /\b(nome sujo|cpf sujo|spc|serasa|negativad|negativ|restricao|restrição|isso barra|vai barrar|barra|pouca coisa|estou pagando|pagando|em negociacao|em negociação|divida em atraso|dívida em atraso)\b/i.test(nt);
+    if (restricaoHints) return true;
+  }
+  if (stage === "regularizacao_restricao" || stage === "regularizacao_restricao_parceiro" || stage === "regularizacao_restricao_p3") {
+    const regularizacaoHints = /\b(negociando|negociacao|negociação|ja quitei|já quitei|ja paguei|já paguei|quitei|paguei|ainda nao baixou|ainda não baixou|nao baixou|não baixou|isso ja serve|isso já serve|ja serve|já serve|nao consta|não consta)\b/i.test(nt);
+    if (regularizacaoHints) return true;
   }
 
   return hasQuestion || hasConnector || offtrackHints || fearHints;

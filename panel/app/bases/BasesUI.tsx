@@ -185,6 +185,18 @@ export function BasesUI() {
     source_type: "fria",
     observacao: "",
   });
+  const [newPrefill, setNewPrefill] = useState({
+    showPrefill: false,
+    nacionalidade_prefill: "",
+    estado_civil_prefill: "",
+    regime_trabalho_prefill: "",
+    renda_prefill: "",
+    meses_36_prefill: "",
+    dependentes_prefill: "",
+    valor_entrada_prefill: "",
+    restricao_prefill: "",
+    observacoes_admin: "",
+  });
   const [importData, setImportData] = useState({
     arquivo: null as File | null,
     entrada: "",
@@ -336,7 +348,54 @@ export function BasesUI() {
     );
 
     if (!result) return;
+
+    // Save optional prefill data if any field was provided
+    const hasPrefill =
+      newPrefill.nacionalidade_prefill.trim() ||
+      newPrefill.estado_civil_prefill.trim() ||
+      newPrefill.regime_trabalho_prefill.trim() ||
+      newPrefill.renda_prefill.trim() ||
+      newPrefill.meses_36_prefill.trim() ||
+      newPrefill.dependentes_prefill.trim() ||
+      newPrefill.valor_entrada_prefill.trim() ||
+      newPrefill.restricao_prefill.trim() ||
+      newPrefill.observacoes_admin.trim();
+
+    if (hasPrefill) {
+      try {
+        const payload: Record<string, unknown> = { wa_id: waId, updated_by: "admin_panel" };
+        const addTextField = (key: string, val: string) => {
+          if (val.trim()) { payload[key] = val.trim(); payload[key.replace("_prefill", "_status")] = "prefilled_pending_confirmation"; }
+        };
+        const addNumField = (key: string, val: string) => {
+          const n = parseFloat(val); if (!isNaN(n)) { payload[key] = n; payload[key.replace("_prefill", "_status")] = "prefilled_pending_confirmation"; }
+        };
+        const addBoolField = (key: string, val: string) => {
+          if (val === "true" || val === "false") { payload[key] = val === "true"; payload[key.replace("_prefill", "_status")] = "prefilled_pending_confirmation"; }
+        };
+        addTextField("nacionalidade_prefill", newPrefill.nacionalidade_prefill);
+        addTextField("estado_civil_prefill", newPrefill.estado_civil_prefill);
+        addTextField("regime_trabalho_prefill", newPrefill.regime_trabalho_prefill);
+        addNumField("renda_prefill", newPrefill.renda_prefill);
+        addBoolField("meses_36_prefill", newPrefill.meses_36_prefill);
+        addNumField("dependentes_prefill", newPrefill.dependentes_prefill);
+        addNumField("valor_entrada_prefill", newPrefill.valor_entrada_prefill);
+        addBoolField("restricao_prefill", newPrefill.restricao_prefill);
+        if (newPrefill.observacoes_admin.trim()) payload.observacoes_admin = newPrefill.observacoes_admin.trim();
+        payload.origem_lead = newLead.source_type || null;
+        await fetch("/api/prefill", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          cache: "no-store",
+        });
+      } catch {
+        // Non-blocking: prefill save failure does not block lead creation
+      }
+    }
+
     setNewLead({ nome: "", telefone: "", wa_id: "", source_type: "fria", observacao: "" });
+    setNewPrefill({ showPrefill: false, nacionalidade_prefill: "", estado_civil_prefill: "", regime_trabalho_prefill: "", renda_prefill: "", meses_36_prefill: "", dependentes_prefill: "", valor_entrada_prefill: "", restricao_prefill: "", observacoes_admin: "" });
     setShowAddModal(false);
   };
 
@@ -952,6 +1011,150 @@ export function BasesUI() {
                   placeholder="Adicione uma observação sobre o lead..."
                 />
               </div>
+
+              {/* Informações já conhecidas (opcional) */}
+              <div className={styles.formGroup}>
+                <button
+                  type="button"
+                  style={{
+                    background: "none",
+                    border: "1px dashed rgba(255,255,255,0.1)",
+                    borderRadius: "6px",
+                    color: "#71717a",
+                    padding: "8px 12px",
+                    fontSize: "0.8125rem",
+                    cursor: "pointer",
+                    width: "100%",
+                    textAlign: "left",
+                  }}
+                  onClick={() => setNewPrefill({ ...newPrefill, showPrefill: !newPrefill.showPrefill })}
+                >
+                  {newPrefill.showPrefill ? "▾" : "▸"} Informações já conhecidas (opcional)
+                </button>
+              </div>
+
+              {newPrefill.showPrefill && (
+                <>
+                  <p style={{ fontSize: "0.75rem", color: "#52525b", margin: "0 0 8px", lineHeight: "1.5", borderLeft: "2px solid rgba(251,191,36,0.3)", paddingLeft: "8px" }}>
+                    Estes dados são pré-preenchidos. Não substituem a confirmação pelo cliente no funil.
+                  </p>
+                  <div className={styles.formRow}>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>Nacionalidade</label>
+                      <input
+                        type="text"
+                        className={styles.input}
+                        value={newPrefill.nacionalidade_prefill}
+                        onChange={(e) => setNewPrefill({ ...newPrefill, nacionalidade_prefill: e.target.value })}
+                        placeholder="Ex: brasileira"
+                      />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>Estado Civil</label>
+                      <select
+                        className={styles.select}
+                        value={newPrefill.estado_civil_prefill}
+                        onChange={(e) => setNewPrefill({ ...newPrefill, estado_civil_prefill: e.target.value })}
+                      >
+                        <option value="">— não informado —</option>
+                        <option value="solteiro">Solteiro(a)</option>
+                        <option value="casado">Casado(a)</option>
+                        <option value="divorciado">Divorciado(a)</option>
+                        <option value="viuvo">Viúvo(a)</option>
+                        <option value="uniao_estavel">União Estável</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className={styles.formRow}>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>Regime Trabalho</label>
+                      <select
+                        className={styles.select}
+                        value={newPrefill.regime_trabalho_prefill}
+                        onChange={(e) => setNewPrefill({ ...newPrefill, regime_trabalho_prefill: e.target.value })}
+                      >
+                        <option value="">— não informado —</option>
+                        <option value="clt">CLT</option>
+                        <option value="autonomo">Autônomo</option>
+                        <option value="servidor_publico">Servidor Público</option>
+                        <option value="empresario">Empresário</option>
+                        <option value="aposentado">Aposentado/Pensionista</option>
+                        <option value="misto">Misto</option>
+                      </select>
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>Renda (R$)</label>
+                      <input
+                        type="number"
+                        className={styles.input}
+                        value={newPrefill.renda_prefill}
+                        onChange={(e) => setNewPrefill({ ...newPrefill, renda_prefill: e.target.value })}
+                        placeholder="Ex: 3500"
+                        min="0"
+                      />
+                    </div>
+                  </div>
+                  <div className={styles.formRow}>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>36 Meses (CTPS)</label>
+                      <select
+                        className={styles.select}
+                        value={newPrefill.meses_36_prefill}
+                        onChange={(e) => setNewPrefill({ ...newPrefill, meses_36_prefill: e.target.value })}
+                      >
+                        <option value="">— não informado —</option>
+                        <option value="true">Sim</option>
+                        <option value="false">Não</option>
+                      </select>
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>Dependentes</label>
+                      <input
+                        type="number"
+                        className={styles.input}
+                        value={newPrefill.dependentes_prefill}
+                        onChange={(e) => setNewPrefill({ ...newPrefill, dependentes_prefill: e.target.value })}
+                        placeholder="Ex: 0"
+                        min="0"
+                      />
+                    </div>
+                  </div>
+                  <div className={styles.formRow}>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>Valor Entrada (R$)</label>
+                      <input
+                        type="number"
+                        className={styles.input}
+                        value={newPrefill.valor_entrada_prefill}
+                        onChange={(e) => setNewPrefill({ ...newPrefill, valor_entrada_prefill: e.target.value })}
+                        placeholder="Ex: 10000"
+                        min="0"
+                      />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>Restrição</label>
+                      <select
+                        className={styles.select}
+                        value={newPrefill.restricao_prefill}
+                        onChange={(e) => setNewPrefill({ ...newPrefill, restricao_prefill: e.target.value })}
+                      >
+                        <option value="">— não informado —</option>
+                        <option value="true">Sim (tem restrição)</option>
+                        <option value="false">Não (sem restrição)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}>Observações Admin</label>
+                    <textarea
+                      className={styles.textarea}
+                      value={newPrefill.observacoes_admin}
+                      onChange={(e) => setNewPrefill({ ...newPrefill, observacoes_admin: e.target.value })}
+                      placeholder="Observações internas (não visível ao cliente)"
+                    />
+                  </div>
+                </>
+              )}
             </form>
             <div className={styles.modalFooter}>
               <button

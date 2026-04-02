@@ -1095,6 +1095,40 @@ async function getAttendanceMeta(env, wa_id) {
   }
 }
 
+// =============================================================
+// getPrefillMeta — Leitura de dados pré-preenchidos pelo admin
+// REGRA: somente leitura. Nenhum valor aqui deve avançar stage
+// nem ser assumido como verdade sem confirmação do cliente.
+//
+// Uso futuro: o worker pode chamar getPrefillMeta(env, st.wa_id)
+// para ler pré-dados e usá-los como sugestão em perguntas do funil,
+// SEMPRE apresentando ao cliente para confirmação explícita antes
+// de persistir como dado confirmado em enova_state.
+//
+// Integração futura: ponto de entrada sugerido →
+//   buildPhaseGuidanceReply() ou equivalente de início de fase,
+//   para que o worker ofereça o pré-dado como sugestão ("Já temos
+//   X cadastrado, está correto?") sem pular a pergunta.
+// =============================================================
+async function getPrefillMeta(env, wa_id) {
+  if (!wa_id) return null;
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) {
+    // Simulation context: prefill not simulated by default; return null
+    return simCtx._prefillMeta?.[wa_id] || null;
+  }
+  try {
+    const result = await sbFetch(env, "/rest/v1/enova_prefill_meta", {
+      method: "GET",
+      query: `wa_id=eq.${encodeURIComponent(wa_id)}&limit=1`
+    });
+    const rows = normalizeSupabaseRows(result);
+    return rows?.[0] || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 /**
  * Sync attendance meta after a stage transition or interaction event.
  * Called from step() and handleMetaWebhook() — surgical, non-blocking.

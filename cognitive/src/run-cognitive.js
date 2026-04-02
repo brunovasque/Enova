@@ -34,7 +34,16 @@ const STAGE_DEFAULT_PENDING_SLOTS = Object.freeze({
   inicio_multi_regime_coletar_parceiro: ["multi_regime_parceiro"],
   renda_parceiro: ["renda_parceiro"],
   inicio_multi_renda_pergunta_parceiro: ["multi_renda_parceiro"],
-  inicio_multi_renda_coletar_parceiro: ["multi_renda_parceiro"]
+  inicio_multi_renda_coletar_parceiro: ["multi_renda_parceiro"],
+  pais_casados_civil_pergunta: ["pais_casados_civil"],
+  confirmar_avo_familiar: ["confirmar_avo"],
+  renda_familiar_valor: ["renda_familiar"],
+  regime_trabalho_parceiro_familiar: ["regime_trabalho_familiar"],
+  renda_parceiro_familiar: ["renda_parceiro_familiar"],
+  inicio_multi_regime_familiar_pergunta: ["multi_regime_familiar"],
+  inicio_multi_regime_familiar_loop: ["multi_regime_familiar"],
+  inicio_multi_renda_familiar_pergunta: ["multi_renda_familiar"],
+  inicio_multi_renda_familiar_loop: ["multi_renda_familiar"]
 });
 
 const BRL_CURRENCY_PATTERN = /(?<!\d)(?:r\$\s*)?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{2})?(?!\d)/i;
@@ -104,6 +113,7 @@ const COMPOSICAO_INICIAL_STAGES = new Set(["somar_renda_solteiro", "somar_renda_
 const RENDA_TRABALHO_STAGES = new Set(["regime_trabalho", "autonomo_ir_pergunta", "renda"]);
 const APROFUNDAMENTO_RENDA_STAGES = new Set(["possui_renda_extra", "inicio_multi_regime_pergunta", "inicio_multi_regime_coletar", "inicio_multi_renda_pergunta", "inicio_multi_renda_coletar"]);
 const PARCEIRO_RENDA_STAGES = new Set(["parceiro_tem_renda", "regime_trabalho_parceiro", "inicio_multi_regime_pergunta_parceiro", "inicio_multi_regime_coletar_parceiro", "renda_parceiro", "inicio_multi_renda_pergunta_parceiro", "inicio_multi_renda_coletar_parceiro"]);
+const FAMILIAR_RENDA_STAGES = new Set(["pais_casados_civil_pergunta", "confirmar_avo_familiar", "renda_familiar_valor", "regime_trabalho_parceiro_familiar", "renda_parceiro_familiar", "inicio_multi_regime_familiar_pergunta", "inicio_multi_regime_familiar_loop", "inicio_multi_renda_familiar_pergunta", "inicio_multi_renda_familiar_loop"]);
 const REPLY_TEXT_REPLACEMENTS = Object.freeze([
   [/\brunner read-only\b/gi, "atendimento"],
   [/\bmotor cognitivo de teste\b/gi, "atendimento"],
@@ -131,7 +141,14 @@ const SLOT_LABELS = Object.freeze({
   regime_trabalho_parceiro: "regime de trabalho do parceiro",
   multi_regime_parceiro: "segundo regime do parceiro",
   renda_parceiro: "renda do parceiro",
-  multi_renda_parceiro: "renda adicional do parceiro"
+  multi_renda_parceiro: "renda adicional do parceiro",
+  pais_casados_civil: "confirmação de casamento civil dos pais",
+  confirmar_avo: "confirmação do tipo de familiar (avô/avó)",
+  renda_familiar: "renda do familiar na composição",
+  regime_trabalho_familiar: "regime de trabalho do familiar",
+  renda_parceiro_familiar: "renda do segundo familiar na composição",
+  multi_regime_familiar: "segundo regime de trabalho do familiar",
+  multi_renda_familiar: "renda adicional do familiar"
 });
 const SLOT_ACTION_PROMPTS = Object.freeze({
   estado_civil: "Me confirma seu estado civil hoje: solteiro, casado no civil ou união estável?",
@@ -153,7 +170,14 @@ const SLOT_ACTION_PROMPTS = Object.freeze({
   regime_trabalho_parceiro: "Qual é o regime de trabalho do parceiro? *CLT*, *autônomo*, *servidor* ou *aposentado*?",
   multi_regime_parceiro: "O parceiro tem *mais algum regime de trabalho*? Responda *sim* ou *não*.",
   renda_parceiro: "Qual é a renda mensal do parceiro?",
-  multi_renda_parceiro: "O parceiro tem *mais alguma renda*? Responda *sim* ou *não*."
+  multi_renda_parceiro: "O parceiro tem *mais alguma renda*? Responda *sim* ou *não*.",
+  pais_casados_civil: "Seus pais são casados no civil? Responda *sim* ou *não*.",
+  confirmar_avo: "Confirma que o familiar é avô ou avó? Responda *sim* ou *não*.",
+  renda_familiar: "Qual é a renda mensal do familiar?",
+  regime_trabalho_familiar: "Qual é o regime de trabalho do familiar? *CLT*, *autônomo*, *servidor* ou *aposentado*?",
+  renda_parceiro_familiar: "Qual é a renda mensal do outro familiar na composição?",
+  multi_regime_familiar: "O familiar tem *mais algum regime de trabalho*? Responda *sim* ou *não*.",
+  multi_renda_familiar: "O familiar tem *mais alguma renda*? Responda *sim* ou *não*."
 });
 const COGNITIVE_SLOT_CONTRACT = Object.freeze([
   {
@@ -521,6 +545,10 @@ function isAprofundamentoRendaContext(request) {
 
 function isParceiroRendaContext(request) {
   return PARCEIRO_RENDA_STAGES.has(normalizeText(request?.current_stage));
+}
+
+function isFamiliarRendaContext(request) {
+  return FAMILIAR_RENDA_STAGES.has(normalizeText(request?.current_stage));
 }
 
 function toNumber(value) {
@@ -1291,6 +1319,158 @@ function buildParceiroRendaGuidance(request) {
   return null;
 }
 
+function buildFamiliarRendaGuidance(request) {
+  const stage = normalizeText(request?.current_stage);
+  const normalizedMessage = normalizeText(request?.message_text);
+
+  if (stage === "pais_casados_civil_pergunta") {
+    if (/\bseparad[oa]\b|\bdivorciad[oa]\b|\bex-casad[oa]\b/i.test(normalizedMessage)) {
+      return "Entendido. O sistema precisa confirmar o estado civil atual dos pais para seguir corretamente. Seus pais são casados no civil hoje? Responda *sim* ou *não*.";
+    }
+    if (/\bmoram juntos\b|\bvivem juntos\b|\bjuntos mas\b/i.test(normalizedMessage)) {
+      return "União informal não equivale a casamento civil para este efeito. O sistema precisa confirmar. Seus pais são casados no civil? Responda *sim* ou *não*.";
+    }
+    if (/\buniao estavel\b|\buni[aã]o est[aá]vel\b/i.test(normalizedMessage)) {
+      return "União estável tem um caminho específico no sistema — o sistema vai verificar. Seus pais são casados no civil? Responda *sim* ou *não*.";
+    }
+    if (/\b(nao sei|não sei|nao tenho certeza|não tenho certeza)\b/i.test(normalizedMessage)) {
+      return "Sem problema. Você consegue verificar? Para o sistema seguir corretamente precisa confirmar: seus pais são casados no civil? Responda *sim* ou *não*.";
+    }
+    return "Seus pais são casados no civil? Responda *sim* ou *não*.";
+  }
+
+  if (stage === "confirmar_avo_familiar") {
+    if (/\bav[oó]\b|\bavozinha\b|\bavozinho\b|\bagv[oó]\b/i.test(normalizedMessage)) {
+      return "Avô ou avó entendido. O sistema vai verificar as condições. Confirma que o familiar é avô ou avó? Responda *sim* ou *não*.";
+    }
+    if (/\baposentad[oa]\b.*\bbio\b|\bbio\b.*\baposentad[oa]\b|\baposentad[oa]\b.*\brural\b|\brural\b.*\baposentad[oa]\b/i.test(normalizedMessage)) {
+      return "A situação de aposentadoria do familiar tem verificação específica no sistema. Confirma que o familiar é avô ou avó? Responda *sim* ou *não*.";
+    }
+    if (/\b(nao sei|não sei|nao tenho certeza|não tenho certeza|nao sei informar|não sei informar)\b/i.test(normalizedMessage)) {
+      return "Sem problema. O sistema precisa confirmar o vínculo para seguir no trilho correto. Confirma que o familiar é avô ou avó? Responda *sim* ou *não*.";
+    }
+    return "Confirma que o familiar é avô ou avó? Responda *sim* ou *não*.";
+  }
+
+  if (stage === "renda_familiar_valor") {
+    if (/\bbruto\b|\bliquido\b|\blíquido\b/i.test(normalizedMessage)) {
+      return "Use o valor que o familiar recebe na mão (líquido). Qual é a renda mensal do familiar?";
+    }
+    if (/\bvaria\b|\bvari[aá]vel\b|\bdepende\b|\bnao\s*e\s*fixo\b|\bnão\s*é\s*fixo\b/i.test(normalizedMessage)) {
+      return "Quando a renda varia, use a média dos últimos meses como referência. Qual é a renda mensal média do familiar?";
+    }
+    if (/\bnao\s*sei\b|\bnão\s*sei\b|\bnao\s*sei\s*ao\s*certo\b|\bnão\s*sei\s*ao\s*certo\b|\bnao\s*sei\s*a\s*media\b|\bnão\s*sei\s*a\s*média\b/i.test(normalizedMessage)) {
+      return "Sem problema — uma estimativa já ajuda. Qual é o valor mensal aproximado do familiar?";
+    }
+    if (/\bgira\s*em\s*torno\b|\baproximadamente\b|\bmais\s*ou\s*menos\b|\bpor\s*volta\s*de\b/i.test(normalizedMessage)) {
+      const money = detectMoney(request?.message_text);
+      if (Number.isFinite(money) && money > 100) {
+        return `Valor aproximado registrado. Confirma R$ ${money.toLocaleString("pt-BR")} como renda mensal do familiar?`;
+      }
+      return "Entendido. Me confirma um valor mensal aproximado para a renda do familiar?";
+    }
+    return "Qual é a renda mensal do familiar?";
+  }
+
+  if (stage === "regime_trabalho_parceiro_familiar") {
+    if (/\bregistrad[oa]\b|\bclt\b|\bcarteira\s*assinada\b/i.test(normalizedMessage)) {
+      return "CLT entendido. O sistema vai registrar corretamente. Qual é o regime do familiar: *CLT*, *autônomo*, *servidor* ou *aposentado*?";
+    }
+    if (/\bautonom[oa]\b|\bpor\s*conta\s*pr[oó]pria\b/i.test(normalizedMessage)) {
+      return "Autônomo entendido. O sistema vai verificar as condições. Qual é o regime do familiar: *CLT*, *autônomo*, *servidor* ou *aposentado*?";
+    }
+    if (/\bmei\b|\bmicro\s*empreendedor\b/i.test(normalizedMessage)) {
+      return "MEI entra como autônomo no sistema. Qual é o regime do familiar: *CLT*, *autônomo/MEI*, *servidor* ou *aposentado*?";
+    }
+    if (/\baposentad[oa]\b/i.test(normalizedMessage)) {
+      return "Aposentadoria é um regime reconhecido. O sistema vai verificar. Qual é o regime do familiar: *CLT*, *autônomo*, *servidor* ou *aposentado*?";
+    }
+    if (/\bnao\s*sei\b|\bnão\s*sei\b|\bnao\s*sei\s*qual\b|\bnão\s*sei\s*qual\b/i.test(normalizedMessage)) {
+      return "Os regimes mais comuns: *CLT* = carteira assinada; *autônomo* = por conta própria, MEI ou informal; *aposentado* = renda de benefício. Qual se encaixa no familiar?";
+    }
+    return "Qual é o regime de trabalho do familiar? *CLT*, *autônomo*, *servidor* ou *aposentado*?";
+  }
+
+  if (stage === "renda_parceiro_familiar") {
+    if (/\bbruto\b|\bliquido\b|\blíquido\b/i.test(normalizedMessage)) {
+      return "Use o valor que o familiar recebe na mão (líquido). Qual é a renda mensal desse familiar?";
+    }
+    if (/\bvaria\b|\bvari[aá]vel\b|\bdepende\b|\bnao\s*e\s*fixo\b|\bnão\s*é\s*fixo\b/i.test(normalizedMessage)) {
+      return "Quando a renda varia, use a média dos últimos meses como referência. Qual é a renda mensal média desse familiar?";
+    }
+    if (/\bnao\s*sei\b|\bnão\s*sei\b|\bnao\s*sei\s*ao\s*certo\b|\bnão\s*sei\s*ao\s*certo\b/i.test(normalizedMessage)) {
+      return "Sem problema — uma estimativa já ajuda. Qual é o valor mensal aproximado desse familiar?";
+    }
+    if (/\bgira\s*em\s*torno\b|\baproximadamente\b|\bmais\s*ou\s*menos\b|\bpor\s*volta\s*de\b/i.test(normalizedMessage)) {
+      const money = detectMoney(request?.message_text);
+      if (Number.isFinite(money) && money > 100) {
+        return `Valor aproximado registrado. Confirma R$ ${money.toLocaleString("pt-BR")} como renda mensal desse familiar?`;
+      }
+      return "Entendido. Me confirma um valor mensal aproximado para a renda desse familiar?";
+    }
+    return "Qual é a renda mensal desse familiar?";
+  }
+
+  if (stage === "inicio_multi_regime_familiar_pergunta") {
+    if (/\bclt\b.*\bextra\b|\bclt\b.*\bautonom[oa]\b|\bclt\b.*\bbico\b/i.test(normalizedMessage)) {
+      return "Entendido que pode haver mais de um regime. O sistema registra cada um separado — aqui só confirmamos. O familiar tem *mais algum regime de trabalho*? Responda *sim* ou *não*.";
+    }
+    if (/\bmei\b.*\bclt\b|\bclt\b.*\bmei\b|\bmei\b.*\bregistrad[oa]\b/i.test(normalizedMessage)) {
+      return "MEI junto com CLT é uma situação que o sistema verifica. O familiar tem *mais algum regime de trabalho*? Responda *sim* ou *não*.";
+    }
+    if (/\baposentad[oa]\b.*\bbico\b|\baposentad[oa]\b.*\bextra\b|\baposentad[oa]\b.*\bautonom[oa]\b/i.test(normalizedMessage)) {
+      return "Aposentado com renda adicional é avaliado pelo sistema. O familiar tem *mais algum regime de trabalho*? Responda *sim* ou *não*.";
+    }
+    return "Verificar múltiplos regimes ajuda a montar o perfil completo do familiar. O familiar tem *mais algum regime de trabalho*? Responda *sim* ou *não*.";
+  }
+
+  if (stage === "inicio_multi_regime_familiar_loop") {
+    if (/\bmei\b|\bmicro\s*empreendedor\b/i.test(normalizedMessage)) {
+      return "MEI é reconhecido pelo sistema. Qual é o regime do familiar: *CLT*, *Autônomo/MEI*, *Servidor* ou *Aposentado*?";
+    }
+    if (/\bnao\s*sei\b|\bnão\s*sei\b|\bnao\s*tenho\s*certeza\b|\bnão\s*tenho\s*certeza\b/i.test(normalizedMessage)) {
+      return "Sem problema. Os regimes: *CLT* = carteira assinada; *Autônomo* = por conta própria, MEI; *Aposentado* = benefício. Qual se encaixa no familiar?";
+    }
+    if (/\btrabalhando\b|\btrampo\b|\bemprego\b/i.test(normalizedMessage) && !/\bclt\b|\bautonom[oa]\b|\bservidor\b|\baposentad[oa]\b/i.test(normalizedMessage)) {
+      return "Me diz o regime específico do familiar: *CLT*, *Autônomo*, *Servidor* ou *Aposentado*?";
+    }
+    return "Me diz qual é o *outro regime de trabalho* do familiar. Exemplos: *CLT*, *Autônomo*, *Servidor*, *MEI*, *Aposentado*.";
+  }
+
+  if (stage === "inicio_multi_renda_familiar_pergunta") {
+    if (/\bvaria\b|\bvari[aá]vel\b|\bdepende\b|\bnao\s*e\s*fixo\b|\bnão\s*é\s*fixo\b/i.test(normalizedMessage)) {
+      return "Renda variável pode ser considerada — usamos a média. O sistema vai verificar. O familiar tem *mais alguma renda*? Responda *sim* ou *não*.";
+    }
+    if (/\bsal[aá]rio\b.*\bextra\b|\bextra\b.*\bsal[aá]rio\b|\btambem\s*tem\b|\btambém\s*tem\b/i.test(normalizedMessage)) {
+      return "Salário e renda extra é uma situação que o sistema avalia. O familiar tem *mais alguma renda*? Responda *sim* ou *não*.";
+    }
+    if (/\bnao\s*sei\s*se\s*conta\b|\bnão\s*sei\s*se\s*conta\b|\bnao\s*sei\s*se\s*e\s*renda\b|\bnão\s*sei\s*se\s*é\s*renda\b/i.test(normalizedMessage)) {
+      return "A decisão do que conta como renda separada fica com o sistema. Aqui só precisamos saber se existe mais alguma renda. O familiar tem *mais alguma renda*? Responda *sim* ou *não*.";
+    }
+    return "Verificar múltiplas rendas do familiar ajuda a montar o perfil completo. O familiar tem *mais alguma renda*? Responda *sim* ou *não*.";
+  }
+
+  if (stage === "inicio_multi_renda_familiar_loop") {
+    if (/\bgira\s*em\s*torno\b|\baproximadamente\b|\bmais\s*ou\s*menos\b|\bpor\s*volta\s*de\b/i.test(normalizedMessage)) {
+      const money = detectMoney(request?.message_text);
+      if (Number.isFinite(money) && money > 100) {
+        return `Valor aproximado do familiar registrado como referência. Me confirma o valor mensal aproximado da renda extra do familiar para o sistema seguir?`;
+      }
+      return "Entendido. Me confirma um valor mensal aproximado para a renda extra do familiar?";
+    }
+    if (/\bdepende\b|\bvaria\b|\bnao\s*e\s*fixo\b|\bnão\s*é\s*fixo\b/i.test(normalizedMessage)) {
+      return "Quando a renda varia, use a média dos últimos meses. Me confirma um valor mensal aproximado para a renda extra do familiar?";
+    }
+    if (/\bnao\s*sei\b|\bnão\s*sei\b|\bnao\s*sei\s*ao\s*certo\b|\bnão\s*sei\s*ao\s*certo\b/i.test(normalizedMessage)) {
+      return "Sem problema — uma estimativa já ajuda. Me diz um valor aproximado mensal para a renda extra do familiar?";
+    }
+    return "Me diz qual é a *outra renda* do familiar e o *valor mensal*. Exemplo: *Autônomo — 1200*.";
+  }
+
+  return null;
+}
+
+
 function buildTopoFunilGuidance(request) {
   const stage = normalizeText(request?.current_stage);
   const normalizedMessage = normalizeText(request?.message_text);
@@ -1433,6 +1613,10 @@ function buildPhaseGuidanceReply({ request, suggestedNextSlot, pendingSlots }) {
     const parceiroReply = buildParceiroRendaGuidance(request);
     if (parceiroReply) return parceiroReply;
   }
+  if (isFamiliarRendaContext(request)) {
+    const familiarReply = buildFamiliarRendaGuidance(request);
+    if (familiarReply) return familiarReply;
+  }
   if (isAluguelContext(request)) return buildAluguelGuidance(request);
   if (isUnknownDocTypeContext(request)) return buildUnknownDocTypeGuidance(request);
   if (isDocForaDeOrdemContext(request)) return buildDocForaDeOrdemGuidance(request);
@@ -1545,6 +1729,18 @@ function buildNextActionPrompt({ request, suggestedNextSlot, pendingSlots }) {
     if (topoStage === "renda_parceiro") return "Qual é a renda mensal do parceiro?";
     if (topoStage === "inicio_multi_renda_pergunta_parceiro") return "O parceiro tem *mais alguma renda*? Responda *sim* ou *não*.";
     if (topoStage === "inicio_multi_renda_coletar_parceiro") return "Me diz qual é a *outra renda* do parceiro e o *valor mensal*. Exemplo: *Autônomo — 1200*.";
+  }
+
+  if (FAMILIAR_RENDA_STAGES.has(topoStage)) {
+    if (topoStage === "pais_casados_civil_pergunta") return "Seus pais são casados no civil? Responda *sim* ou *não*.";
+    if (topoStage === "confirmar_avo_familiar") return "Confirma que o familiar é avô ou avó? Responda *sim* ou *não*.";
+    if (topoStage === "renda_familiar_valor") return "Qual é a renda mensal do familiar?";
+    if (topoStage === "regime_trabalho_parceiro_familiar") return "Qual é o regime de trabalho do familiar? *CLT*, *autônomo*, *servidor* ou *aposentado*?";
+    if (topoStage === "renda_parceiro_familiar") return "Qual é a renda mensal desse familiar?";
+    if (topoStage === "inicio_multi_regime_familiar_pergunta") return "O familiar tem *mais algum regime de trabalho*? Responda *sim* ou *não*.";
+    if (topoStage === "inicio_multi_regime_familiar_loop") return "Me diz qual é o *outro regime de trabalho* do familiar. Exemplos: *CLT*, *Autônomo*, *Servidor*, *MEI*, *Aposentado*.";
+    if (topoStage === "inicio_multi_renda_familiar_pergunta") return "O familiar tem *mais alguma renda*? Responda *sim* ou *não*.";
+    if (topoStage === "inicio_multi_renda_familiar_loop") return "Me diz qual é a *outra renda* do familiar e o *valor mensal*. Exemplo: *Autônomo — 1200*.";
   }
 
   return "Se estiver tudo certo até aqui, já me manda os documentos básicos agora que isso adianta sua análise.";
@@ -1965,6 +2161,7 @@ function buildHeuristicResponse(request, analysis, conflictList) {
     : RENDA_TRABALHO_STAGES.has(request.current_stage) ? 0.70 // renda/trabalho: guidance floor above min
     : APROFUNDAMENTO_RENDA_STAGES.has(request.current_stage) ? 0.70 // aprofundamento renda: guidance floor above min
     : PARCEIRO_RENDA_STAGES.has(request.current_stage) ? 0.70 // parceiro: guidance floor above min
+    : FAMILIAR_RENDA_STAGES.has(request.current_stage) ? 0.70 // familiar: guidance floor above min
     : CONFIDENCE_RULES.noSlotBase;
   const confidencePenalty =
     conflictList.length * CONFIDENCE_RULES.conflictPenalty +

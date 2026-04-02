@@ -72,14 +72,21 @@ async function captureShadowSignals(run) {
       try {
         const payload = JSON.parse(args[1]);
         if (payload?.event === "cognitive_v1_signal") {
-          // details é string JSON (possivelmente truncado)
+          // details é string JSON (possivelmente truncado se >800 chars)
           let details = payload.details;
           if (typeof details === "string") {
-            try { details = JSON.parse(details); } catch { /* truncado */ }
+            try {
+              details = JSON.parse(details);
+            } catch {
+              // truncamento esperado em details > 800 chars — mantém string original
+              // para verificações por substring (e.g. includes('"v2_shadow"'))
+            }
           }
           signals.push({ ...payload, details });
         }
-      } catch { /* ignorar parse errors */ }
+      } catch {
+        // não é JSON válido — ignorar linha de log não-cognitiva
+      }
     }
     return originalLog(...args);
   };
@@ -230,7 +237,10 @@ for (const { block, stage, text, state } of STAGE_BLOCKS) {
     // cognitive_v1_signal deve ter sido emitido
     assert.ok(
       signals.length > 0,
-      `cognitive_v1_signal não emitido para stage=${stage}. Verificar: stage em COGNITIVE_V1_ALLOWED_STAGES + texto com trigger`
+      `cognitive_v1_signal não emitido para stage=${stage}. ` +
+      `Verificar: (1) stage em COGNITIVE_V1_ALLOWED_STAGES (Enova worker.js ~L2754), ` +
+      `(2) texto tem trigger em shouldTriggerCognitiveAssist (~L3044), ` +
+      `(3) TELEMETRIA_LEVEL=verbose está ativo`
     );
 
     const signal = signals[0];

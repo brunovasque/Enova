@@ -88,6 +88,7 @@ const COGNITIVE_SLOT_DEPENDENCIES = Object.freeze({
   correspondente: ["visita"]
 });
 const TOPO_FUNIL_STAGES = new Set(["inicio", "inicio_decisao", "inicio_programa", "inicio_nome", "inicio_nacionalidade", "inicio_rnm", "inicio_rnm_validade"]);
+const COMPOSICAO_INICIAL_STAGES = new Set(["somar_renda_solteiro", "somar_renda_familiar", "quem_pode_somar", "interpretar_composicao"]);
 const REPLY_TEXT_REPLACEMENTS = Object.freeze([
   [/\brunner read-only\b/gi, "atendimento"],
   [/\bmotor cognitivo de teste\b/gi, "atendimento"],
@@ -473,6 +474,10 @@ function isEstadoCivilComposicaoContext(request, pendingSlots) {
 
 function isTopoFunilContext(request) {
   return TOPO_FUNIL_STAGES.has(normalizeText(request?.current_stage));
+}
+
+function isComposicaoInicialContext(request) {
+  return COMPOSICAO_INICIAL_STAGES.has(normalizeText(request?.current_stage));
 }
 
 function toNumber(value) {
@@ -906,6 +911,81 @@ function buildEstadoCivilComposicaoGuidance(request) {
   return null;
 }
 
+function buildComposicaoInicialGuidance(request) {
+  const stage = normalizeText(request?.current_stage);
+  const normalizedMessage = normalizeText(request?.message_text);
+
+  if (stage === "somar_renda_solteiro") {
+    if (/\b(posso tentar sozinho|ir sozinho|sem somar|so eu|só eu|so a minha|só a minha)\b/i.test(normalizedMessage)) {
+      return "Você pode sim seguir sem somar. O sistema vai verificar a viabilidade pelo seu perfil. Você vai seguir sozinho ou vai somar renda com alguém?";
+    }
+    if (/\b(melhora|melhora minhas chances|aumenta|ajuda|vale a pena|faz diferenca|faz diferença)\b/i.test(normalizedMessage)) {
+      return "Somar renda pode ampliar o perfil de análise, mas o sistema vai avaliar o melhor caminho. Você vai somar renda com alguém ou vai seguir sozinho?";
+    }
+    if (/\b(precisa|preciso|obrigatorio|obrigatório|e obrigatorio|é obrigatório|tem que somar|precisa somar)\b/i.test(normalizedMessage)) {
+      return "Não é obrigatório. Você pode seguir sozinho ou somar com outra pessoa, conforme seu perfil. Você vai somar renda com alguém ou vai seguir sozinho?";
+    }
+    if (/\b(muda|diferente|diferenca|diferença|muda alguma coisa)\b/i.test(normalizedMessage)) {
+      return "Somar pode mudar o perfil de avaliação, mas o caminho correto depende da sua situação específica. Você vai somar renda com alguém ou vai seguir sozinho?";
+    }
+    return "Você vai somar renda com alguém ou vai seguir sozinho?";
+  }
+
+  if (stage === "somar_renda_familiar") {
+    if (/\bm[aã]e\b/i.test(normalizedMessage) || /\bpai\b/i.test(normalizedMessage)) {
+      return "Mãe e pai podem entrar como familiar na composição. O sistema vai verificar as condições do seu caso. Me diz com qual familiar você pretende compor renda?";
+    }
+    if (/\birm[aã](?:o)?\b/i.test(normalizedMessage)) {
+      return "Irmão ou irmã pode entrar como familiar. O sistema vai verificar o perfil. Me diz com qual familiar você pretende compor renda?";
+    }
+    if (/\bqualquer pessoa\b|\bqualquer um\b|\bqualquer familiar\b/i.test(normalizedMessage)) {
+      return "O sistema precisa entender quem vai compor para seguir corretamente — não pode confirmar qualquer pessoa sem verificar. Me diz com qual familiar você pretende compor renda?";
+    }
+    if (/\b(namorad[oa]|noiv[oa]|amig[oa]|vizinho|vizinha|colega)\b/i.test(normalizedMessage)) {
+      return "Essa relação tem uma verificação específica no sistema. Me diz com qual familiar você pretende compor renda?";
+    }
+    return "Me diz com qual familiar você pretende compor renda?";
+  }
+
+  if (stage === "quem_pode_somar") {
+    if (/\bainda nao sei\b|\bainda não sei\b|\bnao sei ainda\b|\bnão sei ainda\b|\bnao sei\b|\bnão sei\b/i.test(normalizedMessage)) {
+      return "Sem problema. Quando você souber, me confirma com quem vai compor renda para eu seguir corretamente.";
+    }
+    if (/\bnamorad[oa]\b/i.test(normalizedMessage)) {
+      return "Namorado(a) tem uma verificação específica no sistema. Me confirma com quem você pretende compor renda?";
+    }
+    if (/\b(m[aã]e|pai|irm[aã](?:o)?|av[oó]|tio|tia|prima|primo)\b/i.test(normalizedMessage)) {
+      return "Familiar pode entrar na composição. Me confirma o nome do familiar para o sistema seguir corretamente.";
+    }
+    if (/\besposa\b|\besposo\b|\bmarido\b|\bcompanheira\b|\bcompanheiro\b|\bparceiro\b|\bparceira\b/i.test(normalizedMessage)) {
+      return "Parceiro(a) pode compor. Me confirma quem vai compor renda para eu seguir.";
+    }
+    return "Me confirma com quem você pretende compor renda?";
+  }
+
+  if (stage === "interpretar_composicao") {
+    if (/\b(nao sei|não sei|talvez|ainda nao|ainda não|nao tenho certeza|não tenho certeza)\b/i.test(normalizedMessage)) {
+      return "Sem problema. Quando você tiver certeza, me confirma se vai seguir com parceiro, familiar ou sozinho.";
+    }
+    if (/\b(m[aã]e|pai|irm[aã](?:o)?|av[oó]|tio|tia|prima|primo)\b/i.test(normalizedMessage) &&
+        /\b(parceiro|esposa|esposo|marido|companheira|companheiro)\b/i.test(normalizedMessage)) {
+      return "Entendi que pode ter mais de uma pessoa. O sistema vai identificar o caminho correto. Me confirma se vai seguir com parceiro, familiar ou sozinho?";
+    }
+    if (/\b(m[aã]e|pai|irm[aã](?:o)?|av[oó]|tio|tia|prima|primo)\b/i.test(normalizedMessage)) {
+      return "Familiar entendido. O sistema vai verificar as condições. Me confirma se é familiar que vai compor renda?";
+    }
+    if (/\b(parceiro|esposa|esposo|marido|companheira|companheiro)\b/i.test(normalizedMessage)) {
+      return "Parceiro(a) entendido. Me confirma se é com parceiro que vai compor renda?";
+    }
+    if (/\bsozinh\b|\bso\s*eu\b|\bso\s*a\s*minha\b/i.test(normalizedMessage)) {
+      return "Entendi que vai seguir sozinho. Me confirma para o sistema seguir corretamente.";
+    }
+    return "Me confirma se vai seguir com parceiro, familiar ou sozinho?";
+  }
+
+  return null;
+}
+
 function buildTopoFunilGuidance(request) {
   const stage = normalizeText(request?.current_stage);
   const normalizedMessage = normalizeText(request?.message_text);
@@ -1032,6 +1112,10 @@ function buildPhaseGuidanceReply({ request, suggestedNextSlot, pendingSlots }) {
     const topoReply = buildTopoFunilGuidance(request);
     if (topoReply) return topoReply;
   }
+  if (isComposicaoInicialContext(request)) {
+    const composicaoReply = buildComposicaoInicialGuidance(request);
+    if (composicaoReply) return composicaoReply;
+  }
   if (isAluguelContext(request)) return buildAluguelGuidance(request);
   if (isUnknownDocTypeContext(request)) return buildUnknownDocTypeGuidance(request);
   if (isDocForaDeOrdemContext(request)) return buildDocForaDeOrdemGuidance(request);
@@ -1113,6 +1197,13 @@ function buildNextActionPrompt({ request, suggestedNextSlot, pendingSlots }) {
     if (topoStage === "inicio_rnm") return "Você possui *RNM*? Responda *sim* ou *não*.";
     if (topoStage === "inicio_rnm_validade") return "Seu RNM é *com validade* (data definida) ou *indeterminado* (sem prazo)?";
     return "Pode continuar por aqui — são só algumas perguntas rápidas.";
+  }
+
+  if (COMPOSICAO_INICIAL_STAGES.has(topoStage)) {
+    if (topoStage === "somar_renda_solteiro") return "Você vai somar renda com alguém ou vai seguir sozinho?";
+    if (topoStage === "somar_renda_familiar") return "Me diz com qual familiar você pretende compor renda?";
+    if (topoStage === "quem_pode_somar") return "Me confirma com quem você pretende compor renda?";
+    if (topoStage === "interpretar_composicao") return "Me confirma se vai seguir com parceiro, familiar ou sozinho?";
   }
 
   return "Se estiver tudo certo até aqui, já me manda os documentos básicos agora que isso adianta sua análise.";
@@ -1529,6 +1620,7 @@ function buildHeuristicResponse(request, analysis, conflictList) {
     ? CONFIDENCE_RULES.detectedBase + Math.min(slotsDetectedCount, 4) * CONFIDENCE_RULES.detectedIncrement
     : analysis.offtrack ? CONFIDENCE_RULES.offtrackBase
     : TOPO_FUNIL_STAGES.has(request.current_stage) ? 0.72 // topo: phase guidance is the signal; floor above COGNITIVE_V1_CONFIDENCE_MIN (0.66)
+    : COMPOSICAO_INICIAL_STAGES.has(request.current_stage) ? 0.70 // composicao inicial: guidance floor above min
     : CONFIDENCE_RULES.noSlotBase;
   const confidencePenalty =
     conflictList.length * CONFIDENCE_RULES.conflictPenalty +

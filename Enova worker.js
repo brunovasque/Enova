@@ -83,7 +83,8 @@ function resolveCognitiveTelemetrySlot(stage, cognitiveOutput) {
       : {};
   const detectedStageAnswer = extractCompatibleStageAnswerFromCognitive(stage, cognitiveOutput);
   if (detectedStageAnswer) {
-    if (stage === "quem_pode_somar" || stage === "interpretar_composicao") return "composicao";
+    if (stage === "quem_pode_somar" || stage === "interpretar_composicao" ||
+        stage === "somar_renda_solteiro" || stage === "somar_renda_familiar") return "composicao";
     return String(stage || "").trim() || null;
   }
 
@@ -2409,6 +2410,8 @@ const COGNITIVE_V1_ALLOWED_STAGES = new Set([
   "inicio_rnm",
   "inicio_rnm_validade",
   "estado_civil",
+  "somar_renda_solteiro",
+  "somar_renda_familiar",
   "quem_pode_somar",
   "interpretar_composicao",
   "renda",
@@ -2439,6 +2442,8 @@ const COGNITIVE_PLAYBOOK_V1 = {
     inicio_rnm: ["duvida_o_que_e_rnm", "duvida_documento_estrangeiro", "duvida_se_conta", "duvida_estrangeiro_pode"],
     inicio_rnm_validade: ["duvida_indeterminado", "duvida_onde_ver", "duvida_se_tiver_validade", "duvida_diferenca_validade"],
     estado_civil: ["estado_civil_hibrido", "duvida_composicao", "duvida_imovel_pre_analise", "objecao"],
+    somar_renda_solteiro: ["duvida_somar", "duvida_solo", "objecao_somar", "objecao"],
+    somar_renda_familiar: ["composicao_familiar", "duvida_familiar", "objecao"],
     quem_pode_somar: ["composicao_familiar", "composicao_parceiro", "duvida_conjuge", "objecao"],
     interpretar_composicao: ["composicao_familiar", "composicao_parceiro", "sozinho", "objecao"],
     renda: ["renda_hibrida", "autonomo_ir", "duvida_valor_sem_analise", "objecao"],
@@ -2512,6 +2517,18 @@ function hasClearStageAnswer(stage, text) {
     return Number.isFinite(money) && money > 300;
   }
   if (stage === "ir_declarado") return isYes(text) || isNo(text);
+  if (stage === "somar_renda_solteiro") {
+    const nt = normalizeText(text);
+    if (!nt) return false;
+    const composicao = parseComposicaoRenda(text);
+    const solo = /(so\s*(a\s*)?minha|so\s*eu|sozinh|nao\s*vou\s*somar|não\s*vou\s*somar|sem\s*composicao|nao|não|sim)/i.test(nt);
+    return Boolean(composicao || solo);
+  }
+  if (stage === "somar_renda_familiar") {
+    const nt = normalizeText(text);
+    if (!nt) return false;
+    return /\bm[aã]e\b|\bpai\b|\birm[aã](?:o)?\b|\bav[oó]\b|\btio\b|\btia\b|\bprima\b|\bprimo\b/i.test(nt);
+  }
   if (stage === "quem_pode_somar" || stage === "interpretar_composicao") {
     const nt = normalizeText(text);
     if (!nt) return false;
@@ -2538,6 +2555,12 @@ function shouldTriggerCognitiveAssist(stage, text) {
     if (nomeHints) return true;
   }
 
+  // Bloco composicao inicial — triggers específicos para somar_renda stages
+  if (stage === "somar_renda_solteiro" || stage === "somar_renda_familiar") {
+    const composicaoHints = /\b(posso tentar|precisa somar|preciso somar|minha mae|minha mãe|meu pai|meu irmao|meu irmão|minha irma|minha irmã|pode ser|quem pode|melhora|muda alguma|qualquer pessoa|namorad|sozinho|sem somar)\b/i.test(nt);
+    if (composicaoHints) return true;
+  }
+
   return hasQuestion || hasConnector || offtrackHints || fearHints;
 }
 
@@ -2552,6 +2575,8 @@ function isStageSignalCompatible(stage, safeStageSignal) {
   if (!safeStageSignal) return false;
   const map = {
     estado_civil: ["estado_civil"],
+    somar_renda_solteiro: ["composicao"],
+    somar_renda_familiar: ["composicao", "familiar"],
     quem_pode_somar: ["composicao"],
     interpretar_composicao: ["composicao"],
     renda: ["renda", "regime", "ir_possible"],
@@ -2587,6 +2612,19 @@ function extractCompatibleStageAnswerFromCognitive(stage, cognitiveOutput) {
     if (comp === "familiar") return "familiar";
     if (comp === "sozinho") return "sozinho";
 
+    const safeMatch = safe.match(/^composicao:(.+)$/);
+    if (safeMatch?.[1]) {
+      const v = normalizeText(safeMatch[1]);
+      if (["parceiro", "familiar", "sozinho"].includes(v)) return v;
+    }
+    return null;
+  }
+
+  if (stage === "somar_renda_solteiro" || stage === "somar_renda_familiar") {
+    const comp = normalizeText(entities.composicao_tipo || stageSignals.composicao || "");
+    if (comp === "parceiro") return "parceiro";
+    if (comp === "familiar") return "familiar";
+    if (comp === "sozinho") return "sozinho";
     const safeMatch = safe.match(/^composicao:(.+)$/);
     if (safeMatch?.[1]) {
       const v = normalizeText(safeMatch[1]);
@@ -2665,7 +2703,8 @@ function adaptCognitiveV2Output(stage, v2Result) {
   let safeStageSignal = null;
   if (stage === "estado_civil" && entities.estado_civil) {
     safeStageSignal = "estado_civil:" + String(entities.estado_civil);
-  } else if ((stage === "quem_pode_somar" || stage === "interpretar_composicao") && entities.composicao) {
+  } else if ((stage === "quem_pode_somar" || stage === "interpretar_composicao" ||
+              stage === "somar_renda_solteiro" || stage === "somar_renda_familiar") && entities.composicao) {
     safeStageSignal = "composicao:" + String(entities.composicao);
   } else if (stage === "renda" && entities.renda != null) {
     safeStageSignal = "renda:" + String(entities.renda);

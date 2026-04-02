@@ -8,14 +8,15 @@ import { fetchAttendanceLeadsAction } from "./actions";
    TIPOS - baseados em enova_attendance_v1
    =========================================== */
 
-type FaseAtendimento =
+type FaseGrupo =
   | "ENTRADA"
   | "QUALIFICACAO"
   | "COLETA"
   | "AGUARDANDO"
   | "TRAVADO";
 
-type StatusAtencao = "NORMAL" | "ALERTA" | "CRITICO";
+// Real values from enova_attendance_meta.attention_status
+type StatusAtencao = "ON_TIME" | "DUE_SOON" | "OVERDUE";
 
 type AttendanceRow = {
   wa_id: string;
@@ -36,7 +37,7 @@ type AttendanceRow = {
   gatilho_proxima_acao: string | null;
   prazo_proxima_acao: string | null;
   proxima_acao_executavel: boolean | null;
-  status_atencao: StatusAtencao | null;
+  status_atencao: StatusAtencao | string | null;
   base_origem: string | null;
   base_atual: string | null;
   movido_base_em: string | null;
@@ -74,7 +75,8 @@ type FilterState = {
   travamento: "todos" | "travados" | "nao_travados";
 };
 
-const FASE_LABELS: Record<string, string> = {
+// Visual group labels for the tabs
+const FASE_GRUPO_LABELS: Record<FaseGrupo, string> = {
   ENTRADA: "Entrada",
   QUALIFICACAO: "Qualificacao",
   COLETA: "Coleta",
@@ -82,11 +84,41 @@ const FASE_LABELS: Record<string, string> = {
   TRAVADO: "Travado",
 };
 
-const STATUS_ATENCAO_LABELS: Record<StatusAtencao, string> = {
-  NORMAL: "Normal",
-  ALERTA: "Alerta",
-  CRITICO: "Critico",
+// Real attention_status values from enova_attendance_meta
+const STATUS_ATENCAO_LABELS: Record<string, string> = {
+  ON_TIME: "Em dia",
+  DUE_SOON: "Atencao",
+  OVERDUE: "Atrasado",
 };
+
+// Maps real fase_conversa stage names to visual tab groups
+function deriveFaseGrupo(faseAtendimento: string | null, faseTravamento: string | null): FaseGrupo | null {
+  if (faseTravamento) return "TRAVADO";
+  const s = faseAtendimento;
+  if (!s) return null;
+  // ENTRADA: initial/setup stages
+  if (["inicio", "inicio_decisao", "inicio_programa", "inicio_nome",
+    "inicio_nacionalidade", "inicio_rnm", "inicio_rnm_validade"].includes(s)) {
+    return "ENTRADA";
+  }
+  // COLETA: income/document collection stages
+  if (s.startsWith("renda") || s.startsWith("ctps_36") || s.startsWith("restricao") ||
+    s.startsWith("regularizacao") || s.startsWith("verificar") ||
+    s === "ir_declarado" || s === "dependente" ||
+    s.includes("multi_renda") ||
+    ["possui_renda_extra", "renda_mista_detalhe", "clt_renda_perfil_informativo",
+      "autonomo_ir_pergunta", "autonomo_sem_ir_ir_este_ano", "autonomo_sem_ir_caminho",
+      "autonomo_sem_ir_entrada", "autonomo_compor_renda", "p3_tipo_pergunta",
+      "confirmar_avo_familiar"].includes(s)) {
+    return "COLETA";
+  }
+  // AGUARDANDO: terminal pre-docs stages
+  if (["fim_ineligivel", "fim_inelegivel", "finalizacao"].includes(s)) {
+    return "AGUARDANDO";
+  }
+  // QUALIFICACAO: state/composition/regime stages (default for remaining pre-docs)
+  return "QUALIFICACAO";
+}
 
 
 
@@ -150,17 +182,17 @@ function getBaseBadgeClass(pool: string | null): string {
   }
 }
 
-function getAtencaoClass(status: StatusAtencao | null): string {
+function getAtencaoClass(status: string | null): string {
   switch (status) {
-    case "NORMAL": return styles.atencaoNormal;
-    case "ALERTA": return styles.atencaoAlerta;
-    case "CRITICO": return styles.atencaoCritico;
+    case "ON_TIME": return styles.atencaoNormal;
+    case "DUE_SOON": return styles.atencaoAlerta;
+    case "OVERDUE": return styles.atencaoCritico;
     default: return styles.atencaoNormal;
   }
 }
 
-function getFaseBadgeClass(fase: string | null): string {
-  switch (fase) {
+function getFaseBadgeClass(grupo: FaseGrupo | null): string {
+  switch (grupo) {
     case "ENTRADA": return styles.faseBadgeActive;
     case "QUALIFICACAO": return styles.faseBadgeActive;
     case "COLETA": return styles.faseBadgeActive;
@@ -195,7 +227,7 @@ export function AtendimentoUI() {
   const [leads, setLeads] = useState<AttendanceRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [activeFase, setActiveFase] = useState<FaseAtendimento | "TODOS">("TODOS");
+  const [activeFase, setActiveFase] = useState<FaseGrupo | "TODOS">("TODOS");
   const [selectedLead, setSelectedLead] = useState<AttendanceRow | null>(null);
   const [filters, setFilters] = useState<FilterState>({
     busca: "",
@@ -229,7 +261,7 @@ export function AtendimentoUI() {
   }, [refreshLeads]);
 
   const faseCounts = useMemo(() => {
-    const counts: Record<FaseAtendimento | "TODOS", number> = {
+    const counts: Record<FaseGrupo | "TODOS", number> = {
       TODOS: 0,
       ENTRADA: 0,
       QUALIFICACAO: 0,
@@ -239,12 +271,9 @@ export function AtendimentoUI() {
     };
     leads.forEach((lead) => {
       counts.TODOS++;
-      const fase = (lead.fase_atendimento ?? "ENTRADA") as FaseAtendimento;
-      if (counts[fase] !== undefined) {
-        counts[fase]++;
-      }
-      if (lead.fase_travamento) {
-        counts.TRAVADO++;
+      const grupo = deriveFaseGrupo(lead.fase_atendimento, lead.fase_travamento);
+      if (grupo && counts[grupo] !== undefined) {
+        counts[grupo]++;
       }
     });
     return counts;
@@ -252,10 +281,7 @@ export function AtendimentoUI() {
 
   const faseLeads = useMemo(() => {
     if (activeFase === "TODOS") return leads;
-    if (activeFase === "TRAVADO") {
-      return leads.filter((lead) => lead.fase_travamento !== null);
-    }
-    return leads.filter((lead) => lead.fase_atendimento === activeFase);
+    return leads.filter((lead) => deriveFaseGrupo(lead.fase_atendimento, lead.fase_travamento) === activeFase);
   }, [leads, activeFase]);
 
   const filterOptions = useMemo(() => {
@@ -361,7 +387,7 @@ export function AtendimentoUI() {
                   tabIndex={0}
                 >
                   <span className={styles.statLabel}>
-                    {fase === "TODOS" ? "Todos" : FASE_LABELS[fase] ?? fase}
+                    {fase === "TODOS" ? "Todos" : FASE_GRUPO_LABELS[fase] ?? fase}
                   </span>
                   <span className={styles.statValue}>{faseCounts[fase]}</span>
                 </div>
@@ -384,7 +410,7 @@ export function AtendimentoUI() {
                   onClick={() => setActiveFase(fase)}
                 >
                   <span className={styles.tabLabel}>
-                    {fase === "TODOS" ? "Todos" : FASE_LABELS[fase] ?? fase}
+                    {fase === "TODOS" ? "Todos" : FASE_GRUPO_LABELS[fase] ?? fase}
                   </span>
                   <span className={styles.tabCount}>{faseCounts[fase]}</span>
                 </button>
@@ -432,7 +458,7 @@ export function AtendimentoUI() {
                 <option value="">Status de atencao</option>
                 {filterOptions.atencoes.map((atencao) => (
                   <option key={atencao} value={atencao}>
-                    {STATUS_ATENCAO_LABELS[atencao as StatusAtencao] ?? atencao}
+                    {STATUS_ATENCAO_LABELS[atencao] ?? atencao}
                   </option>
                 ))}
               </select>
@@ -507,12 +533,12 @@ export function AtendimentoUI() {
                   </div>
 
                   <div className={styles.colFase}>
-                    <span className={`${styles.faseBadge} ${getFaseBadgeClass(lead.fase_atendimento)}`}>
-                      {FASE_LABELS[lead.fase_atendimento ?? ""] ?? lead.fase_atendimento ?? "—"}
+                    <span className={`${styles.faseBadge} ${getFaseBadgeClass(deriveFaseGrupo(lead.fase_atendimento, lead.fase_travamento))}`}>
+                      {lead.fase_atendimento ?? lead.fase_funil ?? "—"}
                     </span>
                     {lead.fase_travamento && (
                       <span className={styles.faseTravada}>
-                        Travou em: {FASE_LABELS[lead.fase_travamento] ?? lead.fase_travamento}
+                        Travou: {lead.fase_travamento}
                       </span>
                     )}
                   </div>
@@ -533,7 +559,7 @@ export function AtendimentoUI() {
                   <div className={styles.colAtencao}>
                     <span className={`${styles.atencaoBadge} ${getAtencaoClass(lead.status_atencao)}`}>
                       <span className={styles.atencaoDot} />
-                      {STATUS_ATENCAO_LABELS[lead.status_atencao ?? "NORMAL"] ?? "Normal"}
+                      {STATUS_ATENCAO_LABELS[lead.status_atencao ?? ""] ?? lead.status_atencao ?? "—"}
                     </span>
                   </div>
 
@@ -617,19 +643,19 @@ export function AtendimentoUI() {
                     <div className={styles.detailItem}>
                       <span className={styles.detailLabel}>Fase Atual</span>
                       <span className={styles.detailValueHighlight}>
-                        {FASE_LABELS[selectedLead.fase_atendimento ?? ""] ?? selectedLead.fase_atendimento ?? "—"}
+                        {selectedLead.fase_atendimento ?? selectedLead.fase_funil ?? "—"}
                       </span>
                     </div>
                     <div className={styles.detailItem}>
                       <span className={styles.detailLabel}>Status Atencao</span>
                       <span className={
-                        selectedLead.status_atencao === "CRITICO"
+                        selectedLead.status_atencao === "OVERDUE"
                           ? styles.detailValueDanger
-                          : selectedLead.status_atencao === "ALERTA"
+                          : selectedLead.status_atencao === "DUE_SOON"
                           ? styles.detailValueWarning
                           : styles.detailValue
                       }>
-                        {STATUS_ATENCAO_LABELS[selectedLead.status_atencao ?? "NORMAL"]}
+                        {STATUS_ATENCAO_LABELS[selectedLead.status_atencao ?? ""] ?? selectedLead.status_atencao ?? "—"}
                       </span>
                     </div>
                     <div className={styles.detailItem}>
@@ -643,9 +669,7 @@ export function AtendimentoUI() {
                     <div className={styles.detailItem}>
                       <span className={styles.detailLabel}>Fase Travada</span>
                       <span className={selectedLead.fase_travamento ? styles.detailValueDanger : styles.detailValue}>
-                        {selectedLead.fase_travamento
-                          ? FASE_LABELS[selectedLead.fase_travamento] ?? selectedLead.fase_travamento
-                          : "—"}
+                        {selectedLead.fase_travamento ?? "—"}
                       </span>
                     </div>
                     <div className={styles.detailItem}>

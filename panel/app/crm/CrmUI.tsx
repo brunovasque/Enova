@@ -93,12 +93,10 @@ type CrmLeadRow = {
   observacao_visita: string | null;
   proxima_acao_reserva: string | null;
   atualizado_em: string | null;
-  // Incidente aberto — opcional; disponível quando crm_leads_v1 incluir JOIN a enova_attendance_meta
-  // LIMITAÇÃO: crm_leads_v1 atual não join enova_attendance_meta; esses campos chegam null
-  // Para ativar, adicionar ao crm_leads_v1: LEFT JOIN enova_attendance_meta a ON a.wa_id = e.wa_id
-  tem_incidente_aberto?: boolean | null;
-  tipo_incidente?: string | null;
-  severidade_incidente?: string | null;
+  // Incidente aberto — lido de enova_attendance_meta via crm_leads_v1
+  tem_incidente_aberto: boolean | null;
+  tipo_incidente: string | null;
+  severidade_incidente: string | null;
 };
 
 type ApiCrmPayload = {

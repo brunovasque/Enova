@@ -24,12 +24,10 @@ type CrmLeadMetaRow = {
   ultima_acao: string | null;
   ultimo_contato_at: string | null;
   status_operacional: string | null;
-  // Incidente aberto — opcional; disponível quando crm_lead_meta incluir dados de incidente
-  // LIMITAÇÃO: crm_lead_meta não inclui campos de incidente (tabela separada enova_attendance_meta)
-  // Para ativar, seria necessário JOIN ou coluna derivada via view
-  tem_incidente_aberto?: boolean | null;
-  tipo_incidente?: string | null;
-  severidade_incidente?: string | null;
+  // Incidente aberto — lido de enova_attendance_meta via bases_leads_v1
+  tem_incidente_aberto: boolean | null;
+  tipo_incidente: string | null;
+  severidade_incidente: string | null;
 };
 
 type ApiLeadsPayload = {

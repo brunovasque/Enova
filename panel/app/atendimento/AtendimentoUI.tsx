@@ -228,20 +228,36 @@ function onStatKeyDown(event: React.KeyboardEvent<HTMLDivElement>, onActivate: (
    PREFILL HELPERS
    =========================================== */
 
-const PREFILL_STATUS_LABELS: Record<PrefillStatus, string> = {
-  empty: "Vazio",
-  prefilled_pending_confirmation: "Pré-preenchido",
-  confirmed: "Confirmado",
-  divergent: "Divergente",
-};
-
-function prefillStatusClass(status: PrefillStatus | null | undefined): string {
-  switch (status) {
-    case "prefilled_pending_confirmation": return styles.prefillStatusPending;
-    case "confirmed": return styles.prefillStatusConfirmed;
-    case "divergent": return styles.prefillStatusDivergent;
-    default: return styles.prefillStatusEmpty;
+// Derives a discrete origin badge for a unified field.
+// funnelValue: value confirmed via the funnel (from enova_state)
+// prefillStatus: status from enova_prefill_meta
+function deriveOriginBadge(
+  funnelValue: string | number | boolean | null | undefined,
+  prefillStatus: PrefillStatus | null | undefined,
+) {
+  const hasFunnelValue = funnelValue !== null && funnelValue !== undefined;
+  if (hasFunnelValue || prefillStatus === "confirmed") {
+    return (
+      <span className={`${styles.prefillStatusBadge} ${styles.prefillStatusConfirmed}`}>
+        confirmado no funil
+      </span>
+    );
   }
+  if (prefillStatus === "prefilled_pending_confirmation") {
+    return (
+      <span className={`${styles.prefillStatusBadge} ${styles.prefillStatusPending}`}>
+        pré-preenchido · admin
+      </span>
+    );
+  }
+  if (prefillStatus === "divergent") {
+    return (
+      <span className={`${styles.prefillStatusBadge} ${styles.prefillStatusDivergent}`}>
+        divergente
+      </span>
+    );
+  }
+  return null;
 }
 
 type PrefillEditState = {
@@ -495,6 +511,16 @@ export function AtendimentoUI() {
     setPrefillFeedback(null);
     setPrefillError(null);
   }, []);
+
+  // ESC key to close detail panel
+  useEffect(() => {
+    if (!selectedLead) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closeDetail();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedLead, closeDetail]);
 
   const handleSavePrefill = useCallback(async () => {
     if (!selectedLead || !prefillEdit) return;
@@ -806,22 +832,20 @@ export function AtendimentoUI() {
                   </div>
                 </div>
 
-                {/* Informações Pré-preenchidas (admin) */}
-                {prefillEdit !== null && (
-                  <div className={styles.detailBlock}>
-                    <h3 className={styles.detailBlockTitle}>Informações Pré-preenchidas</h3>
-                    <p className={styles.prefillDisclaimer}>
-                      Dados inseridos manualmente. Não são confirmados até que o cliente valide no funil.
-                    </p>
-                    <div className={styles.detailGrid} style={{ marginTop: "12px" }}>
-                      {/* nome */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Nome</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.nome_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.nome_status ?? "empty"]}
-                          </span>
-                        </div>
+                {/* Perfil do Cliente — visão única com rastreio de origem */}
+                <div className={styles.detailBlock}>
+                  <h3 className={styles.detailBlockTitle}>Perfil do Cliente</h3>
+                  <div className={styles.detailGrid} style={{ marginTop: "12px" }}>
+                    {/* nome */}
+                    <div className={styles.prefillFieldRow}>
+                      <div className={styles.prefillFieldHeader}>
+                        <span className={styles.detailLabel}>Nome</span>
+                        {deriveOriginBadge(selectedLead.nome, prefillData?.nome_status)}
+                      </div>
+                      <span className={styles.detailValue}>
+                        {selectedLead.nome ?? prefillData?.nome_prefill ?? "—"}
+                      </span>
+                      {prefillEdit !== null && selectedLead.nome === null && (
                         <input
                           type="text"
                           className={styles.prefillInput}
@@ -829,15 +853,18 @@ export function AtendimentoUI() {
                           onChange={(e) => setPrefillEdit({ ...prefillEdit, nome_prefill: e.target.value })}
                           placeholder="Nome do cliente"
                         />
+                      )}
+                    </div>
+                    {/* nacionalidade */}
+                    <div className={styles.prefillFieldRow}>
+                      <div className={styles.prefillFieldHeader}>
+                        <span className={styles.detailLabel}>Nacionalidade</span>
+                        {deriveOriginBadge(null, prefillData?.nacionalidade_status)}
                       </div>
-                      {/* nacionalidade */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Nacionalidade</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.nacionalidade_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.nacionalidade_status ?? "empty"]}
-                          </span>
-                        </div>
+                      <span className={styles.detailValue}>
+                        {prefillData?.nacionalidade_prefill ?? "—"}
+                      </span>
+                      {prefillEdit !== null && (
                         <input
                           type="text"
                           className={styles.prefillInput}
@@ -845,15 +872,18 @@ export function AtendimentoUI() {
                           onChange={(e) => setPrefillEdit({ ...prefillEdit, nacionalidade_prefill: e.target.value })}
                           placeholder="Ex: brasileira"
                         />
+                      )}
+                    </div>
+                    {/* estado_civil */}
+                    <div className={styles.prefillFieldRow}>
+                      <div className={styles.prefillFieldHeader}>
+                        <span className={styles.detailLabel}>Estado Civil</span>
+                        {deriveOriginBadge(selectedLead.estado_civil, prefillData?.estado_civil_status)}
                       </div>
-                      {/* estado_civil */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Estado Civil</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.estado_civil_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.estado_civil_status ?? "empty"]}
-                          </span>
-                        </div>
+                      <span className={styles.detailValue}>
+                        {selectedLead.estado_civil ?? prefillData?.estado_civil_prefill ?? "—"}
+                      </span>
+                      {prefillEdit !== null && selectedLead.estado_civil === null && (
                         <select
                           className={styles.prefillSelect}
                           value={prefillEdit.estado_civil_prefill}
@@ -866,15 +896,18 @@ export function AtendimentoUI() {
                           <option value="viuvo">Viúvo(a)</option>
                           <option value="uniao_estavel">União Estável</option>
                         </select>
+                      )}
+                    </div>
+                    {/* regime_trabalho */}
+                    <div className={styles.prefillFieldRow}>
+                      <div className={styles.prefillFieldHeader}>
+                        <span className={styles.detailLabel}>Regime Trabalho</span>
+                        {deriveOriginBadge(selectedLead.regime_trabalho, prefillData?.regime_trabalho_status)}
                       </div>
-                      {/* regime_trabalho */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Regime Trabalho</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.regime_trabalho_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.regime_trabalho_status ?? "empty"]}
-                          </span>
-                        </div>
+                      <span className={styles.detailValue}>
+                        {selectedLead.regime_trabalho ?? prefillData?.regime_trabalho_prefill ?? "—"}
+                      </span>
+                      {prefillEdit !== null && selectedLead.regime_trabalho === null && (
                         <select
                           className={styles.prefillSelect}
                           value={prefillEdit.regime_trabalho_prefill}
@@ -888,15 +921,22 @@ export function AtendimentoUI() {
                           <option value="aposentado">Aposentado/Pensionista</option>
                           <option value="misto">Misto</option>
                         </select>
+                      )}
+                    </div>
+                    {/* renda */}
+                    <div className={styles.prefillFieldRow}>
+                      <div className={styles.prefillFieldHeader}>
+                        <span className={styles.detailLabel}>Renda (R$)</span>
+                        {deriveOriginBadge(selectedLead.renda_total, prefillData?.renda_status)}
                       </div>
-                      {/* renda */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Renda (R$)</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.renda_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.renda_status ?? "empty"]}
-                          </span>
-                        </div>
+                      <span className={styles.detailValue}>
+                        {selectedLead.renda_total !== null
+                          ? formatCurrency(selectedLead.renda_total)
+                          : prefillData?.renda_prefill != null
+                          ? formatCurrency(prefillData.renda_prefill)
+                          : "—"}
+                      </span>
+                      {prefillEdit !== null && selectedLead.renda_total === null && (
                         <input
                           type="number"
                           className={styles.prefillInput}
@@ -905,15 +945,22 @@ export function AtendimentoUI() {
                           placeholder="Ex: 3500"
                           min="0"
                         />
+                      )}
+                    </div>
+                    {/* 36_meses */}
+                    <div className={styles.prefillFieldRow}>
+                      <div className={styles.prefillFieldHeader}>
+                        <span className={styles.detailLabel}>36 Meses (CTPS)</span>
+                        {deriveOriginBadge(selectedLead.ctps_36, prefillData?.meses_36_status)}
                       </div>
-                      {/* 36_meses */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>36 Meses (CTPS)</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.meses_36_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.meses_36_status ?? "empty"]}
-                          </span>
-                        </div>
+                      <span className={styles.detailValue}>
+                        {selectedLead.ctps_36 !== null
+                          ? selectedLead.ctps_36 ? "Sim" : "Não"
+                          : prefillData?.meses_36_prefill != null
+                          ? prefillData.meses_36_prefill ? "Sim" : "Não"
+                          : "—"}
+                      </span>
+                      {prefillEdit !== null && selectedLead.ctps_36 === null && (
                         <select
                           className={styles.prefillSelect}
                           value={prefillEdit.meses_36_prefill}
@@ -923,15 +970,22 @@ export function AtendimentoUI() {
                           <option value="true">Sim</option>
                           <option value="false">Não</option>
                         </select>
+                      )}
+                    </div>
+                    {/* dependentes */}
+                    <div className={styles.prefillFieldRow}>
+                      <div className={styles.prefillFieldHeader}>
+                        <span className={styles.detailLabel}>Dependentes</span>
+                        {deriveOriginBadge(selectedLead.dependentes_qtd, prefillData?.dependentes_status)}
                       </div>
-                      {/* dependentes */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Dependentes</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.dependentes_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.dependentes_status ?? "empty"]}
-                          </span>
-                        </div>
+                      <span className={styles.detailValue}>
+                        {selectedLead.dependentes_qtd !== null
+                          ? selectedLead.dependentes_qtd
+                          : prefillData?.dependentes_prefill != null
+                          ? prefillData.dependentes_prefill
+                          : "—"}
+                      </span>
+                      {prefillEdit !== null && selectedLead.dependentes_qtd === null && (
                         <input
                           type="number"
                           className={styles.prefillInput}
@@ -940,15 +994,20 @@ export function AtendimentoUI() {
                           placeholder="Ex: 0"
                           min="0"
                         />
+                      )}
+                    </div>
+                    {/* valor_entrada */}
+                    <div className={styles.prefillFieldRow}>
+                      <div className={styles.prefillFieldHeader}>
+                        <span className={styles.detailLabel}>Valor Entrada (R$)</span>
+                        {deriveOriginBadge(null, prefillData?.valor_entrada_status)}
                       </div>
-                      {/* valor_entrada */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Valor Entrada (R$)</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.valor_entrada_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.valor_entrada_status ?? "empty"]}
-                          </span>
-                        </div>
+                      <span className={styles.detailValue}>
+                        {prefillData?.valor_entrada_prefill != null
+                          ? formatCurrency(prefillData.valor_entrada_prefill)
+                          : "—"}
+                      </span>
+                      {prefillEdit !== null && (
                         <input
                           type="number"
                           className={styles.prefillInput}
@@ -957,15 +1016,22 @@ export function AtendimentoUI() {
                           placeholder="Ex: 10000"
                           min="0"
                         />
+                      )}
+                    </div>
+                    {/* restricao */}
+                    <div className={styles.prefillFieldRow}>
+                      <div className={styles.prefillFieldHeader}>
+                        <span className={styles.detailLabel}>Restrição</span>
+                        {deriveOriginBadge(selectedLead.restricao, prefillData?.restricao_status)}
                       </div>
-                      {/* restricao */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Restrição</span>
-                          <span className={`${styles.prefillStatusBadge} ${prefillStatusClass(prefillData?.restricao_status)}`}>
-                            {PREFILL_STATUS_LABELS[prefillData?.restricao_status ?? "empty"]}
-                          </span>
-                        </div>
+                      <span className={(selectedLead.restricao || prefillData?.restricao_prefill) ? styles.detailValueDanger : styles.detailValue}>
+                        {selectedLead.restricao !== null
+                          ? selectedLead.restricao ? "Sim" : "Não"
+                          : prefillData?.restricao_prefill != null
+                          ? prefillData.restricao_prefill ? "Sim" : "Não"
+                          : "—"}
+                      </span>
+                      {prefillEdit !== null && selectedLead.restricao === null && (
                         <select
                           className={styles.prefillSelect}
                           value={prefillEdit.restricao_prefill}
@@ -975,12 +1041,17 @@ export function AtendimentoUI() {
                           <option value="true">Sim (tem restrição)</option>
                           <option value="false">Não (sem restrição)</option>
                         </select>
+                      )}
+                    </div>
+                    {/* origem_lead */}
+                    <div className={styles.prefillFieldRow}>
+                      <div className={styles.prefillFieldHeader}>
+                        <span className={styles.detailLabel}>Origem do Lead</span>
                       </div>
-                      {/* origem_lead */}
-                      <div className={styles.prefillFieldRow}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Origem do Lead</span>
-                        </div>
+                      <span className={styles.detailValue}>
+                        {prefillData?.origem_lead ?? "—"}
+                      </span>
+                      {prefillEdit !== null && (
                         <input
                           type="text"
                           className={styles.prefillInput}
@@ -988,20 +1059,53 @@ export function AtendimentoUI() {
                           onChange={(e) => setPrefillEdit({ ...prefillEdit, origem_lead: e.target.value })}
                           placeholder="Ex: lyx, campanha-x"
                         />
+                      )}
+                    </div>
+                    {/* somar_renda — confirmado no funil */}
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Somar Renda</span>
+                      <span className={styles.detailValue}>
+                        {selectedLead.somar_renda === null ? "—" : selectedLead.somar_renda ? "Sim" : "Não"}
+                      </span>
+                    </div>
+                    {/* composicao — confirmado no funil */}
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Composição</span>
+                      <span className={styles.detailValue}>{selectedLead.composicao ?? "—"}</span>
+                    </div>
+                    {/* ir_declarado — confirmado no funil */}
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>IR Declarado</span>
+                      <span className={styles.detailValue}>
+                        {selectedLead.ir_declarado === null ? "—" : selectedLead.ir_declarado ? "Sim" : "Não"}
+                      </span>
+                    </div>
+                    {/* observacoes_admin — full width */}
+                    <div className={styles.detailItemFull}>
+                      <div className={styles.prefillFieldHeader}>
+                        <span className={styles.detailLabel}>Observações Admin</span>
                       </div>
-                      {/* observacoes_admin */}
-                      <div className={styles.detailItemFull}>
-                        <div className={styles.prefillFieldHeader}>
-                          <span className={styles.detailLabel}>Observações Admin</span>
-                        </div>
+                      <span className={styles.detailValue} style={{ display: "block", marginBottom: prefillEdit !== null ? "4px" : 0 }}>
+                        {prefillData?.observacoes_admin ?? "—"}
+                      </span>
+                      {prefillEdit !== null && (
                         <textarea
                           className={styles.prefillTextarea}
                           value={prefillEdit.observacoes_admin}
                           onChange={(e) => setPrefillEdit({ ...prefillEdit, observacoes_admin: e.target.value })}
                           placeholder="Observações internas (não visível ao cliente)"
                         />
-                      </div>
+                      )}
                     </div>
+                    {/* resumo_curto — confirmado no funil */}
+                    {selectedLead.resumo_curto && (
+                      <div className={styles.detailItemFull}>
+                        <span className={styles.detailLabel}>Resumo Curto</span>
+                        <span className={styles.detailValue}>{selectedLead.resumo_curto}</span>
+                      </div>
+                    )}
+                  </div>
+                  {prefillEdit !== null && (
                     <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "12px" }}>
                       <button
                         type="button"
@@ -1009,13 +1113,13 @@ export function AtendimentoUI() {
                         onClick={() => void handleSavePrefill()}
                         disabled={prefillBusy}
                       >
-                        {prefillBusy ? "Salvando..." : "Salvar pré-dados"}
+                        {prefillBusy ? "Salvando..." : "Salvar"}
                       </button>
                       {prefillFeedback && <span className={styles.prefillFeedback}>{prefillFeedback}</span>}
                       {prefillError && <span className={styles.prefillError}>{prefillError}</span>}
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {/* Status Operacional */}
                 <div className={styles.detailBlock}>
@@ -1119,61 +1223,6 @@ export function AtendimentoUI() {
                     <div className={styles.detailItemFull}>
                       <span className={styles.detailLabel}>Proxima Acao</span>
                       <span className={styles.detailValueHighlight}>{selectedLead.proxima_acao ?? "—"}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Perfil Parcial */}
-                <div className={styles.detailBlock}>
-                  <h3 className={styles.detailBlockTitle}>Perfil Parcial Confirmado</h3>
-                  <div className={styles.detailGrid}>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Estado Civil</span>
-                      <span className={styles.detailValue}>{selectedLead.estado_civil ?? "—"}</span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Regime Trabalho</span>
-                      <span className={styles.detailValue}>{selectedLead.regime_trabalho ?? "—"}</span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Renda Total</span>
-                      <span className={styles.detailValue}>{formatCurrency(selectedLead.renda_total)}</span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Somar Renda</span>
-                      <span className={styles.detailValue}>
-                        {selectedLead.somar_renda === null ? "—" : selectedLead.somar_renda ? "Sim" : "Nao"}
-                      </span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Composicao</span>
-                      <span className={styles.detailValue}>{selectedLead.composicao ?? "—"}</span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>IR Declarado</span>
-                      <span className={styles.detailValue}>
-                        {selectedLead.ir_declarado === null ? "—" : selectedLead.ir_declarado ? "Sim" : "Nao"}
-                      </span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>CTPS 36 meses</span>
-                      <span className={styles.detailValue}>
-                        {selectedLead.ctps_36 === null ? "—" : selectedLead.ctps_36 ? "Sim" : "Nao"}
-                      </span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Restricao</span>
-                      <span className={selectedLead.restricao ? styles.detailValueDanger : styles.detailValue}>
-                        {selectedLead.restricao === null ? "—" : selectedLead.restricao ? "Sim" : "Nao"}
-                      </span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Dependentes</span>
-                      <span className={styles.detailValue}>{selectedLead.dependentes_qtd ?? "—"}</span>
-                    </div>
-                    <div className={styles.detailItemFull}>
-                      <span className={styles.detailLabel}>Resumo Curto</span>
-                      <span className={styles.detailValue}>{selectedLead.resumo_curto ?? "—"}</span>
                     </div>
                   </div>
                 </div>

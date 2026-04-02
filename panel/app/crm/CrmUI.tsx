@@ -93,6 +93,12 @@ type CrmLeadRow = {
   observacao_visita: string | null;
   proxima_acao_reserva: string | null;
   atualizado_em: string | null;
+  // Incidente aberto — opcional; disponível quando crm_leads_v1 incluir JOIN a enova_attendance_meta
+  // LIMITAÇÃO: crm_leads_v1 atual não join enova_attendance_meta; esses campos chegam null
+  // Para ativar, adicionar ao crm_leads_v1: LEFT JOIN enova_attendance_meta a ON a.wa_id = e.wa_id
+  tem_incidente_aberto?: boolean | null;
+  tipo_incidente?: string | null;
+  severidade_incidente?: string | null;
 };
 
 type ApiCrmPayload = {
@@ -714,6 +720,17 @@ export function CrmUI() {
                     </div>
 
                     <div className={styles.colAcoes} onClick={(e) => e.stopPropagation()}>
+                      {lead.tem_incidente_aberto && (
+                        <a
+                          href={`/incidentes?wa_id=${encodeURIComponent(lead.wa_id)}`}
+                          aria-label={`Ver incidentes deste lead na aba Incidentes${lead.severidade_incidente ? ` — severidade ${lead.severidade_incidente}` : ""}`}
+                          className={styles.incidenteBadge}
+                          title={`Incidente aberto${lead.tipo_incidente ? ` — ${lead.tipo_incidente}` : ""}${lead.severidade_incidente ? ` (${lead.severidade_incidente})` : ""}`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          ⚠ {lead.severidade_incidente ?? "Incidente"}
+                        </a>
+                      )}
                       <button
                         type="button"
                         className={styles.actionBtn}

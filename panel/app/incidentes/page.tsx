@@ -1,5 +1,10 @@
+import { Suspense } from "react";
 import { IncidentesUI } from "./IncidentesUI";
 
 export default function IncidentesPage() {
-  return <IncidentesUI />;
+  return (
+    <Suspense>
+      <IncidentesUI />
+    </Suspense>
+  );
 }

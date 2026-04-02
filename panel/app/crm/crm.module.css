@@ -612,6 +612,7 @@
   display: flex;
   gap: 8px;
   justify-content: flex-end;
+  align-items: center;
 }
 
 .actionBtn {
@@ -641,6 +642,27 @@
 .actionBtnResume:hover {
   border-color: rgba(52, 211, 153, 0.3);
   color: #6ee7b7;
+}
+
+/* Badge de incidente aberto — ready-to-plug (ativo quando crm_leads_v1 incluir enova_attendance_meta) */
+.incidenteBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+  background: rgba(248, 113, 113, 0.12);
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  cursor: pointer;
+}
+
+.incidenteBadge:hover {
+  opacity: 0.8;
 }
 
 /* ===========================================

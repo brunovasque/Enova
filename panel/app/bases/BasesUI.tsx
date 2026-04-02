@@ -204,6 +204,17 @@ export function BasesUI() {
     source_type: "fria",
   });
 
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (showAddModal) { setShowAddModal(false); return; }
+      if (showImportModal) { setShowImportModal(false); return; }
+      if (moveTarget) { setMoveTarget(null); return; }
+    }
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [showAddModal, showImportModal, moveTarget]);
+
   const fetchLeadsForPool = useCallback(async (pool: LeadPool): Promise<CrmLeadMetaRow[]> => {
     const res = await fetch(`/api/bases?lead_pool=${pool}&limit=100`, { cache: "no-store" });
     const data = (await res.json()) as ApiLeadsPayload;

@@ -75,6 +75,14 @@ export type ClientProfileUpdatePayload = {
   source?: ProfileSource;
 };
 
+// Safe boolean parser — accepts only true/false natives and "true"/"false" strings.
+// Any other value (including empty string or other strings) returns null.
+function parseBoolStrict(v: unknown): boolean | null {
+  if (v === true || v === "true") return true;
+  if (v === false || v === "false") return false;
+  return null;
+}
+
 function buildHeaders(serviceRoleKey: string, extra?: Record<string, string>) {
   return {
     apikey: serviceRoleKey,
@@ -163,10 +171,10 @@ export async function getClientProfile(
     estado_civil: (stateRow?.estado_civil as string | null) ?? null,
     regime_trabalho: (stateRow?.regime_trabalho as string | null) ?? null,
     renda: stateRow?.renda != null ? Number(stateRow.renda) : null,
-    ctps_36: stateRow?.ctps_36 != null ? Boolean(stateRow.ctps_36) : null,
+    ctps_36: stateRow?.ctps_36 != null ? parseBoolStrict(stateRow.ctps_36) : null,
     dependentes_qtd: stateRow?.dependentes_qtd != null ? Number(stateRow.dependentes_qtd) : null,
     entrada_valor: stateRow?.entrada_valor != null ? Number(stateRow.entrada_valor) : null,
-    restricao: stateRow?.restricao != null ? Boolean(stateRow.restricao) : null,
+    restricao: stateRow?.restricao != null ? parseBoolStrict(stateRow.restricao) : null,
     origem_lead: (metaRow?.origem_lead as string | null) ?? null,
     observacoes_admin: (metaRow?.observacoes_admin as string | null) ?? null,
     nome_source: (metaRow?.nome_source as ProfileSource) ?? null,

@@ -2,6 +2,13 @@
 
 import { writeClientProfile } from "../api/client-profile/_shared";
 
+// Safe boolean parser — accepts only true/false natives and "true"/"false" strings.
+function parseBoolStrict(v: unknown): boolean | null {
+  if (v === true || v === "true") return true;
+  if (v === false || v === "false") return false;
+  return null;
+}
+
 export async function savePrefillOnLeadCreateAction(
   payload: {
     wa_id: string;
@@ -40,10 +47,10 @@ export async function savePrefillOnLeadCreateAction(
         ...(payload.estado_civil_prefill != null ? { estado_civil: payload.estado_civil_prefill } : {}),
         ...(payload.regime_trabalho_prefill != null ? { regime_trabalho: payload.regime_trabalho_prefill } : {}),
         ...(payload.renda_prefill != null ? { renda: Number(payload.renda_prefill) } : {}),
-        ...(payload.meses_36_prefill != null ? { ctps_36: Boolean(payload.meses_36_prefill) } : {}),
+        ...(payload.meses_36_prefill != null ? { ctps_36: parseBoolStrict(payload.meses_36_prefill) } : {}),
         ...(payload.dependentes_prefill != null ? { dependentes_qtd: Number(payload.dependentes_prefill) } : {}),
         ...(payload.valor_entrada_prefill != null ? { entrada_valor: Number(payload.valor_entrada_prefill) } : {}),
-        ...(payload.restricao_prefill != null ? { restricao: Boolean(payload.restricao_prefill) } : {}),
+        ...(payload.restricao_prefill != null ? { restricao: parseBoolStrict(payload.restricao_prefill) } : {}),
         ...(payload.origem_lead != null ? { origem_lead: payload.origem_lead } : {}),
         ...(payload.observacoes_admin != null ? { observacoes_admin: payload.observacoes_admin } : {}),
         updated_by: payload.updated_by ?? "admin_panel",

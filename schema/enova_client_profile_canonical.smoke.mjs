@@ -259,8 +259,14 @@ test("T4.4 — payload com nome e restricao detecta ambos", () => {
 // ==============================================================================
 console.log("\n── GRUPO 5: savePrefillOnLeadCreateAction — mapeamento ──");
 
-function mapPrefillToProfile(prefillPayload) {
-  const p = prefillPayload;
+// Mirrors the safe boolean parser from _shared.ts / bases/actions.ts
+function parseBoolStrict(v) {
+  if (v === true || v === "true") return true;
+  if (v === false || v === "false") return false;
+  return null;
+}
+
+function mapPrefillToProfile(p) {
   return {
     wa_id: p.wa_id,
     ...(p.nome_prefill != null ? { nome: p.nome_prefill } : {}),
@@ -268,10 +274,10 @@ function mapPrefillToProfile(prefillPayload) {
     ...(p.estado_civil_prefill != null ? { estado_civil: p.estado_civil_prefill } : {}),
     ...(p.regime_trabalho_prefill != null ? { regime_trabalho: p.regime_trabalho_prefill } : {}),
     ...(p.renda_prefill != null ? { renda: Number(p.renda_prefill) } : {}),
-    ...(p.meses_36_prefill != null ? { ctps_36: Boolean(p.meses_36_prefill) } : {}),
+    ...(p.meses_36_prefill != null ? { ctps_36: parseBoolStrict(p.meses_36_prefill) } : {}),
     ...(p.dependentes_prefill != null ? { dependentes_qtd: Number(p.dependentes_prefill) } : {}),
     ...(p.valor_entrada_prefill != null ? { entrada_valor: Number(p.valor_entrada_prefill) } : {}),
-    ...(p.restricao_prefill != null ? { restricao: Boolean(p.restricao_prefill) } : {}),
+    ...(p.restricao_prefill != null ? { restricao: parseBoolStrict(p.restricao_prefill) } : {}),
     ...(p.origem_lead != null ? { origem_lead: p.origem_lead } : {}),
     ...(p.observacoes_admin != null ? { observacoes_admin: p.observacoes_admin } : {}),
     updated_by: p.updated_by ?? "admin_panel",
@@ -343,6 +349,77 @@ test("T6.2 — PROFILE_WRITABLE_FIELDS não intersecta BLOCKED_FIELDS", () => {
 test("T6.3 — PROFILE_META_FIELDS não intersecta BLOCKED_FIELDS", () => {
   const intersection = [...PROFILE_META_FIELDS].filter(f => BLOCKED_FIELDS.has(f));
   assert.equal(intersection.length, 0, `Interseção proibida: ${intersection.join(", ")}`);
+});
+
+// ==============================================================================
+// GRUPO 7: parseBoolStrict — regressão de coerção booleana
+// ==============================================================================
+console.log("\n── GRUPO 7: parseBoolStrict — regressão de coerção booleana ──");
+
+test("T7.1 — parseBoolStrict(true) === true", () => {
+  assert.equal(parseBoolStrict(true), true);
+});
+
+test("T7.2 — parseBoolStrict(false) === false", () => {
+  assert.equal(parseBoolStrict(false), false);
+});
+
+test("T7.3 — parseBoolStrict('true') === true", () => {
+  assert.equal(parseBoolStrict("true"), true);
+});
+
+test('T7.4 — parseBoolStrict("false") === false (BLOQUEADOR: Boolean("false") vira true)', () => {
+  // This is the critical regression: Boolean("false") === true, but parseBoolStrict must return false
+  assert.equal(parseBoolStrict("false"), false);
+  assert.notEqual(Boolean("false"), false, "confirma que Boolean('false') é true — esse é o bug corrigido");
+});
+
+test("T7.5 — parseBoolStrict(null) === null", () => {
+  assert.equal(parseBoolStrict(null), null);
+});
+
+test("T7.6 — parseBoolStrict(undefined) === null", () => {
+  assert.equal(parseBoolStrict(undefined), null);
+});
+
+test("T7.7 — parseBoolStrict('') === null (string vazia)", () => {
+  assert.equal(parseBoolStrict(""), null);
+});
+
+test("T7.8 — parseBoolStrict('sim') === null (string inválida)", () => {
+  assert.equal(parseBoolStrict("sim"), null);
+});
+
+test("T7.9 — parseBoolStrict(0) === null (number, não é boolean)", () => {
+  assert.equal(parseBoolStrict(0), null);
+});
+
+test("T7.10 — restricao_prefill='false' → restricao=false (não true)", () => {
+  const mapped = mapPrefillToProfile({ wa_id: "5511999", restricao_prefill: "false" });
+  assert.equal(mapped.restricao, false, "restricao deve ser false quando string 'false'");
+});
+
+test("T7.11 — restricao_prefill='true' → restricao=true", () => {
+  const mapped = mapPrefillToProfile({ wa_id: "5511999", restricao_prefill: "true" });
+  assert.equal(mapped.restricao, true);
+});
+
+test("T7.12 — meses_36_prefill='false' → ctps_36=false (não true)", () => {
+  const mapped = mapPrefillToProfile({ wa_id: "5511999", meses_36_prefill: "false" });
+  assert.equal(mapped.ctps_36, false, "ctps_36 deve ser false quando string 'false'");
+});
+
+test("T7.13 — getClientProfile: ctps_36='false' (string do DB) → parseBoolStrict retorna false", () => {
+  // Simulates what getClientProfile does with stateRow.ctps_36 coming back as a string from DB
+  const stateRow = { ctps_36: "false" };
+  const result = stateRow.ctps_36 != null ? parseBoolStrict(stateRow.ctps_36) : null;
+  assert.equal(result, false, "ctps_36='false' string deve resultar em false, não true");
+});
+
+test("T7.14 — getClientProfile: restricao='false' (string do DB) → parseBoolStrict retorna false", () => {
+  const stateRow = { restricao: "false" };
+  const result = stateRow.restricao != null ? parseBoolStrict(stateRow.restricao) : null;
+  assert.equal(result, false, "restricao='false' string deve resultar em false, não true");
 });
 
 // ==============================================================================

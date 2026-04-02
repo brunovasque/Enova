@@ -1012,3 +1012,44 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ===========================================
+   PREFILL SECTION — Informações já conhecidas
+   =========================================== */
+
+.prefillSection {
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.prefillToggle {
+  background: none;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #71717a;
+  padding: 8px 12px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  width: 100%;
+  text-align: left;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.prefillToggle:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  color: #a1a1aa;
+}
+
+.prefillHint {
+  font-size: 0.75rem;
+  color: #52525b;
+  margin: 0;
+  line-height: 1.5;
+  border-left: 2px solid rgba(251, 191, 36, 0.3);
+  padding-left: 8px;
+}

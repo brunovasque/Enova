@@ -845,7 +845,7 @@ export function AtendimentoUI() {
                       <span className={styles.detailValue}>
                         {selectedLead.nome ?? prefillData?.nome_prefill ?? "—"}
                       </span>
-                      {prefillEdit !== null && (
+                      {prefillEdit !== null && selectedLead.nome === null && (
                         <input
                           type="text"
                           className={styles.prefillInput}
@@ -859,7 +859,7 @@ export function AtendimentoUI() {
                     <div className={styles.prefillFieldRow}>
                       <div className={styles.prefillFieldHeader}>
                         <span className={styles.detailLabel}>Nacionalidade</span>
-                        {deriveOriginBadge(prefillData?.nacionalidade_prefill, prefillData?.nacionalidade_status)}
+                        {deriveOriginBadge(null, prefillData?.nacionalidade_status)}
                       </div>
                       <span className={styles.detailValue}>
                         {prefillData?.nacionalidade_prefill ?? "—"}
@@ -883,7 +883,7 @@ export function AtendimentoUI() {
                       <span className={styles.detailValue}>
                         {selectedLead.estado_civil ?? prefillData?.estado_civil_prefill ?? "—"}
                       </span>
-                      {prefillEdit !== null && (
+                      {prefillEdit !== null && selectedLead.estado_civil === null && (
                         <select
                           className={styles.prefillSelect}
                           value={prefillEdit.estado_civil_prefill}
@@ -907,7 +907,7 @@ export function AtendimentoUI() {
                       <span className={styles.detailValue}>
                         {selectedLead.regime_trabalho ?? prefillData?.regime_trabalho_prefill ?? "—"}
                       </span>
-                      {prefillEdit !== null && (
+                      {prefillEdit !== null && selectedLead.regime_trabalho === null && (
                         <select
                           className={styles.prefillSelect}
                           value={prefillEdit.regime_trabalho_prefill}
@@ -936,7 +936,7 @@ export function AtendimentoUI() {
                           ? formatCurrency(prefillData.renda_prefill)
                           : "—"}
                       </span>
-                      {prefillEdit !== null && (
+                      {prefillEdit !== null && selectedLead.renda_total === null && (
                         <input
                           type="number"
                           className={styles.prefillInput}
@@ -960,7 +960,7 @@ export function AtendimentoUI() {
                           ? prefillData.meses_36_prefill ? "Sim" : "Não"
                           : "—"}
                       </span>
-                      {prefillEdit !== null && (
+                      {prefillEdit !== null && selectedLead.ctps_36 === null && (
                         <select
                           className={styles.prefillSelect}
                           value={prefillEdit.meses_36_prefill}
@@ -985,7 +985,7 @@ export function AtendimentoUI() {
                           ? prefillData.dependentes_prefill
                           : "—"}
                       </span>
-                      {prefillEdit !== null && (
+                      {prefillEdit !== null && selectedLead.dependentes_qtd === null && (
                         <input
                           type="number"
                           className={styles.prefillInput}
@@ -1000,7 +1000,7 @@ export function AtendimentoUI() {
                     <div className={styles.prefillFieldRow}>
                       <div className={styles.prefillFieldHeader}>
                         <span className={styles.detailLabel}>Valor Entrada (R$)</span>
-                        {deriveOriginBadge(prefillData?.valor_entrada_prefill, prefillData?.valor_entrada_status)}
+                        {deriveOriginBadge(null, prefillData?.valor_entrada_status)}
                       </div>
                       <span className={styles.detailValue}>
                         {prefillData?.valor_entrada_prefill != null
@@ -1031,7 +1031,7 @@ export function AtendimentoUI() {
                           ? prefillData.restricao_prefill ? "Sim" : "Não"
                           : "—"}
                       </span>
-                      {prefillEdit !== null && (
+                      {prefillEdit !== null && selectedLead.restricao === null && (
                         <select
                           className={styles.prefillSelect}
                           value={prefillEdit.restricao_prefill}

@@ -27,7 +27,14 @@ const STAGE_DEFAULT_PENDING_SLOTS = Object.freeze({
   inicio_multi_regime_pergunta: ["multi_regime"],
   inicio_multi_regime_coletar: ["multi_regime"],
   inicio_multi_renda_pergunta: ["multi_renda"],
-  inicio_multi_renda_coletar: ["multi_renda"]
+  inicio_multi_renda_coletar: ["multi_renda"],
+  parceiro_tem_renda: ["parceiro_tem_renda"],
+  regime_trabalho_parceiro: ["regime_trabalho_parceiro"],
+  inicio_multi_regime_pergunta_parceiro: ["multi_regime_parceiro"],
+  inicio_multi_regime_coletar_parceiro: ["multi_regime_parceiro"],
+  renda_parceiro: ["renda_parceiro"],
+  inicio_multi_renda_pergunta_parceiro: ["multi_renda_parceiro"],
+  inicio_multi_renda_coletar_parceiro: ["multi_renda_parceiro"]
 });
 
 const BRL_CURRENCY_PATTERN = /(?<!\d)(?:r\$\s*)?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{2})?(?!\d)/i;
@@ -96,6 +103,7 @@ const TOPO_FUNIL_STAGES = new Set(["inicio", "inicio_decisao", "inicio_programa"
 const COMPOSICAO_INICIAL_STAGES = new Set(["somar_renda_solteiro", "somar_renda_familiar", "quem_pode_somar", "interpretar_composicao"]);
 const RENDA_TRABALHO_STAGES = new Set(["regime_trabalho", "autonomo_ir_pergunta", "renda"]);
 const APROFUNDAMENTO_RENDA_STAGES = new Set(["possui_renda_extra", "inicio_multi_regime_pergunta", "inicio_multi_regime_coletar", "inicio_multi_renda_pergunta", "inicio_multi_renda_coletar"]);
+const PARCEIRO_RENDA_STAGES = new Set(["parceiro_tem_renda", "regime_trabalho_parceiro", "inicio_multi_regime_pergunta_parceiro", "inicio_multi_regime_coletar_parceiro", "renda_parceiro", "inicio_multi_renda_pergunta_parceiro", "inicio_multi_renda_coletar_parceiro"]);
 const REPLY_TEXT_REPLACEMENTS = Object.freeze([
   [/\brunner read-only\b/gi, "atendimento"],
   [/\bmotor cognitivo de teste\b/gi, "atendimento"],
@@ -118,7 +126,12 @@ const SLOT_LABELS = Object.freeze({
   visita: "visita no plantão",
   renda_extra: "renda extra",
   multi_regime: "segundo regime de trabalho",
-  multi_renda: "renda adicional"
+  multi_renda: "renda adicional",
+  parceiro_tem_renda: "renda do parceiro",
+  regime_trabalho_parceiro: "regime de trabalho do parceiro",
+  multi_regime_parceiro: "segundo regime do parceiro",
+  renda_parceiro: "renda do parceiro",
+  multi_renda_parceiro: "renda adicional do parceiro"
 });
 const SLOT_ACTION_PROMPTS = Object.freeze({
   estado_civil: "Me confirma seu estado civil hoje: solteiro, casado no civil ou união estável?",
@@ -135,7 +148,12 @@ const SLOT_ACTION_PROMPTS = Object.freeze({
   rnm_validade: "Seu RNM é *com validade* (data definida) ou *indeterminado* (sem prazo)?",
   renda_extra: "Você tem alguma renda extra além da sua renda principal? Responda *sim* ou *não*.",
   multi_regime: "Você tem *mais algum regime de trabalho* além desse? Responda *sim* ou *não*.",
-  multi_renda: "Você tem *mais alguma renda* além da principal? Responda *sim* ou *não*."
+  multi_renda: "Você tem *mais alguma renda* além da principal? Responda *sim* ou *não*.",
+  parceiro_tem_renda: "O parceiro tem renda? Responda *sim* ou *não*.",
+  regime_trabalho_parceiro: "Qual é o regime de trabalho do parceiro? *CLT*, *autônomo*, *servidor* ou *aposentado*?",
+  multi_regime_parceiro: "O parceiro tem *mais algum regime de trabalho*? Responda *sim* ou *não*.",
+  renda_parceiro: "Qual é a renda mensal do parceiro?",
+  multi_renda_parceiro: "O parceiro tem *mais alguma renda*? Responda *sim* ou *não*."
 });
 const COGNITIVE_SLOT_CONTRACT = Object.freeze([
   {
@@ -499,6 +517,10 @@ function isRendaTrabalhoContext(request) {
 
 function isAprofundamentoRendaContext(request) {
   return APROFUNDAMENTO_RENDA_STAGES.has(normalizeText(request?.current_stage));
+}
+
+function isParceiroRendaContext(request) {
+  return PARCEIRO_RENDA_STAGES.has(normalizeText(request?.current_stage));
 }
 
 function toNumber(value) {
@@ -1151,6 +1173,124 @@ function buildAprofundamentoRendaGuidance(request) {
   return null;
 }
 
+function buildParceiroRendaGuidance(request) {
+  const stage = normalizeText(request?.current_stage);
+  const normalizedMessage = normalizeText(request?.message_text);
+
+  if (stage === "parceiro_tem_renda") {
+    if (/\bso\s*eu\b|\bsó\s*eu\b|\bso\s*a\s*minha\b|\bapenas\s*eu\b|\bso\s*tenho\b|\bsó\s*tenho\b/i.test(normalizedMessage)) {
+      return "Entendido. O sistema precisa confirmar oficialmente se o parceiro tem renda para seguir corretamente. O parceiro tem renda? Responda *sim* ou *não*.";
+    }
+    if (/\bnao\s*trabalha\b|\bnão\s*trabalha\b|\bdo\s*lar\b|\bdesempregad\b|\bsem\s*emprego\b|\bsem\s*renda\b/i.test(normalizedMessage)) {
+      return "Tudo bem. O sistema precisa da confirmação oficial para seguir. O parceiro tem renda? Responda *sim* ou *não*.";
+    }
+    if (/\bbico\b|\bfreela\b|\binformal\b|\bfaz\s*bico\b|\bfaz\s*uns\s*bicos\b/i.test(normalizedMessage)) {
+      return "Bico e trabalhos informais podem ser considerados. O sistema vai verificar. O parceiro tem renda? Responda *sim* ou *não*.";
+    }
+    if (/\bprecisa\s*entrar\b|\btem\s*que\s*entrar\b|\bentra\b|\bconta\b|\bpode\s*entrar\b/i.test(normalizedMessage)) {
+      return "A decisão de o que entra na composição fica com o sistema. Aqui só precisamos saber se o parceiro tem renda. O parceiro tem renda? Responda *sim* ou *não*.";
+    }
+    return "O parceiro tem renda? Responda *sim* ou *não*.";
+  }
+
+  if (stage === "regime_trabalho_parceiro") {
+    if (/\bregistrad[oa]\b|\bclt\b|\bcarteira\s*assinada\b/i.test(normalizedMessage)) {
+      return "CLT entendido. O sistema vai registrar corretamente. Qual é o regime do parceiro: *CLT*, *autônomo*, *servidor* ou *aposentado*?";
+    }
+    if (/\bautonom[oa]\b|\bpor\s*conta\s*pr[oó]pria\b/i.test(normalizedMessage)) {
+      return "Autônomo entendido. O sistema vai verificar as condições. Qual é o regime do parceiro: *CLT*, *autônomo*, *servidor* ou *aposentado*?";
+    }
+    if (/\bmei\b|\bmicro\s*empreendedor\b/i.test(normalizedMessage)) {
+      return "MEI entra como autônomo no sistema. Qual é o regime do parceiro: *CLT*, *autônomo/MEI*, *servidor* ou *aposentado*?";
+    }
+    if (/\baposentad[oa]\b/i.test(normalizedMessage)) {
+      return "Aposentadoria é um regime reconhecido. O sistema vai verificar. Qual é o regime do parceiro: *CLT*, *autônomo*, *servidor* ou *aposentado*?";
+    }
+    if (/\bnao\s*sei\b|\bnão\s*sei\b|\bnao\s*sei\s*qual\b|\bnão\s*sei\s*qual\b/i.test(normalizedMessage)) {
+      return "Os regimes mais comuns: *CLT* = carteira assinada; *autônomo* = por conta própria, MEI ou informal; *aposentado* = renda de benefício. Qual se encaixa no parceiro?";
+    }
+    return "Qual é o regime de trabalho do parceiro? *CLT*, *autônomo*, *servidor* ou *aposentado*?";
+  }
+
+  if (stage === "inicio_multi_regime_pergunta_parceiro") {
+    if (/\bclt\b.*\bextra\b|\bclt\b.*\bautonom[oa]\b|\bclt\b.*\bbico\b/i.test(normalizedMessage)) {
+      return "Entendido que pode haver mais de um regime. O sistema registra cada um separado — aqui só confirmamos. O parceiro tem *mais algum regime de trabalho*? Responda *sim* ou *não*.";
+    }
+    if (/\bmei\b.*\bclt\b|\bclt\b.*\bmei\b|\bmei\b.*\bregistrad[oa]\b/i.test(normalizedMessage)) {
+      return "MEI junto com CLT é uma situação que o sistema verifica. O parceiro tem *mais algum regime de trabalho*? Responda *sim* ou *não*.";
+    }
+    if (/\baposentad[oa]\b.*\bbico\b|\baposentad[oa]\b.*\bextra\b|\baposentad[oa]\b.*\bautonom[oa]\b/i.test(normalizedMessage)) {
+      return "Aposentado com renda adicional é avaliado pelo sistema. O parceiro tem *mais algum regime de trabalho*? Responda *sim* ou *não*.";
+    }
+    return "Verificar múltiplos regimes ajuda a montar o perfil completo do parceiro. O parceiro tem *mais algum regime de trabalho*? Responda *sim* ou *não*.";
+  }
+
+  if (stage === "inicio_multi_regime_coletar_parceiro") {
+    if (/\bmei\b|\bmicro\s*empreendedor\b/i.test(normalizedMessage)) {
+      return "MEI é reconhecido pelo sistema. Qual é o regime do parceiro: *CLT*, *Autônomo/MEI*, *Servidor* ou *Aposentado*?";
+    }
+    if (/\bnao\s*sei\b|\bnão\s*sei\b|\bnao\s*tenho\s*certeza\b|\bnão\s*tenho\s*certeza\b/i.test(normalizedMessage)) {
+      return "Sem problema. Os regimes: *CLT* = carteira assinada; *Autônomo* = por conta própria, MEI; *Aposentado* = benefício. Qual se encaixa no parceiro?";
+    }
+    if (/\btrabalhando\b|\btrampo\b|\bemprego\b/i.test(normalizedMessage) && !/\bclt\b|\bautonom[oa]\b|\bservidor\b|\baposentad[oa]\b/i.test(normalizedMessage)) {
+      return "Me diz o regime específico do parceiro: *CLT*, *Autônomo*, *Servidor* ou *Aposentado*?";
+    }
+    return "Me diz qual é o *outro regime de trabalho* do parceiro. Exemplos: *CLT*, *Autônomo*, *Servidor*, *MEI*, *Aposentado*.";
+  }
+
+  if (stage === "renda_parceiro") {
+    if (/\bbruto\b|\bliquido\b|\blíquido\b/i.test(normalizedMessage)) {
+      return "Use o valor que o parceiro recebe na mão (líquido). Qual é a renda mensal do parceiro?";
+    }
+    if (/\bvaria\b|\bvari[aá]vel\b|\bdepende\b|\bnao\s*e\s*fixo\b|\bnão\s*é\s*fixo\b/i.test(normalizedMessage)) {
+      return "Quando a renda varia, use a média dos últimos meses como referência. Qual é a renda mensal média do parceiro?";
+    }
+    if (/\bnao\s*sei\b|\bnão\s*sei\b|\bnao\s*sei\s*ao\s*certo\b|\bnão\s*sei\s*ao\s*certo\b|\bnao\s*sei\s*a\s*media\b|\bnão\s*sei\s*a\s*média\b/i.test(normalizedMessage)) {
+      return "Sem problema — uma estimativa já ajuda. Qual é o valor mensal aproximado do parceiro?";
+    }
+    if (/\bgira\s*em\s*torno\b|\baproximadamente\b|\bmais\s*ou\s*menos\b|\bpor\s*volta\s*de\b/i.test(normalizedMessage)) {
+      const money = detectMoney(request?.message_text);
+      if (Number.isFinite(money) && money > 100) {
+        return `Valor aproximado registrado. Confirma R$ ${money.toLocaleString("pt-BR")} como renda mensal do parceiro?`;
+      }
+      return "Entendido. Me confirma um valor mensal aproximado para a renda do parceiro?";
+    }
+    return "Qual é a renda mensal do parceiro?";
+  }
+
+  if (stage === "inicio_multi_renda_pergunta_parceiro") {
+    if (/\bvaria\b|\bvari[aá]vel\b|\bdepende\b|\bnao\s*e\s*fixo\b|\bnão\s*é\s*fixo\b/i.test(normalizedMessage)) {
+      return "Renda variável pode ser considerada — usamos a média. O sistema vai verificar. O parceiro tem *mais alguma renda*? Responda *sim* ou *não*.";
+    }
+    if (/\bsal[aá]rio\b.*\bextra\b|\bextra\b.*\bsal[aá]rio\b|\btambem\s*tem\b|\btambém\s*tem\b/i.test(normalizedMessage)) {
+      return "Salário e renda extra é uma situação que o sistema avalia. O parceiro tem *mais alguma renda*? Responda *sim* ou *não*.";
+    }
+    if (/\bnao\s*sei\s*se\s*conta\b|\bnão\s*sei\s*se\s*conta\b|\bnao\s*sei\s*se\s*e\s*renda\b|\bnão\s*sei\s*se\s*é\s*renda\b/i.test(normalizedMessage)) {
+      return "A decisão do que conta como renda separada fica com o sistema. Aqui só precisamos saber se existe mais alguma renda. O parceiro tem *mais alguma renda*? Responda *sim* ou *não*.";
+    }
+    return "Verificar múltiplas rendas do parceiro ajuda a montar o perfil completo. O parceiro tem *mais alguma renda*? Responda *sim* ou *não*.";
+  }
+
+  if (stage === "inicio_multi_renda_coletar_parceiro") {
+    if (/\bgira\s*em\s*torno\b|\baproximadamente\b|\bmais\s*ou\s*menos\b|\bpor\s*volta\s*de\b/i.test(normalizedMessage)) {
+      const money = detectMoney(request?.message_text);
+      if (Number.isFinite(money) && money > 100) {
+        return `Valor aproximado do parceiro registrado como referência. Me confirma o valor mensal aproximado da renda extra do parceiro para o sistema seguir?`;
+      }
+      return "Entendido. Me confirma um valor mensal aproximado para a renda extra do parceiro?";
+    }
+    if (/\bdepende\b|\bvaria\b|\bnao\s*e\s*fixo\b|\bnão\s*é\s*fixo\b/i.test(normalizedMessage)) {
+      return "Quando a renda varia, use a média dos últimos meses. Me confirma um valor mensal aproximado para a renda extra do parceiro?";
+    }
+    if (/\bnao\s*sei\b|\bnão\s*sei\b|\bnao\s*sei\s*ao\s*certo\b|\bnão\s*sei\s*ao\s*certo\b/i.test(normalizedMessage)) {
+      return "Sem problema — uma estimativa já ajuda. Me diz um valor aproximado mensal para a renda extra do parceiro?";
+    }
+    return "Me diz qual é a *outra renda* do parceiro e o *valor mensal*. Exemplo: *Autônomo — 1200*.";
+  }
+
+  return null;
+}
+
 function buildTopoFunilGuidance(request) {
   const stage = normalizeText(request?.current_stage);
   const normalizedMessage = normalizeText(request?.message_text);
@@ -1289,6 +1429,10 @@ function buildPhaseGuidanceReply({ request, suggestedNextSlot, pendingSlots }) {
     const aprofundamentoReply = buildAprofundamentoRendaGuidance(request);
     if (aprofundamentoReply) return aprofundamentoReply;
   }
+  if (isParceiroRendaContext(request)) {
+    const parceiroReply = buildParceiroRendaGuidance(request);
+    if (parceiroReply) return parceiroReply;
+  }
   if (isAluguelContext(request)) return buildAluguelGuidance(request);
   if (isUnknownDocTypeContext(request)) return buildUnknownDocTypeGuidance(request);
   if (isDocForaDeOrdemContext(request)) return buildDocForaDeOrdemGuidance(request);
@@ -1391,6 +1535,16 @@ function buildNextActionPrompt({ request, suggestedNextSlot, pendingSlots }) {
     if (topoStage === "inicio_multi_regime_coletar") return "Me diz qual é o *outro regime de trabalho*. Exemplos: *CLT*, *Autônomo*, *Servidor*, *MEI*, *Aposentado*.";
     if (topoStage === "inicio_multi_renda_pergunta") return "Você tem *mais alguma renda* além da principal? Responda *sim* ou *não*.";
     if (topoStage === "inicio_multi_renda_coletar") return "Me diz qual é a *outra renda* e o *valor mensal*. Exemplo: *Bico — 1200*.";
+  }
+
+  if (PARCEIRO_RENDA_STAGES.has(topoStage)) {
+    if (topoStage === "parceiro_tem_renda") return "O parceiro tem renda? Responda *sim* ou *não*.";
+    if (topoStage === "regime_trabalho_parceiro") return "Qual é o regime de trabalho do parceiro? *CLT*, *autônomo*, *servidor* ou *aposentado*?";
+    if (topoStage === "inicio_multi_regime_pergunta_parceiro") return "O parceiro tem *mais algum regime de trabalho*? Responda *sim* ou *não*.";
+    if (topoStage === "inicio_multi_regime_coletar_parceiro") return "Me diz qual é o *outro regime de trabalho* do parceiro. Exemplos: *CLT*, *Autônomo*, *Servidor*, *MEI*, *Aposentado*.";
+    if (topoStage === "renda_parceiro") return "Qual é a renda mensal do parceiro?";
+    if (topoStage === "inicio_multi_renda_pergunta_parceiro") return "O parceiro tem *mais alguma renda*? Responda *sim* ou *não*.";
+    if (topoStage === "inicio_multi_renda_coletar_parceiro") return "Me diz qual é a *outra renda* do parceiro e o *valor mensal*. Exemplo: *Autônomo — 1200*.";
   }
 
   return "Se estiver tudo certo até aqui, já me manda os documentos básicos agora que isso adianta sua análise.";
@@ -1810,6 +1964,7 @@ function buildHeuristicResponse(request, analysis, conflictList) {
     : COMPOSICAO_INICIAL_STAGES.has(request.current_stage) ? 0.70 // composicao inicial: guidance floor above min
     : RENDA_TRABALHO_STAGES.has(request.current_stage) ? 0.70 // renda/trabalho: guidance floor above min
     : APROFUNDAMENTO_RENDA_STAGES.has(request.current_stage) ? 0.70 // aprofundamento renda: guidance floor above min
+    : PARCEIRO_RENDA_STAGES.has(request.current_stage) ? 0.70 // parceiro: guidance floor above min
     : CONFIDENCE_RULES.noSlotBase;
   const confidencePenalty =
     conflictList.length * CONFIDENCE_RULES.conflictPenalty +

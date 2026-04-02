@@ -235,6 +235,23 @@ export function BasesUI() {
     void refreshLeads();
   }, [refreshLeads]);
 
+  // ESC key to close whichever modal is currently open
+  useEffect(() => {
+    const hasModal = showAddModal || showImportModal || showWarmupModal || !!callNowTarget || !!moveTarget;
+    if (!hasModal) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (showAddModal) setShowAddModal(false);
+        else if (showImportModal) setShowImportModal(false);
+        else if (showWarmupModal) setShowWarmupModal(false);
+        else if (callNowTarget) setCallNowTarget(null);
+        else if (moveTarget) setMoveTarget(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [showAddModal, showImportModal, showWarmupModal, callNowTarget, moveTarget]);
+
   const callAction = useCallback(async (payload: Record<string, unknown>): Promise<ApiActionPayload | null> => {
     try {
       const res = await fetch("/api/bases", {

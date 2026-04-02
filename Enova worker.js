@@ -250,6 +250,12 @@ async function step(env, st, messages, nextStage, options = {}) {
           updated_at: new Date().toISOString()
         });
       }
+
+      // 🏥 Attendance Meta — sync stage transition (non-blocking)
+      // Override fase_conversa with nextStage to reflect the NEW stage after transition
+      try {
+        await syncAttendanceMeta(env, { ...st, fase_conversa: nextStage }, { type: "stage_transition" });
+      } catch (_) { /* non-blocking */ }
     }
 
     // ============================================================
@@ -295,6 +301,13 @@ async function step(env, st, messages, nextStage, options = {}) {
       await new Promise((r) =>
         setTimeout(r, Number(env.ENOVA_DELAY_MS) || 1200)
       );
+    }
+
+    // 🏥 Attendance Meta — sync ENOVA interaction (non-blocking)
+    if (!isSim && msgs.length > 0) {
+      try {
+        await syncAttendanceMeta(env, st, { type: "enova_message" });
+      } catch (_) { /* non-blocking */ }
     }
 
     if (isSim) {
@@ -835,6 +848,395 @@ function extractMissingEnovaStateColumnFromSupabaseError(err) {
   ].filter(Boolean).join(" ");
   const match = combinedErrorText.match(/Could not find the '([^']+)' column of 'enova_state' in the schema cache/i);
   return match?.[1] || null;
+}
+
+// =============================================================
+// 🏥 A2.1 — Attendance Meta — Camada operacional aba ATENDIMENTO
+// Tabela: enova_attendance_meta (1:1 por wa_id)
+// Regras: NUNCA altera enova_state / fase_conversa / trilho
+// =============================================================
+
+const ATTENDANCE_PRE_DOCS_STAGES = new Set([
+  // ── Início / setup ──
+  "inicio", "inicio_decisao", "inicio_programa", "inicio_nome",
+  "inicio_nacionalidade", "inicio_rnm", "inicio_rnm_validade",
+  // ── Estado civil / casamento ──
+  "estado_civil", "confirmar_casamento", "financiamento_conjunto",
+  "pais_casados_civil_pergunta",
+  // ── Composição de renda ──
+  "somar_renda_solteiro", "somar_renda_familiar",
+  "quem_pode_somar", "interpretar_composicao", "sugerir_composicao_mista",
+  "parceiro_tem_renda",
+  // ── Regime de trabalho (titular + multi) ──
+  "regime_trabalho",
+  "inicio_multi_regime_pergunta", "inicio_multi_regime_coletar",
+  // ── Regime de trabalho (parceiro) ──
+  "regime_trabalho_parceiro",
+  "inicio_multi_regime_pergunta_parceiro", "inicio_multi_regime_coletar_parceiro",
+  // ── Regime de trabalho (familiar / P3) ──
+  "regime_trabalho_parceiro_familiar", "regime_trabalho_parceiro_familiar_p3",
+  "inicio_multi_regime_familiar_pergunta", "inicio_multi_regime_familiar_loop",
+  "inicio_multi_regime_p3_pergunta", "inicio_multi_regime_p3_loop",
+  // ── Renda (titular + multi) ──
+  "renda", "possui_renda_extra", "renda_mista_detalhe",
+  "inicio_multi_renda_pergunta", "inicio_multi_renda_coletar",
+  "clt_renda_perfil_informativo",
+  // ── Renda (parceiro + multi) ──
+  "renda_parceiro",
+  "inicio_multi_renda_pergunta_parceiro", "inicio_multi_renda_coletar_parceiro",
+  // ── Renda (familiar / P3) ──
+  "renda_familiar_valor", "renda_parceiro_familiar", "renda_parceiro_familiar_p3",
+  "confirmar_avo_familiar",
+  "inicio_multi_renda_familiar_pergunta", "inicio_multi_renda_familiar_loop",
+  "inicio_multi_renda_p3_pergunta", "inicio_multi_renda_p3_loop",
+  // ── P3 ──
+  "p3_tipo_pergunta",
+  // ── Autônomo / IR ──
+  "autonomo_ir_pergunta", "autonomo_sem_ir_ir_este_ano",
+  "autonomo_sem_ir_caminho", "autonomo_sem_ir_entrada",
+  "autonomo_compor_renda",
+  "ir_declarado",
+  // ── Dependente ──
+  "dependente",
+  // ── CTPS 36 meses ──
+  "ctps_36", "ctps_36_parceiro", "ctps_36_parceiro_p3",
+  // ── Restrição ──
+  "restricao", "regularizacao_restricao",
+  "restricao_parceiro", "regularizacao_restricao_parceiro",
+  "restricao_parceiro_p3", "regularizacao_restricao_p3",
+  // ── Verificação / elegibilidade ──
+  "verificar_averbacao", "verificar_inventario",
+  // ── Terminal pré-docs ──
+  "fim_ineligivel", "fim_inelegivel", "finalizacao"
+]);
+
+const ATTENDANCE_POST_DOCS_STAGES = new Set([
+  "envio_docs",
+  "aguardando_retorno_correspondente",
+  "agendamento_visita",
+  "visita_confirmada",
+  "finalizacao_processo"
+]);
+
+function attendanceIsPreDocs(stage) {
+  return ATTENDANCE_PRE_DOCS_STAGES.has(stage || "inicio");
+}
+
+/**
+ * Derive pending_owner from stage + state signals.
+ * Returns one of: CLIENTE | ENOVA | HUMANO | SISTEMA
+ */
+function deriveAttendancePendingOwner(stage, st) {
+  if (st?.modo_humano === true || st?.atendimento_manual === true) return "HUMANO";
+  if (!stage || stage === "inicio" || stage === "inicio_programa") return "ENOVA";
+  // In active funnel stages the ball is with the client (they need to answer)
+  return "CLIENTE";
+}
+
+/**
+ * Derive stalled_reason_code from state signals.
+ * Returns null if not stalled.
+ */
+function deriveAttendanceStalledReason(st, lastCustomerAt) {
+  if (!lastCustomerAt) return null;
+  const elapsed = Date.now() - new Date(lastCustomerAt).getTime();
+  const hoursElapsed = elapsed / (1000 * 60 * 60);
+  if (hoursElapsed < 4) return null; // not stalled yet
+  if (st?.modo_humano === true || st?.atendimento_manual === true) return "WAITING_HUMAN_ACTION";
+  return "NO_REPLY";
+}
+
+/**
+ * Derive attention_status from timestamps and stalled state.
+ */
+function deriveAttendanceAttentionStatus(stalledReason, lastCustomerAt) {
+  if (!stalledReason) return "ON_TIME";
+  if (!lastCustomerAt) return "ON_TIME";
+  const elapsed = Date.now() - new Date(lastCustomerAt).getTime();
+  const hoursElapsed = elapsed / (1000 * 60 * 60);
+  if (hoursElapsed >= 24) return "OVERDUE";
+  if (hoursElapsed >= 8) return "DUE_SOON";
+  return "ON_TIME";
+}
+
+/**
+ * Derive enova_next_action based on current stage, owner, stalledReason.
+ * V1 — simple, safe, explainable derivation.
+ * Also derives due_at coherent with attention_status thresholds.
+ */
+function deriveEnovaNextAction(stage, pendingOwner, stalledReason, st, lastCustomerAt) {
+  // due_at derivation: based on last customer interaction + action urgency
+  function computeDueAt(hoursFromLastCustomer) {
+    if (!lastCustomerAt) return null;
+    const base = new Date(lastCustomerAt).getTime();
+    if (isNaN(base)) return null;
+    return new Date(base + hoursFromLastCustomer * 60 * 60 * 1000).toISOString();
+  }
+
+  if (pendingOwner === "HUMANO") {
+    return {
+      code: "AWAIT_HUMAN",
+      label: "Aguardar ação do atendente humano",
+      trigger: "human_takeover",
+      executable: false,
+      due_at: computeDueAt(8) // DUE_SOON threshold
+    };
+  }
+  if (stalledReason === "NO_REPLY" && pendingOwner === "CLIENTE") {
+    return {
+      code: "FOLLOW_UP",
+      label: "Enviar follow-up ao cliente",
+      trigger: "no_reply_timeout",
+      executable: true,
+      due_at: computeDueAt(8) // follow-up should happen before DUE_SOON
+    };
+  }
+  if (pendingOwner === "ENOVA" && (!stage || stage === "inicio" || stage === "inicio_programa")) {
+    return {
+      code: "SEND_OPENING",
+      label: "Enviar abertura ao cliente",
+      trigger: "new_lead_entry",
+      executable: true,
+      due_at: new Date(Date.now() + 1 * 60 * 60 * 1000).toISOString() // 1h from now
+    };
+  }
+  return {
+    code: "AWAIT_CLIENT",
+    label: "Aguardar resposta do cliente",
+    trigger: "client_turn",
+    executable: false,
+    due_at: computeDueAt(24) // OVERDUE threshold
+  };
+}
+
+/**
+ * Build a short summary from confirmed state signals.
+ * Only uses confirmed data — never inferred.
+ */
+function buildAttendanceSummaryShort(st, stage) {
+  const parts = [];
+  if (st?.nome) parts.push(st.nome.split(" ")[0]);
+  if (stage) parts.push(`fase:${stage}`);
+  if (st?.estado_civil) parts.push(`ec:${st.estado_civil}`);
+  if (st?.regime_trabalho) parts.push(`reg:${st.regime_trabalho}`);
+  if (st?.renda_total_para_fluxo) parts.push(`renda:${st.renda_total_para_fluxo}`);
+  if (st?.restricao === true || st?.restricao === "sim") parts.push("restrição");
+  return parts.join(" | ").slice(0, 200) || null;
+}
+
+/**
+ * Upsert attendance meta for a wa_id.
+ * Silent no-op if table doesn't exist yet (graceful degradation).
+ */
+async function upsertAttendanceMeta(env, wa_id, patch) {
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) {
+    simCtx._attendanceMeta = simCtx._attendanceMeta || {};
+    simCtx._attendanceMeta[wa_id] = { ...(simCtx._attendanceMeta[wa_id] || {}), ...patch, wa_id };
+    return simCtx._attendanceMeta[wa_id];
+  }
+
+  const now = new Date().toISOString();
+  const fullPatch = { ...patch, updated_at: now };
+
+  try {
+    // Try UPSERT (INSERT ... ON CONFLICT UPDATE)
+    const result = await sbFetch(env, "/rest/v1/enova_attendance_meta", {
+      method: "POST",
+      query: "on_conflict=wa_id",
+      body: JSON.stringify({ wa_id, ...fullPatch, created_at: now }),
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=representation",
+        apikey: env.SUPABASE_SERVICE_ROLE,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE}`
+      }
+    });
+
+    const rows = normalizeSupabaseRows(result);
+    return rows?.[0] || null;
+  } catch (err) {
+    // Graceful: if table doesn't exist yet, log warning and continue
+    const errMsg = String(err?.data?.message || err?.message || err || "");
+    if (/enova_attendance_meta/.test(errMsg) && /schema cache|does not exist|relation/i.test(errMsg)) {
+      console.log("ATTENDANCE_META_SKIP: tabela enova_attendance_meta ainda não existe no Supabase. Ignorando upsert.");
+      return null;
+    }
+    console.error("ATTENDANCE_META_ERROR:", errMsg);
+    return null;
+  }
+}
+
+/**
+ * Read existing attendance meta row for a wa_id.
+ * Returns null if not found or table doesn't exist.
+ */
+async function getAttendanceMeta(env, wa_id) {
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) {
+    return simCtx._attendanceMeta?.[wa_id] || null;
+  }
+  try {
+    const result = await sbFetch(env, "/rest/v1/enova_attendance_meta", {
+      method: "GET",
+      query: `wa_id=eq.${encodeURIComponent(wa_id)}&limit=1`,
+      headers: {
+        "Content-Type": "application/json",
+        apikey: env.SUPABASE_SERVICE_ROLE,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE}`
+      }
+    });
+    const rows = normalizeSupabaseRows(result);
+    return rows?.[0] || null;
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Sync attendance meta after a stage transition or interaction event.
+ * Called from step() and handleMetaWebhook() — surgical, non-blocking.
+ *
+ * Fetches the existing attendance_meta row to use persisted timestamps
+ * for stalled/attention derivation (not just the current event's `now`).
+ */
+async function syncAttendanceMeta(env, st, event) {
+  if (!st?.wa_id) return;
+
+  const stage = st.fase_conversa || "inicio";
+
+  // Only sync for pre-docs stages
+  if (!attendanceIsPreDocs(stage)) {
+    // If lead just moved OUT of pre-docs (into envio_docs+), mark archived
+    if (ATTENDANCE_POST_DOCS_STAGES.has(stage) && event?.type === "stage_transition") {
+      try {
+        await upsertAttendanceMeta(env, st.wa_id, {
+          current_funnel_stage: stage,
+          archived_at: new Date().toISOString(),
+          archive_reason_code: "ENTERED_ENVIO_DOCS"
+        });
+      } catch (_) { /* non-blocking */ }
+    }
+    return;
+  }
+
+  const now = new Date().toISOString();
+
+  // Fetch existing row for persisted timestamps and origin_base protection
+  let existing = null;
+  try {
+    existing = await getAttendanceMeta(env, st.wa_id);
+  } catch (_) { /* non-blocking: if we can't read, derive from event only */ }
+
+  const patch = {};
+
+  // Always sync current stage
+  patch.current_funnel_stage = stage;
+
+  // Stage transition
+  if (event?.type === "stage_transition") {
+    patch.moved_to_current_stage_at = now;
+  }
+
+  // Customer interaction
+  if (event?.type === "customer_message") {
+    patch.last_customer_interaction_at = now;
+  }
+
+  // ENOVA interaction (message sent)
+  if (event?.type === "enova_message") {
+    patch.last_enova_interaction_at = now;
+  }
+
+  // ── Stalled / attention derivation using PERSISTED timestamp ──
+  // Use the real last_customer_interaction_at from the database row,
+  // updated with the current event if it's a customer_message.
+  const lastCustomerAt = event?.type === "customer_message"
+    ? now
+    : (existing?.last_customer_interaction_at || null);
+
+  const pendingOwner = deriveAttendancePendingOwner(stage, st);
+  patch.pending_owner = pendingOwner;
+
+  const stalledReason = deriveAttendanceStalledReason(st, lastCustomerAt);
+  patch.attention_status = deriveAttendanceAttentionStatus(stalledReason, lastCustomerAt);
+
+  if (stalledReason) {
+    // Only set stalled_at if not already stalled (preserve original stalled_at)
+    patch.stalled_stage = stage;
+    patch.stalled_reason_code = stalledReason;
+    patch.stalled_reason_label = stalledReason === "NO_REPLY" ? "Sem resposta do cliente" : "Aguardando ação humana";
+    if (!existing?.stalled_at) {
+      patch.stalled_at = now;
+    }
+  } else {
+    // Clear stalled fields if no longer stalled
+    patch.stalled_stage = null;
+    patch.stalled_reason_code = null;
+    patch.stalled_reason_label = null;
+    patch.stalled_at = null;
+  }
+
+  // Next action (with due_at)
+  const nextAction = deriveEnovaNextAction(stage, pendingOwner, stalledReason, st, lastCustomerAt);
+  patch.enova_next_action_code = nextAction.code;
+  patch.enova_next_action_label = nextAction.label;
+  patch.enova_next_action_trigger = nextAction.trigger;
+  patch.enova_next_action_executable = nextAction.executable;
+  patch.enova_next_action_due_at = nextAction.due_at || null;
+
+  // Main pending
+  if (pendingOwner === "CLIENTE") {
+    patch.main_pending_code = "CLIENT_REPLY";
+    patch.main_pending_label = "Aguardando resposta do cliente";
+  } else if (pendingOwner === "ENOVA") {
+    patch.main_pending_code = "ENOVA_ACTION";
+    patch.main_pending_label = "ENOVA precisa agir";
+  } else if (pendingOwner === "HUMANO") {
+    patch.main_pending_code = "HUMAN_ACTION";
+    patch.main_pending_label = "Atendente humano precisa agir";
+  } else {
+    patch.main_pending_code = null;
+    patch.main_pending_label = null;
+  }
+
+  // ── Origin / current base ──
+  // origin_base: IMMUTABLE — only set on first insert (when no existing row).
+  // current_base: always reflects the latest source_type.
+  // moved_to_current_base_at: only set when current_base actually changes.
+  const newBase = st.source_type || null;
+
+  if (!existing) {
+    // First insert: both origin and current are the same
+    if (newBase) {
+      patch.origin_base = newBase;
+      patch.current_base = newBase;
+      patch.moved_to_current_base_at = now;
+    }
+  } else {
+    // Existing row: never overwrite origin_base
+    if (newBase && newBase !== existing.current_base) {
+      // Real base change detected
+      patch.current_base = newBase;
+      patch.moved_to_current_base_at = now;
+    } else if (newBase) {
+      // Same base, just ensure it's set
+      patch.current_base = newBase;
+    }
+    // origin_base is NEVER included in the update patch
+  }
+
+  // Summary
+  patch.enova_summary_short = buildAttendanceSummaryShort(st, stage);
+
+  // Incidents — safe defaults (no incident table yet)
+  patch.has_open_incident = false;
+
+  try {
+    await upsertAttendanceMeta(env, st.wa_id, patch);
+  } catch (_) {
+    // Non-blocking: never break the funnel
+  }
 }
 
 // =============================================================
@@ -7073,6 +7475,11 @@ try {
     };
     await upsertState(env, waId, messageMetadataPersist);
     st = { ...st, ...messageMetadataInMemory };
+
+    // 🏥 Attendance Meta — sync customer interaction (non-blocking)
+    try {
+      await syncAttendanceMeta(env, st, { type: "customer_message" });
+    } catch (_) { /* non-blocking */ }
 
     await runFunnel(env, st, userText);
 

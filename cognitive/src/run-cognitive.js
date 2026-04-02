@@ -20,7 +20,9 @@ const STAGE_DEFAULT_PENDING_SLOTS = Object.freeze({
   autonomo_ir_pergunta: ["ir_declarado", "renda"],
   renda: ["renda", "ir_declarado"],
   inicio_nome: ["nome"],
-  inicio_nacionalidade: ["nacionalidade"]
+  inicio_nacionalidade: ["nacionalidade"],
+  inicio_rnm: ["rnm_status"],
+  inicio_rnm_validade: ["rnm_validade"]
 });
 
 const BRL_CURRENCY_PATTERN = /(?<!\d)(?:r\$\s*)?(?:\d{1,3}(?:\.\d{3})+|\d+)(?:,\d{2})?(?!\d)/i;
@@ -85,7 +87,7 @@ const COGNITIVE_SLOT_DEPENDENCIES = Object.freeze({
   docs: ["correspondente"],
   correspondente: ["visita"]
 });
-const TOPO_FUNIL_STAGES = new Set(["inicio", "inicio_decisao", "inicio_programa", "inicio_nome", "inicio_nacionalidade"]);
+const TOPO_FUNIL_STAGES = new Set(["inicio", "inicio_decisao", "inicio_programa", "inicio_nome", "inicio_nacionalidade", "inicio_rnm", "inicio_rnm_validade"]);
 const REPLY_TEXT_REPLACEMENTS = Object.freeze([
   [/\brunner read-only\b/gi, "atendimento"],
   [/\bmotor cognitivo de teste\b/gi, "atendimento"],
@@ -117,7 +119,9 @@ const SLOT_ACTION_PROMPTS = Object.freeze({
   ir_declarado: "Me confirma se você declara Imposto de Renda?",
   docs: "Se quiser, já pode me mandar os documentos básicos por aqui que eu adianto sua análise.",
   correspondente: "Se quiser, eu sigo acompanhando por aqui e te aviso assim que tiver retorno do correspondente.",
-  visita: "Se fizer sentido para você, eu já vejo um horário dentro da agenda oficial do plantão."
+  visita: "Se fizer sentido para você, eu já vejo um horário dentro da agenda oficial do plantão.",
+  rnm_status: "Você possui *RNM*? Responda *sim* ou *não*.",
+  rnm_validade: "Seu RNM é *com validade* (data definida) ou *indeterminado* (sem prazo)?"
 });
 const COGNITIVE_SLOT_CONTRACT = Object.freeze([
   {
@@ -988,6 +992,36 @@ function buildTopoFunilGuidance(request) {
     return "Você é *brasileiro(a)* ou *estrangeiro(a)*?";
   }
 
+  if (stage === "inicio_rnm") {
+    if (/\b(o que e|o que é|o que significa|significa|rnm|registro nacional|registro migrat[oó]rio)\b/i.test(normalizedMessage)) {
+      return "RNM é o Registro Nacional Migratório — documento oficial emitido pela Polícia Federal para estrangeiros residentes no Brasil. O sistema precisa confirmar o RNM para seguir corretamente.";
+    }
+    if (/\b(nao sei|não sei|nao tenho certeza|não tenho certeza|nao sei se|não sei se|meu documento|conta|serve|funciona|vale)\b/i.test(normalizedMessage)) {
+      return "Entendo a dúvida. O sistema precisa confirmar o RNM especificamente para seguir no trilho correto. Você possui RNM?";
+    }
+    if (/\b(estrangeiro|estrangeira)\b.*\b(pode|consigo|conseg|tentar|tenho chance)\b|\b(sou estrangeiro|sou estrangeira|pessoa estrangeira)\b/i.test(normalizedMessage)) {
+      return "Estrangeiro pode avançar no processo, desde que o sistema confirme o RNM. Você possui RNM?";
+    }
+    if (/\b(documento de estrangeiro|documento estrangeiro|doc estrangeiro)\b/i.test(normalizedMessage)) {
+      return "O sistema precisa confirmar o RNM especificamente para seguir no trilho correto — não posso informar se outro documento serve sem essa confirmação. Você possui RNM?";
+    }
+    return "Você possui *RNM*? Responda *sim* ou *não*.";
+  }
+
+  if (stage === "inicio_rnm_validade") {
+    if (/\b(como sei|como saber|onde vejo|onde fica|onde esta|onde está|como descubro|onde descobre)\b/i.test(normalizedMessage)) {
+      return "O prazo de validade aparece na frente do documento RNM. Se não houver data de validade impressa, é prazo indeterminado. O sistema precisa confirmar essa condição documental para seguir.";
+    }
+    if (/\b(nao entendi|não entendi|o que e|o que é|o que significa|diferenca|diferença|explica|o que quer dizer)\b/i.test(normalizedMessage)) {
+      return "Validade *determinada* significa que há uma data de vencimento no documento. *Indeterminado* significa que não há prazo de vencimento — o documento é permanente. O sistema precisa confirmar essa condição para seguir.";
+    }
+    if (/\b(se tiver validade|ainda da|ainda dá|tem validade|validade definida|com validade)\b/i.test(normalizedMessage) &&
+        /\b(da|dá|funciona|ainda|posso|seguir|consigo)\b/i.test(normalizedMessage)) {
+      return "O sistema verifica essa condição documental para seguir no trilho correto. Não é possível avançar sem essa confirmação. Seu RNM é *com validade* ou *indeterminado*?";
+    }
+    return "Seu RNM é *com validade* (data definida) ou *indeterminado* (sem prazo)?";
+  }
+
   return null;
 }
 
@@ -1076,6 +1110,8 @@ function buildNextActionPrompt({ request, suggestedNextSlot, pendingSlots }) {
     if (topoStage === "inicio_programa") return "Você *já sabe como funciona* o programa ou prefere que eu explique rapidinho?";
     if (topoStage === "inicio_nome") return "Me manda seu *nome completo* (nome e sobrenome).";
     if (topoStage === "inicio_nacionalidade") return "Você é *brasileiro(a)* ou *estrangeiro(a)*?";
+    if (topoStage === "inicio_rnm") return "Você possui *RNM*? Responda *sim* ou *não*.";
+    if (topoStage === "inicio_rnm_validade") return "Seu RNM é *com validade* (data definida) ou *indeterminado* (sem prazo)?";
     return "Pode continuar por aqui — são só algumas perguntas rápidas.";
   }
 

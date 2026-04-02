@@ -8,7 +8,7 @@
 //   - admin e funil escrevem no MESMO campo operacional
 //
 // GUARDRAIL: fase_conversa, nextStage e controles de fluxo são BLOQUEADOS.
-// Somente PROFILE_WRITABLE_FIELDS podem ser escritos via este caminho.
+// Somente os campos em PROFILE_FIELD_META_MAP podem ser escritos via este caminho.
 // ============================================================
 
 export type ProfileSource =
@@ -192,8 +192,25 @@ export async function getClientProfile(
   };
 }
 
+// ── Field mapping configuration ─────────────────────────────────────
+// Maps enova_state field → [meta source col, meta updated_at col]
+const PROFILE_FIELD_META_MAP: Record<
+  string,
+  [sourceCol: string, updatedAtCol: string]
+> = {
+  nome:           ["nome_source",           "nome_updated_at"],
+  nacionalidade:  ["nacionalidade_source",  "nacionalidade_updated_at"],
+  estado_civil:   ["estado_civil_source",   "estado_civil_updated_at"],
+  regime_trabalho:["regime_trabalho_source","regime_trabalho_updated_at"],
+  renda:          ["renda_source",          "renda_updated_at"],
+  ctps_36:        ["meses_36_source",       "meses_36_updated_at"],
+  dependentes_qtd:["dependentes_source",    "dependentes_updated_at"],
+  entrada_valor:  ["valor_entrada_source",  "valor_entrada_updated_at"],
+  restricao:      ["restricao_source",      "restricao_updated_at"],
+};
+
 // ── Write profile fields — admin-controlled path ─────────────────────
-// GUARDRAIL: somente campos de PROFILE_WRITABLE_FIELDS são aceitos para enova_state.
+// GUARDRAIL: somente campos de PROFILE_FIELD_META_MAP são aceitos para enova_state.
 // Nenhum campo de controle de fluxo (fase_conversa, etc.) pode passar por aqui.
 export async function writeClientProfile(
   supabaseUrl: string,
@@ -209,60 +226,24 @@ export async function writeClientProfile(
   const now = new Date().toISOString();
   const trimmedWaId = wa_id.trim();
 
-  // Build enova_state patch — only allowed profile fields
   const statePatch: Record<string, unknown> = {};
-  // Build metadata patch for enova_prefill_meta
   const metaPatch: Record<string, unknown> = {
     wa_id: trimmedWaId,
     updated_at: now,
     updated_by: updated_by ?? "admin_panel",
   };
 
-  if (Object.prototype.hasOwnProperty.call(fields, "nome")) {
-    statePatch.nome = fields.nome;
-    metaPatch.nome_source = source;
-    metaPatch.nome_updated_at = now;
+  // Process operational profile fields using the config map
+  const operationalFields = Object.keys(PROFILE_FIELD_META_MAP) as (keyof typeof PROFILE_FIELD_META_MAP)[];
+  for (const field of operationalFields) {
+    if (Object.prototype.hasOwnProperty.call(fields, field)) {
+      const [sourceCol, updatedAtCol] = PROFILE_FIELD_META_MAP[field];
+      statePatch[field] = (fields as Record<string, unknown>)[field];
+      metaPatch[sourceCol] = source;
+      metaPatch[updatedAtCol] = now;
+    }
   }
-  if (Object.prototype.hasOwnProperty.call(fields, "nacionalidade")) {
-    statePatch.nacionalidade = fields.nacionalidade;
-    metaPatch.nacionalidade_source = source;
-    metaPatch.nacionalidade_updated_at = now;
-  }
-  if (Object.prototype.hasOwnProperty.call(fields, "estado_civil")) {
-    statePatch.estado_civil = fields.estado_civil;
-    metaPatch.estado_civil_source = source;
-    metaPatch.estado_civil_updated_at = now;
-  }
-  if (Object.prototype.hasOwnProperty.call(fields, "regime_trabalho")) {
-    statePatch.regime_trabalho = fields.regime_trabalho;
-    metaPatch.regime_trabalho_source = source;
-    metaPatch.regime_trabalho_updated_at = now;
-  }
-  if (Object.prototype.hasOwnProperty.call(fields, "renda")) {
-    statePatch.renda = fields.renda;
-    metaPatch.renda_source = source;
-    metaPatch.renda_updated_at = now;
-  }
-  if (Object.prototype.hasOwnProperty.call(fields, "ctps_36")) {
-    statePatch.ctps_36 = fields.ctps_36;
-    metaPatch.meses_36_source = source;
-    metaPatch.meses_36_updated_at = now;
-  }
-  if (Object.prototype.hasOwnProperty.call(fields, "dependentes_qtd")) {
-    statePatch.dependentes_qtd = fields.dependentes_qtd;
-    metaPatch.dependentes_source = source;
-    metaPatch.dependentes_updated_at = now;
-  }
-  if (Object.prototype.hasOwnProperty.call(fields, "entrada_valor")) {
-    statePatch.entrada_valor = fields.entrada_valor;
-    metaPatch.valor_entrada_source = source;
-    metaPatch.valor_entrada_updated_at = now;
-  }
-  if (Object.prototype.hasOwnProperty.call(fields, "restricao")) {
-    statePatch.restricao = fields.restricao;
-    metaPatch.restricao_source = source;
-    metaPatch.restricao_updated_at = now;
-  }
+
   // Admin-only fields (enova_prefill_meta only — no funil equivalent)
   if (Object.prototype.hasOwnProperty.call(fields, "origem_lead")) {
     const v = fields.origem_lead;

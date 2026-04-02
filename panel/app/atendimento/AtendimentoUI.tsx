@@ -293,6 +293,15 @@ function profileToEditState(row: ClientProfileRow | null): ProfileEditState {
   };
 }
 
+// Module-level helpers for form value parsing (used in handleSaveProfile)
+function profileTextOrNull(v: string) { return v.trim() ? v.trim() : null; }
+function profileNumOrNull(v: string) { const n = parseFloat(v); return isNaN(n) ? null : n; }
+function profileBoolOrNull(v: string): boolean | null {
+  if (v === "true") return true;
+  if (v === "false") return false;
+  return null;
+}
+
 export function AtendimentoUI() {
   const router = useRouter();
   const [leads, setLeads] = useState<AttendanceRow[]>([]);
@@ -453,27 +462,19 @@ export function AtendimentoUI() {
     setProfileFeedback(null);
     setProfileError(null);
 
-    function textOrNull(v: string) { return v.trim() ? v.trim() : null; }
-    function numOrNull(v: string) { const n = parseFloat(v); return isNaN(n) ? null : n; }
-    function boolOrNull(v: string): boolean | null {
-      if (v === "true") return true;
-      if (v === "false") return false;
-      return null;
-    }
-
     const payload = {
       wa_id: selectedLead.wa_id,
-      nome: textOrNull(profileEdit.nome),
-      nacionalidade: textOrNull(profileEdit.nacionalidade),
-      estado_civil: textOrNull(profileEdit.estado_civil),
-      regime_trabalho: textOrNull(profileEdit.regime_trabalho),
-      renda: numOrNull(profileEdit.renda),
-      ctps_36: boolOrNull(profileEdit.ctps_36),
-      dependentes_qtd: numOrNull(profileEdit.dependentes_qtd),
-      entrada_valor: numOrNull(profileEdit.entrada_valor),
-      restricao: boolOrNull(profileEdit.restricao),
-      origem_lead: textOrNull(profileEdit.origem_lead),
-      observacoes_admin: textOrNull(profileEdit.observacoes_admin),
+      nome: profileTextOrNull(profileEdit.nome),
+      nacionalidade: profileTextOrNull(profileEdit.nacionalidade),
+      estado_civil: profileTextOrNull(profileEdit.estado_civil),
+      regime_trabalho: profileTextOrNull(profileEdit.regime_trabalho),
+      renda: profileNumOrNull(profileEdit.renda),
+      ctps_36: profileBoolOrNull(profileEdit.ctps_36),
+      dependentes_qtd: profileNumOrNull(profileEdit.dependentes_qtd),
+      entrada_valor: profileNumOrNull(profileEdit.entrada_valor),
+      restricao: profileBoolOrNull(profileEdit.restricao),
+      origem_lead: profileTextOrNull(profileEdit.origem_lead),
+      observacoes_admin: profileTextOrNull(profileEdit.observacoes_admin),
       updated_by: "admin_panel",
       source: "admin" as const,
     };
@@ -875,6 +876,7 @@ export function AtendimentoUI() {
                             <option value="clt">CLT</option>
                             <option value="autonomo">Autônomo</option>
                             <option value="servidor_publico">Servidor Público</option>
+                            <option value="empresario">Empresário</option>
                             <option value="aposentado">Aposentado / Pensionista</option>
                             <option value="misto">Misto</option>
                           </select>

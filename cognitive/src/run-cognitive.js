@@ -83,6 +83,7 @@ const COGNITIVE_SLOT_DEPENDENCIES = Object.freeze({
   docs: ["correspondente"],
   correspondente: ["visita"]
 });
+const TOPO_FUNIL_STAGES = new Set(["inicio", "inicio_decisao", "inicio_programa"]);
 const REPLY_TEXT_REPLACEMENTS = Object.freeze([
   [/\brunner read-only\b/gi, "atendimento"],
   [/\bmotor cognitivo de teste\b/gi, "atendimento"],
@@ -462,6 +463,10 @@ function isEstadoCivilComposicaoContext(request, pendingSlots) {
     pending.includes("estado_civil") ||
     pending.includes("composicao")
   );
+}
+
+function isTopoFunilContext(request) {
+  return TOPO_FUNIL_STAGES.has(normalizeText(request?.current_stage));
 }
 
 function toNumber(value) {
@@ -895,9 +900,71 @@ function buildEstadoCivilComposicaoGuidance(request) {
   return null;
 }
 
+function buildTopoFunilGuidance(request) {
+  const stage = normalizeText(request?.current_stage);
+  const normalizedMessage = normalizeText(request?.message_text);
+
+  if (stage === "inicio") {
+    if (FEAR_PATTERN.test(normalizedMessage)) {
+      return "Entendo, e pode ficar tranquilo(a). É um processo seguro e transparente.";
+    }
+    if (NO_TIME_PATTERN.test(normalizedMessage)) {
+      return "É rápido mesmo, são poucas perguntas diretas para entender seu perfil.";
+    }
+    if (/\bfgts\b/.test(normalizedMessage) || /\bentrada\b/.test(normalizedMessage)) {
+      return "O FGTS pode ajudar na entrada ou nas parcelas, mas não é obrigatório. Para te orientar certinho, preciso de algumas informações do seu perfil.";
+    }
+    if (/\b(mcmv|minha casa minha vida|programa|como funciona|financiamento|subsidio)\b/.test(normalizedMessage)) {
+      return "O Minha Casa Minha Vida é o programa do governo que ajuda no subsídio e reduz a parcela do financiamento, conforme a renda e o perfil.";
+    }
+    return null;
+  }
+
+  if (stage === "inicio_decisao") {
+    if (/\b(onde parei|onde estava|em que fase|em que etapa)\b/.test(normalizedMessage)) {
+      return "Você já tinha iniciado o atendimento por aqui. Continuando, eu retomo de onde paramos com seus dados anteriores.";
+    }
+    if (/\b(precisa|necessario|necessário|tudo de novo|recomecar|recomeçar|perder)\b/.test(normalizedMessage)) {
+      return "Não precisa perder o que já avançou. Pode continuar de onde parou. Se preferir, também pode começar do zero.";
+    }
+    return "É só escolher: *1* para continuar de onde paramos ou *2* para começar do zero.";
+  }
+
+  if (stage === "inicio_programa") {
+    if (/\bfgts\b/.test(normalizedMessage)) {
+      return "O FGTS pode ajudar na redução da entrada ou das parcelas, mas não é obrigatório para participar.";
+    }
+    if (/\bestrangeiro|estrang[ei]\b/.test(normalizedMessage)) {
+      return "Estrangeiro pode sim participar, desde que tenha RNM com prazo indeterminado.";
+    }
+    if (/\bentrada\b/.test(normalizedMessage)) {
+      return "O MCMV pode reduzir ou até eliminar a necessidade de entrada, dependendo da renda e do perfil.";
+    }
+    if (/\brenda\b/.test(normalizedMessage) && /\b(minima|mínima|precisa|preciso|necessaria|necessária|quanto)\b/.test(normalizedMessage)) {
+      return "A renda mínima varia conforme o imóvel e o perfil. O programa atende diferentes faixas — por isso eu analiso o seu caso específico.";
+    }
+    if (NO_TIME_PATTERN.test(normalizedMessage) || /\b(rapido|rapida|demora|demorar|tempo|quanto tempo)\b/.test(normalizedMessage)) {
+      return "São poucas perguntas bem diretas. Leva poucos minutos e já te dá uma orientação clara sobre o seu perfil.";
+    }
+    if (FEAR_PATTERN.test(normalizedMessage)) {
+      return "Entendo sua preocupação. É um processo transparente e seguro. A pré-análise não gera compromisso e não tem custo.";
+    }
+    if (/\b(mcmv|minha casa minha vida|programa|como funciona|subsidio)\b/.test(normalizedMessage)) {
+      return "O Minha Casa Minha Vida é o programa do governo que ajuda no subsídio e reduz a parcela do financiamento, conforme a renda de cada família.";
+    }
+    return "Posso te explicar qualquer detalhe. Para te orientar certinho, me confirma como prefere prosseguir.";
+  }
+
+  return null;
+}
+
 function buildPhaseGuidanceReply({ request, suggestedNextSlot, pendingSlots }) {
   // Prioridade intencional: temas operacionais específicos antes de temas amplos
   // (docs/correspondente/visita) para evitar resposta genérica quando há regra fechada.
+  if (isTopoFunilContext(request)) {
+    const topoReply = buildTopoFunilGuidance(request);
+    if (topoReply) return topoReply;
+  }
   if (isAluguelContext(request)) return buildAluguelGuidance(request);
   if (isUnknownDocTypeContext(request)) return buildUnknownDocTypeGuidance(request);
   if (isDocForaDeOrdemContext(request)) return buildDocForaDeOrdemGuidance(request);
@@ -968,6 +1035,13 @@ function buildNextActionPrompt({ request, suggestedNextSlot, pendingSlots }) {
 
   if (nextSlot) {
     return buildSlotActionPrompt(nextSlot);
+  }
+
+  const topoStage = normalizeText(request?.current_stage);
+  if (TOPO_FUNIL_STAGES.has(topoStage)) {
+    if (topoStage === "inicio_decisao") return "Digite *1* para continuar de onde paramos ou *2* para começar do zero.";
+    if (topoStage === "inicio_programa") return "Você *já sabe como funciona* o programa ou prefere que eu explique rapidinho?";
+    return "Pode continuar por aqui — são só algumas perguntas rápidas.";
   }
 
   return "Se estiver tudo certo até aqui, já me manda os documentos básicos agora que isso adianta sua análise.";
@@ -1382,7 +1456,9 @@ function buildHeuristicResponse(request, analysis, conflictList) {
 
   const confidenceBase = slotsDetectedCount
     ? CONFIDENCE_RULES.detectedBase + Math.min(slotsDetectedCount, 4) * CONFIDENCE_RULES.detectedIncrement
-    : analysis.offtrack ? CONFIDENCE_RULES.offtrackBase : CONFIDENCE_RULES.noSlotBase;
+    : analysis.offtrack ? CONFIDENCE_RULES.offtrackBase
+    : TOPO_FUNIL_STAGES.has(request.current_stage) ? 0.72 // topo: phase guidance is the signal; floor above COGNITIVE_V1_CONFIDENCE_MIN (0.66)
+    : CONFIDENCE_RULES.noSlotBase;
   const confidencePenalty =
     conflictList.length * CONFIDENCE_RULES.conflictPenalty +
     (analysis.offtrack ? CONFIDENCE_RULES.offtrackPenalty : 0);

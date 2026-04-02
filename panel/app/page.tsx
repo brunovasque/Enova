@@ -16,7 +16,7 @@ export default function HomePage() {
       <section className="card">
         <h1>Enova Panel</h1>
 <p>Painel administrativo de operações.</p>
-<div style={{ marginTop: "16px", display: "flex", gap: "10px", flexWrap: "wrap" }}>
+<div style={{ marginTop: "16px", display: "flex", gap: "10px", flexWrap: "nowrap", overflowX: "auto" }}>
   {NAV_LINKS.map(({ href, label }) => (
     <a
       key={href}

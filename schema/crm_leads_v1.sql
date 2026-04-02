@@ -1,6 +1,7 @@
 -- ============================================================
 -- crm_leads_v1 — View consolidada para consumo do painel CRM
 -- Junta enova_state (microfase/funil) + crm_lead_meta (status macro CRM)
+--      + enova_attendance_meta (incidente aberto — read-only, badge operacional)
 -- Aliases voltados à interface em PORTUGUÊS
 -- Separação por abas: pasta, análise, aprovados, reprovados, visita
 -- REGRA: painel NUNCA altera fase_conversa via esta view
@@ -131,12 +132,19 @@ SELECT
   m.financial_note_short               AS nota_financeiro,
   m.financial_last_update_at           AS ultima_atualizacao_financeiro,
 
+
+  -- ── INCIDENTE ABERTO (read-only — fonte: enova_attendance_meta) ──
+  a.has_open_incident                  AS tem_incidente_aberto,
+  a.open_incident_type                 AS tipo_incidente,
+  a.open_incident_severity             AS severidade_incidente,
+
   -- Timestamps
   m.created_at                         AS criado_em,
   COALESCE(m.updated_at, e.updated_at) AS atualizado_em
 
 FROM public.enova_state e
 LEFT JOIN public.crm_lead_meta m ON m.wa_id = e.wa_id
+LEFT JOIN public.enova_attendance_meta a ON a.wa_id = e.wa_id
 WHERE (
   -- Inclui leads que já chegaram em envio_docs ou além (fonte de verdade do funil)
   e.fase_conversa IN (
@@ -172,8 +180,13 @@ WHERE (
 --
 -- SELECT e.wa_id, e.fase_conversa, e.funil_status,
 --        e.processo_aprovado, e.processo_reprovado,
---        m.analysis_status, m.visit_status
+--        m.analysis_status, m.visit_status,
+--        a.has_open_incident, a.open_incident_type, a.open_incident_severity
 -- FROM public.enova_state e
+-- LEFT JOIN public.crm_lead_meta m ON m.wa_id = e.wa_id
+-- LEFT JOIN public.enova_attendance_meta a ON a.wa_id = e.wa_id
+-- WHERE e.wa_id = '<SEU_WA_ID>';
+--
 -- LEFT JOIN public.crm_lead_meta m ON m.wa_id = e.wa_id
 -- WHERE e.wa_id = '<SEU_WA_ID>';
 --

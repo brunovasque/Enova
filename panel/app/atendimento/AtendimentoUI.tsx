@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import styles from "./atendimento.module.css";
 import { fetchAttendanceLeadsAction, fetchPrefillDataAction, savePrefillDataAction } from "./actions";
 import type { PrefillMetaRow, PrefillStatus, PrefillUpdatePayload } from "../api/prefill/_shared";
@@ -224,6 +225,16 @@ function onStatKeyDown(event: React.KeyboardEvent<HTMLDivElement>, onActivate: (
   }
 }
 
+function getIncidenteBadgeClass(severidade: string | null): string {
+  switch (severidade) {
+    case "CRITICAL": return styles.incidenteBadgeCritical;
+    case "HIGH": return styles.incidenteBadgeHigh;
+    case "MEDIUM": return styles.incidenteBadgeMedium;
+    case "LOW": return styles.incidenteBadgeLow;
+    default: return "";
+  }
+}
+
 /* ===========================================
    PREFILL HELPERS
    =========================================== */
@@ -300,6 +311,7 @@ function editStateToPayload(wa_id: string, edit: PrefillEditState): PrefillUpdat
     if (v === "false") return false;
     return null;
   }
+
   // Admin edit always resets to prefilled_pending_confirmation — even when overwriting
   // a previously confirmed/divergent value. The client must re-confirm via the funnel.
   function deriveStatus(newVal: unknown): PrefillStatus {
@@ -353,6 +365,7 @@ function editStateToPayload(wa_id: string, edit: PrefillEditState): PrefillUpdat
 }
 
 export function AtendimentoUI() {
+  const router = useRouter();
   const [leads, setLeads] = useState<AttendanceRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -753,9 +766,18 @@ export function AtendimentoUI() {
                       {formatDateTime(lead.prazo_proxima_acao)}
                     </span>
                     {lead.tem_incidente_aberto && (
-                      <span className={styles.incidenteBadge}>
-                        Incidente
-                      </span>
+                      <button
+                        type="button"
+                        aria-label={`Ver incidentes deste lead na aba Incidentes${lead.severidade_incidente ? ` — severidade ${lead.severidade_incidente}` : ""}`}
+                        className={`${styles.incidenteBadge} ${getIncidenteBadgeClass(lead.severidade_incidente)}`}
+                        title={`Incidente aberto${lead.tipo_incidente ? ` — ${lead.tipo_incidente}` : ""}${lead.severidade_incidente ? ` (${lead.severidade_incidente})` : ""}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/incidentes?wa_id=${encodeURIComponent(lead.wa_id)}`);
+                        }}
+                      >
+                        ⚠ {lead.severidade_incidente ?? "Incidente"}
+                      </button>
                     )}
                   </div>
                 </div>
@@ -1220,6 +1242,15 @@ export function AtendimentoUI() {
                         <span className={styles.detailLabel}>Severidade</span>
                         <span className={styles.detailValueWarning}>{selectedLead.severidade_incidente ?? "—"}</span>
                       </div>
+                    </div>
+                    <div style={{ marginTop: 8 }}>
+                      <a
+                        href={`/incidentes?wa_id=${encodeURIComponent(selectedLead.wa_id)}`}
+                        aria-label={`Ver todos os incidentes deste lead na aba Incidentes`}
+                        className={styles.incidenteLink}
+                      >
+                        Ver na aba Incidentes →
+                      </a>
                     </div>
                   </div>
                 )}

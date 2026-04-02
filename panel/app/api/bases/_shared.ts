@@ -23,6 +23,10 @@ export type CrmLeadMetaRow = {
   ultima_acao: string | null;
   ultimo_contato_at: string | null;
   status_operacional: string | null;
+  // Incidente aberto — lido de enova_attendance_meta via bases_leads_v1
+  tem_incidente_aberto: boolean | null;
+  tipo_incidente: string | null;
+  severidade_incidente: string | null;
 };
 
 type LeadMetaInput = {
@@ -183,7 +187,7 @@ export function normalizePhoneToWaId(phone: unknown): string | null {
 export function normalizeLeadMetaInput(
   input: LeadMetaInput,
   options: NormalizeLeadMetaOptions = {},
-): Omit<CrmLeadMetaRow, "created_at" | "ultima_acao" | "ultimo_contato_at" | "status_operacional"> {
+): Omit<CrmLeadMetaRow, "created_at" | "ultima_acao" | "ultimo_contato_at" | "status_operacional" | "tem_incidente_aberto" | "tipo_incidente" | "severidade_incidente"> {
   const rawWaId = normalizeOptionalText(input.wa_id);
   const rawTelefone = normalizeOptionalText(input.telefone);
   // wa_id can be provided directly or derived from telefone
@@ -479,10 +483,12 @@ export async function listLeadsForPanel(
   serviceRoleKey: string,
   options: ListLeadsOptions = {},
 ): Promise<CrmLeadMetaRow[]> {
-  const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
+  // Uses bases_leads_v1 view (crm_lead_meta LEFT JOIN enova_attendance_meta)
+  // so that incident fields arrive in the same payload as lead metadata.
+  const endpoint = new URL("/rest/v1/bases_leads_v1", supabaseUrl);
   endpoint.searchParams.set(
     "select",
-    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at,ultima_acao,ultimo_contato_at,status_operacional",
+    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at,ultima_acao,ultimo_contato_at,status_operacional,tem_incidente_aberto,tipo_incidente,severidade_incidente",
   );
   endpoint.searchParams.set("order", "updated_at.desc,wa_id.asc");
 

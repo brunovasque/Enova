@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import styles from "./incidentes.module.css";
 import { fetchIncidentsAction } from "./actions";
 
@@ -133,13 +134,16 @@ function onStatKeyDown(event: React.KeyboardEvent<HTMLDivElement>, onActivate: (
 }
 
 export function IncidentesUI() {
+  const searchParams = useSearchParams();
+  const waIdParam = (searchParams.get("wa_id") ?? "").trim();
+
   const [incidents, setIncidents] = useState<IncidentRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<StatusTab>("TODOS");
   const [selectedIncident, setSelectedIncident] = useState<IncidentRow | null>(null);
   const [filters, setFilters] = useState<FilterState>({
-    busca: "",
+    busca: waIdParam,
     statusIncidente: "",
     severidade: "",
     tipoIncidente: "",

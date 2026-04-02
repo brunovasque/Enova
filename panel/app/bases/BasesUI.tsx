@@ -25,6 +25,10 @@ type CrmLeadMetaRow = {
   ultima_acao: string | null;
   ultimo_contato_at: string | null;
   status_operacional: string | null;
+  // Incidente aberto — lido de enova_attendance_meta via bases_leads_v1
+  tem_incidente_aberto: boolean | null;
+  tipo_incidente: string | null;
+  severidade_incidente: string | null;
 };
 
 type ApiLeadsPayload = {
@@ -893,6 +897,17 @@ export function BasesUI() {
                     </div>
 
                     <div className={styles.colAcoes}>
+                      {lead.tem_incidente_aberto && (
+                        <a
+                          href={`/incidentes?wa_id=${encodeURIComponent(lead.wa_id)}`}
+                          aria-label={`Ver incidentes deste lead na aba Incidentes${lead.severidade_incidente ? ` — severidade ${lead.severidade_incidente}` : ""}`}
+                          className={styles.incidenteBadge}
+                          title={`Incidente aberto${lead.tipo_incidente ? ` — ${lead.tipo_incidente}` : ""}${lead.severidade_incidente ? ` (${lead.severidade_incidente})` : ""}`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          ⚠ {lead.severidade_incidente ?? "Incidente"}
+                        </a>
+                      )}
                       <button
                         type="button"
                         className={styles.actionBtn}

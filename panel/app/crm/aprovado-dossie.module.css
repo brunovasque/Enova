@@ -1,0 +1,379 @@
+/* ===========================================
+   DOSSIÊ DO APROVADO — Detail Page
+   Dark theme consistent with CRM Operacional
+   =========================================== */
+
+.dossiePage {
+  height: 100vh;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #09090b;
+  overflow: hidden;
+}
+
+/* ── Top bar ── */
+.topBar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 32px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(180deg, #0f0f11 0%, #0a0a0c 100%);
+  flex-shrink: 0;
+}
+
+.backButton {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #9a9aa3;
+  padding: 7px 14px;
+  font-weight: 500;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.backButton:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.12);
+  color: #e0e0e7;
+}
+
+.topBarTitle {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #f4f4f5;
+  letter-spacing: -0.015em;
+}
+
+.topBarSubtitle {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #71717a;
+  font-weight: 400;
+}
+
+/* ── Scrollable body ── */
+.dossieBody {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 32px 48px;
+}
+
+.dossieBody::-webkit-scrollbar {
+  width: 6px;
+}
+
+.dossieBody::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+}
+
+/* ── Header card (Bloco 1) ── */
+.headerCard {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 16px;
+  padding: 20px 24px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, rgba(45, 165, 165, 0.06) 0%, rgba(45, 165, 165, 0.02) 100%);
+  border: 1px solid rgba(45, 165, 165, 0.12);
+  margin-bottom: 24px;
+}
+
+.headerItem {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.headerItemLabel {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #5eaead;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.headerItemValue {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: #f4f4f5;
+}
+
+.headerItemValueMuted {
+  font-size: 0.9375rem;
+  font-weight: 400;
+  color: #71717a;
+  font-style: italic;
+}
+
+/* ── Status badge in header ── */
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.statusApproved {
+  background: rgba(52, 211, 153, 0.12);
+  color: #6ee7b7;
+}
+
+.statusPending {
+  background: rgba(251, 191, 36, 0.12);
+  color: #fcd34d;
+}
+
+/* ── Blocks container: 2-column layout ── */
+.blocksGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+/* ── Individual block ── */
+.block {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.012);
+  overflow: hidden;
+}
+
+.blockFull {
+  grid-column: 1 / -1;
+}
+
+.blockHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.008);
+}
+
+.blockIcon {
+  font-size: 0.875rem;
+  opacity: 0.6;
+}
+
+.blockTitle {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #d4d4d8;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.blockBody {
+  padding: 16px 20px;
+}
+
+/* ── Detail grid inside block ── */
+.detailGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 20px;
+}
+
+.detailGridThree {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 14px 20px;
+}
+
+.fieldItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fieldItemFull {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  grid-column: 1 / -1;
+}
+
+.fieldLabel {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #5a5a66;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fieldValue {
+  font-size: 0.875rem;
+  font-weight: 450;
+  color: #e4e4e7;
+  line-height: 1.4;
+}
+
+.fieldValueHighlight {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #7dd3d3;
+}
+
+.fieldValueMuted {
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: #52525b;
+  font-style: italic;
+}
+
+.fieldValueWarn {
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: #fbbf24;
+  font-style: italic;
+}
+
+/* ── Boolean badges ── */
+.boolBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  width: fit-content;
+}
+
+.boolYes {
+  background: rgba(52, 211, 153, 0.1);
+  color: #6ee7b7;
+}
+
+.boolNo {
+  background: rgba(248, 113, 113, 0.1);
+  color: #fca5a5;
+}
+
+.boolUnknown {
+  background: rgba(255, 255, 255, 0.04);
+  color: #52525b;
+}
+
+/* ── Timeline (Bloco 6) ── */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.timelineItem {
+  display: flex;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.timelineItem:last-child {
+  border-bottom: none;
+}
+
+.timelineDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(45, 165, 165, 0.4);
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+
+.timelineContent {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.timelineLabel {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #d4d4d8;
+}
+
+.timelineDate {
+  font-size: 0.75rem;
+  color: #52525b;
+}
+
+.timelineEmpty {
+  font-size: 0.8125rem;
+  color: #52525b;
+  font-style: italic;
+  padding: 8px 0;
+}
+
+/* ── Next action block (Bloco 7) ── */
+.nextActionCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-radius: 8px;
+  background: rgba(45, 165, 165, 0.06);
+  border: 1px solid rgba(45, 165, 165, 0.1);
+}
+
+.nextActionIcon {
+  font-size: 1.1rem;
+}
+
+.nextActionText {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #7dd3d3;
+}
+
+.nextActionMuted {
+  font-size: 0.875rem;
+  font-weight: 400;
+  color: #52525b;
+  font-style: italic;
+}
+
+/* ── Responsive ── */
+@media (max-width: 1100px) {
+  .headerCard {
+    grid-template-columns: 1fr 1fr;
+  }
+  .blocksGrid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .headerCard {
+    grid-template-columns: 1fr;
+  }
+  .topBar {
+    padding: 12px 16px;
+  }
+  .dossieBody {
+    padding: 16px;
+  }
+  .detailGrid {
+    grid-template-columns: 1fr;
+  }
+  .detailGridThree {
+    grid-template-columns: 1fr;
+  }
+}

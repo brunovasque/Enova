@@ -53,7 +53,6 @@ export type DossieData = {
   restricao: string | null;
   restricao_parceiro: string | null;
   regularizacao_restricao: string | null;
-  regularizacao_restricao_parceiro: string | null;
 
   // Correspondente (enova_state)
   corr_lock_correspondente_wa_id: string | null;
@@ -192,7 +191,6 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
       "restricao",
       "restricao_parceiro",
       "regularizacao_restricao",
-      "regularizacao_restricao_parceiro",
       // Correspondente
       "corr_lock_correspondente_wa_id",
       "corr_publicacao_status",
@@ -337,7 +335,6 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
       restricao: safeString(stateRow.restricao),
       restricao_parceiro: safeString(stateRow.restricao_parceiro),
       regularizacao_restricao: safeString(stateRow.regularizacao_restricao),
-      regularizacao_restricao_parceiro: safeString(stateRow.regularizacao_restricao_parceiro),
 
       // Correspondente
       corr_lock_correspondente_wa_id: safeString(stateRow.corr_lock_correspondente_wa_id),

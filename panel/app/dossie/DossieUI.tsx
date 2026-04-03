@@ -669,12 +669,6 @@ function DossieContent({ data }: { data: DossieData }) {
                     <span className={styles.perfilValue}>{restrictionLabel(data.restricao_parceiro)}</span>
                   </div>
                 )}
-                {data.regularizacao_restricao_parceiro && (
-                  <div className={styles.perfilItem}>
-                    <span className={styles.perfilLabel}>Regularização restrição parceiro</span>
-                    <span className={styles.perfilValue}>{data.regularizacao_restricao_parceiro}</span>
-                  </div>
-                )}
               </div>
             </div>
           )}

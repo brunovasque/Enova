@@ -319,11 +319,11 @@ function NoWaIdState() {
       </header>
       <main className={styles.main}>
         <div style={{ textAlign: "center", padding: "80px 20px", color: "#6b7c93" }}>
-          <p style={{ marginBottom: "24px", fontSize: "1rem" }}>Informe o wa_id do lead para abrir o dossiê.</p>
+          <p style={{ marginBottom: "24px", fontSize: "1rem" }}>Informe o telefone do correspondente para abrir o dossiê com o pré cadastro.</p>
           <div style={{ display: "flex", gap: "12px", justifyContent: "center", alignItems: "center" }}>
             <input
               type="text"
-              placeholder="Ex: 5511999990000"
+              placeholder="Ex: 41997780518"
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
               style={{

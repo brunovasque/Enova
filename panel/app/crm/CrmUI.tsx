@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import styles from "./crm.module.css";
 import { fetchCrmLeadsAction, postCrmActionAction } from "./actions";
-import { AprovadoDossieView } from "./AprovadoDossieView";
-import type { DossieLeadRow } from "./AprovadoDossieView";
+import { AprovadoFichaView } from "./AprovadoFichaView";
+import type { FichaLeadRow } from "./AprovadoFichaView";
 
 /* ===========================================
    TIPOS - baseados em crm_leads_v1
@@ -243,7 +243,7 @@ export function CrmUI() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState(false);
   const [selectedLead, setSelectedLead] = useState<CrmLeadRow | null>(null);
-  const [dossieAprovado, setDossieAprovado] = useState<CrmLeadRow | null>(null);
+  const [fichaAprovado, setFichaAprovado] = useState<CrmLeadRow | null>(null);
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterState>({
     busca: "",
@@ -447,12 +447,12 @@ export function CrmUI() {
     }
   };
 
-  /* ── If a dossiê is open, render the full-page detail view ── */
-  if (dossieAprovado) {
+  /* ── If a ficha is open, render the full-page detail view ── */
+  if (fichaAprovado) {
     return (
-      <AprovadoDossieView
-        lead={dossieAprovado as DossieLeadRow}
-        onBack={() => setDossieAprovado(null)}
+      <AprovadoFichaView
+        lead={fichaAprovado as FichaLeadRow}
+        onBack={() => setFichaAprovado(null)}
       />
     );
   }
@@ -746,9 +746,9 @@ export function CrmUI() {
                         <button
                           type="button"
                           className={`${styles.actionBtn} ${styles.actionBtnResume}`}
-                          onClick={() => setDossieAprovado(lead)}
+                          onClick={() => setFichaAprovado(lead)}
                         >
-                          Ver dossiê
+                          Ver ficha
                         </button>
                       )}
                       <button

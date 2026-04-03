@@ -1,9 +1,9 @@
 "use client";
 
 /**
- * AprovadoDossieView — Dossiê do Aprovado (full-page detail view)
+ * AprovadoFichaView — Ficha do Aprovado (full-page detail view)
  *
- * Renders the consolidated dossier of an approved client,
+ * Renders the consolidated ficha of an approved client,
  * organized in 7 canonical blocks per the CRM operational contract.
  *
  * Data contract:
@@ -12,10 +12,10 @@
  *   No mock data — only real fields from the existing view.
  */
 
-import styles from "./aprovado-dossie.module.css";
+import styles from "./aprovado-ficha.module.css";
 
 /* ── Re-use the CrmLeadRow type from CrmUI (inline to avoid circular deps) ── */
-export type DossieLeadRow = {
+export type FichaLeadRow = {
   wa_id: string;
   nome: string | null;
   telefone: string | null;
@@ -170,18 +170,18 @@ function getBaseLabel(pool: string | null): string {
   }
 }
 
-function getCorrespondente(lead: DossieLeadRow): string {
+function getCorrespondente(lead: FichaLeadRow): string {
   return lead.correspondente_retorno ?? lead.parceiro_analise ?? FALLBACK;
 }
 
-function getFaseLabel(lead: DossieLeadRow): string {
+function getFaseLabel(lead: FichaLeadRow): string {
   if (lead.aprovado_funil || lead.status_funil === "aprovado_correspondente") return "Aprovado";
   if (lead.status_analise === "APPROVED_HIGH") return "Aprovado (alto)";
   if (lead.status_analise === "APPROVED_LOW") return "Aprovado (baixo)";
   return lead.fase_funil ?? FALLBACK;
 }
 
-function getNextActionLabel(lead: DossieLeadRow): string {
+function getNextActionLabel(lead: FichaLeadRow): string {
   if (lead.proximo_passo_aprovado) {
     const labels: Record<string, string> = {
       VISIT: "Pronto para visita",
@@ -198,12 +198,12 @@ function getNextActionLabel(lead: DossieLeadRow): string {
 
 /* ── Component ── */
 
-interface AprovadoDossieViewProps {
-  lead: DossieLeadRow;
+interface AprovadoFichaViewProps {
+  lead: FichaLeadRow;
   onBack: () => void;
 }
 
-export function AprovadoDossieView({ lead, onBack }: AprovadoDossieViewProps) {
+export function AprovadoFichaView({ lead, onBack }: AprovadoFichaViewProps) {
   const fgtsBool = boolLabel(lead.possui_fgts_analise);
   const restricaoTitular = boolLabel(lead.possui_restricao_analise);
   const restricaoParceiro = boolLabel(lead.possui_restricao_parceiro_analise);
@@ -238,14 +238,14 @@ export function AprovadoDossieView({ lead, onBack }: AprovadoDossieViewProps) {
   });
 
   return (
-    <div className={styles.dossiePage}>
+    <div className={styles.fichaPage}>
       {/* ── Top bar ── */}
       <div className={styles.topBar}>
         <button type="button" className={styles.backButton} onClick={onBack}>
           ← Voltar
         </button>
         <div>
-          <h1 className={styles.topBarTitle}>Dossiê do Aprovado</h1>
+          <h1 className={styles.topBarTitle}>Ficha do Aprovado</h1>
           <p className={styles.topBarSubtitle}>
             {lead.nome ?? lead.wa_id} — Consolidação operacional
           </p>
@@ -253,7 +253,7 @@ export function AprovadoDossieView({ lead, onBack }: AprovadoDossieViewProps) {
       </div>
 
       {/* ── Scrollable body ── */}
-      <div className={styles.dossieBody}>
+      <div className={styles.fichaBody}>
         {/* ═══════════════════════════════════════
            BLOCO 1 — CABEÇALHO
            ═══════════════════════════════════════ */}

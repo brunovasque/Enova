@@ -20846,11 +20846,10 @@ async function runFunnel(env, st, userText) {
 
       if (hasUsefulCognitiveReply) {
         st.__cognitive_reply_prefix = cognitiveReply;
-        // V2 "on": quando tem reply útil, V2 assume fala final (substitui mecânico).
+        // V2 "on" com LLM: V2 assume fala final (substitui mecânico).
         // Mecânico continua soberano em stage/gate/nextStage/persistência.
-        if (v2OnWithLlm) {
-          st.__cognitive_v2_takes_final = true;
-        }
+        // Sempre definir explicitamente para evitar vazamento de estado anterior.
+        st.__cognitive_v2_takes_final = v2OnWithLlm ? true : false;
       } else {
         st.__cognitive_reply_prefix = null;
         st.__cognitive_v2_takes_final = false;

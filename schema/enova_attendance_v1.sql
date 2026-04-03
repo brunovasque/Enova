@@ -53,6 +53,7 @@ SELECT
   -- ── Perfil parcial confirmado (sinais do funil mecânico, read-only) ──
   e.estado_civil,
   e.regime_trabalho,
+  e.renda,
   e.renda_total_para_fluxo                        AS renda_total,
   e.somar_renda,
   e.composicao_pessoa                             AS composicao,
@@ -60,6 +61,8 @@ SELECT
   e.ctps_36,
   e.restricao,
   e.dependentes_qtd,
+  e.nacionalidade,
+  e.entrada_valor,
 
   -- ── Resumo curto ──
   a.enova_summary_short                           AS resumo_curto,

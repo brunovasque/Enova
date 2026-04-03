@@ -239,6 +239,20 @@ export function BasesUI() {
     void refreshLeads();
   }, [refreshLeads]);
 
+  // ESC to close open modals
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== "Escape") return;
+      if (showAddModal) { setShowAddModal(false); return; }
+      if (showImportModal) { setShowImportModal(false); return; }
+      if (showWarmupModal) { setShowWarmupModal(false); return; }
+      if (moveTarget) { setMoveTarget(null); return; }
+      if (callNowTarget) { setCallNowTarget(null); return; }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [showAddModal, showImportModal, showWarmupModal, moveTarget, callNowTarget]);
+
   const callAction = useCallback(async (payload: Record<string, unknown>): Promise<ApiActionPayload | null> => {
     try {
       const res = await fetch("/api/bases", {

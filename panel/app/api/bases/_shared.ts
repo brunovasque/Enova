@@ -859,9 +859,13 @@ export async function runBasesAction(
               updated_at: contactedAt,
             });
             if (existing?.lead_source) {
-              await upsertEnovaStateSourceType(supabaseUrl, serviceRoleKey, [
-                { wa_id: waId, source_type: canonicalSourceType(existing.lead_source) },
-              ]);
+              try {
+                await upsertEnovaStateSourceType(supabaseUrl, serviceRoleKey, [
+                  { wa_id: waId, source_type: canonicalSourceType(existing.lead_source) },
+                ]);
+              } catch (sourceTypeErr) {
+                console.error("[warmup_dispatch] failed to reconsolidate source_type for wa_id:", waId, sourceTypeErr);
+              }
             }
           }
         } catch (dispatchErr) {

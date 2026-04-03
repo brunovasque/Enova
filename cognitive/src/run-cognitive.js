@@ -2596,7 +2596,8 @@ function buildHeuristicResponse(request, analysis, conflictList) {
     conflictList.length * CONFIDENCE_RULES.conflictPenalty +
     (analysis.offtrack ? CONFIDENCE_RULES.offtrackPenalty : 0);
   // Topo stage com phase guidance como sinal: piso acima de COGNITIVE_V1_CONFIDENCE_MIN (0.66)
-  // para que penalidades de ambiguidade/conflito não suprimam a guidance do topo
+  // para que penalidades de ambiguidade/conflito não suprimam a guidance do topo.
+  // 0.68 = margem de 0.02 acima do threshold 0.66, sobrevive a penalidades parciais.
   const topoGuidanceFloor = TOPO_FUNIL_STAGES.has(request.current_stage) && !slotsDetectedCount ? 0.68 : 0.05;
   const confidence = Math.max(topoGuidanceFloor, Math.min(0.99, Number((confidenceBase - confidencePenalty).toFixed(2))));
 

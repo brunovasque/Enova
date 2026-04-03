@@ -271,11 +271,11 @@ function NoWaIdState() {
     <AppShell subtitle="Visão consolidada do caso">
       <div className={styles.centerState}>
         <div className={styles.searchBox}>
-          <p className={styles.searchTitle}>Informe o wa_id do lead para abrir o dossiê.</p>
+          <p className={styles.searchTitle}>Informe o telefone do correspondente para abrir o dossiê com o pré cadastro.</p>
           <div className={styles.searchRow}>
             <input
               type="text"
-              placeholder="Ex: 5541997780518"
+              placeholder="Ex: 41997780518"
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
               className={styles.searchInput}

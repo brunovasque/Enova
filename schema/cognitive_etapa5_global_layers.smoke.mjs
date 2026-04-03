@@ -474,7 +474,7 @@ test("14d. buildTopoFunilGuidance preserva saudação 'Oi! Que bom te ver de vol
 
 test("14e. builders NÃO autorizados continuam intocados", () => {
   // Verificar que builders de composição, renda, gates, etc. não usam global layers
-  const composicaoFn = runCognitiveSrc.match(/function buildComposicaoInicialGuidance[\s\S]*?^}/m);
+  const composicaoFn = runCognitiveSrc.match(/function buildComposicaoInicialGuidance[\s\S]*?\n\}/m);
   if (composicaoFn) {
     assert.ok(
       !composicaoFn[0].includes("resolveGlobalLayerReply"),

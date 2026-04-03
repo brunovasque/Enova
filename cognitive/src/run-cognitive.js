@@ -148,7 +148,7 @@ const OPERACIONAL_FINAL_STAGES = new Set(["envio_docs", "aguardando_retorno_corr
 // Priority: FAQ → Objection → KB. Only covers topo/docs/visita blocks.
 
 const _TOPO_FAQ_MAP = Object.freeze([
-  { pattern: /\b(como funciona|o que [eé]|o que e|o que é|me explica|minha casa minha vida|mcmv|programa|financiamento|subsidio|subsídio)\b/i, faqId: null, kbId: "elegibilidade_basica" },
+  { pattern: /\b(como funciona|o que [eé]|me explica|minha casa minha vida|mcmv|programa|financiamento|subsidio|subsídio)\b/i, faqId: null, kbId: "elegibilidade_basica" },
   { pattern: /\b(quanto vou|quanto posso|valor.*financ|poder.*financ|financ.*poder|financ.*quanto)\b/i, faqId: "valor_sem_analise", kbId: null },
   { pattern: /\bfgts\b/i, faqId: "fgts_uso", kbId: "fgts_entrada" },
   { pattern: /\b(entrada|entrada m[ií]nima|valor.*entrada|preciso.*entrada)\b/i, faqId: "entrada_minima", kbId: null },

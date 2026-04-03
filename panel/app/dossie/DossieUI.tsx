@@ -22,11 +22,10 @@ type ActiveTab = "visao_geral" | "financeiro" | "documentos" | "retorno";
 
 // ── Helpers de apresentação ──
 
-function formatBRL(value: number | null | string): string {
+function formatBRL(value: number | null): string {
   if (value === null || value === undefined) return "—";
-  const n = typeof value === "string" ? parseFloat(value) : value;
-  if (!Number.isFinite(n)) return "—";
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(n);
+  if (!Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 }
 
 function formatDate(dateStr: string | null): string {

@@ -181,7 +181,7 @@
   background: rgba(10, 14, 19, 0.8);
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   position: sticky;
-  top: 65px;
+  top: 65px; /* matches .topbar height: 14px padding-top + 36px logo + 14px padding-bottom + 1px border */
   z-index: 90;
 }
 

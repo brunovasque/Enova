@@ -3,6 +3,7 @@ import {
   listReadOnlyCognitiveFixtures,
   runReadOnlyCognitiveEngine
 } from "./cognitive/src/run-cognitive.js";
+import { buildReanchor } from "./cognitive/src/reanchor-helper.js";
 
 console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
 
@@ -8378,9 +8379,7 @@ try {
     });
 
     // Resposta padrão (sem inventar nada / sem pular etapa)
-    const msg =
-      "Certo. Vou analisar seu perfil primeiro e, no final, tiro todas suas dúvidas, combinado?\n" +
-      "Pra eu seguir aqui, me responde só a pergunta anterior direitinho. 🙏";
+    const msg = buildReanchor({ currentStage: st?.fase_conversa || "inicio" }).text;
 
     await sendMessage(env, waId, msg);
     return metaWebhookResponse(200, { reason: "offtrack_guard", type });
@@ -20818,10 +20817,7 @@ async function runFunnel(env, st, userText) {
       return step(
         env,
         st,
-        [
-          "Certo. Vou analisar seu perfil primeiro e, no final, tiro todas suas dúvidas, combinado?",
-          "Pra eu seguir aqui, me responde só a pergunta anterior direitinho. 🙏"
-        ],
+        buildReanchor({ currentStage: stage }).lines,
         stage
       );
     }
@@ -20985,10 +20981,7 @@ async function runFunnel(env, st, userText) {
       const v2HasReply = Boolean(st.__cognitive_reply_prefix) && st.__cognitive_v2_takes_final === true;
       const offtrackMessages = v2HasReply
         ? [] // V2 reply já está no prefix e vai assumir via takes_final
-        : [
-            "Certo. Vou analisar seu perfil primeiro e, no final, tiro todas suas dúvidas, combinado?",
-            "Pra eu seguir aqui, me responde só a pergunta anterior direitinho. 🙏"
-          ];
+        : buildReanchor({ currentStage: stage }).lines;
       updateCognitiveTelemetryState(st, {
         used_heuristic: !v2HasReply,
         offtrack_detected: true,

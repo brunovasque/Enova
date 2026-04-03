@@ -480,19 +480,25 @@ function buildAuditRow(
 async function upsertEnovaStateSourceType(
   supabaseUrl: string,
   serviceRoleKey: string,
-  rows: Array<{ wa_id: string; source_type: string }>,
+  rows: Array<{ wa_id: string; source_type: string; nome?: string | null }>,
 ) {
   if (rows.length === 0) return;
 
   const endpoint = new URL("/rest/v1/enova_state", supabaseUrl);
   endpoint.searchParams.set("on_conflict", "wa_id");
 
+  const payload = rows.map(({ wa_id, source_type, nome }) => {
+    const entry: Record<string, unknown> = { wa_id, source_type };
+    if (nome != null) entry.nome = nome;
+    return entry;
+  });
+
   const response = await fetch(endpoint, {
     method: "POST",
     headers: buildSupabaseHeaders(serviceRoleKey, {
       Prefer: "resolution=merge-duplicates,return=minimal",
     }),
-    body: JSON.stringify(rows),
+    body: JSON.stringify(payload),
     cache: "no-store",
   });
 
@@ -603,7 +609,7 @@ export async function runBasesAction(
       const savedRows = await upsertLeadMetaRows(supabaseUrl, serviceRoleKey, [row]);
       const savedRow = savedRows[0] ?? null;
       await upsertEnovaStateSourceType(supabaseUrl, serviceRoleKey, [
-        { wa_id: row.wa_id, source_type: sourceType },
+        { wa_id: row.wa_id, source_type: sourceType, nome: row.nome ?? undefined },
       ]);
       await insertAuditLogs(supabaseUrl, serviceRoleKey, [
         buildAuditRow(row.wa_id, "bases_add_lead_manual", "Lead adicionado manualmente em Bases", {

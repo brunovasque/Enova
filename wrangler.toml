@@ -12,6 +12,7 @@ DEBUG_META_WEBHOOK = "1"
 CORR_TEMPLATE_NAME = "enova_novo_caso_correspondente"
 CORR_TEMPLATE_LANG = "pt_BR"
 CORRESPONDENTE_TEXT_FALLBACK_WINDOW_OPEN = "false"
+COGNITIVE_V2_MODE = "shadow"
 
 [[r2_buckets]]
 binding = "CORRESPONDENTE_DOCS_BUCKET"

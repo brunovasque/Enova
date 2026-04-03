@@ -102,6 +102,27 @@ function participantLabel(participante: string | null): string {
   return labels[participante] ?? participante;
 }
 
+/** Builds a raw document label using the actual tipo stored in DB (e.g. "comprovante_residencia — Titular") */
+function buildRawDocLabel(item: { tipo: string | null; participante: string | null }): string {
+  const tipo = item.tipo ?? "—";
+  if (!item.participante || item.participante === "p1") return tipo;
+  return `${tipo} — ${participantLabel(item.participante)}`;
+}
+
+function formatTipoProcesso(composicao: string | null): string {
+  if (!composicao) return "Não informado";
+  const processMap: Record<string, string> = {
+    titular: "solo",
+    solo: "solo",
+    individual: "solo",
+    solteiro: "solo",
+    casal: "casal",
+    casal_p3: "casal c/ familiar",
+    familiar: "familiar",
+  };
+  return processMap[composicao.toLowerCase()] ?? composicao;
+}
+
 function formatComposicao(composicao: string | null): string {
   if (!composicao) return "Não informado";
   const labels: Record<string, string> = {
@@ -513,7 +534,7 @@ function DossieContent({ data }: { data: DossieData }) {
             </div>
             <div className={styles.infoItem}>
               <span className={styles.infoLabel}>Tipo de processo:</span>
-              <span className={styles.infoValue}>{formatComposicao(data.composicao_pessoa)}</span>
+              <span className={styles.infoValue}>{formatTipoProcesso(data.composicao_pessoa)}</span>
             </div>
             <div className={styles.infoItem}>
               <span className={styles.infoLabel}>Renda:</span>
@@ -580,7 +601,7 @@ function DossieContent({ data }: { data: DossieData }) {
             <ul style={{ listStyle: "disc", paddingLeft: "20px", margin: "0 0 16px", display: "flex", flexDirection: "column", gap: "4px" }}>
               {docsRecebidos.map((doc, index) => (
                 <li key={index} style={{ color: "#b6c2cf", fontSize: "0.9rem" }}>
-                  {docTipoLabel(doc.tipo)} — {participantLabel(doc.participante)}
+                  {buildRawDocLabel(doc)}
                 </li>
               ))}
             </ul>
@@ -601,7 +622,7 @@ function DossieContent({ data }: { data: DossieData }) {
                   <div className={styles.pendenteInfo}>
                     <div className={styles.pendenteIcon}><ClipboardIcon /></div>
                     <div className={styles.pendenteTexts}>
-                      <span className={styles.pendenteName}>{buildDocLabel(doc)}</span>
+                      <span className={styles.pendenteName}>{buildRawDocLabel(doc)}</span>
                       <span className={styles.pendentePrazo}>Prazo: {prazo}</span>
                     </div>
                   </div>
@@ -618,7 +639,7 @@ function DossieContent({ data }: { data: DossieData }) {
               <div className={styles.docLinksList}>
                 {docLinks.map((link, index) => (
                   <div key={index} className={styles.docLinksItem}>
-                    {buildDocLabel(link)} —{" "}
+                    {buildRawDocLabel(link)} —{" "}
                     <a
                       href={link.url ?? "#"}
                       className={styles.docLinksLink}

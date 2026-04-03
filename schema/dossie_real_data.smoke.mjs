@@ -94,6 +94,20 @@ function buildInstrucoes(data) {
   return instrucoes;
 }
 
+function formatTipoProcesso(composicao) {
+  if (!composicao) return "Não informado";
+  const processMap = {
+    titular: "solo",
+    solo: "solo",
+    individual: "solo",
+    solteiro: "solo",
+    casal: "casal",
+    casal_p3: "casal c/ familiar",
+    familiar: "familiar",
+  };
+  return processMap[composicao.toLowerCase()] ?? composicao;
+}
+
 function formatComposicao(composicao) {
   if (!composicao) return "Não informado";
   const labels = {
@@ -464,4 +478,25 @@ function deriveParticipantesTotaisV2(composicao) {
 assert.equal(deriveParticipantesTotaisV2("solo"), 1, "deriveParticipantesTotais solo → 1");
 assert.equal(deriveParticipantesTotaisV2("titular"), 1, "deriveParticipantesTotais titular → 1");
 
-console.log("✅ All 37 smoke tests passed.");
+// 38. formatTipoProcesso maps titular → solo (real production case: pre=000048)
+assert.equal(formatTipoProcesso("titular"), "solo", "formatTipoProcesso titular → solo");
+assert.equal(formatTipoProcesso("solo"), "solo", "formatTipoProcesso solo → solo");
+assert.equal(formatTipoProcesso("individual"), "solo", "formatTipoProcesso individual → solo");
+assert.equal(formatTipoProcesso("casal"), "casal", "formatTipoProcesso casal → casal");
+assert.equal(formatTipoProcesso("casal_p3"), "casal c/ familiar", "formatTipoProcesso casal_p3");
+assert.equal(formatTipoProcesso(null), "Não informado", "formatTipoProcesso null");
+
+// 39. buildRawDocLabel mirrors production display (raw tipo, not formatted)
+// matches production at pre=000048: "rg — Titular", "comprovante_residencia — Titular"
+function buildRawDocLabel(item) {
+  const tipo = item.tipo ?? "—";
+  const parts = { p1: "Titular", p2: "Cônjuge / Parceiro", p3: "Familiar" };
+  if (!item.participante || item.participante === "p1") return tipo;
+  const part = parts[item.participante] ?? item.participante;
+  return `${tipo} — ${part}`;
+}
+assert.equal(buildRawDocLabel({ tipo: "rg", participante: "p1" }), "rg", "buildRawDocLabel p1: tipo only");
+assert.equal(buildRawDocLabel({ tipo: "comprovante_residencia", participante: "p1" }), "comprovante_residencia", "buildRawDocLabel: raw tipo");
+assert.equal(buildRawDocLabel({ tipo: "rg", participante: "p2" }), "rg — Cônjuge / Parceiro", "buildRawDocLabel p2: tipo + participant");
+
+console.log("✅ All 39 smoke tests passed.");

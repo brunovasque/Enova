@@ -6,6 +6,9 @@ import { getCanonicalObjection } from "./objections-lookup.js";
 import { getKnowledgeBaseItem } from "./knowledge-lookup.js";
 import { buildReanchor } from "./reanchor-helper.js";
 
+// ── Etapa 6: Contrato global de fala final ──────────────────────────────────
+import { applyFinalSpeechContract } from "./final-speech-contract.js";
+
 const REQUIRED_RESPONSE_FIELDS = Object.freeze([
   "reply_text",
   "slots_detected",
@@ -2890,6 +2893,15 @@ export async function runReadOnlyCognitiveEngine(rawInput = {}, options = {}) {
     heuristicResponse,
     modelResponse: llmResult.parsed,
     llmUsed: llmResult.ok
+  });
+
+  // ── Etapa 6: Contrato global de fala final ──────────────────────────────
+  // Aplica o pós-processador de tom, proteção contra promessas e padronização
+  // sobre o reply_text final, ANTES da validação. Não altera mecânico.
+  response.reply_text = applyFinalSpeechContract(response.reply_text, {
+    currentStage: request.current_stage,
+    messageText: request.message_text,
+    empathySeed: (request.message_text || "").length
   });
 
   const validation = validateReadOnlyCognitiveResponse(response);

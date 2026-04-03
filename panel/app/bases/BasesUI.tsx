@@ -560,6 +560,14 @@ export function BasesUI() {
 
   const activePool = BASE_TO_POOL[activeBase];
 
+  const subbasesByPool = useMemo<Record<LeadPool, string[]>>(() => {
+    return {
+      COLD_POOL: Array.from(new Set(leadsByBase.fria.map((l) => l.lead_source).filter(Boolean) as string[])).sort(),
+      WARM_POOL: Array.from(new Set(leadsByBase.morna.map((l) => l.lead_source).filter(Boolean) as string[])).sort(),
+      HOT_POOL: Array.from(new Set(leadsByBase.quente.map((l) => l.lead_source).filter(Boolean) as string[])).sort(),
+    };
+  }, [leadsByBase]);
+
   const renderStatusLabel = (lead: CrmLeadMetaRow) => {
     if (lead.is_paused) return "Pausado";
     switch (lead.status_operacional) {
@@ -1288,6 +1296,7 @@ export function BasesUI() {
       {showWarmupModal && (
         <WarmupModal
           activePool={activePool}
+          subbasesByPool={subbasesByPool}
           callAction={callAction}
           onClose={handleCloseWarmup}
           onDone={(msg) => void handleWarmupDone(msg)}
@@ -1354,22 +1363,27 @@ function statusOptionLabel(value: (typeof STATUS_OPERACIONAL_VALUES)[number]): s
 
 function WarmupModal({
   activePool,
+  subbasesByPool,
   callAction,
   onClose,
   onDone,
 }: {
   activePool: LeadPool;
+  subbasesByPool: Record<LeadPool, string[]>;
   callAction: (payload: Record<string, unknown>) => Promise<ApiActionPayload | null>;
   onClose: () => void;
   onDone: (msg: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [leadPool, setLeadPool] = useState<LeadPool>(activePool);
+  const [leadSource, setLeadSource] = useState<string | null>(null);
   const [limit, setLimit] = useState("20");
   const [previewLeads, setPreviewLeads] = useState<CrmLeadMetaRow[] | null>(null);
   const [dispatchText, setDispatchText] = useState(suggestCallNowMessage(activePool, null));
   const [validationError, setValidationError] = useState<string | null>(null);
   const canDispatch = (previewLeads?.length ?? 0) > 0 && dispatchText.trim().length > 0;
+
+  const availableSubbases = subbasesByPool[leadPool] ?? [];
 
   const runPreview = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1381,7 +1395,9 @@ function WarmupModal({
       setValidationError("Informe um limite válido entre 1 e 50.");
       return;
     }
-    const result = await callAction({ action: "warmup_base", lead_pool: leadPool, limit: safeLimit });
+    const warmupPayload: Record<string, unknown> = { action: "warmup_base", lead_pool: leadPool, limit: safeLimit };
+    if (leadSource) warmupPayload.lead_source = leadSource;
+    const result = await callAction(warmupPayload);
     setBusy(false);
     if (!result) return;
     const leads = Array.isArray(result.leads) ? result.leads : [];
@@ -1420,12 +1436,34 @@ function WarmupModal({
           <form onSubmit={runPreview} className={styles.modalContent}>
             <div className={styles.formGroup}>
               <label className={styles.label}>Base</label>
-              <select className={styles.select} value={leadPool} onChange={(e) => setLeadPool(e.target.value as LeadPool)}>
+              <select
+                className={styles.select}
+                value={leadPool}
+                onChange={(e) => {
+                  setLeadPool(e.target.value as LeadPool);
+                  setLeadSource(null);
+                }}
+              >
                 <option value="COLD_POOL">Base Fria</option>
                 <option value="WARM_POOL">Base Morna</option>
                 <option value="HOT_POOL">Base Quente</option>
               </select>
             </div>
+            {availableSubbases.length > 0 && (
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Origem (opcional)</label>
+                <select
+                  className={styles.select}
+                  value={leadSource ?? ""}
+                  onChange={(e) => setLeadSource(e.target.value || null)}
+                >
+                  <option value="">Todas as origens</option>
+                  {availableSubbases.map((s) => (
+                    <option key={s} value={s}>{s}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div className={styles.formGroup}>
               <label className={styles.label}>Limite de leads (1-50)</label>
               <input

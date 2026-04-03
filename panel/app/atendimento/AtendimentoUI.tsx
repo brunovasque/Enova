@@ -22,6 +22,7 @@ type StatusAtencao = "ON_TIME" | "DUE_SOON" | "OVERDUE";
 
 type AttendanceRow = {
   wa_id: string;
+  lead_id: string | null;
   nome: string | null;
   telefone: string | null;
   fase_funil: string | null;
@@ -239,6 +240,43 @@ function getIncidenteBadgeClass(severidade: string | null): string {
 }
 
 /* ===========================================
+   LEAD HISTORY HELPERS — histórico inferido de timestamps existentes
+   =========================================== */
+
+type LeadHistoryEvent = {
+  ts: number;
+  label: string;
+  detail: string;
+};
+
+function buildLeadHistory(lead: AttendanceRow): LeadHistoryEvent[] {
+  const events: LeadHistoryEvent[] = [];
+
+  if (lead.criado_em) {
+    events.push({ ts: new Date(lead.criado_em).getTime(), label: "Lead criado", detail: formatDateTime(lead.criado_em) });
+  }
+  if (lead.movido_base_em && lead.base_atual) {
+    events.push({ ts: new Date(lead.movido_base_em).getTime(), label: `Base: ${getBaseLabel(lead.base_atual)}`, detail: formatDateTime(lead.movido_base_em) });
+  }
+  if (lead.movido_fase_em && lead.fase_atendimento) {
+    events.push({ ts: new Date(lead.movido_fase_em).getTime(), label: `Fase: ${lead.fase_atendimento}`, detail: formatDateTime(lead.movido_fase_em) });
+  }
+  if (lead.ultima_interacao_enova) {
+    events.push({ ts: new Date(lead.ultima_interacao_enova).getTime(), label: "Ultima interação Enova", detail: formatDateTime(lead.ultima_interacao_enova) });
+  }
+  if (lead.ultima_interacao_cliente) {
+    events.push({ ts: new Date(lead.ultima_interacao_cliente).getTime(), label: "Ultima interação cliente", detail: formatDateTime(lead.ultima_interacao_cliente) });
+  }
+  if (lead.tem_incidente_aberto && lead.tipo_incidente) {
+    const now = Date.now();
+    events.push({ ts: now, label: `Incidente aberto: ${lead.tipo_incidente}`, detail: lead.severidade_incidente ?? "—" });
+  }
+
+  events.sort((a, b) => a.ts - b.ts);
+  return events;
+}
+
+/* ===========================================
    PROFILE HELPERS — campo operacional único
    =========================================== */
 
@@ -325,6 +363,9 @@ export function AtendimentoUI() {
   const [profileBusy, setProfileBusy] = useState(false);
   const [profileFeedback, setProfileFeedback] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
+
+  // History block toggle state
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const refreshLeads = useCallback(async () => {
     setLoading(true);
@@ -428,6 +469,7 @@ export function AtendimentoUI() {
     setProfileEdit(null);
     setProfileFeedback(null);
     setProfileError(null);
+    setHistoryOpen(false);
     // Load client profile async — non-blocking
     void fetchClientProfileAction(lead.wa_id).then((result) => {
       if (result.ok) {
@@ -1132,15 +1174,15 @@ export function AtendimentoUI() {
 
                 {/* Timestamps */}
                 <div className={styles.detailBlock}>
-                  <h3 className={styles.detailBlockTitle}>Timestamps Operacionais</h3>
+                  <h3 className={styles.detailBlockTitle}>Registros do Lead</h3>
                   <div className={styles.detailGrid}>
                     <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Ultima Interacao Cliente</span>
-                      <span className={styles.detailValue}>{formatDateTime(selectedLead.ultima_interacao_cliente)}</span>
+                      <span className={styles.detailLabel}>Lead ID</span>
+                      <span className={styles.detailValue}>{selectedLead.lead_id ?? "—"}</span>
                     </div>
                     <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Ultima Interacao Enova</span>
-                      <span className={styles.detailValue}>{formatDateTime(selectedLead.ultima_interacao_enova)}</span>
+                      <span className={styles.detailLabel}>WA ID</span>
+                      <span className={styles.detailValue}>{selectedLead.wa_id}</span>
                     </div>
                     <div className={styles.detailItem}>
                       <span className={styles.detailLabel}>Criado em</span>
@@ -1150,13 +1192,62 @@ export function AtendimentoUI() {
                       <span className={styles.detailLabel}>Atualizado em</span>
                       <span className={styles.detailValue}>{formatDateTime(selectedLead.atualizado_em)}</span>
                     </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Base atual desde</span>
+                      <span className={styles.detailValue}>{formatDateTime(selectedLead.movido_base_em)}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Ultima mudança de fase</span>
+                      <span className={styles.detailValue}>{formatDateTime(selectedLead.movido_fase_em)}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Ultima interação cliente</span>
+                      <span className={styles.detailValue}>{formatDateTime(selectedLead.ultima_interacao_cliente)}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Ultima interação Enova</span>
+                      <span className={styles.detailValue}>{formatDateTime(selectedLead.ultima_interacao_enova)}</span>
+                    </div>
+                    <div className={styles.detailItem}>
+                      <span className={styles.detailLabel}>Ultima edição admin</span>
+                      <span className={styles.detailValue}>{"—"}</span>
+                    </div>
                     {selectedLead.ultima_msg_recebida_raw && (
                       <div className={styles.detailItemFull}>
-                        <span className={styles.detailLabel}>Ultima Msg Recebida</span>
+                        <span className={styles.detailLabel}>Ultima msg recebida (raw)</span>
                         <span className={styles.detailValue}>{selectedLead.ultima_msg_recebida_raw}</span>
                       </div>
                     )}
                   </div>
+                </div>
+
+                {/* Historico do Lead */}
+                <div className={styles.detailBlock}>
+                  <button
+                    type="button"
+                    className={styles.historyToggle}
+                    onClick={() => setHistoryOpen((prev) => !prev)}
+                    aria-expanded={historyOpen}
+                  >
+                    <span className={styles.historyToggleLabel}>Histórico do Lead</span>
+                    <span className={`${styles.historyToggleChevron} ${historyOpen ? styles.historyToggleChevronOpen : ""}`}>›</span>
+                  </button>
+                  {historyOpen && (() => {
+                    const events = buildLeadHistory(selectedLead);
+                    return events.length === 0 ? (
+                      <p className={styles.historyEmpty}>Sem eventos registrados.</p>
+                    ) : (
+                      <ol className={styles.historyTimeline}>
+                        {events.map((ev, i) => (
+                          <li key={i} className={styles.historyEvent}>
+                            <span className={styles.historyDot} />
+                            <span className={styles.historyEventLabel}>{ev.label}</span>
+                            <span className={styles.historyEventDetail}>{ev.detail}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    );
+                  })()}
                 </div>
 
                 {/* Incidente */}

@@ -16,6 +16,7 @@ CREATE OR REPLACE VIEW public.enova_attendance_v1 AS
 SELECT
   -- ── Identificação ──
   e.wa_id,
+  e.lead_id,
   e.nome,
   e.wa_id                                        AS telefone,
 

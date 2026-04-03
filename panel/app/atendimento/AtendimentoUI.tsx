@@ -1238,8 +1238,8 @@ export function AtendimentoUI() {
                       <p className={styles.historyEmpty}>Sem eventos registrados.</p>
                     ) : (
                       <ol className={styles.historyTimeline}>
-                        {events.map((ev, i) => (
-                          <li key={i} className={styles.historyEvent}>
+                        {events.map((ev) => (
+                          <li key={`${ev.ts}-${ev.label}`} className={styles.historyEvent}>
                             <span className={styles.historyDot} />
                             <span className={styles.historyEventLabel}>{ev.label}</span>
                             <span className={styles.historyEventDetail}>{ev.detail}</span>

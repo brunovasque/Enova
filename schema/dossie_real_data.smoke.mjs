@@ -199,6 +199,15 @@ const mockDataMinimo = {
 
 // ── Smoke tests ──
 
+// ── Normalização do telefone do correspondente (mirrors actions.ts normalizeCorrPhone) ──
+
+function normalizeCorrPhone(input) {
+  const digits = input.replace(/\D/g, "");
+  const withoutPrefix = digits.startsWith("55") ? digits.slice(2) : digits;
+  const withPrefix = `55${withoutPrefix}`;
+  return { withPrefix, withoutPrefix };
+}
+
 console.log("=== dossie_real_data.smoke.mjs ===");
 
 // 1. formatBRL with real value
@@ -274,4 +283,24 @@ for (const f of criticalFields) {
   assert.ok(f in mockDataMinimo, `mockDataMinimo has field ${f}`);
 }
 
-console.log("✅ All 20 smoke tests passed.");
+// 21. normalizeCorrPhone: entrada sem 55 → withPrefix tem 55, withoutPrefix não tem
+{
+  const { withPrefix, withoutPrefix } = normalizeCorrPhone("41997780518");
+  assert.equal(withPrefix, "5541997780518", "normalizeCorrPhone: withPrefix adds 55");
+  assert.equal(withoutPrefix, "41997780518", "normalizeCorrPhone: withoutPrefix strips nothing");
+}
+
+// 22. normalizeCorrPhone: entrada com 55 → withPrefix mantém 55, withoutPrefix remove
+{
+  const { withPrefix, withoutPrefix } = normalizeCorrPhone("5541997780518");
+  assert.equal(withPrefix, "5541997780518", "normalizeCorrPhone: withPrefix keeps 55");
+  assert.equal(withoutPrefix, "41997780518", "normalizeCorrPhone: withoutPrefix strips 55");
+}
+
+// 23. normalizeCorrPhone: entrada com traços/espaços → apenas dígitos
+{
+  const { withPrefix } = normalizeCorrPhone("(41) 99778-0518");
+  assert.equal(withPrefix, "5541997780518", "normalizeCorrPhone: strips non-digits");
+}
+
+console.log("✅ All 23 smoke tests passed.");

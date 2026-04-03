@@ -609,7 +609,7 @@ export async function runBasesAction(
       const savedRows = await upsertLeadMetaRows(supabaseUrl, serviceRoleKey, [row]);
       const savedRow = savedRows[0] ?? null;
       await upsertEnovaStateSourceType(supabaseUrl, serviceRoleKey, [
-        { wa_id: row.wa_id, source_type: sourceType, nome: row.nome ?? undefined },
+        { wa_id: row.wa_id, source_type: sourceType, nome: row.nome },
       ]);
       await insertAuditLogs(supabaseUrl, serviceRoleKey, [
         buildAuditRow(row.wa_id, "bases_add_lead_manual", "Lead adicionado manualmente em Bases", {

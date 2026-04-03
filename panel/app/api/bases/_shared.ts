@@ -55,6 +55,7 @@ type NormalizeLeadMetaOptions = {
 export type WarmupSelectionOptions = {
   lead_pool?: LeadPool | null;
   lead_temp?: LeadTemp | null;
+  lead_source?: string | null;
   limit?: number;
 };
 
@@ -246,6 +247,9 @@ export function buildWarmupSelection(
     if (options.lead_temp && row.lead_temp !== options.lead_temp) {
       return false;
     }
+    if (options.lead_source && row.lead_source !== options.lead_source) {
+      return false;
+    }
     return true;
   });
 
@@ -345,6 +349,10 @@ async function loadWarmupCandidates(
   }
   if (payload.lead_temp && isLeadTemp(payload.lead_temp)) {
     endpoint.searchParams.set("lead_temp", `eq.${payload.lead_temp}`);
+  }
+  const leadSource = normalizeOptionalText(payload.lead_source);
+  if (leadSource) {
+    endpoint.searchParams.set("lead_source", `eq.${leadSource}`);
   }
 
   const response = await fetch(endpoint, {
@@ -746,10 +754,12 @@ export async function runBasesAction(
     }
 
     if (action === "warmup_base") {
+      const leadSource = normalizeOptionalText(payload.lead_source) ?? null;
       const candidates = await loadWarmupCandidates(supabaseUrl, serviceRoleKey, payload);
       const selection = buildWarmupSelection(candidates, {
         lead_pool: payload.lead_pool && isLeadPool(payload.lead_pool) ? payload.lead_pool : null,
         lead_temp: payload.lead_temp && isLeadTemp(payload.lead_temp) ? payload.lead_temp : null,
+        lead_source: leadSource,
         limit: payload.limit,
       });
 
@@ -760,6 +770,7 @@ export async function runBasesAction(
                 dispatch_mode: "selection_only",
                 lead_pool: row.lead_pool,
                 lead_temp: row.lead_temp,
+                lead_source: leadSource,
                 import_ref: row.import_ref,
                 limit: clampWarmupLimit(payload.limit),
               }),
@@ -771,6 +782,7 @@ export async function runBasesAction(
                   payload.lead_pool && isLeadPool(payload.lead_pool) ? payload.lead_pool : null,
                 lead_temp:
                   payload.lead_temp && isLeadTemp(payload.lead_temp) ? payload.lead_temp : null,
+                lead_source: leadSource,
                 limit: clampWarmupLimit(payload.limit),
                 selected_count: 0,
               }),
@@ -846,6 +858,11 @@ export async function runBasesAction(
               status_operacional: "AGUARDANDO_RETORNO",
               updated_at: contactedAt,
             });
+            if (existing?.lead_source) {
+              await upsertEnovaStateSourceType(supabaseUrl, serviceRoleKey, [
+                { wa_id: waId, source_type: canonicalSourceType(existing.lead_source) },
+              ]);
+            }
           }
         } catch (dispatchErr) {
           console.error("[warmup_dispatch] failed to dispatch wa_id:", waId, dispatchErr);

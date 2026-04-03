@@ -98,9 +98,9 @@ function classifyForbiddenPromise(match) {
 function replaceForbiddenPromises(text) {
   let result = text;
   for (const pattern of FORBIDDEN_PROMISE_PATTERNS) {
-    // Reset lastIndex for global patterns
-    pattern.lastIndex = 0;
-    result = result.replace(pattern, (match) => {
+    // Create fresh RegExp to avoid lastIndex mutation on shared frozen patterns
+    const fresh = new RegExp(pattern.source, pattern.flags);
+    result = result.replace(fresh, (match) => {
       const category = classifyForbiddenPromise(match);
       return SAFE_REPLACEMENT_MAP[category] || SAFE_REPLACEMENT_MAP.aprovacao;
     });
@@ -198,8 +198,9 @@ export function applyFinalSpeechContract(reply, context = {}) {
 export function hasForbiddenPromise(text) {
   if (!text || typeof text !== "string") return false;
   for (const pattern of FORBIDDEN_PROMISE_PATTERNS) {
-    pattern.lastIndex = 0;
-    if (pattern.test(text)) return true;
+    // Create fresh RegExp to avoid lastIndex mutation on shared patterns
+    const fresh = new RegExp(pattern.source, pattern.flags);
+    if (fresh.test(text)) return true;
   }
   return false;
 }
@@ -211,8 +212,9 @@ export function hasForbiddenPromise(text) {
  */
 export function containsCasaInsteadOfImovel(text) {
   if (!text || typeof text !== "string") return false;
-  CASA_PATTERN.lastIndex = 0;
-  return CASA_PATTERN.test(text);
+  // Create fresh RegExp to avoid lastIndex mutation on shared pattern
+  const fresh = new RegExp(CASA_PATTERN.source, CASA_PATTERN.flags);
+  return fresh.test(text);
 }
 
 /**

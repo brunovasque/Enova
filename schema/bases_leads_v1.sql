@@ -31,6 +31,9 @@ SELECT
   m.ultima_acao,
   m.ultimo_contato_at,
   m.status_operacional,
+  -- arquivamento (independente de is_paused)
+  m.is_archived,
+  m.archived_at,
 
   -- ── INCIDENTE ABERTO (read-only — fonte: enova_attendance_meta) ──
   a.has_open_incident                  AS tem_incidente_aberto,

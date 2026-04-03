@@ -25,6 +25,9 @@ type CrmLeadMetaRow = {
   ultima_acao: string | null;
   ultimo_contato_at: string | null;
   status_operacional: string | null;
+  // Arquivamento — colunas próprias, independentes de is_paused
+  is_archived: boolean;
+  archived_at: string | null;
   // Incidente aberto — lido de enova_attendance_meta via bases_leads_v1
   tem_incidente_aberto: boolean | null;
   tipo_incidente: string | null;
@@ -158,11 +161,13 @@ function onStatKeyDown(event: React.KeyboardEvent<HTMLDivElement>, onActivate: (
 
 export function BasesUI() {
   const [activeBase, setActiveBase] = useState<BaseType>("fria");
+  const [showArchived, setShowArchived] = useState(false);
   const [leadsByBase, setLeadsByBase] = useState<Record<BaseType, CrmLeadMetaRow[]>>({
     fria: [],
     morna: [],
     quente: [],
   });
+  const [archivedLeads, setArchivedLeads] = useState<CrmLeadMetaRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -173,6 +178,7 @@ export function BasesUI() {
   const [showWarmupModal, setShowWarmupModal] = useState(false);
   const [callNowTarget, setCallNowTarget] = useState<CrmLeadMetaRow | null>(null);
   const [moveTarget, setMoveTarget] = useState<CrmLeadMetaRow | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<CrmLeadMetaRow | null>(null);
   const [editingObsWaId, setEditingObsWaId] = useState<string | null>(null);
   const [editingObsText, setEditingObsText] = useState("");
   const [busyStatusWaId, setBusyStatusWaId] = useState<string | null>(null);
@@ -217,23 +223,35 @@ export function BasesUI() {
     return data.leads ?? [];
   }, []);
 
+  const fetchArchivedLeads = useCallback(async (): Promise<CrmLeadMetaRow[]> => {
+    const res = await fetch("/api/bases?archived=true&limit=200", { cache: "no-store" });
+    const data = (await res.json()) as ApiLeadsPayload;
+    if (!data.ok) {
+      throw new Error(data.error ?? "Erro ao carregar arquivados");
+    }
+    return data.leads ?? [];
+  }, []);
+
   const refreshLeads = useCallback(async () => {
     setLoading(true);
     setLoadError(null);
     try {
-      const [cold, warm, hot] = await Promise.all([
+      const [cold, warm, hot, archived] = await Promise.all([
         fetchLeadsForPool("COLD_POOL"),
         fetchLeadsForPool("WARM_POOL"),
         fetchLeadsForPool("HOT_POOL"),
+        fetchArchivedLeads(),
       ]);
       setLeadsByBase({ fria: cold, morna: warm, quente: hot });
+      setArchivedLeads(archived);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "Não foi possível carregar os leads");
       setLeadsByBase({ fria: [], morna: [], quente: [] });
+      setArchivedLeads([]);
     } finally {
       setLoading(false);
     }
-  }, [fetchLeadsForPool]);
+  }, [fetchLeadsForPool, fetchArchivedLeads]);
 
   useEffect(() => {
     void refreshLeads();
@@ -246,12 +264,13 @@ export function BasesUI() {
       if (showAddModal) { setShowAddModal(false); return; }
       if (showImportModal) { setShowImportModal(false); return; }
       if (showWarmupModal) { setShowWarmupModal(false); return; }
+      if (archiveTarget) { setArchiveTarget(null); return; }
       if (moveTarget) { setMoveTarget(null); return; }
       if (callNowTarget) { setCallNowTarget(null); return; }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [showAddModal, showImportModal, showWarmupModal, moveTarget, callNowTarget]);
+  }, [showAddModal, showImportModal, showWarmupModal, archiveTarget, moveTarget, callNowTarget]);
 
   const callAction = useCallback(async (payload: Record<string, unknown>): Promise<ApiActionPayload | null> => {
     try {
@@ -285,11 +304,15 @@ export function BasesUI() {
       fria: leadsByBase.fria.length,
       morna: leadsByBase.morna.length,
       quente: leadsByBase.quente.length,
+      arquivados: archivedLeads.length,
     }),
-    [leadsByBase],
+    [leadsByBase, archivedLeads],
   );
 
-  const activeLeads = useMemo(() => leadsByBase[activeBase], [leadsByBase, activeBase]);
+  const activeLeads = useMemo(
+    () => (showArchived ? archivedLeads : leadsByBase[activeBase]),
+    [leadsByBase, archivedLeads, showArchived, activeBase],
+  );
 
   const filterOptions = useMemo(() => {
     return {
@@ -490,6 +513,21 @@ export function BasesUI() {
     setCallNowTarget(null);
   };
 
+  const handleArchiveLead = async (lead: CrmLeadMetaRow) => {
+    await runAndRefresh(
+      async () => callAction({ action: "archive_lead", wa_id: lead.wa_id }),
+      `Lead ${leadLabel(lead)} arquivado.`,
+    );
+    setArchiveTarget(null);
+  };
+
+  const handleUnarchiveLead = async (lead: CrmLeadMetaRow) => {
+    await runAndRefresh(
+      async () => callAction({ action: "unarchive_lead", wa_id: lead.wa_id }),
+      `Lead ${leadLabel(lead)} desarquivado.`,
+    );
+  };
+
   const handleUpdateObs = useCallback(
     async (lead: CrmLeadMetaRow, newObs: string) => {
       const result = await callAction({ action: "update_obs", wa_id: lead.wa_id, obs_curta: newObs });
@@ -617,9 +655,9 @@ export function BasesUI() {
         <div className={styles.statsBar}>
           <div className={styles.statsGroup}>
             <div
-              className={`${styles.statItem} ${activeBase === "fria" ? styles.statItemActive : ""}`}
-              onClick={() => setActiveBase("fria")}
-              onKeyDown={(event) => onStatKeyDown(event, () => setActiveBase("fria"))}
+              className={`${styles.statItem} ${!showArchived && activeBase === "fria" ? styles.statItemActive : ""}`}
+              onClick={() => { setActiveBase("fria"); setShowArchived(false); }}
+              onKeyDown={(event) => onStatKeyDown(event, () => { setActiveBase("fria"); setShowArchived(false); })}
               role="button"
               tabIndex={0}
             >
@@ -628,9 +666,9 @@ export function BasesUI() {
             </div>
             <div className={styles.statDivider} />
             <div
-              className={`${styles.statItem} ${activeBase === "morna" ? styles.statItemActive : ""}`}
-              onClick={() => setActiveBase("morna")}
-              onKeyDown={(event) => onStatKeyDown(event, () => setActiveBase("morna"))}
+              className={`${styles.statItem} ${!showArchived && activeBase === "morna" ? styles.statItemActive : ""}`}
+              onClick={() => { setActiveBase("morna"); setShowArchived(false); }}
+              onKeyDown={(event) => onStatKeyDown(event, () => { setActiveBase("morna"); setShowArchived(false); })}
               role="button"
               tabIndex={0}
             >
@@ -639,14 +677,25 @@ export function BasesUI() {
             </div>
             <div className={styles.statDivider} />
             <div
-              className={`${styles.statItem} ${activeBase === "quente" ? styles.statItemActive : ""}`}
-              onClick={() => setActiveBase("quente")}
-              onKeyDown={(event) => onStatKeyDown(event, () => setActiveBase("quente"))}
+              className={`${styles.statItem} ${!showArchived && activeBase === "quente" ? styles.statItemActive : ""}`}
+              onClick={() => { setActiveBase("quente"); setShowArchived(false); }}
+              onKeyDown={(event) => onStatKeyDown(event, () => { setActiveBase("quente"); setShowArchived(false); })}
               role="button"
               tabIndex={0}
             >
               <span className={styles.statLabel}>Base Quente</span>
               <span className={styles.statValue}>{baseCounts.quente}</span>
+            </div>
+            <div className={styles.statDivider} />
+            <div
+              className={`${styles.statItem} ${showArchived ? styles.statItemActive : ""}`}
+              onClick={() => setShowArchived(true)}
+              onKeyDown={(event) => onStatKeyDown(event, () => setShowArchived(true))}
+              role="button"
+              tabIndex={0}
+            >
+              <span className={styles.statLabel}>Arquivados</span>
+              <span className={styles.statValue}>{baseCounts.arquivados}</span>
             </div>
           </div>
           <div className={styles.statsSummary}>
@@ -669,16 +718,24 @@ export function BasesUI() {
                 <button
                   type="button"
                   key={base}
-                  className={`${styles.tab} ${activeBase === base ? styles.tabActive : ""}`}
-                  onClick={() => setActiveBase(base)}
+                  className={`${styles.tab} ${!showArchived && activeBase === base ? styles.tabActive : ""}`}
+                  onClick={() => { setActiveBase(base); setShowArchived(false); }}
                 >
                   <span className={styles.tabLabel}>Base {base.charAt(0).toUpperCase() + base.slice(1)}</span>
                   <span className={styles.tabCount}>{baseCounts[base]}</span>
                 </button>
               ))}
+              <button
+                type="button"
+                className={`${styles.tab} ${showArchived ? styles.tabActive : ""}`}
+                onClick={() => setShowArchived(true)}
+              >
+                <span className={styles.tabLabel}>Arquivados</span>
+                <span className={styles.tabCount}>{baseCounts.arquivados}</span>
+              </button>
             </div>
 
-            {activeBase !== "quente" && (
+            {!showArchived && activeBase !== "quente" && (
               <button
                 type="button"
                 className={styles.heatBatchButton}
@@ -772,8 +829,9 @@ export function BasesUI() {
             </div>
 
             <div className={styles.resultsInfo}>
-              {filteredLeads.length} de {baseCounts[activeBase]} leads
-              {hasActiveFilters && " (filtrado)"}
+              {showArchived
+                ? `${archivedLeads.length} leads arquivados`
+                : `${filteredLeads.length} de ${baseCounts[activeBase]} leads${hasActiveFilters ? " (filtrado)" : ""}`}
             </div>
           </div>
 
@@ -800,6 +858,88 @@ export function BasesUI() {
                   Tentar novamente
                 </button>
               </div>
+            ) : showArchived ? (
+              archivedLeads.length === 0 ? (
+                <div className={styles.emptyState}>
+                  <div className={styles.emptyIcon}>○</div>
+                  <p className={styles.emptyTitle}>Nenhum lead arquivado</p>
+                  <p className={styles.emptySubtitle}>Leads arquivados aparecem aqui</p>
+                </div>
+              ) : (
+                archivedLeads.map((lead) => {
+                  const rowBase = POOL_TO_BASE[lead.lead_pool];
+                  const badgeClass =
+                    rowBase === "fria"
+                      ? styles.baseBadgeFria
+                      : rowBase === "morna"
+                        ? styles.baseBadgeMorna
+                        : styles.baseBadgeQuente;
+                  return (
+                    <div key={lead.wa_id} className={`${styles.leadRow} ${styles.leadRowArchived}`}>
+                      <div className={styles.colNome}>
+                        <span className={styles.leadName}>{lead.nome ?? lead.wa_id}</span>
+                        <span className={styles.leadPhone}>{lead.telefone ?? lead.wa_id}</span>
+                      </div>
+                      <div className={styles.colOrigem}>
+                        <span className={styles.leadOrigin}>{lead.lead_source ?? "—"}</span>
+                        {(lead.tags ?? []).length > 0 && (
+                          <div className={styles.tagsContainer}>
+                            {(lead.tags ?? []).slice(0, 2).map((tag) => (
+                              <span key={tag} className={styles.tag}>{tag}</span>
+                            ))}
+                            {(lead.tags ?? []).length > 2 && (
+                              <span className={styles.tagMore}>+{(lead.tags ?? []).length - 2}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className={styles.colObservacao}>
+                        <span className={styles.leadObs}>{lead.obs_curta ?? "—"}</span>
+                      </div>
+                      <div className={styles.colBase}>
+                        <span className={`${styles.baseBadge} ${badgeClass}`}>
+                          {rowBase.charAt(0).toUpperCase() + rowBase.slice(1)}
+                        </span>
+                      </div>
+                      <div className={styles.colStatus}>
+                        <span className={styles.statusPaused}>
+                          <span className={styles.statusDot} />
+                          Arquivado
+                        </span>
+                      </div>
+                      <div className={styles.colEntrada}>
+                        <span className={styles.entradaBadge}>{lead.import_ref ?? "Manual"}</span>
+                      </div>
+                      <div className={styles.colAcoes}>
+                        <button
+                          type="button"
+                          className={styles.actionBtn}
+                          onClick={() => openCallNowModal(lead)}
+                          disabled={actionBusy}
+                        >
+                          Chamar
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.actionBtn}
+                          onClick={() => openMoveModal(lead)}
+                          disabled={actionBusy}
+                        >
+                          Mover
+                        </button>
+                        <button
+                          type="button"
+                          className={`${styles.actionBtn} ${styles.actionBtnUnarchive}`}
+                          onClick={() => void handleUnarchiveLead(lead)}
+                          disabled={actionBusy}
+                        >
+                          Desarquivar
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )
             ) : filteredLeads.length === 0 ? (
               <div className={styles.emptyState}>
                 <div className={styles.emptyIcon}>○</div>
@@ -953,6 +1093,14 @@ export function BasesUI() {
                         disabled={actionBusy}
                       >
                         {lead.is_paused ? "Retomar" : "Pausar"}
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.actionBtn} ${styles.actionBtnArchive}`}
+                        onClick={() => setArchiveTarget(lead)}
+                        disabled={actionBusy}
+                      >
+                        Arquivar
                       </button>
                     </div>
                   </div>
@@ -1335,6 +1483,39 @@ export function BasesUI() {
                   Cancelar
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {archiveTarget && (
+        <div className={styles.overlay} onClick={() => setArchiveTarget(null)}>
+          <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <h2 className={styles.modalTitle}>Arquivar lead</h2>
+              <button type="button" className={styles.closeButton} onClick={() => setArchiveTarget(null)}>
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                  <path d="M1 1L13 13M1 13L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+            <div className={styles.modalContent}>
+              <div className={styles.formHint}>
+                Arquivar <strong>{leadLabel(archiveTarget)}</strong>? O lead será ocultado das listas normais e
+                ficará disponível na aba Arquivados.
+              </div>
+            </div>
+            <div className={styles.modalFooter}>
+              <button type="button" className={styles.secondaryButton} onClick={() => setArchiveTarget(null)}>
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className={`${styles.primaryButton} ${styles.actionBtnArchive}`}
+                disabled={actionBusy}
+                onClick={() => void handleArchiveLead(archiveTarget)}
+              >
+                Confirmar arquivamento
+              </button>
             </div>
           </div>
         </div>

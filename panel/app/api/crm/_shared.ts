@@ -289,6 +289,10 @@ export async function listCrmLeads(
   const endpoint = new URL("/rest/v1/crm_leads_v1", supabaseUrl);
   endpoint.searchParams.set("select", "*");
   endpoint.searchParams.set("order", "atualizado_em.desc.nullsfirst,wa_id.asc");
+  // Excluir leads arquivados da visão normal do CRM. Usa not.is.true para incluir
+  // leads sem crm_lead_meta (is_archived=null no LEFT JOIN) e excluir apenas os
+  // explicitamente arquivados (is_archived=true).
+  endpoint.searchParams.set("is_archived", "not.is.true");
 
   const limit = Math.max(1, Math.min(200, Number.isFinite(Number(options.limit)) ? Math.trunc(Number(options.limit)) : 50));
   endpoint.searchParams.set("limit", String(limit));

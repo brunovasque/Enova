@@ -16,6 +16,11 @@ create table if not exists public.crm_lead_meta (
   ultima_acao text,
   ultimo_contato_at timestamptz,
   status_operacional text check (status_operacional in ('SEM_CONTATO', 'CONTATADO', 'AGUARDANDO_RETORNO', 'PAUSADO')),
+  -- arquivamento (independente de is_paused — ver schema/crm_lead_meta_archived_columns.sql)
+  is_archived boolean not null default false,
+  archived_at timestamptz,
+  archive_reason_code text,
+  archive_reason_note text,
   constraint crm_lead_meta_tags_array check (jsonb_typeof(tags) = 'array')
 );
 
@@ -29,6 +34,11 @@ create table if not exists public.crm_lead_meta (
 -- alter table public.crm_lead_meta add column if not exists ultima_acao text;
 -- alter table public.crm_lead_meta add column if not exists ultimo_contato_at timestamptz;
 -- alter table public.crm_lead_meta add column if not exists status_operacional text check (status_operacional in ('SEM_CONTATO', 'CONTATADO', 'AGUARDANDO_RETORNO', 'PAUSADO'));
+-- arquivamento (rodar schema/crm_lead_meta_archived_columns.sql no Supabase):
+-- alter table public.crm_lead_meta add column if not exists is_archived boolean not null default false;
+-- alter table public.crm_lead_meta add column if not exists archived_at timestamptz;
+-- alter table public.crm_lead_meta add column if not exists archive_reason_code text;
+-- alter table public.crm_lead_meta add column if not exists archive_reason_note text;
 
 create index if not exists crm_lead_meta_pool_idx
   on public.crm_lead_meta (lead_pool);

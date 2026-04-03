@@ -165,6 +165,7 @@ LEFT JOIN public.crm_stage_history csh_analise   ON csh_analise.wa_id   = e.wa_i
 LEFT JOIN public.crm_stage_history csh_aprovado  ON csh_aprovado.wa_id  = e.wa_id AND csh_aprovado.etapa_crm  = 'APROVADO'
 LEFT JOIN public.crm_stage_history csh_reprovado ON csh_reprovado.wa_id = e.wa_id AND csh_reprovado.etapa_crm = 'REPROVADO'
 LEFT JOIN public.crm_stage_history csh_visita    ON csh_visita.wa_id    = e.wa_id AND csh_visita.etapa_crm    = 'VISITA'
+-- NOTE: 5 separate joins each resolve via UNIQUE index on (wa_id, etapa_crm) — O(log n) per join.
 WHERE (
   -- Inclui leads que já chegaram em envio_docs ou além (fonte de verdade do funil)
   e.fase_conversa IN (

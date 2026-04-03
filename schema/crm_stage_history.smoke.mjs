@@ -222,6 +222,40 @@ await test("T9: CRM_STAGE_MAP mapeia corretamente todas as fases operacionais", 
   return Promise.resolve();
 });
 
+// ─── T10: APROVADO e REPROVADO podem ser gravados diretamente ─────────────────
+// Valida o mecanismo real usado pelo worker (não via CRM_STAGE_MAP)
+await test("T10: APROVADO e REPROVADO gravados diretamente por nome de etapa", async () => {
+  const env = buildEnv("wa_t10");
+
+  // Simula sequência completa: PASTA → ANALISE → APROVADO (worker direct) → VISITA
+  await upsertCrmStageHistory(env, "wa_t10", "PASTA");
+  await upsertCrmStageHistory(env, "wa_t10", "ANALISE");
+  await upsertCrmStageHistory(env, "wa_t10", "APROVADO");   // called directly by worker
+  await upsertCrmStageHistory(env, "wa_t10", "VISITA");
+
+  const h = getHistory(env, "wa_t10");
+  assert.ok(h["APROVADO"], "APROVADO deve ser gravado por chamada direta");
+  assert.equal(h["APROVADO"].etapa_crm, "APROVADO");
+  assert.ok(h["APROVADO"].entered_at, "entered_at deve estar preenchido");
+  assert.equal(Object.keys(h).length, 4, "4 etapas devem estar registradas");
+});
+
+// ─── T11: REPROVADO pode ser gravado diretamente em paralelo a outras etapas ──
+await test("T11: REPROVADO gravado diretamente; PASTA + ANALISE continuam", async () => {
+  const env = buildEnv("wa_t11");
+
+  await upsertCrmStageHistory(env, "wa_t11", "PASTA");
+  await upsertCrmStageHistory(env, "wa_t11", "ANALISE");
+  await upsertCrmStageHistory(env, "wa_t11", "REPROVADO");   // called directly by worker
+
+  const h = getHistory(env, "wa_t11");
+  assert.ok(h["REPROVADO"], "REPROVADO deve ser gravado por chamada direta");
+  assert.equal(h["REPROVADO"].etapa_crm, "REPROVADO");
+  assert.ok(h["PASTA"], "PASTA deve permanecer registrado");
+  assert.ok(h["ANALISE"], "ANALISE deve permanecer registrado");
+  assert.equal(Object.keys(h).length, 3);
+});
+
 // ─── Resultado ───────────────────────────────────────────────────────────────
 console.log(`\ncrm_stage_history.smoke.mjs — ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

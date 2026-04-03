@@ -694,7 +694,7 @@ export function AtendimentoUI() {
             <span>Pendencia</span>
             <span>Atencao</span>
             <span>Base</span>
-            <span>Prazo</span>
+            <span>Follow up</span>
           </div>
 
           <div className={styles.leadsTable}>
@@ -1135,7 +1135,7 @@ export function AtendimentoUI() {
                       <span className={styles.detailValueHighlight}>{selectedLead.dono_pendencia ?? "—"}</span>
                     </div>
                     <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Prazo Proxima Acao</span>
+                      <span className={styles.detailLabel}>Follow up</span>
                       <span className={
                         isPrazoVencido(selectedLead.prazo_proxima_acao)
                           ? styles.detailValueDanger

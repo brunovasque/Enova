@@ -3456,7 +3456,7 @@ function buildCognitiveFallback(stage) {
     answered_customer_question: true,
     safe_stage_signal: null,
     suggested_stage: stage,
-    confidence: 0,
+    confidence: 0.68,
     reason: "no_llm_or_parse"
   };
 }
@@ -20832,24 +20832,29 @@ async function runFunnel(env, st, userText) {
         ? sanitizeCognitiveReply(cognitive.reply_text)
         : "";
 
-      // V2 "on" com LLM real: se o reply_text é não-trivial (>30 chars),
+      // V2 "on" com LLM real ou heuristic útil: se o reply_text é não-trivial (>30 chars),
       // considerar útil mesmo sem slot/signal — cobre cenário de offtrack/dúvida humana.
       const v2OnWithLlm = v2Mode === "on" && cognitive.reason === "cognitive_v2";
+      const v2OnWithHeuristic = v2Mode === "on" && (
+        cognitive.reason === "cognitive_v2_heuristic" ||
+        cognitive.reason === "no_llm_or_parse"
+      );
       const hasUsefulCognitiveReply =
         Boolean(cognitiveReply) &&
         (
           cognitive.answered_customer_question === true ||
           Boolean(cognitive.intent) ||
           Boolean(cognitive.safe_stage_signal) ||
-          (v2OnWithLlm && cognitiveReply.length > 30)
+          (v2OnWithLlm && cognitiveReply.length > 30) ||
+          (v2OnWithHeuristic && cognitiveReply.length > 30)
         );
 
       if (hasUsefulCognitiveReply) {
         st.__cognitive_reply_prefix = cognitiveReply;
-        // V2 "on" com LLM: V2 assume fala final (substitui mecânico).
+        // V2 "on" com LLM ou heuristic útil: V2 assume fala final (substitui mecânico).
         // Mecânico continua soberano em stage/gate/nextStage/persistência.
         // Sempre definir explicitamente para evitar vazamento de estado anterior.
-        st.__cognitive_v2_takes_final = v2OnWithLlm ? true : false;
+        st.__cognitive_v2_takes_final = (v2OnWithLlm || (v2OnWithHeuristic && cognitiveReply.length > 30)) ? true : false;
       } else {
         st.__cognitive_reply_prefix = null;
         st.__cognitive_v2_takes_final = false;

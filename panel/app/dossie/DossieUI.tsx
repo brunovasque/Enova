@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import styles from "./dossie.module.css";
 import { fetchDossieDataAction } from "./actions";
-import type { DossieData, DocItem, ParticipantItem } from "./actions";
+import type { DossieData, DocItem } from "./actions";
 
 // ── Helpers de apresentação ──
 
@@ -189,9 +189,6 @@ function deriveTipoProcesso(data: DossieData): string {
 }
 
 function deriveParticipantesTotal(data: DossieData): number {
-  if (data.dossie_participantes && data.dossie_participantes.length > 0) {
-    return data.dossie_participantes.length;
-  }
   const c = data.composicao_pessoa?.toLowerCase();
   if (!c || c === "solo" || c === "solteiro" || c === "individual") return 1;
   if (c === "casal" || c === "conjuge" || c.includes("parceiro")) return 2;
@@ -205,7 +202,7 @@ function derivePendenciasTotal(data: DossieData): number {
 }
 
 function deriveProntoPreAnalise(data: DossieData): boolean {
-  return data.envio_docs_status === "completo";
+  return data.docs_status === "completo";
 }
 
 function deriveRendaTotal(data: DossieData): number | null {
@@ -391,16 +388,10 @@ function DossieContent({ data }: { data: DossieData }) {
     return styles.badgeMedia;
   })();
 
-  // Determine whether we have structured participants (2+)
-  const hasStructuredParticipants =
-    data.dossie_participantes !== null && data.dossie_participantes.length >= 2;
-
-  // Fallback parceiro: no structured participants but parceiro fields exist
+  // Fallback parceiro: show partner section when partner fields exist
   const hasFallbackParceiro =
-    !hasStructuredParticipants &&
-    (data.renda_parceiro !== null ||
-      data.ctps_36_parceiro !== null ||
-      data.restricao_parceiro !== null);
+    data.renda_parceiro !== null ||
+    data.ctps_36_parceiro !== null;
 
   return (
     <div className={styles.container}>
@@ -504,8 +495,8 @@ function DossieContent({ data }: { data: DossieData }) {
             </div>
             <div className={styles.metricItem}>
               <span className={styles.metricLabel}>Status documental</span>
-              <span className={`${styles.metricValue} ${data.envio_docs_status === "completo" ? styles.metricPositive : styles.metricNeutral}`}>
-                {data.envio_docs_status ?? "—"}
+              <span className={`${styles.metricValue} ${data.docs_status === "completo" ? styles.metricPositive : styles.metricNeutral}`}>
+                {data.docs_status ?? "—"}
               </span>
             </div>
             <div className={styles.metricItem}>
@@ -597,52 +588,6 @@ function DossieContent({ data }: { data: DossieData }) {
             )}
           </div>
 
-          {/* Participantes estruturados (when 2+) */}
-          {hasStructuredParticipants && (
-            <div className={styles.participantesSection}>
-              <div className={styles.participantesTitle}>
-                <UsersIcon />
-                Participantes ({data.dossie_participantes!.length})
-              </div>
-              <div className={styles.participantesGrid}>
-                {data.dossie_participantes!.map((p: ParticipantItem, idx: number) => (
-                  <div key={p.id ?? idx} className={styles.participanteCard}>
-                    <div className={styles.participanteHeader}>
-                      <span className={styles.participantePapel}>{papelLabel(p.papel)}</span>
-                      {p.id && <span className={styles.participanteId}>{p.id}</span>}
-                    </div>
-                    <div className={styles.participanteGrid}>
-                      <div className={styles.participanteField}>
-                        <span className={styles.participanteFieldLabel}>Regime</span>
-                        <span className={styles.participanteFieldValue}>{p.regime_trabalho ?? "—"}</span>
-                      </div>
-                      <div className={styles.participanteField}>
-                        <span className={styles.participanteFieldLabel}>Renda</span>
-                        <span className={styles.participanteFieldValue}>{formatBRL(p.renda)}</span>
-                      </div>
-                      <div className={styles.participanteField}>
-                        <span className={styles.participanteFieldLabel}>CTPS ≥ 36m</span>
-                        <span className={styles.participanteFieldValue}>{boolLabel(p.ctps_36)}</span>
-                      </div>
-                      <div className={styles.participanteField}>
-                        <span className={styles.participanteFieldLabel}>Dependente</span>
-                        <span className={styles.participanteFieldValue}>{boolLabel(p.dependente)}</span>
-                      </div>
-                      <div className={styles.participanteField}>
-                        <span className={styles.participanteFieldLabel}>IR Autônomo</span>
-                        <span className={styles.participanteFieldValue}>{boolLabel(p.ir_autonomo)}</span>
-                      </div>
-                      <div className={styles.participanteField}>
-                        <span className={styles.participanteFieldLabel}>Restrição</span>
-                        <span className={styles.participanteFieldValue}>{boolLabel(p.restricao)}</span>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
           {/* Fallback parceiro */}
           {hasFallbackParceiro && (
             <div className={styles.participantesSection}>
@@ -661,12 +606,6 @@ function DossieContent({ data }: { data: DossieData }) {
                   <div className={styles.perfilItem}>
                     <span className={styles.perfilLabel}>CTPS ≥ 36m parceiro</span>
                     <span className={styles.perfilValue}>{boolLabel(data.ctps_36_parceiro)}</span>
-                  </div>
-                )}
-                {data.restricao_parceiro !== null && (
-                  <div className={styles.perfilItem}>
-                    <span className={styles.perfilLabel}>Restrição parceiro</span>
-                    <span className={styles.perfilValue}>{restrictionLabel(data.restricao_parceiro)}</span>
                   </div>
                 )}
               </div>
@@ -777,13 +716,13 @@ function DossieContent({ data }: { data: DossieData }) {
             <div className={styles.retornoFlagItem}>
               <span className={styles.retornoFlagLabel}>Valor financiamento</span>
               <span className={styles.retornoFlagValue}>
-                {formatBRL(data.retorno_correspondente_valor_financiamento)}
+                {formatBRL(data.valor_financiamento_aprovado)}
               </span>
             </div>
             <div className={styles.retornoFlagItem}>
               <span className={styles.retornoFlagLabel}>Subsídio federal</span>
               <span className={styles.retornoFlagValue}>
-                {formatBRL(data.retorno_correspondente_valor_subsidio_federal)}
+                {formatBRL(data.valor_subsidio_aprovado)}
               </span>
             </div>
             <div className={styles.retornoFlagItem}>

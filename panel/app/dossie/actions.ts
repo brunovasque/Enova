@@ -13,17 +13,6 @@ export type DocItem = {
   participante: string | null;
 };
 
-export type ParticipantItem = {
-  id: string | null;
-  papel: string | null;
-  regime_trabalho: string | null;
-  renda: number | null;
-  ctps_36: boolean | null;
-  dependente: boolean | null;
-  restricao: boolean | null;
-  ir_autonomo: boolean | null;
-};
-
 export type DossieData = {
   // Identificação (meta do dossiê real)
   wa_id: string;
@@ -51,7 +40,6 @@ export type DossieData = {
   dependente: boolean | null;
   dependentes_qtd: number | null;
   restricao: string | null;
-  restricao_parceiro: string | null;
   regularizacao_restricao: string | null;
 
   // Correspondente (enova_state)
@@ -62,18 +50,12 @@ export type DossieData = {
   retorno_correspondente_status: string | null;
   retorno_correspondente_motivo: string | null;
   retorno_correspondente_bruto: string | null;
-  retorno_correspondente_valor_financiamento: number | null;
-  retorno_correspondente_valor_subsidio_federal: number | null;
 
   // Docs (enova_state)
   docs_status: string | null;
-  envio_docs_status: string | null;
   docs_itens_recebidos: DocItem[] | null;
   docs_itens_pendentes: DocItem[] | null;
   docs_faltantes: DocItem[] | null;
-
-  // Participantes estruturados (enova_state — dossie_participantes_json)
-  dossie_participantes: ParticipantItem[] | null;
 
   // CRM data (crm_leads_v1 — read-only)
   correspondente_retorno: string | null;
@@ -189,7 +171,6 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
       "dependente",
       "dependentes_qtd",
       "restricao",
-      "restricao_parceiro",
       "regularizacao_restricao",
       // Correspondente
       "corr_lock_correspondente_wa_id",
@@ -199,16 +180,11 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
       "retorno_correspondente_status",
       "retorno_correspondente_motivo",
       "retorno_correspondente_bruto",
-      "retorno_correspondente_valor_financiamento",
-      "retorno_correspondente_valor_subsidio_federal",
       // Docs
       "docs_status",
-      "envio_docs_status",
       "docs_itens_recebidos",
       "docs_itens_pendentes",
       "docs_faltantes",
-      // Participantes estruturados
-      "dossie_participantes_json",
     ].join(",");
 
     const stateEndpoint = new URL("/rest/v1/enova_state", supabaseUrl);
@@ -333,7 +309,6 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
       dependente: safeBool(stateRow.dependente),
       dependentes_qtd: safeNumber(stateRow.dependentes_qtd),
       restricao: safeString(stateRow.restricao),
-      restricao_parceiro: safeString(stateRow.restricao_parceiro),
       regularizacao_restricao: safeString(stateRow.regularizacao_restricao),
 
       // Correspondente
@@ -344,18 +319,12 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
       retorno_correspondente_status: safeString(stateRow.retorno_correspondente_status),
       retorno_correspondente_motivo: safeString(stateRow.retorno_correspondente_motivo),
       retorno_correspondente_bruto: safeString(stateRow.retorno_correspondente_bruto),
-      retorno_correspondente_valor_financiamento: safeNumber(stateRow.retorno_correspondente_valor_financiamento),
-      retorno_correspondente_valor_subsidio_federal: safeNumber(stateRow.retorno_correspondente_valor_subsidio_federal),
 
       // Docs
       docs_status: safeString(stateRow.docs_status),
-      envio_docs_status: safeString(stateRow.envio_docs_status),
       docs_itens_recebidos: safeArray<DocItem>(stateRow.docs_itens_recebidos),
       docs_itens_pendentes: safeArray<DocItem>(stateRow.docs_itens_pendentes),
       docs_faltantes: safeArray<DocItem>(stateRow.docs_faltantes),
-
-      // Participantes estruturados
-      dossie_participantes: safeArray<ParticipantItem>(stateRow.dossie_participantes_json),
 
       // CRM
       correspondente_retorno: safeString(crmRow?.correspondente_retorno),

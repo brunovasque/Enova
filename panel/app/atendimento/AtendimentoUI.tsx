@@ -135,6 +135,7 @@ function formatDate(dateStr: string | null): string {
       day: "2-digit",
       month: "2-digit",
       year: "2-digit",
+      timeZone: "America/Sao_Paulo",
     }).format(new Date(dateStr));
   } catch {
     return "—";
@@ -149,6 +150,7 @@ function formatDateTime(dateStr: string | null): string {
       month: "2-digit",
       hour: "2-digit",
       minute: "2-digit",
+      timeZone: "America/Sao_Paulo",
     }).format(new Date(dateStr));
   } catch {
     return "—";
@@ -245,32 +247,35 @@ function getIncidenteBadgeClass(severidade: string | null): string {
 
 type LeadHistoryEvent = {
   ts: number;
+  order: number;
   label: string;
   detail: string;
 };
 
+// Tie-breaking precedence for events sharing the same timestamp:
+// 1=criado, 2=base, 3=fase, 4=enova, 5=cliente
 function buildLeadHistory(lead: AttendanceRow): LeadHistoryEvent[] {
   const events: LeadHistoryEvent[] = [];
 
   if (lead.criado_em) {
-    events.push({ ts: new Date(lead.criado_em).getTime(), label: "Lead criado", detail: formatDateTime(lead.criado_em) });
+    events.push({ ts: new Date(lead.criado_em).getTime(), order: 1, label: "Lead criado", detail: formatDateTime(lead.criado_em) });
   }
   if (lead.movido_base_em && lead.base_atual) {
-    events.push({ ts: new Date(lead.movido_base_em).getTime(), label: `Base: ${getBaseLabel(lead.base_atual)}`, detail: formatDateTime(lead.movido_base_em) });
+    events.push({ ts: new Date(lead.movido_base_em).getTime(), order: 2, label: `Base: ${getBaseLabel(lead.base_atual)}`, detail: formatDateTime(lead.movido_base_em) });
   }
   if (lead.movido_fase_em && lead.fase_atendimento) {
-    events.push({ ts: new Date(lead.movido_fase_em).getTime(), label: `Fase: ${lead.fase_atendimento}`, detail: formatDateTime(lead.movido_fase_em) });
+    events.push({ ts: new Date(lead.movido_fase_em).getTime(), order: 3, label: `Fase: ${lead.fase_atendimento}`, detail: formatDateTime(lead.movido_fase_em) });
   }
   if (lead.ultima_interacao_enova) {
-    events.push({ ts: new Date(lead.ultima_interacao_enova).getTime(), label: "Ultima interação Enova", detail: formatDateTime(lead.ultima_interacao_enova) });
+    events.push({ ts: new Date(lead.ultima_interacao_enova).getTime(), order: 4, label: "Última interação Enova", detail: formatDateTime(lead.ultima_interacao_enova) });
   }
   if (lead.ultima_interacao_cliente) {
-    events.push({ ts: new Date(lead.ultima_interacao_cliente).getTime(), label: "Ultima interação cliente", detail: formatDateTime(lead.ultima_interacao_cliente) });
+    events.push({ ts: new Date(lead.ultima_interacao_cliente).getTime(), order: 5, label: "Última interação cliente", detail: formatDateTime(lead.ultima_interacao_cliente) });
   }
   // Incidente: sem timestamp confiável disponível na view (opened_at não é exposto)
   // Não incluir na timeline para evitar ordem temporal falsa.
 
-  events.sort((a, b) => a.ts - b.ts);
+  events.sort((a, b) => a.ts - b.ts || a.order - b.order);
   return events;
 }
 
@@ -1195,24 +1200,20 @@ export function AtendimentoUI() {
                       <span className={styles.detailValue}>{formatDateTime(selectedLead.movido_base_em)}</span>
                     </div>
                     <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Ultima mudança de fase</span>
+                      <span className={styles.detailLabel}>Última mudança de fase</span>
                       <span className={styles.detailValue}>{formatDateTime(selectedLead.movido_fase_em)}</span>
                     </div>
                     <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Ultima interação cliente</span>
+                      <span className={styles.detailLabel}>Última interação cliente</span>
                       <span className={styles.detailValue}>{formatDateTime(selectedLead.ultima_interacao_cliente)}</span>
                     </div>
                     <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Ultima interação Enova</span>
+                      <span className={styles.detailLabel}>Última interação Enova</span>
                       <span className={styles.detailValue}>{formatDateTime(selectedLead.ultima_interacao_enova)}</span>
-                    </div>
-                    <div className={styles.detailItem}>
-                      <span className={styles.detailLabel}>Ultima edição admin</span>
-                      <span className={styles.detailValue}>{"—"}</span>
                     </div>
                     {selectedLead.ultima_msg_recebida_raw && (
                       <div className={styles.detailItemFull}>
-                        <span className={styles.detailLabel}>Ultima msg recebida (raw)</span>
+                        <span className={styles.detailLabel}>Última msg recebida (raw)</span>
                         <span className={styles.detailValue}>{selectedLead.ultima_msg_recebida_raw}</span>
                       </div>
                     )}
@@ -1237,7 +1238,7 @@ export function AtendimentoUI() {
                     ) : (
                       <ol className={styles.historyTimeline}>
                         {events.map((ev) => (
-                          <li key={`${ev.ts}-${ev.label}`} className={styles.historyEvent}>
+                          <li key={`${ev.ts}-${ev.order}`} className={styles.historyEvent}>
                             <span className={styles.historyDot} />
                             <span className={styles.historyEventLabel}>{ev.label}</span>
                             <span className={styles.historyEventDetail}>{ev.detail}</span>

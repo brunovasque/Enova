@@ -99,6 +99,17 @@ type CrmLeadRow = {
   tem_incidente_aberto: boolean | null;
   tipo_incidente: string | null;
   severidade_incidente: string | null;
+  // Histórico permanente de passagem por etapa CRM (crm_stage_history via crm_leads_v1)
+  pasta_entered_at: string | null;
+  pasta_last_interaction_at: string | null;
+  analise_entered_at: string | null;
+  analise_last_interaction_at: string | null;
+  aprovado_entered_at: string | null;
+  aprovado_last_interaction_at: string | null;
+  reprovado_entered_at: string | null;
+  reprovado_last_interaction_at: string | null;
+  visita_entered_at: string | null;
+  visita_last_interaction_at: string | null;
 };
 
 type ApiCrmPayload = {
@@ -177,8 +188,20 @@ function formatDate(dateStr: string | null): string {
     return new Intl.DateTimeFormat("pt-BR", {
       day: "2-digit",
       month: "2-digit",
-      year: "2-digit",
+      year: "numeric",
     }).format(new Date(dateStr));
+  } catch {
+    return "—";
+  }
+}
+
+function formatDatetime(dateStr: string | null): string {
+  if (!dateStr) return "—";
+  try {
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return "—";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
   } catch {
     return "—";
   }
@@ -232,6 +255,36 @@ function getEtapaCrm(lead: CrmLeadRow): FaseFunil | null {
 
   // ── Excluded: no CRM status and before envio_docs ──
   return null;
+}
+
+function getEtapaEnteredAt(lead: CrmLeadRow, etapa: FaseFunil): string | null {
+  switch (etapa) {
+    case "PASTA": return lead.pasta_entered_at;
+    case "ANALISE": return lead.analise_entered_at;
+    case "APROVADO": return lead.aprovado_entered_at;
+    case "REPROVADO": return lead.reprovado_entered_at;
+    case "VISITA": return lead.visita_entered_at;
+    default: return null;
+  }
+}
+
+function getEtapaLastInteraction(lead: CrmLeadRow, etapa: FaseFunil): string | null {
+  switch (etapa) {
+    case "PASTA": return lead.pasta_last_interaction_at;
+    case "ANALISE": return lead.analise_last_interaction_at;
+    case "APROVADO": return lead.aprovado_last_interaction_at;
+    case "REPROVADO": return lead.reprovado_last_interaction_at;
+    case "VISITA": return lead.visita_last_interaction_at;
+    default: return null;
+  }
+}
+
+// ── Pertencimento histórico: ANALISE/APROVADO/REPROVADO/VISITA acumulam histórico permanente.
+// PASTA é exceção: mostra apenas leads que AINDA estão com pasta incompleta no estado atual.
+// fallback para estado atual garante visibilidade de leads sem histórico ainda registrado.
+function isInEtapa(lead: CrmLeadRow, etapa: FaseFunil): boolean {
+  if (etapa === "PASTA") return getEtapaCrm(lead) === "PASTA";
+  return getEtapaEnteredAt(lead, etapa) != null || getEtapaCrm(lead) === etapa;
 }
 
 export function CrmUI() {
@@ -316,14 +369,15 @@ export function CrmUI() {
   const faseCounts = useMemo(() => {
     const counts: Record<FaseFunil, number> = { PASTA: 0, ANALISE: 0, APROVADO: 0, REPROVADO: 0, VISITA: 0 };
     leads.forEach((lead) => {
-      const fase = getEtapaCrm(lead);
-      if (fase !== null) counts[fase]++;
+      (["PASTA", "ANALISE", "APROVADO", "REPROVADO", "VISITA"] as const).forEach((fase) => {
+        if (isInEtapa(lead, fase)) counts[fase]++;
+      });
     });
     return counts;
   }, [leads]);
 
   const faseLeads = useMemo(() => {
-    return leads.filter((lead) => getEtapaCrm(lead) === activeFase);
+    return leads.filter((lead) => isInEtapa(lead, activeFase));
   }, [leads, activeFase]);
 
   const filterOptions = useMemo(() => {
@@ -676,6 +730,8 @@ export function CrmUI() {
                       : etapa === "VISITA"
                         ? styles.faseBadgeVisita
                         : styles.faseBadgeAnalise;
+                const etapaEnteredAt = getEtapaEnteredAt(lead, activeFase);
+                const etapaLastInteraction = getEtapaLastInteraction(lead, activeFase);
 
                 return (
                   <div
@@ -687,6 +743,12 @@ export function CrmUI() {
                     <div className={styles.colNome}>
                       <span className={styles.leadName}>{lead.nome ?? lead.wa_id}</span>
                       <span className={styles.leadPhone}>{lead.telefone ?? lead.wa_id}</span>
+                      {etapaEnteredAt && (
+                        <span className={styles.leadPhone}>Entrada: {formatDatetime(etapaEnteredAt)}</span>
+                      )}
+                      {etapaLastInteraction && (
+                        <span className={styles.leadPhone}>Última: {formatDatetime(etapaLastInteraction)}</span>
+                      )}
                     </div>
 
                     <div className={styles.colOrigem}>

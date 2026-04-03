@@ -267,10 +267,8 @@ function buildLeadHistory(lead: AttendanceRow): LeadHistoryEvent[] {
   if (lead.ultima_interacao_cliente) {
     events.push({ ts: new Date(lead.ultima_interacao_cliente).getTime(), label: "Ultima interação cliente", detail: formatDateTime(lead.ultima_interacao_cliente) });
   }
-  if (lead.tem_incidente_aberto && lead.tipo_incidente) {
-    const now = Date.now();
-    events.push({ ts: now, label: `Incidente aberto: ${lead.tipo_incidente}`, detail: lead.severidade_incidente ?? "—" });
-  }
+  // Incidente: sem timestamp confiável disponível na view (opened_at não é exposto)
+  // Não incluir na timeline para evitar ordem temporal falsa.
 
   events.sort((a, b) => a.ts - b.ts);
   return events;

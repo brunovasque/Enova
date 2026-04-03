@@ -2,6 +2,7 @@
 -- crm_leads_v1 — View consolidada para consumo do painel CRM
 -- Junta enova_state (microfase/funil) + crm_lead_meta (status macro CRM)
 --      + enova_attendance_meta (incidente aberto — read-only, badge operacional)
+--      + crm_stage_history (histórico permanente de passagem por etapa)
 -- Aliases voltados à interface em PORTUGUÊS
 -- Separação por abas: pasta, análise, aprovados, reprovados, visita
 -- REGRA: painel NUNCA altera fase_conversa via esta view
@@ -138,6 +139,20 @@ SELECT
   a.open_incident_type                 AS tipo_incidente,
   a.open_incident_severity             AS severidade_incidente,
 
+  -- ── HISTÓRICO PERMANENTE DE PASSAGEM POR ETAPA CRM ──
+  -- entered_at  = data/hora da primeira entrada na etapa (imutável)
+  -- last_interaction_at = última interação relevante naquela etapa
+  csh_pasta.entered_at                 AS pasta_entered_at,
+  csh_pasta.last_interaction_at        AS pasta_last_interaction_at,
+  csh_analise.entered_at               AS analise_entered_at,
+  csh_analise.last_interaction_at      AS analise_last_interaction_at,
+  csh_aprovado.entered_at              AS aprovado_entered_at,
+  csh_aprovado.last_interaction_at     AS aprovado_last_interaction_at,
+  csh_reprovado.entered_at             AS reprovado_entered_at,
+  csh_reprovado.last_interaction_at    AS reprovado_last_interaction_at,
+  csh_visita.entered_at                AS visita_entered_at,
+  csh_visita.last_interaction_at       AS visita_last_interaction_at,
+
   -- Timestamps
   m.created_at                         AS criado_em,
   COALESCE(m.updated_at, e.updated_at) AS atualizado_em
@@ -145,6 +160,12 @@ SELECT
 FROM public.enova_state e
 LEFT JOIN public.crm_lead_meta m ON m.wa_id = e.wa_id
 LEFT JOIN public.enova_attendance_meta a ON a.wa_id = e.wa_id
+LEFT JOIN public.crm_stage_history csh_pasta     ON csh_pasta.wa_id     = e.wa_id AND csh_pasta.etapa_crm     = 'PASTA'
+LEFT JOIN public.crm_stage_history csh_analise   ON csh_analise.wa_id   = e.wa_id AND csh_analise.etapa_crm   = 'ANALISE'
+LEFT JOIN public.crm_stage_history csh_aprovado  ON csh_aprovado.wa_id  = e.wa_id AND csh_aprovado.etapa_crm  = 'APROVADO'
+LEFT JOIN public.crm_stage_history csh_reprovado ON csh_reprovado.wa_id = e.wa_id AND csh_reprovado.etapa_crm = 'REPROVADO'
+LEFT JOIN public.crm_stage_history csh_visita    ON csh_visita.wa_id    = e.wa_id AND csh_visita.etapa_crm    = 'VISITA'
+-- NOTE: 5 separate joins each resolve via UNIQUE index on (wa_id, etapa_crm) — O(log n) per join.
 WHERE (
   -- Inclui leads que já chegaram em envio_docs ou além (fonte de verdade do funil)
   e.fase_conversa IN (

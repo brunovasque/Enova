@@ -264,6 +264,12 @@ async function step(env, st, messages, nextStage, options = {}) {
       try {
         await syncAttendanceMeta(env, { ...st, fase_conversa: nextStage }, { type: "stage_transition" });
       } catch (_) { /* non-blocking */ }
+
+      // 📋 CRM Stage History — registra passagem permanente pela etapa (non-blocking)
+      const _crmEtapa = CRM_STAGE_MAP[nextStage];
+      if (_crmEtapa) {
+        try { await upsertCrmStageHistory(env, st.wa_id, _crmEtapa); } catch (_) { /* non-blocking */ }
+      }
     }
 
     // ============================================================
@@ -1120,6 +1126,78 @@ async function getAttendanceMeta(env, wa_id) {
     const rows = normalizeSupabaseRows(result);
     return rows?.[0] || null;
   } catch (err) {
+    return null;
+  }
+}
+
+// =============================================================
+// 📋 CRM STAGE HISTORY — Histórico permanente de passagem por etapa
+// =============================================================
+
+/** Mapeamento: stage do funil → etapa CRM para crm_stage_history */
+const CRM_STAGE_MAP = {
+  "envio_docs": "PASTA",
+  "aguardando_retorno_correspondente": "ANALISE",
+  "agendamento_visita": "VISITA",
+  "visita_confirmada": "VISITA",
+  "finalizacao_processo": "VISITA"
+};
+
+/** Etapas CRM válidas para crm_stage_history */
+const CRM_STAGE_ETAPAS = new Set(["PASTA", "ANALISE", "APROVADO", "REPROVADO", "VISITA"]);
+
+/**
+ * Upsert permanent CRM stage history record.
+ * Rules: entered_at is set on INSERT and never overwritten (protected by DB trigger).
+ *        last_interaction_at is updated on every call.
+ * Non-blocking — never breaks the funnel.
+ */
+async function upsertCrmStageHistory(env, wa_id, etapa_crm) {
+  if (!wa_id || !etapa_crm || !CRM_STAGE_ETAPAS.has(etapa_crm)) return null;
+
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) {
+    simCtx._crmStageHistory = simCtx._crmStageHistory || {};
+    if (!simCtx._crmStageHistory[wa_id]) simCtx._crmStageHistory[wa_id] = {};
+    const existing = simCtx._crmStageHistory[wa_id][etapa_crm];
+    const now = new Date().toISOString();
+    simCtx._crmStageHistory[wa_id][etapa_crm] = {
+      wa_id,
+      etapa_crm,
+      entered_at: existing?.entered_at || now,
+      last_interaction_at: now
+    };
+    return simCtx._crmStageHistory[wa_id][etapa_crm];
+  }
+
+  try {
+    const now = new Date().toISOString();
+    // UPSERT: on conflict (wa_id, etapa_crm) DB trigger protects entered_at.
+    // last_interaction_at is always updated.
+    await sbFetch(env, "/rest/v1/crm_stage_history", {
+      method: "POST",
+      query: "on_conflict=wa_id,etapa_crm",
+      body: JSON.stringify({
+        wa_id,
+        etapa_crm,
+        entered_at: now,
+        last_interaction_at: now
+      }),
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "resolution=merge-duplicates,return=minimal",
+        apikey: env.SUPABASE_SERVICE_ROLE,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE}`
+      }
+    });
+    return null;
+  } catch (err) {
+    const errMsg = String(err?.data?.message || err?.message || err || "");
+    if (/crm_stage_history/.test(errMsg) && /schema cache|does not exist|relation/i.test(errMsg)) {
+      console.log("CRM_STAGE_HISTORY_SKIP: tabela crm_stage_history ainda não existe no Supabase. Ignorando upsert.");
+      return null;
+    }
+    console.error("CRM_STAGE_HISTORY_ERROR:", errMsg);
     return null;
   }
 }
@@ -30445,6 +30523,9 @@ case "aguardando_retorno_correspondente": {
       message: "Processo com pré-aprovação do financiamento"
     });
 
+    // 📋 CRM Stage History — APROVADO é acervo permanente (non-blocking)
+    try { await upsertCrmStageHistory(env, st.wa_id, "APROVADO"); } catch (_) { /* non-blocking */ }
+
     return step(env, st,
       [
         "Ótima notícia! 🎉 Recebemos uma **pré-aprovação do financiamento**.",
@@ -30483,6 +30564,9 @@ case "aguardando_retorno_correspondente": {
       message: "Processo reprovado pelo correspondente (estado provisório pós-retorno no stage oficial)",
       details: { motivo }
     });
+
+    // 📋 CRM Stage History — REPROVADO é acervo permanente (non-blocking)
+    try { await upsertCrmStageHistory(env, st.wa_id, "REPROVADO"); } catch (_) { /* non-blocking */ }
 
     // Contrato oficial atual (provisório): reprovado permanece em aguardando_retorno_correspondente
     // para orientação pós-retorno, sem criação de novo stage mecânico nesta task.

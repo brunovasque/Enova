@@ -9,6 +9,9 @@ import { buildReanchor } from "./reanchor-helper.js";
 // ── Etapa 6: Contrato global de fala final ──────────────────────────────────
 import { applyFinalSpeechContract } from "./final-speech-contract.js";
 
+// ── Etapa 7: Precedence & priority policy ───────────────────────────────────
+import { resolveWithPrecedence } from "./precedence-policy.js";
+
 const REQUIRED_RESPONSE_FIELDS = Object.freeze([
   "reply_text",
   "slots_detected",
@@ -774,9 +777,9 @@ function buildDocsGuidanceByProfile(request) {
   const participantStatusGuidance = buildDocsParticipantStatusGuidance(knownSlots);
   if (participantStatusGuidance) return participantStatusGuidance;
 
-  // Etapa 5 — global layer: FAQ/objeção/KB + reancoragem para perguntas sobre docs
+  // Etapa 7 — precedence-aware global layer: stage context guard + objection priority para docs
   const stage = normalizeText(request?.current_stage);
-  const globalReply = resolveGlobalLayerReply(normalizedMessage, _DOCS_FAQ_MAP);
+  const globalReply = resolveWithPrecedence(normalizedMessage, _DOCS_FAQ_MAP, "docs");
   if (globalReply) return wrapWithReanchor(globalReply.reply, stage || "envio_docs");
 
   const composicao = normalizeText(getKnownSlotValue(knownSlots, "composicao"));
@@ -1022,8 +1025,8 @@ function buildVisitaGuidance(request) {
     return "Perfeito, faz sentido avançar por aqui. Já te conduzo pelas opções oficiais de agenda.";
   }
 
-  // Etapa 5 — global layer: FAQ/objeção/KB + reancoragem para perguntas sobre visita
-  const globalReply = resolveGlobalLayerReply(normalizedMessage, _VISITA_FAQ_MAP);
+  // Etapa 7 — precedence-aware global layer: stage context guard + objection priority para visita
+  const globalReply = resolveWithPrecedence(normalizedMessage, _VISITA_FAQ_MAP, "visita");
   if (globalReply) return wrapWithReanchor(globalReply.reply, stage || "agendamento_visita");
 
   if (/\bescolher im[oó]vel|unidade|empreendimento|apartamento espec[ií]fico|casa espec[ií]fica\b/.test(normalizedMessage)) {
@@ -1957,8 +1960,8 @@ function buildTopoFunilGuidance(request) {
     if (GREETING_TOPO.test(normalizedMessage) || REENTRY_TOPO.test(normalizedMessage)) {
       return "Oi! Que bom ter você aqui 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Posso te ajudar com dúvidas ou, se quiser, já começamos a pré-análise rapidinho.";
     }
-    // Etapa 5 — global layer: FAQ/objeção/KB + reancoragem para perguntas fora do stage
-    const globalReply = resolveGlobalLayerReply(normalizedMessage, _TOPO_FAQ_MAP);
+    // Etapa 7 — precedence-aware global layer: stage context guard + objection priority
+    const globalReply = resolveWithPrecedence(normalizedMessage, _TOPO_FAQ_MAP, "topo");
     if (globalReply) return wrapWithReanchor(globalReply.reply, stage);
     if (FEAR_PATTERN.test(normalizedMessage)) {
       return "Entendo, e pode ficar tranquilo(a). É um processo seguro e transparente.";
@@ -1980,8 +1983,8 @@ function buildTopoFunilGuidance(request) {
     if (/\b(precisa|necessario|necessário|tudo de novo|recomecar|recomeçar|perder)\b/.test(normalizedMessage)) {
       return "Não precisa perder o que já avançou. Pode continuar de onde parou. Se preferir, também pode começar do zero.";
     }
-    // Etapa 5 — global layer: perguntas genéricas no inicio_decisao
-    const globalReply = resolveGlobalLayerReply(normalizedMessage, _TOPO_FAQ_MAP);
+    // Etapa 7 — precedence-aware global layer no inicio_decisao
+    const globalReply = resolveWithPrecedence(normalizedMessage, _TOPO_FAQ_MAP, "topo");
     if (globalReply) return wrapWithReanchor(globalReply.reply, stage);
     return "É só escolher: *1* para continuar de onde paramos ou *2* para começar do zero.";
   }
@@ -1997,8 +2000,8 @@ function buildTopoFunilGuidance(request) {
     if (/\brenda\b/.test(normalizedMessage) && /\b(minima|mínima|precisa|preciso|necessaria|necessária|quanto)\b/.test(normalizedMessage)) {
       return "A renda mínima varia conforme o imóvel e o perfil. O programa atende diferentes faixas — por isso eu analiso o seu caso específico.";
     }
-    // Etapa 5 — global layer: FAQ/objeção/KB + reancoragem para perguntas fora do stage
-    const globalReply = resolveGlobalLayerReply(normalizedMessage, _TOPO_FAQ_MAP);
+    // Etapa 7 — precedence-aware global layer no inicio_programa
+    const globalReply = resolveWithPrecedence(normalizedMessage, _TOPO_FAQ_MAP, "topo");
     if (globalReply) return wrapWithReanchor(globalReply.reply, stage);
     if (NO_TIME_PATTERN.test(normalizedMessage) || /\b(rapido|rapida|demora|demorar|tempo|quanto tempo)\b/.test(normalizedMessage)) {
       return "São poucas perguntas bem diretas. Leva poucos minutos e já te dá uma orientação clara sobre o seu perfil.";

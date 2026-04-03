@@ -167,8 +167,59 @@ function buildTags(data: DossieData): string[] {
   if (data.retorno_correspondente_status === "aprovado") tags.push("Aprovado");
   if (data.aguardando_retorno_correspondente) tags.push("Aguardando Retorno");
   if (data.processo_enviado_correspondente) tags.push("Enviado ao Correspondente");
+  if (data.restricao === true) tags.push("Restrição Ativa");
+  if (data.ctps_36 === true) tags.push("CTPS 36 meses OK");
   if (tags.length === 0) tags.push("Financiamento Habitacional");
   return tags;
+}
+
+function formatComposicao(composicao: string | null): string {
+  if (!composicao) return "Não informado";
+  const labels: Record<string, string> = {
+    individual: "Individual",
+    casal: "Casal",
+    casal_p3: "Casal + Familiar",
+    familiar: "Familiar",
+    solteiro: "Solteiro(a)",
+  };
+  return labels[composicao] ?? composicao.replace(/_/g, " ");
+}
+
+function formatRegimeTrabalho(regime: string | null): string {
+  if (!regime) return "Não informado";
+  const labels: Record<string, string> = {
+    clt: "CLT",
+    autonomo: "Autônomo",
+    mei: "MEI",
+    servidor_publico: "Servidor Público",
+    aposentado: "Aposentado / Pensionista",
+    desempregado: "Desempregado",
+    empresario: "Empresário",
+  };
+  return labels[regime.toLowerCase()] ?? regime.replace(/_/g, " ");
+}
+
+function deriveProntoPreAnalise(data: DossieData): boolean {
+  const pendentes = data.docs_itens_pendentes ?? data.docs_faltantes ?? [];
+  if (pendentes.length > 0) return false;
+  const stage = data.fase_conversa;
+  const prontoStages = [
+    "aguardando_retorno_correspondente",
+    "agendamento_visita",
+    "visita_confirmada",
+    "finalizacao_processo",
+  ];
+  if (stage && prontoStages.includes(stage)) return true;
+  if (data.docs_status === "pronto" || data.docs_status === "completo" || data.docs_status === "ready") return true;
+  return false;
+}
+
+function deriveParticipantesTotais(composicao: string | null): number {
+  if (!composicao) return 1;
+  if (composicao === "individual" || composicao === "solteiro") return 1;
+  if (composicao === "casal") return 2;
+  if (composicao.includes("p3") || composicao === "familiar") return 3;
+  return 1;
 }
 
 function buildResumo(data: DossieData): string {
@@ -230,6 +281,18 @@ const ListIcon = () => (
 const TagIcon = () => (
   <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+  </svg>
+);
+
+const ShieldIcon = () => (
+  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+  </svg>
+);
+
+const UserGroupIcon = () => (
+  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
   </svg>
 );
 
@@ -349,6 +412,10 @@ function DossieContent({ data }: { data: DossieData }) {
   const docsRecebidos: DocItem[] = data.docs_itens_recebidos ?? [];
   const docsPendentes: DocItem[] = data.docs_itens_pendentes ?? data.docs_faltantes ?? [];
 
+  const prontoPreAnalise = deriveProntoPreAnalise(data);
+  const participantesTotais = deriveParticipantesTotais(data.composicao_pessoa);
+  const pendenciasTotais = docsPendentes.length;
+
   const badgeStatusClass = (() => {
     if (!data.status_analise) return styles.badgeAnalise;
     if (data.status_analise.startsWith("APPROVED")) return styles.badgeAprovado;
@@ -423,11 +490,42 @@ function DossieContent({ data }: { data: DossieData }) {
           </div>
         </section>
 
-        {/* Resumo do Caso */}
+        {/* Resumo Executivo */}
         <section className={styles.sectionCard}>
           <div className={styles.sectionHeader}>
             <div className={styles.sectionIcon}><FileTextIcon /></div>
-            <h3 className={styles.sectionTitle}>Resumo do Caso</h3>
+            <h3 className={styles.sectionTitle}>Resumo Executivo</h3>
+          </div>
+          {/* KPIs resumo */}
+          <div className={styles.perfilGrid} style={{ marginBottom: "16px" }}>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Pronto para Pré-análise</span>
+              <span className={styles.perfilValue} style={{ color: prontoPreAnalise ? "#2dd4bf" : "#f59e0b" }}>
+                {prontoPreAnalise ? "✓ Sim" : "Pendente"}
+              </span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Status Documental</span>
+              <span className={styles.perfilValue}>{data.docs_status ?? "Não informado"}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Pendências Totais</span>
+              <span className={styles.perfilValue} style={{ color: pendenciasTotais > 0 ? "#f59e0b" : "#2dd4bf" }}>
+                {pendenciasTotais} {pendenciasTotais === 1 ? "documento" : "documentos"}
+              </span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Renda Total</span>
+              <span className={styles.perfilValue}>{formatBRL(rendaRef)}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Participantes Totais</span>
+              <span className={styles.perfilValue}>{participantesTotais}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Retorno Correspondente</span>
+              <span className={styles.perfilValue}>{data.retorno_correspondente_status ?? "Aguardando"}</span>
+            </div>
           </div>
           <p className={styles.resumoText}>{resumo}</p>
         </section>
@@ -444,12 +542,20 @@ function DossieContent({ data }: { data: DossieData }) {
               <span className={styles.perfilValue}>{data.pre_cadastro_numero ?? data.wa_id}</span>
             </div>
             <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Instituição</span>
-              <span className={styles.perfilValue}>Aguardando atualização</span>
-            </div>
-            <div className={styles.perfilItem}>
               <span className={styles.perfilLabel}>Programa</span>
               <span className={styles.perfilValue}>{data.faixa_renda_programa ?? data.parceiro_analise ?? "Não informado"}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Estado Civil</span>
+              <span className={styles.perfilValue}>{data.estado_civil ?? "Não informado"}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Composição do Grupo</span>
+              <span className={styles.perfilValue}>{formatComposicao(data.composicao_pessoa)}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Regime de Trabalho</span>
+              <span className={styles.perfilValue}>{formatRegimeTrabalho(data.regime_trabalho)}</span>
             </div>
             <div className={styles.perfilItem}>
               <span className={styles.perfilLabel}>Valor do Imóvel (Ticket)</span>
@@ -464,24 +570,16 @@ function DossieContent({ data }: { data: DossieData }) {
               <span className={styles.perfilValue}>{formatBRL(data.valor_subsidio_aprovado)}</span>
             </div>
             <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Renda Mensal Familiar</span>
-              <span className={styles.perfilValue}>{formatBRL(rendaRef)}</span>
-            </div>
-            <div className={styles.perfilItem}>
               <span className={styles.perfilLabel}>Parcela Estimada</span>
               <span className={styles.perfilValue}>{formatBRL(data.valor_parcela_informada)}</span>
             </div>
             <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Taxa de Juros</span>
-              <span className={styles.perfilValue}>Aguardando atualização</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Prazo</span>
-              <span className={styles.perfilValue}>Aguardando atualização</span>
-            </div>
-            <div className={styles.perfilItem}>
               <span className={styles.perfilLabel}>Nível de Risco / Faixa</span>
               <span className={styles.perfilValue}>{nivelRisco}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Nacionalidade</span>
+              <span className={styles.perfilValue}>{data.nacionalidade ?? "Não informado"}</span>
             </div>
           </div>
           <div className={styles.perfilTags}>
@@ -491,6 +589,36 @@ function DossieContent({ data }: { data: DossieData }) {
                 {tag}
               </span>
             ))}
+          </div>
+        </section>
+
+        {/* Sinais Técnicos Pré-docs */}
+        <section className={styles.sectionCard}>
+          <div className={styles.sectionHeader}>
+            <div className={styles.sectionIcon}><ShieldIcon /></div>
+            <h3 className={styles.sectionTitle}>Sinais Técnicos Pré-docs</h3>
+          </div>
+          <div className={styles.perfilGrid}>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>CTPS 36 Meses</span>
+              <span className={styles.perfilValue} style={{ color: data.ctps_36 === true ? "#2dd4bf" : data.ctps_36 === false ? "#f59e0b" : undefined }}>
+                {data.ctps_36 === true ? "✓ Confirmado" : data.ctps_36 === false ? "Não confirmado" : "Não informado"}
+              </span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Dependentes</span>
+              <span className={styles.perfilValue}>
+                {data.dependentes_qtd !== null && data.dependentes_qtd !== undefined
+                  ? String(data.dependentes_qtd)
+                  : "Não informado"}
+              </span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Restrição</span>
+              <span className={styles.perfilValue} style={{ color: data.restricao === true ? "#e86c6c" : data.restricao === false ? "#2dd4bf" : undefined }}>
+                {data.restricao === true ? "⚠ Possui restrição" : data.restricao === false ? "✓ Sem restrição" : "Não informado"}
+              </span>
+            </div>
           </div>
         </section>
 

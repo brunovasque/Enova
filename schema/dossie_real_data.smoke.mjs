@@ -94,6 +94,55 @@ function buildInstrucoes(data) {
   return instrucoes;
 }
 
+function formatComposicao(composicao) {
+  if (!composicao) return "Não informado";
+  const labels = {
+    individual: "Individual",
+    casal: "Casal",
+    casal_p3: "Casal + Familiar",
+    familiar: "Familiar",
+    solteiro: "Solteiro(a)",
+  };
+  return labels[composicao] ?? composicao.replace(/_/g, " ");
+}
+
+function formatRegimeTrabalho(regime) {
+  if (!regime) return "Não informado";
+  const labels = {
+    clt: "CLT",
+    autonomo: "Autônomo",
+    mei: "MEI",
+    servidor_publico: "Servidor Público",
+    aposentado: "Aposentado / Pensionista",
+    desempregado: "Desempregado",
+    empresario: "Empresário",
+  };
+  return labels[regime.toLowerCase()] ?? regime.replace(/_/g, " ");
+}
+
+function deriveProntoPreAnalise(data) {
+  const pendentes = data.docs_itens_pendentes ?? data.docs_faltantes ?? [];
+  if (pendentes.length > 0) return false;
+  const stage = data.fase_conversa;
+  const prontoStages = [
+    "aguardando_retorno_correspondente",
+    "agendamento_visita",
+    "visita_confirmada",
+    "finalizacao_processo",
+  ];
+  if (stage && prontoStages.includes(stage)) return true;
+  if (data.docs_status === "pronto" || data.docs_status === "completo" || data.docs_status === "ready") return true;
+  return false;
+}
+
+function deriveParticipantesTotais(composicao) {
+  if (!composicao) return 1;
+  if (composicao === "individual" || composicao === "solteiro") return 1;
+  if (composicao === "casal") return 2;
+  if (composicao.includes("p3") || composicao === "familiar") return 3;
+  return 1;
+}
+
 // ── Dados simulados (estrutura real) ──
 
 const mockDataCompleto = {
@@ -110,6 +159,9 @@ const mockDataCompleto = {
   nacionalidade: "brasileiro",
   dossie_resumo: "Cliente com renda familiar de R$ 5.200,00. Composição: casal CLT.",
   created_at: "2024-03-15T10:00:00.000Z",
+  ctps_36: true,
+  dependentes_qtd: 2,
+  restricao: false,
   corr_lock_correspondente_wa_id: "5511988880001",
   processo_enviado_correspondente: true,
   aguardando_retorno_correspondente: true,
@@ -163,6 +215,9 @@ const mockDataMinimo = {
   nacionalidade: null,
   dossie_resumo: null,
   created_at: null,
+  ctps_36: null,
+  dependentes_qtd: null,
+  restricao: null,
   corr_lock_correspondente_wa_id: null,
   processo_enviado_correspondente: null,
   aguardando_retorno_correspondente: null,
@@ -268,10 +323,46 @@ const pendentes = mockDataCompleto.docs_itens_pendentes ?? [];
 assert.ok(pendentes.every((d) => buildDocLabel(d).length > 0), "all pendentes map to label");
 
 // 20. DossieData shape: all required fields present in mock (no undefined fields in critical path)
-const criticalFields = ["wa_id", "nome", "fase_conversa", "docs_itens_recebidos", "docs_itens_pendentes"];
+const criticalFields = ["wa_id", "nome", "fase_conversa", "docs_itens_recebidos", "docs_itens_pendentes",
+  "ctps_36", "dependentes_qtd", "restricao", "estado_civil", "composicao_pessoa", "regime_trabalho"];
 for (const f of criticalFields) {
   assert.ok(f in mockDataCompleto, `mockDataCompleto has field ${f}`);
   assert.ok(f in mockDataMinimo, `mockDataMinimo has field ${f}`);
 }
 
-console.log("✅ All 20 smoke tests passed.");
+// 21. formatComposicao maps known values
+assert.equal(formatComposicao("casal"), "Casal", "formatComposicao casal");
+assert.equal(formatComposicao("individual"), "Individual", "formatComposicao individual");
+assert.equal(formatComposicao(null), "Não informado", "formatComposicao null");
+assert.equal(formatComposicao("casal_p3"), "Casal + Familiar", "formatComposicao casal_p3");
+
+// 22. formatRegimeTrabalho maps known values
+assert.equal(formatRegimeTrabalho("CLT"), "CLT", "formatRegimeTrabalho CLT");
+assert.equal(formatRegimeTrabalho("autonomo"), "Autônomo", "formatRegimeTrabalho autonomo");
+assert.equal(formatRegimeTrabalho(null), "Não informado", "formatRegimeTrabalho null");
+
+// 23. deriveProntoPreAnalise — pendente: docs_itens_pendentes not empty → false
+assert.equal(deriveProntoPreAnalise(mockDataCompleto), false, "deriveProntoPreAnalise: pendentes → false");
+
+// 24. deriveProntoPreAnalise — pronto: no pendentes + prontoStage
+const mockPronto = { ...mockDataCompleto, docs_itens_pendentes: [], docs_faltantes: null };
+assert.equal(deriveProntoPreAnalise(mockPronto), true, "deriveProntoPreAnalise: no pendentes + aguardando_retorno → true");
+
+// 25. deriveProntoPreAnalise — minimal (envio_docs stage, no pendentes): false
+const mockEnvioDocs = { ...mockDataMinimo, fase_conversa: "envio_docs" };
+assert.equal(deriveProntoPreAnalise(mockEnvioDocs), false, "deriveProntoPreAnalise: envio_docs → false");
+
+// 26. deriveParticipantesTotais
+assert.equal(deriveParticipantesTotais("casal"), 2, "deriveParticipantesTotais casal → 2");
+assert.equal(deriveParticipantesTotais("individual"), 1, "deriveParticipantesTotais individual → 1");
+assert.equal(deriveParticipantesTotais("casal_p3"), 3, "deriveParticipantesTotais casal_p3 → 3");
+assert.equal(deriveParticipantesTotais(null), 1, "deriveParticipantesTotais null → 1");
+
+// 27. ctps_36 / dependentes_qtd / restricao present in mock
+assert.equal(mockDataCompleto.ctps_36, true, "ctps_36 present");
+assert.equal(mockDataCompleto.dependentes_qtd, 2, "dependentes_qtd present");
+assert.equal(mockDataCompleto.restricao, false, "restricao present");
+assert.equal(mockDataMinimo.ctps_36, null, "ctps_36 null in minimal");
+assert.equal(mockDataMinimo.restricao, null, "restricao null in minimal");
+
+console.log("✅ All 27 smoke tests passed.");

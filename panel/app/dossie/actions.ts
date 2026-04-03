@@ -115,6 +115,69 @@ async function readJson<T>(response: Response): Promise<T | null> {
   return JSON.parse(text) as T;
 }
 
+// ── Lookup: resolve correspondente phone → lead wa_id ──
+// Mirrors the worker's normalizeCorrespondenteWaIdCmp + listOperationalCasesLockedByCorrespondente logic.
+// Tries the input digits as-is first, then with/without the Brazilian "55" country prefix.
+
+export type LookupCorrespondenteResponse = {
+  ok: boolean;
+  wa_id: string | null;
+  error: string | null;
+};
+
+export async function lookupWaIdByCorrespondenteAction(
+  phone: string
+): Promise<LookupCorrespondenteResponse> {
+  const digits = (phone || "").trim().replace(/\D/g, "").trim();
+  if (!digits) {
+    return { ok: false, wa_id: null, error: "telefone obrigatório" };
+  }
+
+  const missingEnvs = REQUIRED_ENVS.filter((k) => !process.env[k]);
+  if (missingEnvs.length > 0) {
+    return { ok: false, wa_id: null, error: `missing env: ${missingEnvs.join(", ")}` };
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL as string;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE as string;
+  const headers = buildHeaders(serviceRoleKey);
+
+  // Try raw input, then flip the 55-prefix (matches normalizeCorrespondenteWaIdCmp in worker)
+  const candidates: string[] = [digits];
+  if (digits.startsWith("55")) {
+    candidates.push(digits.slice(2));
+  } else {
+    candidates.push(`55${digits}`);
+  }
+
+  for (const candidate of candidates) {
+    try {
+      const endpoint = new URL("/rest/v1/enova_state", supabaseUrl);
+      endpoint.searchParams.set("select", "wa_id");
+      endpoint.searchParams.set("corr_lock_correspondente_wa_id", `eq.${candidate}`);
+      endpoint.searchParams.set("order", "updated_at.desc");
+      endpoint.searchParams.set("limit", "1");
+
+      const res = await fetch(endpoint.toString(), {
+        method: "GET",
+        headers,
+        cache: "no-store",
+      });
+
+      if (!res.ok) continue;
+
+      const rows = await readJson<{ wa_id: string }[]>(res);
+      if (Array.isArray(rows) && rows.length > 0 && rows[0].wa_id) {
+        return { ok: true, wa_id: rows[0].wa_id, error: null };
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+
+  return { ok: false, wa_id: null, error: "nenhum caso encontrado para este correspondente" };
+}
+
 // ── Main server action ──
 
 export async function fetchDossieDataAction(waId: string): Promise<DossieResponse> {

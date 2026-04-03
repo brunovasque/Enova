@@ -2,9 +2,9 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import styles from "./dossie.module.css";
-import { fetchDossieDataAction } from "./actions";
+import { fetchDossieDataAction, lookupWaIdByCorrespondenteAction } from "./actions";
 import type { DossieData, DocItem } from "./actions";
 
 // ── Links operacionais fixos (config, não é dado de negócio) ──
@@ -266,7 +266,30 @@ function ErrorState({ message }: { message: string }) {
 }
 
 function NoWaIdState() {
+  const router = useRouter();
   const [inputVal, setInputVal] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  async function handleOpen() {
+    const phone = inputVal.trim();
+    if (!phone) return;
+    setLoading(true);
+    setErrMsg(null);
+    try {
+      const result = await lookupWaIdByCorrespondenteAction(phone);
+      if (result.ok && result.wa_id) {
+        router.push(`/dossie?wa_id=${encodeURIComponent(result.wa_id)}`);
+      } else {
+        setErrMsg(result.error ?? "Correspondente não encontrado.");
+      }
+    } catch {
+      setErrMsg("Erro ao buscar. Tente novamente.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
     <AppShell subtitle="Visão consolidada do caso">
       <div className={styles.centerState}>
@@ -277,16 +300,20 @@ function NoWaIdState() {
               type="text"
               placeholder="Ex: 41997780518"
               value={inputVal}
-              onChange={(e) => setInputVal(e.target.value)}
+              onChange={(e) => { setInputVal(e.target.value); setErrMsg(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") handleOpen(); }}
               className={styles.searchInput}
+              disabled={loading}
             />
-            <a
-              href={inputVal ? `/dossie?wa_id=${encodeURIComponent(inputVal.trim())}` : "#"}
+            <button
+              onClick={handleOpen}
               className={styles.searchBtn}
+              disabled={loading || !inputVal.trim()}
             >
-              Abrir Dossiê
-            </a>
+              {loading ? "Buscando…" : "Abrir Dossiê"}
+            </button>
           </div>
+          {errMsg && <p className={styles.searchError}>{errMsg}</p>}
         </div>
       </div>
     </AppShell>

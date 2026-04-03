@@ -760,10 +760,22 @@
   font-weight: 500;
   transition: all 0.15s;
   white-space: nowrap;
+  cursor: pointer;
 }
 
-.searchBtn:hover {
+.searchBtn:hover:not(:disabled) {
   background: rgba(45, 212, 191, 0.22);
+}
+
+.searchBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.searchError {
+  margin: 10px 0 0;
+  color: #f87171;
+  font-size: 0.82rem;
 }
 
 .emptyMsg {

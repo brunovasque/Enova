@@ -6208,6 +6208,20 @@ if (isAdminProdPath) {
         });
       }
 
+      // Aceita source_type opcional — canoniza e persiste antes do envio se válido
+      const VALID_SEND_SOURCE_TYPES = ["campanha", "morna", "lyx", "fria"];
+      const rawSourceType = String(payload?.source_type || "").trim().toLowerCase();
+      if (rawSourceType && VALID_SEND_SOURCE_TYPES.includes(rawSourceType)) {
+        try {
+          await upsertState(env, wa_id, {
+            source_type: rawSourceType,
+            updated_at: new Date().toISOString()
+          });
+        } catch (_e) {
+          // non-blocking: falha na persistência não deve impedir o envio
+        }
+      }
+
       const sendResult = await sendMessage(env, wa_id, text, { returnMeta: true });
 
       if (!sendResult?.ok) {

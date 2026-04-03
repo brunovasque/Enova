@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { PanelNav } from "./components/PanelNav";
 
 export const metadata: Metadata = {
   title: "Enova Panel",
@@ -16,7 +17,10 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
-      <body>{children}</body>
+      <body>
+        <PanelNav />
+        {children}
+      </body>
     </html>
   );
 }

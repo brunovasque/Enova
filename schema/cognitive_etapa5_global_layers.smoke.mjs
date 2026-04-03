@@ -109,10 +109,11 @@ test("1d. _TOPO_FAQ_MAP está presente no run-cognitive.js", () => {
   );
 });
 
-test("1e. buildTopoFunilGuidance consome resolveGlobalLayerReply", () => {
+test("1e. buildTopoFunilGuidance consome global layer resolver", () => {
   assert.ok(
-    runCognitiveSrc.includes("resolveGlobalLayerReply(normalizedMessage, _TOPO_FAQ_MAP)"),
-    "buildTopoFunilGuidance deve chamar resolveGlobalLayerReply com _TOPO_FAQ_MAP"
+    runCognitiveSrc.includes("resolveGlobalLayerReply(normalizedMessage, _TOPO_FAQ_MAP)") ||
+    runCognitiveSrc.includes("resolveWithPrecedence(normalizedMessage, _TOPO_FAQ_MAP"),
+    "buildTopoFunilGuidance deve chamar resolveGlobalLayerReply ou resolveWithPrecedence com _TOPO_FAQ_MAP"
   );
 });
 
@@ -483,11 +484,18 @@ test("14e. builders NÃO autorizados continuam intocados", () => {
   }
 });
 
-test("14f. resolveGlobalLayerReply só é chamado em blocos autorizados (topo/docs/visita)", () => {
-  // Contar chamadas de resolveGlobalLayerReply por mapa
-  const topoCount = (runCognitiveSrc.match(/resolveGlobalLayerReply\(normalizedMessage, _TOPO_FAQ_MAP\)/g) || []).length;
-  const docsCount = (runCognitiveSrc.match(/resolveGlobalLayerReply\(normalizedMessage, _DOCS_FAQ_MAP\)/g) || []).length;
-  const visitaCount = (runCognitiveSrc.match(/resolveGlobalLayerReply\(normalizedMessage, _VISITA_FAQ_MAP\)/g) || []).length;
+test("14f. global layer resolver só é chamado em blocos autorizados (topo/docs/visita)", () => {
+  // Contar chamadas de resolveGlobalLayerReply OU resolveWithPrecedence por mapa
+  const topoCountOld = (runCognitiveSrc.match(/resolveGlobalLayerReply\(normalizedMessage, _TOPO_FAQ_MAP\)/g) || []).length;
+  const topoCountNew = (runCognitiveSrc.match(/resolveWithPrecedence\(normalizedMessage, _TOPO_FAQ_MAP/g) || []).length;
+  const docsCountOld = (runCognitiveSrc.match(/resolveGlobalLayerReply\(normalizedMessage, _DOCS_FAQ_MAP\)/g) || []).length;
+  const docsCountNew = (runCognitiveSrc.match(/resolveWithPrecedence\(normalizedMessage, _DOCS_FAQ_MAP/g) || []).length;
+  const visitaCountOld = (runCognitiveSrc.match(/resolveGlobalLayerReply\(normalizedMessage, _VISITA_FAQ_MAP\)/g) || []).length;
+  const visitaCountNew = (runCognitiveSrc.match(/resolveWithPrecedence\(normalizedMessage, _VISITA_FAQ_MAP/g) || []).length;
+
+  const topoCount = topoCountOld + topoCountNew;
+  const docsCount = docsCountOld + docsCountNew;
+  const visitaCount = visitaCountOld + visitaCountNew;
   
   assert.ok(topoCount >= 1, `_TOPO_FAQ_MAP deve ser usado pelo menos 1 vez (encontrado: ${topoCount})`);
   assert.ok(docsCount >= 1, `_DOCS_FAQ_MAP deve ser usado pelo menos 1 vez (encontrado: ${docsCount})`);

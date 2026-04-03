@@ -124,6 +124,11 @@ export const CALL_NOW_ENVS = ["WORKER_BASE_URL", "ENOVA_ADMIN_KEY"] as const;
 export const VALID_STATUS_OPERACIONAL = ["SEM_CONTATO", "CONTATADO", "AGUARDANDO_RETORNO", "PAUSADO"] as const;
 export type StatusOperacional = (typeof VALID_STATUS_OPERACIONAL)[number];
 
+// Limits for panel list queries. Archived leads use a higher default because they
+// form a single cross-pool list (not paginated per-pool like active leads).
+export const LIST_LEADS_DEFAULT_LIMIT = 50;
+export const LIST_ARCHIVED_LEADS_DEFAULT_LIMIT = 200;
+
 export function defaultLeadTempForPool(leadPool: LeadPool): LeadTemp {
   if (leadPool === "WARM_POOL") return "WARM";
   if (leadPool === "HOT_POOL") return "HOT";
@@ -200,6 +205,9 @@ export function normalizePhoneToWaId(phone: unknown): string | null {
 export function normalizeLeadMetaInput(
   input: LeadMetaInput,
   options: NormalizeLeadMetaOptions = {},
+  // Archive fields (is_archived, archived_at, archive_reason_*) are intentionally excluded from
+  // the return type so that operations like move_base and upsert never overwrite them. Archive
+  // state is owned exclusively by the archive_lead / unarchive_lead actions.
 ): Omit<CrmLeadMetaRow, "created_at" | "ultima_acao" | "ultimo_contato_at" | "status_operacional" | "tem_incidente_aberto" | "tipo_incidente" | "severidade_incidente" | "is_archived" | "archived_at" | "archive_reason_code" | "archive_reason_note"> {
   const rawWaId = normalizeOptionalText(input.wa_id);
   const rawTelefone = normalizeOptionalText(input.telefone);
@@ -514,7 +522,7 @@ export async function listLeadsForPanel(
   endpoint.searchParams.set("is_archived", "eq.false");
   endpoint.searchParams.set("order", "updated_at.desc,wa_id.asc");
 
-  const limit = Math.max(1, Math.min(200, Number.isFinite(Number(options.limit)) ? Math.trunc(Number(options.limit)) : 50));
+  const limit = Math.max(1, Math.min(200, Number.isFinite(Number(options.limit)) ? Math.trunc(Number(options.limit)) : LIST_LEADS_DEFAULT_LIMIT));
   endpoint.searchParams.set("limit", String(limit));
 
   if (options.lead_pool && isLeadPool(options.lead_pool)) {
@@ -551,7 +559,7 @@ export async function listArchivedLeadsForPanel(
   endpoint.searchParams.set("is_archived", "eq.true");
   endpoint.searchParams.set("order", "archived_at.desc.nullsfirst,updated_at.desc,wa_id.asc");
 
-  const limit = Math.max(1, Math.min(200, Number.isFinite(Number(options.limit)) ? Math.trunc(Number(options.limit)) : 100));
+  const limit = Math.max(1, Math.min(200, Number.isFinite(Number(options.limit)) ? Math.trunc(Number(options.limit)) : LIST_ARCHIVED_LEADS_DEFAULT_LIMIT));
   endpoint.searchParams.set("limit", String(limit));
 
   const response = await fetch(endpoint, {

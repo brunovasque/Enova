@@ -224,6 +224,8 @@ export function BasesUI() {
   }, []);
 
   const fetchArchivedLeads = useCallback(async (): Promise<CrmLeadMetaRow[]> => {
+    // Fetches all archived leads (cross-pool) in a single request.
+    // Uses limit=200 to match LIST_ARCHIVED_LEADS_DEFAULT_LIMIT in _shared.ts.
     const res = await fetch("/api/bases?archived=true&limit=200", { cache: "no-store" });
     const data = (await res.json()) as ApiLeadsPayload;
     if (!data.ok) {

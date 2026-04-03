@@ -128,23 +128,12 @@ async function readJson<T>(response: Response): Promise<T | null> {
   return JSON.parse(text) as T;
 }
 
-// ── Normalização do telefone do correspondente ──
-// Replica a lógica do worker: normalizeCorrespondenteWaIdCmp / normalizeCorrespondenteWaIdOutbound
-// corr_lock_correspondente_wa_id é salvo com prefixo 55 (ex: 5541997780518)
-
-function normalizeCorrPhone(input: string): { withPrefix: string; withoutPrefix: string } {
-  const digits = input.replace(/\D/g, "");
-  const withoutPrefix = digits.startsWith("55") ? digits.slice(2) : digits;
-  const withPrefix = `55${withoutPrefix}`;
-  return { withPrefix, withoutPrefix };
-}
-
 // ── Main server action ──
 
-export async function fetchDossieDataAction(corrPhone: string): Promise<DossieResponse> {
-  const trimmedInput = (corrPhone || "").trim();
-  if (!trimmedInput) {
-    return { ok: false, data: null, error: "telefone obrigatório" };
+export async function fetchDossieDataAction(waId: string): Promise<DossieResponse> {
+  const trimmedId = (waId || "").trim();
+  if (!trimmedId) {
+    return { ok: false, data: null, error: "wa_id obrigatório" };
   }
 
   const missingEnvs = REQUIRED_ENVS.filter((k) => !process.env[k]);
@@ -156,13 +145,9 @@ export async function fetchDossieDataAction(corrPhone: string): Promise<DossieRe
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE as string;
   const headers = buildHeaders(serviceRoleKey);
 
-  // Normalize: try with 55 prefix first (canonical storage), fallback to without 55
-  const { withPrefix: corrWaIdWith55, withoutPrefix: corrWaIdWithout55 } = normalizeCorrPhone(trimmedInput);
-
   try {
     // ── 1. enova_state — fonte canônica do funil, perfil técnico e docs ──
-    // Busca pelo campo real de vínculo do correspondente: corr_lock_correspondente_wa_id
-    // (NÃO pelo wa_id do lead — o dossiê já tem o correspondente vinculado nesse campo)
+    // Busca pela chave primária real do caso: wa_id do lead
     const stateFields = [
       "wa_id",
       "nome",
@@ -202,18 +187,12 @@ export async function fetchDossieDataAction(corrPhone: string): Promise<DossieRe
       "docs_faltantes",
     ].join(",");
 
-    // Busca primária: com prefixo 55 (formato canônico do WhatsApp)
-    const buildStateEndpoint = (corrFieldValue: string) => {
-      const ep = new URL("/rest/v1/enova_state", supabaseUrl);
-      ep.searchParams.set("select", stateFields);
-      ep.searchParams.set("corr_lock_correspondente_wa_id", `eq.${corrFieldValue}`);
-      ep.searchParams.set("limit", "1");
-      return ep.toString();
-    };
+    const stateEndpoint = new URL("/rest/v1/enova_state", supabaseUrl);
+    stateEndpoint.searchParams.set("select", stateFields);
+    stateEndpoint.searchParams.set("wa_id", `eq.${trimmedId}`);
+    stateEndpoint.searchParams.set("limit", "1");
 
-    let stateRow: Record<string, unknown> | null = null;
-
-    const stateRes = await fetch(buildStateEndpoint(corrWaIdWith55), {
+    const stateRes = await fetch(stateEndpoint.toString(), {
       method: "GET",
       headers,
       cache: "no-store",
@@ -229,27 +208,12 @@ export async function fetchDossieDataAction(corrPhone: string): Promise<DossieRe
     }
 
     const stateRows = await readJson<Record<string, unknown>[]>(stateRes);
-    stateRow = Array.isArray(stateRows) && stateRows.length > 0 ? stateRows[0] : null;
-
-    // Fallback: sem prefixo 55 (cobre registros salvos sem o prefixo)
-    if (!stateRow && corrWaIdWithout55 !== corrWaIdWith55) {
-      const stateRes2 = await fetch(buildStateEndpoint(corrWaIdWithout55), {
-        method: "GET",
-        headers,
-        cache: "no-store",
-      });
-      if (stateRes2.ok) {
-        const stateRows2 = await readJson<Record<string, unknown>[]>(stateRes2);
-        stateRow = Array.isArray(stateRows2) && stateRows2.length > 0 ? stateRows2[0] : null;
-      }
-    }
+    const stateRow =
+      Array.isArray(stateRows) && stateRows.length > 0 ? stateRows[0] : null;
 
     if (!stateRow) {
-      return { ok: false, data: null, error: "dossiê não encontrado para este correspondente" };
+      return { ok: false, data: null, error: "lead não encontrado" };
     }
-
-    // Lead wa_id real (usado para queries CRM e Attendance)
-    const leadWaId = safeString(stateRow.wa_id) ?? trimmedInput;
 
     // ── 2. crm_leads_v1 — view canônica CRM (enova_state LEFT JOIN crm_lead_meta) ──
     // Mesma view usada pelo painel CRM (fetchCrmLeadsAction → listCrmLeads)
@@ -277,7 +241,7 @@ export async function fetchDossieDataAction(corrPhone: string): Promise<DossieRe
 
     const crmEndpoint = new URL("/rest/v1/crm_leads_v1", supabaseUrl);
     crmEndpoint.searchParams.set("select", crmFields);
-    crmEndpoint.searchParams.set("wa_id", `eq.${leadWaId}`);
+    crmEndpoint.searchParams.set("wa_id", `eq.${trimmedId}`);
     crmEndpoint.searchParams.set("limit", "1");
 
     let crmRow: Record<string, unknown> | null = null;
@@ -304,7 +268,7 @@ export async function fetchDossieDataAction(corrPhone: string): Promise<DossieRe
 
     const attendanceEndpoint = new URL("/rest/v1/enova_attendance_meta", supabaseUrl);
     attendanceEndpoint.searchParams.set("select", attendanceFields);
-    attendanceEndpoint.searchParams.set("wa_id", `eq.${leadWaId}`);
+    attendanceEndpoint.searchParams.set("wa_id", `eq.${trimmedId}`);
     attendanceEndpoint.searchParams.set("limit", "1");
 
     let attendanceRow: Record<string, unknown> | null = null;
@@ -321,7 +285,7 @@ export async function fetchDossieDataAction(corrPhone: string): Promise<DossieRe
 
     // ── Consolidar resposta (replica contrato real do dossiê) ──
     const data: DossieData = {
-      wa_id: leadWaId,
+      wa_id: trimmedId,
       pre_cadastro_numero: safeString(stateRow.pre_cadastro_numero),
 
       nome: safeString(stateRow.nome),

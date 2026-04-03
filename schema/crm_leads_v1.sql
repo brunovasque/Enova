@@ -155,7 +155,9 @@ SELECT
 
   -- Timestamps
   m.created_at                         AS criado_em,
-  COALESCE(m.updated_at, e.updated_at) AS atualizado_em
+  COALESCE(m.updated_at, e.updated_at) AS atualizado_em,
+  -- arquivamento (filtro CRM: is_archived != true)
+  m.is_archived
 
 FROM public.enova_state e
 LEFT JOIN public.crm_lead_meta m ON m.wa_id = e.wa_id

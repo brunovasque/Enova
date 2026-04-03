@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { BasesRequest, LeadPool, LeadTemp, REQUIRED_ENVS, isLeadPool, isLeadTemp, listLeadsForPanel, runBasesAction } from "./_shared";
+import { BasesRequest, LeadPool, LeadTemp, REQUIRED_ENVS, isLeadPool, isLeadTemp, listArchivedLeadsForPanel, listLeadsForPanel, runBasesAction } from "./_shared";
 
 export async function GET(request: Request) {
   const missingEnvs = REQUIRED_ENVS.filter((k) => !process.env[k]);
@@ -12,6 +12,7 @@ export async function GET(request: Request) {
   }
 
   const { searchParams } = new URL(request.url);
+  const isArchived = searchParams.get("archived") === "true";
   const leadPoolRaw = searchParams.get("lead_pool");
   const leadTempRaw = searchParams.get("lead_temp");
   const leadPool: LeadPool | undefined = isLeadPool(leadPoolRaw) ? leadPoolRaw : undefined;
@@ -20,11 +21,17 @@ export async function GET(request: Request) {
   const limit = limitRaw ? Number(limitRaw) : 50;
 
   try {
-    const leads = await listLeadsForPanel(
-      process.env.SUPABASE_URL as string,
-      process.env.SUPABASE_SERVICE_ROLE as string,
-      { lead_pool: leadPool, lead_temp: leadTemp, limit },
-    );
+    const leads = isArchived
+      ? await listArchivedLeadsForPanel(
+          process.env.SUPABASE_URL as string,
+          process.env.SUPABASE_SERVICE_ROLE as string,
+          { limit },
+        )
+      : await listLeadsForPanel(
+          process.env.SUPABASE_URL as string,
+          process.env.SUPABASE_SERVICE_ROLE as string,
+          { lead_pool: leadPool, lead_temp: leadTemp, limit },
+        );
     return NextResponse.json(
       { ok: true, leads, total: leads.length },
       { status: 200, headers: { "Cache-Control": "no-store" } },

@@ -445,6 +445,15 @@
   opacity: 0.75;
 }
 
+.leadRowArchived {
+  opacity: 0.6;
+  background: rgba(255, 200, 50, 0.02);
+}
+
+.leadRowArchived:hover {
+  opacity: 0.8;
+}
+
 /* Column: Nome */
 .colNome {
   display: flex;
@@ -641,6 +650,16 @@
 }
 
 .actionBtnResume:hover {
+  border-color: rgba(52, 211, 153, 0.3);
+  color: #6ee7b7;
+}
+
+.actionBtnArchive:hover {
+  border-color: rgba(180, 130, 60, 0.35);
+  color: #fcd34d;
+}
+
+.actionBtnUnarchive:hover {
   border-color: rgba(52, 211, 153, 0.3);
   color: #6ee7b7;
 }

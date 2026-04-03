@@ -23,6 +23,11 @@ export type CrmLeadMetaRow = {
   ultima_acao: string | null;
   ultimo_contato_at: string | null;
   status_operacional: string | null;
+  // Arquivamento — colunas próprias, independentes de is_paused
+  is_archived: boolean;
+  archived_at: string | null;
+  archive_reason_code: string | null;
+  archive_reason_note: string | null;
   // Incidente aberto — lido de enova_attendance_meta via bases_leads_v1
   tem_incidente_aberto: boolean | null;
   tipo_incidente: string | null;
@@ -68,7 +73,9 @@ export type BasesAction =
   | "call_now"
   | "warmup_base"
   | "warmup_dispatch"
-  | "update_obs";
+  | "update_obs"
+  | "archive_lead"
+  | "unarchive_lead";
 
 export type BasesRequest = {
   action?: BasesAction;
@@ -89,6 +96,9 @@ export type BasesRequest = {
   is_paused?: boolean;
   leads?: Array<Record<string, unknown>>;
   limit?: number;
+  // arquivamento
+  archive_reason_code?: string;
+  archive_reason_note?: string;
 };
 
 type AuditLogRow = {
@@ -102,7 +112,9 @@ type AuditLogRow = {
     | "bases_call_now"
     | "bases_warmup"
     | "bases_warmup_dispatch"
-    | "bases_update_obs";
+    | "bases_update_obs"
+    | "bases_archive"
+    | "bases_unarchive";
   meta_text: string;
   details: Record<string, unknown>;
 };
@@ -111,6 +123,11 @@ export const REQUIRED_ENVS = ["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const;
 export const CALL_NOW_ENVS = ["WORKER_BASE_URL", "ENOVA_ADMIN_KEY"] as const;
 export const VALID_STATUS_OPERACIONAL = ["SEM_CONTATO", "CONTATADO", "AGUARDANDO_RETORNO", "PAUSADO"] as const;
 export type StatusOperacional = (typeof VALID_STATUS_OPERACIONAL)[number];
+
+// Limits for panel list queries. Archived leads use a higher default because they
+// form a single cross-pool list (not paginated per-pool like active leads).
+export const LIST_LEADS_DEFAULT_LIMIT = 50;
+export const LIST_ARCHIVED_LEADS_DEFAULT_LIMIT = 200;
 
 export function defaultLeadTempForPool(leadPool: LeadPool): LeadTemp {
   if (leadPool === "WARM_POOL") return "WARM";
@@ -188,7 +205,10 @@ export function normalizePhoneToWaId(phone: unknown): string | null {
 export function normalizeLeadMetaInput(
   input: LeadMetaInput,
   options: NormalizeLeadMetaOptions = {},
-): Omit<CrmLeadMetaRow, "created_at" | "ultima_acao" | "ultimo_contato_at" | "status_operacional" | "tem_incidente_aberto" | "tipo_incidente" | "severidade_incidente"> {
+  // Archive fields (is_archived, archived_at, archive_reason_*) are intentionally excluded from
+  // the return type so that operations like move_base and upsert never overwrite them. Archive
+  // state is owned exclusively by the archive_lead / unarchive_lead actions.
+): Omit<CrmLeadMetaRow, "created_at" | "ultima_acao" | "ultimo_contato_at" | "status_operacional" | "tem_incidente_aberto" | "tipo_incidente" | "severidade_incidente" | "is_archived" | "archived_at" | "archive_reason_code" | "archive_reason_note"> {
   const rawWaId = normalizeOptionalText(input.wa_id);
   const rawTelefone = normalizeOptionalText(input.telefone);
   // wa_id can be provided directly or derived from telefone
@@ -311,7 +331,7 @@ async function loadLeadMeta(
   const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
   endpoint.searchParams.set(
     "select",
-    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at,ultima_acao,ultimo_contato_at,status_operacional",
+    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,is_archived,archived_at,archive_reason_code,archive_reason_note,created_at,updated_at,ultima_acao,ultimo_contato_at,status_operacional",
   );
   endpoint.searchParams.set("wa_id", `eq.${waId}`);
   endpoint.searchParams.set("limit", "1");
@@ -338,9 +358,10 @@ async function loadWarmupCandidates(
   const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
   endpoint.searchParams.set(
     "select",
-    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at,ultima_acao,ultimo_contato_at,status_operacional",
+    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,is_archived,archived_at,archive_reason_code,archive_reason_note,created_at,updated_at,ultima_acao,ultimo_contato_at,status_operacional",
   );
   endpoint.searchParams.set("is_paused", "eq.false");
+  endpoint.searchParams.set("is_archived", "eq.false");
   endpoint.searchParams.set("order", "updated_at.asc,wa_id.asc");
   endpoint.searchParams.set("limit", String(Math.max(50, clampWarmupLimit(payload.limit) * 2)));
 
@@ -496,11 +517,12 @@ export async function listLeadsForPanel(
   const endpoint = new URL("/rest/v1/bases_leads_v1", supabaseUrl);
   endpoint.searchParams.set(
     "select",
-    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,created_at,updated_at,ultima_acao,ultimo_contato_at,status_operacional,tem_incidente_aberto,tipo_incidente,severidade_incidente",
+    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,is_archived,archived_at,created_at,updated_at,ultima_acao,ultimo_contato_at,status_operacional,tem_incidente_aberto,tipo_incidente,severidade_incidente",
   );
+  endpoint.searchParams.set("is_archived", "eq.false");
   endpoint.searchParams.set("order", "updated_at.desc,wa_id.asc");
 
-  const limit = Math.max(1, Math.min(200, Number.isFinite(Number(options.limit)) ? Math.trunc(Number(options.limit)) : 50));
+  const limit = Math.max(1, Math.min(200, Number.isFinite(Number(options.limit)) ? Math.trunc(Number(options.limit)) : LIST_LEADS_DEFAULT_LIMIT));
   endpoint.searchParams.set("limit", String(limit));
 
   if (options.lead_pool && isLeadPool(options.lead_pool)) {
@@ -518,6 +540,36 @@ export async function listLeadsForPanel(
 
   if (!response.ok) {
     throw new Error(`FAILED_TO_LIST_LEADS:${response.status}`);
+  }
+
+  return (await readJsonResponse<CrmLeadMetaRow[]>(response)) ?? [];
+}
+
+export async function listArchivedLeadsForPanel(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  options: { limit?: number } = {},
+): Promise<CrmLeadMetaRow[]> {
+  // Returns only archived leads (is_archived=true) from bases_leads_v1 view.
+  const endpoint = new URL("/rest/v1/bases_leads_v1", supabaseUrl);
+  endpoint.searchParams.set(
+    "select",
+    "wa_id,nome,telefone,lead_pool,lead_temp,lead_source,tags,obs_curta,import_ref,auto_outreach_enabled,is_paused,is_archived,archived_at,created_at,updated_at,ultima_acao,ultimo_contato_at,status_operacional,tem_incidente_aberto,tipo_incidente,severidade_incidente",
+  );
+  endpoint.searchParams.set("is_archived", "eq.true");
+  endpoint.searchParams.set("order", "archived_at.desc.nullsfirst,updated_at.desc,wa_id.asc");
+
+  const limit = Math.max(1, Math.min(200, Number.isFinite(Number(options.limit)) ? Math.trunc(Number(options.limit)) : LIST_ARCHIVED_LEADS_DEFAULT_LIMIT));
+  endpoint.searchParams.set("limit", String(limit));
+
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: buildSupabaseHeaders(serviceRoleKey),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`FAILED_TO_LIST_ARCHIVED_LEADS:${response.status}`);
   }
 
   return (await readJsonResponse<CrmLeadMetaRow[]>(response)) ?? [];
@@ -917,6 +969,48 @@ export async function runBasesAction(
           obs_curta: patch.obs_curta,
           status_operacional: patch.status_operacional ?? null,
         }),
+      ]);
+      return { status: 200, body: { ok: true, action, lead: savedRow } };
+    }
+
+    if (action === "archive_lead" || action === "unarchive_lead") {
+      const waId = normalizeOptionalText(payload.wa_id);
+      if (!waId) {
+        return { status: 400, body: { ok: false, error: "wa_id é obrigatório" } };
+      }
+      const existing = await loadLeadMeta(supabaseUrl, serviceRoleKey, waId);
+      if (!existing) {
+        return { status: 404, body: { ok: false, error: "LEAD_NOT_FOUND" } };
+      }
+      const isArchiving = action === "archive_lead";
+      const now = new Date().toISOString();
+      const archivePatch: Record<string, unknown> = {
+        is_archived: isArchiving,
+        updated_at: now,
+        ultima_acao: isArchiving ? "ARCHIVE" : "UNARCHIVE",
+      };
+      if (isArchiving) {
+        archivePatch.archived_at = now;
+        archivePatch.archive_reason_code = normalizeOptionalText(payload.archive_reason_code);
+        archivePatch.archive_reason_note = normalizeOptionalText(payload.archive_reason_note);
+      } else {
+        // Unarchive: clear archive fields
+        archivePatch.archived_at = null;
+        archivePatch.archive_reason_code = null;
+        archivePatch.archive_reason_note = null;
+      }
+      const savedRow = await patchLeadMetaRow(supabaseUrl, serviceRoleKey, waId, archivePatch);
+      await insertAuditLogs(supabaseUrl, serviceRoleKey, [
+        buildAuditRow(
+          waId,
+          isArchiving ? "bases_archive" : "bases_unarchive",
+          isArchiving ? "Lead arquivado em Bases" : "Lead desarquivado em Bases",
+          {
+            is_archived: isArchiving,
+            archive_reason_code: isArchiving ? (normalizeOptionalText(payload.archive_reason_code) ?? null) : null,
+            archive_reason_note: isArchiving ? (normalizeOptionalText(payload.archive_reason_note) ?? null) : null,
+          },
+        ),
       ]);
       return { status: 200, body: { ok: true, action, lead: savedRow } };
     }

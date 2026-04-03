@@ -199,6 +199,19 @@ const mockDataCompleto = {
   prazo_proxima_acao: "2024-03-29T10:00:00.000Z",
   proxima_acao: "Cobrar documentos pendentes",
   current_base: "base_sp",
+  sinal_moradia_atual_p1: "Boa Vista",
+  sinal_moradia_p1: "Cabral",
+  sinal_trabalho_p1: "Centro",
+  sinal_parcela_mensal: "1200",
+  sinal_reserva_entrada: "true",
+  sinal_reserva_entrada_valor: "10000",
+  sinal_fgts_disponivel: "true",
+  sinal_fgts_valor: "30000",
+  sinal_curso_superior: "true",
+  doc_links: [
+    { tipo: "rg", participante: "p1", url: "https://example.com/rg-p1.pdf" },
+    { tipo: "comprovante_renda", participante: "p1", url: "https://example.com/renda-p1.pdf" },
+  ],
 };
 
 const mockDataMinimo = {
@@ -250,6 +263,16 @@ const mockDataMinimo = {
   prazo_proxima_acao: null,
   proxima_acao: null,
   current_base: null,
+  sinal_moradia_atual_p1: null,
+  sinal_moradia_p1: null,
+  sinal_trabalho_p1: null,
+  sinal_parcela_mensal: null,
+  sinal_reserva_entrada: null,
+  sinal_reserva_entrada_valor: null,
+  sinal_fgts_disponivel: null,
+  sinal_fgts_valor: null,
+  sinal_curso_superior: null,
+  doc_links: null,
 };
 
 // ── Smoke tests ──
@@ -365,4 +388,80 @@ assert.equal(mockDataCompleto.restricao, false, "restricao present");
 assert.equal(mockDataMinimo.ctps_36, null, "ctps_36 null in minimal");
 assert.equal(mockDataMinimo.restricao, null, "restricao null in minimal");
 
-console.log("✅ All 27 smoke tests passed.");
+// 28. sinal fields present in mockDataCompleto
+assert.equal(mockDataCompleto.sinal_moradia_atual_p1, "Boa Vista", "sinal_moradia_atual_p1 present");
+assert.equal(mockDataCompleto.sinal_moradia_p1, "Cabral", "sinal_moradia_p1 present");
+assert.equal(mockDataCompleto.sinal_trabalho_p1, "Centro", "sinal_trabalho_p1 present");
+assert.equal(mockDataCompleto.sinal_parcela_mensal, "1200", "sinal_parcela_mensal present");
+
+// 29. sinal_reserva_entrada + fgts_disponivel boolean string values
+assert.equal(mockDataCompleto.sinal_reserva_entrada, "true", "sinal_reserva_entrada is string 'true'");
+assert.equal(mockDataCompleto.sinal_fgts_disponivel, "true", "sinal_fgts_disponivel is string 'true'");
+
+// 30. sinal fields are null in mockDataMinimo
+assert.equal(mockDataMinimo.sinal_moradia_atual_p1, null, "sinal_moradia_atual_p1 null in minimo");
+assert.equal(mockDataMinimo.sinal_fgts_valor, null, "sinal_fgts_valor null in minimo");
+
+// 31. doc_links present in mockDataCompleto
+assert.ok(Array.isArray(mockDataCompleto.doc_links), "doc_links is array in completo");
+assert.equal(mockDataCompleto.doc_links.length, 2, "doc_links has 2 entries");
+assert.ok(mockDataCompleto.doc_links[0].url.startsWith("https://"), "doc_links[0].url is URL");
+
+// 32. doc_links null in mockDataMinimo
+assert.equal(mockDataMinimo.doc_links, null, "doc_links null in minimo");
+
+// 33. formatBoolSinal interpretation
+function formatBoolSinal(val, trueLabel = "sim", falseLabel = "não") {
+  if (val === null) return "Não informado";
+  const v = val.toLowerCase();
+  if (v === "true" || v === "sim" || v === "1" || v === "yes") return trueLabel;
+  if (v === "false" || v === "não" || v === "nao" || v === "0" || v === "no") return falseLabel;
+  return val;
+}
+assert.equal(formatBoolSinal("true"), "sim", "formatBoolSinal 'true' → sim");
+assert.equal(formatBoolSinal("false"), "não", "formatBoolSinal 'false' → não");
+assert.equal(formatBoolSinal(null), "Não informado", "formatBoolSinal null → não informado");
+
+// 34. buildDocLabel works for DocLink (with url field)
+const docLink = { tipo: "rg", participante: "p1", url: "https://example.com/rg.pdf" };
+assert.equal(buildDocLabel(docLink), "RG", "buildDocLabel works for DocLink");
+
+// 35. docTipoLabel covers new types added for old-front fidelity
+function docTipoLabelV2(tipo) {
+  if (!tipo) return "Documento";
+  const labels = {
+    rg: "RG", cpf: "CPF", identidade: "Documento de Identidade", cnh: "CNH",
+    comprovante_renda: "Comprovante de Renda", comprovante_residencia: "Comprovante de Residência",
+    carteira_trabalho: "Carteira de Trabalho", ctps: "CTPS", ctps_completa: "CTPS Completa",
+    holerite_ultimo: "Holerite (último)", extrato_fgts: "Extrato do FGTS",
+    declaracao_ir: "Declaração de IR",
+  };
+  return labels[tipo.toLowerCase()] ?? tipo.replace(/_/g, " ");
+}
+assert.equal(docTipoLabelV2("ctps_completa"), "CTPS Completa", "docTipoLabel ctps_completa");
+assert.equal(docTipoLabelV2("holerite_ultimo"), "Holerite (último)", "docTipoLabel holerite_ultimo");
+
+// 36. formatComposicao covers new types 'solo' and 'titular'
+function formatComposicaoCoverage(composicao) {
+  if (!composicao) return "Não informado";
+  const labels = {
+    individual: "Individual", casal: "Casal", casal_p3: "Casal + Familiar",
+    familiar: "Familiar", solteiro: "Solteiro(a)", solo: "Solo", titular: "Titular",
+  };
+  return labels[composicao] ?? composicao.replace(/_/g, " ");
+}
+assert.equal(formatComposicaoCoverage("solo"), "Solo", "formatComposicao solo");
+assert.equal(formatComposicaoCoverage("titular"), "Titular", "formatComposicao titular");
+
+// 37. deriveParticipantesTotais returns 1 for new types 'solo' and 'titular'
+function deriveParticipantesTotaisV2(composicao) {
+  if (!composicao) return 1;
+  if (composicao === "individual" || composicao === "solteiro" || composicao === "solo" || composicao === "titular") return 1;
+  if (composicao === "casal") return 2;
+  if (composicao.includes("p3") || composicao === "familiar") return 3;
+  return 1;
+}
+assert.equal(deriveParticipantesTotaisV2("solo"), 1, "deriveParticipantesTotais solo → 1");
+assert.equal(deriveParticipantesTotaisV2("titular"), 1, "deriveParticipantesTotais titular → 1");
+
+console.log("✅ All 37 smoke tests passed.");

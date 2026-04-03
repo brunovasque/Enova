@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import styles from "./dossie.module.css";
 import { fetchDossieDataAction } from "./actions";
-import type { DossieData, DocItem } from "./actions";
+import type { DossieData, DocItem, DocLink } from "./actions";
 
 // ── Helpers de apresentação ──
 
@@ -25,18 +25,6 @@ function formatDate(dateStr: string | null): string {
   } catch {
     return "Não informado";
   }
-}
-
-function formatFaseConversa(fase: string | null): string {
-  if (!fase) return "Não informado";
-  const labels: Record<string, string> = {
-    envio_docs: "Envio de Documentos",
-    aguardando_retorno_correspondente: "Aguardando Retorno",
-    agendamento_visita: "Agendamento de Visita",
-    visita_confirmada: "Visita Confirmada",
-    finalizacao_processo: "Finalização",
-  };
-  return labels[fase] ?? fase.replace(/_/g, " ");
 }
 
 function formatStatusAnalise(status: string | null): string {
@@ -76,6 +64,8 @@ function docTipoLabel(tipo: string | null): string {
     comprovante_residencia: "Comprovante de Residência",
     carteira_trabalho: "Carteira de Trabalho",
     ctps: "CTPS",
+    ctps_completa: "CTPS Completa",
+    holerite_ultimo: "Holerite (último)",
     extrato_fgts: "Extrato do FGTS",
     declaracao_ir: "Declaração de IR",
     certidao_casamento: "Certidão de Casamento",
@@ -90,7 +80,7 @@ function docTipoLabel(tipo: string | null): string {
   return labels[tipo.toLowerCase()] ?? tipo.replace(/_/g, " ");
 }
 
-function buildDocLabel(item: DocItem): string {
+function buildDocLabel(item: DocItem | DocLink): string {
   const tipo = docTipoLabel(item.tipo);
   if (!item.participante || item.participante === "p1") return tipo;
   const partLabels: Record<string, string> = {
@@ -112,53 +102,6 @@ function participantLabel(participante: string | null): string {
   return labels[participante] ?? participante;
 }
 
-function buildTitulo(data: DossieData): string {
-  const programa = data.faixa_renda_programa ?? data.parceiro_analise;
-  if (programa) return `Financiamento Habitacional — ${programa}`;
-  return "Financiamento Habitacional";
-}
-
-function buildInstrucoes(data: DossieData): string[] {
-  const instrucoes: string[] = [];
-
-  // Retorno bruto do correspondente — fonte primária
-  if (data.retorno_correspondente_bruto) {
-    instrucoes.push(data.retorno_correspondente_bruto);
-  }
-  // Motivo de retorno da análise — complementar se diferente
-  if (data.motivo_retorno_analise && data.motivo_retorno_analise !== data.retorno_correspondente_bruto) {
-    instrucoes.push(data.motivo_retorno_analise);
-  }
-  // Resumo do retorno da análise — se disponível e diferente
-  if (data.resumo_retorno_analise && data.resumo_retorno_analise !== data.retorno_correspondente_bruto && data.resumo_retorno_analise !== data.motivo_retorno_analise) {
-    instrucoes.push(data.resumo_retorno_analise);
-  }
-  // Documentos pendentes — instrução operacional
-  const pendentes = data.docs_itens_pendentes ?? data.docs_faltantes ?? [];
-  if (pendentes.length > 0) {
-    instrucoes.push(
-      `Solicitar ao cliente os seguintes documentos pendentes: ${pendentes.map((d) => buildDocLabel(d)).join(", ")}.`,
-    );
-    instrucoes.push(
-      "Após recebimento dos documentos pendentes, submeter dossiê completo para análise de crédito na instituição.",
-    );
-    instrucoes.push(
-      "Acompanhar prazo de validade dos documentos já enviados — alguns podem expirar antes da conclusão.",
-    );
-  }
-  if (instrucoes.length === 0) {
-    instrucoes.push("Aguardando atualização das instruções pelo correspondente.");
-  }
-  return instrucoes;
-}
-
-function buildResumo(data: DossieData): string {
-  if (data.dossie_resumo) return data.dossie_resumo;
-  if (data.resumo_perfil_analise) return data.resumo_perfil_analise;
-  if (data.resumo_retorno_analise) return data.resumo_retorno_analise;
-  return "Aguardando atualização do resumo do caso.";
-}
-
 function formatComposicao(composicao: string | null): string {
   if (!composicao) return "Não informado";
   const labels: Record<string, string> = {
@@ -167,6 +110,8 @@ function formatComposicao(composicao: string | null): string {
     casal_p3: "Casal + Familiar",
     familiar: "Familiar",
     solteiro: "Solteiro(a)",
+    solo: "Solo",
+    titular: "Titular",
   };
   return labels[composicao] ?? composicao.replace(/_/g, " ");
 }
@@ -183,6 +128,20 @@ function formatRegimeTrabalho(regime: string | null): string {
     empresario: "Empresário",
   };
   return labels[regime.toLowerCase()] ?? regime.replace(/_/g, " ");
+}
+
+function formatDependentes(qtd: number | null): string {
+  if (qtd === null || qtd === undefined) return "Não informado";
+  if (qtd > 0) return String(qtd);
+  return "não";
+}
+
+function formatBoolSinal(val: string | null, trueLabel = "sim", falseLabel = "não"): string {
+  if (val === null) return "Não informado";
+  const v = val.toLowerCase();
+  if (v === "true" || v === "sim" || v === "1" || v === "yes") return trueLabel;
+  if (v === "false" || v === "não" || v === "nao" || v === "0" || v === "no") return falseLabel;
+  return val;
 }
 
 function deriveProntoPreAnalise(data: DossieData): boolean {
@@ -202,10 +161,44 @@ function deriveProntoPreAnalise(data: DossieData): boolean {
 
 function deriveParticipantesTotais(composicao: string | null): number {
   if (!composicao) return 1;
-  if (composicao === "individual" || composicao === "solteiro") return 1;
+  if (composicao === "individual" || composicao === "solteiro" || composicao === "solo" || composicao === "titular") return 1;
   if (composicao === "casal") return 2;
   if (composicao.includes("p3") || composicao === "familiar") return 3;
   return 1;
+}
+
+function buildResumo(data: DossieData): string {
+  if (data.dossie_resumo) return data.dossie_resumo;
+  if (data.resumo_perfil_analise) return data.resumo_perfil_analise;
+  if (data.resumo_retorno_analise) return data.resumo_retorno_analise;
+  return "Aguardando atualização do resumo do caso.";
+}
+
+function buildInstrucoes(data: DossieData): string[] {
+  const instrucoes: string[] = [];
+  if (data.retorno_correspondente_bruto) {
+    instrucoes.push(data.retorno_correspondente_bruto);
+  }
+  if (data.motivo_retorno_analise && data.motivo_retorno_analise !== data.retorno_correspondente_bruto) {
+    instrucoes.push(data.motivo_retorno_analise);
+  }
+  if (
+    data.resumo_retorno_analise &&
+    data.resumo_retorno_analise !== data.retorno_correspondente_bruto &&
+    data.resumo_retorno_analise !== data.motivo_retorno_analise
+  ) {
+    instrucoes.push(data.resumo_retorno_analise);
+  }
+  const pendentes = data.docs_itens_pendentes ?? data.docs_faltantes ?? [];
+  if (pendentes.length > 0) {
+    instrucoes.push(
+      `Solicitar ao cliente os seguintes documentos pendentes: ${pendentes.map((d) => buildDocLabel(d)).join(", ")}.`,
+    );
+  }
+  if (instrucoes.length === 0) {
+    instrucoes.push("Aguardando atualização das instruções pelo correspondente.");
+  }
+  return instrucoes;
 }
 
 // Icons como componentes inline
@@ -350,37 +343,48 @@ function NoWaIdState() {
 // ── Componente principal com dados reais ──
 
 function DossieContent({ data }: { data: DossieData }) {
-  const titulo = buildTitulo(data);
-  const status = formatStatusAnalise(data.status_analise) || formatFaseConversa(data.fase_conversa);
-  const prioridade = formatStatusAtencao(data.status_atencao);
   const protocolo = data.pre_cadastro_numero ?? data.wa_id;
   const correspondente = data.correspondente_retorno ?? data.corr_lock_correspondente_wa_id ?? "Não informado";
-  const abertura = formatDate(data.created_at);
   const prazo = data.prazo_proxima_acao ? formatDate(data.prazo_proxima_acao) : (data.data_retorno_analise ? formatDate(data.data_retorno_analise) : "Aguardando atualização");
   const resumo = buildResumo(data);
   const instrucoes = buildInstrucoes(data);
 
   const rendaRef = data.renda_total_analise ?? data.renda_familiar_analise ?? data.renda_total_para_fluxo;
-  const nivelRisco = data.faixa_perfil_analise ?? data.nivel_risco_reserva ?? "Não informado";
 
   const docsRecebidos: DocItem[] = data.docs_itens_recebidos ?? [];
   const docsPendentes: DocItem[] = data.docs_itens_pendentes ?? data.docs_faltantes ?? [];
+  const docLinks: DocLink[] = data.doc_links ?? [];
 
   const prontoPreAnalise = deriveProntoPreAnalise(data);
   const participantesTotais = deriveParticipantesTotais(data.composicao_pessoa);
   const pendenciasTotais = docsPendentes.length;
 
-  const badgeStatusClass = (() => {
-    if (!data.status_analise) return styles.badgeAnalise;
-    if (data.status_analise.startsWith("APPROVED")) return styles.badgeAprovado;
-    if (data.status_analise.startsWith("REJECTED")) return styles.badgeReprovado;
-    return styles.badgeAnalise;
-  })();
+  // badges for hero
+  const statusRaw = data.fase_conversa ?? data.status_analise ?? null;
+  const retornoRaw = data.retorno_correspondente_status ?? "sem retorno";
 
-  const badgePrioClass =
-    data.status_atencao === "OVERDUE" ? styles.badgePrioridade
-    : data.status_atencao === "DUE_SOON" ? styles.badgeMedia
-    : styles.badgeAprovado;
+  const statusBadgeColor =
+    data.status_analise?.startsWith("APPROVED") ? "#4ade80"
+    : data.status_analise?.startsWith("REJECTED") ? "#f87171"
+    : "#2dd4bf";
+
+  const retornoBadgeColor =
+    retornoRaw === "sem retorno" || retornoRaw === "aguardando" ? "#f59e0b"
+    : retornoRaw === "aprovado" ? "#4ade80"
+    : "#f87171";
+
+  // sinais pré-docs: only show cards with actual values
+  const sinais: Array<{ label: string; value: string | null }> = [
+    { label: "Moradia atual P1", value: data.sinal_moradia_atual_p1 },
+    { label: "Preferência de moradia P1", value: data.sinal_moradia_p1 },
+    { label: "Trabalho P1", value: data.sinal_trabalho_p1 },
+    { label: "Parcela mensal", value: data.sinal_parcela_mensal },
+    { label: "Reserva para entrada", value: data.sinal_reserva_entrada !== null ? formatBoolSinal(data.sinal_reserva_entrada) : null },
+    { label: "Reserva para entrada - valor", value: data.sinal_reserva_entrada_valor },
+    { label: "FGTS disponível", value: data.sinal_fgts_disponivel !== null ? formatBoolSinal(data.sinal_fgts_disponivel) : null },
+    { label: "FGTS disponível - valor", value: data.sinal_fgts_valor },
+    { label: "Curso superior", value: data.sinal_curso_superior !== null ? formatBoolSinal(data.sinal_curso_superior) : null },
+  ].filter((s) => s.value !== null);
 
   return (
     <div className={styles.container}>
@@ -408,39 +412,50 @@ function DossieContent({ data }: { data: DossieData }) {
         </div>
       </header>
 
-      {/* Main Content */}
       <main className={styles.main}>
 
-        {/* ── Topo: Financiamento Habitacional ── */}
+        {/* ── Capa do pré-cadastro ── */}
         <section className={styles.heroCard}>
           <div className={styles.heroHeader}>
             <div className={styles.heroTitleGroup}>
-              <span className={styles.heroProtocol}>Protocolo {protocolo}</span>
-              <h2 className={styles.heroTitle}>{titulo}</h2>
-              <p className={styles.heroSubtitle}>{data.fase_conversa ? formatFaseConversa(data.fase_conversa) : "Aguardando atualização"}</p>
+              <span className={styles.heroProtocol}>Dossiê Premium</span>
+              <h2 className={styles.heroTitle}>Capa do pré-cadastro</h2>
             </div>
             <div className={styles.heroBadges}>
-              <span className={`${styles.badge} ${badgeStatusClass}`}>{status}</span>
-              <span className={`${styles.badge} ${badgePrioClass}`}>Prioridade {prioridade}</span>
+              <span className={styles.badge} style={{ background: "rgba(45,212,191,0.12)", color: statusBadgeColor, border: `1px solid ${statusBadgeColor}44` }}>
+                Status: {statusRaw ?? "—"}
+              </span>
+              <span className={styles.badge} style={{ background: "rgba(245,158,11,0.12)", color: retornoBadgeColor, border: `1px solid ${retornoBadgeColor}44` }}>
+                Retorno: {retornoRaw}
+              </span>
             </div>
           </div>
 
+          <div className={styles.heroMeta}>
+            <span className={styles.heroMetaLine}><strong>Referência:</strong> {protocolo}</span>
+            <span className={styles.heroMetaLine}><strong>Cliente:</strong> {data.nome ?? "Não informado"}</span>
+          </div>
+
+          {data.dossie_resumo && (
+            <div className={styles.heroTextBlock}>{data.dossie_resumo}</div>
+          )}
+
           <div className={styles.heroGrid}>
             <div className={styles.heroGridItem}>
-              <span className={styles.heroGridLabel}>Cliente</span>
-              <span className={styles.heroGridValue}>{data.nome ?? "Não informado"}</span>
+              <span className={styles.heroGridLabel}>Case ref</span>
+              <span className={styles.heroGridValue}>{protocolo}</span>
             </div>
             <div className={styles.heroGridItem}>
-              <span className={styles.heroGridLabel}>Correspondente</span>
+              <span className={styles.heroGridLabel}>Pré-cadastro</span>
+              <span className={styles.heroGridValue}>{data.pre_cadastro_numero ?? "—"}</span>
+            </div>
+            <div className={styles.heroGridItem}>
+              <span className={styles.heroGridLabel}>Lock correspondente</span>
               <span className={styles.heroGridValue}>{correspondente}</span>
             </div>
             <div className={styles.heroGridItem}>
-              <span className={styles.heroGridLabel}>Base / Origem</span>
-              <span className={styles.heroGridValue}>{data.current_base ?? "Não informado"}</span>
-            </div>
-            <div className={styles.heroGridItem}>
-              <span className={styles.heroGridLabel}>Abertura / Prazo</span>
-              <span className={styles.heroGridValue}>{abertura} — {prazo}</span>
+              <span className={styles.heroGridLabel}>Gerado em</span>
+              <span className={styles.heroGridValue}>{data.created_at ?? "—"}</span>
             </div>
           </div>
         </section>
@@ -449,39 +464,36 @@ function DossieContent({ data }: { data: DossieData }) {
         <section className={styles.sectionCard}>
           <div className={styles.sectionHeader}>
             <div className={styles.sectionIcon}><FileTextIcon /></div>
-            <h3 className={styles.sectionTitle}>Resumo Executivo</h3>
+            <h3 className={styles.sectionTitle}>Resumo executivo</h3>
           </div>
-          <div className={styles.perfilGrid} style={{ marginBottom: "16px" }}>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Pronto para Pré-análise</span>
-              <span className={styles.perfilValue} style={{ color: prontoPreAnalise ? "#2dd4bf" : "#f59e0b" }}>
-                {prontoPreAnalise ? "✓ Sim" : "Pendente"}
+          <div className={styles.infoList}>
+            <div className={styles.infoItem}>
+              <span className={styles.infoLabel}>Pronto para pré-análise:</span>
+              <span className={styles.infoValue} style={{ color: prontoPreAnalise ? "#2dd4bf" : "#f59e0b" }}>
+                {prontoPreAnalise ? "sim" : "não"}
               </span>
             </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Status Documental</span>
-              <span className={styles.perfilValue}>{data.docs_status ?? "Não informado"}</span>
+            <div className={styles.infoItem}>
+              <span className={styles.infoLabel}>Status documental:</span>
+              <span className={styles.infoValue}>{data.docs_status ?? "Não informado"}</span>
             </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Pendências Totais</span>
-              <span className={styles.perfilValue} style={{ color: pendenciasTotais > 0 ? "#f59e0b" : "#2dd4bf" }}>
-                {pendenciasTotais} {pendenciasTotais === 1 ? "documento" : "documentos"}
+            <div className={styles.infoItem}>
+              <span className={styles.infoLabel}>Pendências totais:</span>
+              <span className={styles.infoValue} style={{ color: pendenciasTotais > 0 ? "#f59e0b" : "#2dd4bf" }}>
+                {pendenciasTotais}
               </span>
             </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Renda Total</span>
-              <span className={styles.perfilValue}>{formatBRL(rendaRef)}</span>
+            <div className={styles.infoItem}>
+              <span className={styles.infoLabel}>Renda total:</span>
+              <span className={styles.infoValue}>{formatBRL(rendaRef)}</span>
             </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Participantes</span>
-              <span className={styles.perfilValue}>{participantesTotais}</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Retorno Correspondente</span>
-              <span className={styles.perfilValue}>{data.retorno_correspondente_status ?? "Aguardando"}</span>
+            <div className={styles.infoItem}>
+              <span className={styles.infoLabel}>Participantes totais:</span>
+              <span className={styles.infoValue}>{participantesTotais}</span>
             </div>
           </div>
-          <p className={styles.resumoText}>{resumo}</p>
+          <p className={styles.resumoSubheader}>Resumo</p>
+          <div className={styles.resumoBox}>{resumo}</div>
         </section>
 
         {/* ── Perfil Técnico Consolidado ── */}
@@ -490,119 +502,100 @@ function DossieContent({ data }: { data: DossieData }) {
             <div className={styles.sectionIcon}><ChartIcon /></div>
             <h3 className={styles.sectionTitle}>Perfil Técnico Consolidado</h3>
           </div>
-          <div className={styles.perfilGrid}>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Nº do Processo / wa_id</span>
-              <span className={styles.perfilValue}>{data.pre_cadastro_numero ?? data.wa_id}</span>
+          <div className={styles.infoList}>
+            <div className={styles.infoItem}>
+              <span className={styles.infoLabel}>Nome:</span>
+              <span className={styles.infoValue}>{data.nome ?? "Não informado"}</span>
             </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Programa</span>
-              <span className={styles.perfilValue}>{data.faixa_renda_programa ?? data.parceiro_analise ?? "Não informado"}</span>
+            <div className={styles.infoItem}>
+              <span className={styles.infoLabel}>Estado civil:</span>
+              <span className={styles.infoValue}>{data.estado_civil ?? "Não informado"}</span>
             </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Estado Civil</span>
-              <span className={styles.perfilValue}>{data.estado_civil ?? "Não informado"}</span>
+            <div className={styles.infoItem}>
+              <span className={styles.infoLabel}>Tipo de processo:</span>
+              <span className={styles.infoValue}>{formatComposicao(data.composicao_pessoa)}</span>
             </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Composição do Grupo</span>
-              <span className={styles.perfilValue}>{formatComposicao(data.composicao_pessoa)}</span>
+            <div className={styles.infoItem}>
+              <span className={styles.infoLabel}>Renda:</span>
+              <span className={styles.infoValue}>{formatBRL(rendaRef)}</span>
             </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Regime de Trabalho</span>
-              <span className={styles.perfilValue}>{formatRegimeTrabalho(data.regime_trabalho)}</span>
+            <div className={styles.infoItem}>
+              <span className={styles.infoLabel}>Composição:</span>
+              <span className={styles.infoValue}>{data.composicao_pessoa ?? "Não informado"}</span>
             </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Nacionalidade</span>
-              <span className={styles.perfilValue}>{data.nacionalidade ?? "Não informado"}</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Valor do Imóvel (Ticket)</span>
-              <span className={styles.perfilValue}>{formatBRL(data.ticket_desejado_analise)}</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Valor do Financiamento</span>
-              <span className={styles.perfilValue}>{formatBRL(data.valor_financiamento_aprovado)}</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Subsídio Estimado</span>
-              <span className={styles.perfilValue}>{formatBRL(data.valor_subsidio_aprovado)}</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Parcela Estimada</span>
-              <span className={styles.perfilValue}>{formatBRL(data.valor_parcela_informada)}</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Nível de Risco / Faixa</span>
-              <span className={styles.perfilValue}>{nivelRisco}</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>CTPS 36 Meses</span>
-              <span className={styles.perfilValue} style={{ color: data.ctps_36 === true ? "#2dd4bf" : data.ctps_36 === false ? "#f59e0b" : undefined }}>
-                {data.ctps_36 === true ? "✓ Confirmado" : data.ctps_36 === false ? "Não confirmado" : "Não informado"}
+            <div className={styles.infoItem}>
+              <span className={styles.infoLabel}>CTPS 36 meses:</span>
+              <span className={styles.infoValue} style={{ color: data.ctps_36 === true ? "#2dd4bf" : data.ctps_36 === false ? "#f59e0b" : undefined }}>
+                {data.ctps_36 === true ? "sim" : data.ctps_36 === false ? "não" : "Não informado"}
               </span>
             </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Dependentes</span>
-              <span className={styles.perfilValue}>
-                {data.dependentes_qtd !== null && data.dependentes_qtd !== undefined
-                  ? String(data.dependentes_qtd)
-                  : "Não informado"}
+            <div className={styles.infoItem}>
+              <span className={styles.infoLabel}>Dependente:</span>
+              <span className={styles.infoValue}>
+                {formatDependentes(data.dependentes_qtd)}
               </span>
             </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Restrição</span>
-              <span className={styles.perfilValue} style={{ color: data.restricao === true ? "#e86c6c" : data.restricao === false ? "#2dd4bf" : undefined }}>
-                {data.restricao === true ? "⚠ Possui restrição" : data.restricao === false ? "✓ Sem restrição" : "Não informado"}
+            <div className={styles.infoItem}>
+              <span className={styles.infoLabel}>Restrição:</span>
+              <span className={styles.infoValue} style={{ color: data.restricao === true ? "#e86c6c" : data.restricao === false ? "#2dd4bf" : undefined }}>
+                {data.restricao === true ? "sim" : data.restricao === false ? "não" : "Não informado"}
               </span>
+            </div>
+            <div className={styles.infoItem}>
+              <span className={styles.infoLabel}>Regime de trabalho:</span>
+              <span className={styles.infoValue}>{formatRegimeTrabalho(data.regime_trabalho)}</span>
+            </div>
+            <div className={styles.infoItem}>
+              <span className={styles.infoLabel}>Nacionalidade:</span>
+              <span className={styles.infoValue}>{data.nacionalidade ?? "Não informado"}</span>
             </div>
           </div>
+
+          {/* Sinais técnicos PRÉ-DOCS */}
+          {sinais.length > 0 && (
+            <>
+              <p className={styles.sinaisPreDocsTitle}>Sinais técnicos PRÉ-DOCS</p>
+              <div className={styles.sinaisGrid}>
+                {sinais.map((s, i) => (
+                  <div key={i} className={styles.sinaisCard}>
+                    <span className={styles.sinaisCardLabel}>{s.label}</span>
+                    <span className={styles.sinaisCardValue}>{s.value}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </section>
 
-        {/* ── Documentos Recebidos ── */}
+        {/* ── Documentos Recebidos + Pendentes + Links ── */}
         <section className={styles.sectionCard}>
           <div className={styles.sectionHeader}>
             <div className={styles.sectionIcon}><DocumentIcon /></div>
             <h3 className={styles.sectionTitle}>Documentos Recebidos</h3>
           </div>
-          {docsRecebidos.length === 0 ? (
-            <p style={{ color: "#6b7c93", padding: "12px 0" }}>Nenhum documento recebido registrado.</p>
-          ) : (
-            <table className={styles.docTable}>
-              <thead>
-                <tr>
-                  <th>Documento</th>
-                  <th>Participante</th>
-                </tr>
-              </thead>
-              <tbody>
-                {docsRecebidos.map((doc, index) => (
-                  <tr key={index}>
-                    <td>
-                      <div className={styles.docName}>
-                        <div className={`${styles.docIcon} ${styles.docIconPdf}`}>
-                          <DocumentIcon />
-                        </div>
-                        {docTipoLabel(doc.tipo)}
-                      </div>
-                    </td>
-                    <td>{participantLabel(doc.participante)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
 
-        {/* ── Documentos Pendentes ── */}
-        <section className={styles.sectionCard}>
-          <div className={styles.sectionHeader}>
+          {docsRecebidos.length === 0 ? (
+            <p style={{ color: "#6b7c93", padding: "4px 0 12px" }}>Nenhum documento recebido registrado.</p>
+          ) : (
+            <ul style={{ listStyle: "disc", paddingLeft: "20px", margin: "0 0 16px", display: "flex", flexDirection: "column", gap: "4px" }}>
+              {docsRecebidos.map((doc, index) => (
+                <li key={index} style={{ color: "#b6c2cf", fontSize: "0.9rem" }}>
+                  {docTipoLabel(doc.tipo)} — {participantLabel(doc.participante)}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {/* Documentos Pendentes sub-section */}
+          <div className={styles.sectionHeader} style={{ borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: "16px", borderBottom: "none", marginTop: "4px", marginBottom: "12px", paddingBottom: "0" }}>
             <div className={styles.sectionIcon}><ClockIcon /></div>
             <h3 className={styles.sectionTitle}>Documentos Pendentes</h3>
           </div>
+
           {docsPendentes.length === 0 ? (
-            <p style={{ color: "#6b7c93", padding: "12px 0" }}>Nenhum documento pendente. Pasta completa.</p>
+            <p style={{ color: "#2dd4bf", fontSize: "0.875rem", margin: "0 0 16px" }}>Sem pendências documentais ativas.</p>
           ) : (
-            <div className={styles.pendentesList}>
+            <div className={styles.pendentesList} style={{ marginBottom: "16px" }}>
               {docsPendentes.map((doc, index) => (
                 <div key={index} className={styles.pendenteItem}>
                   <div className={styles.pendenteInfo}>
@@ -617,53 +610,75 @@ function DossieContent({ data }: { data: DossieData }) {
               ))}
             </div>
           )}
+
+          {/* Links operacionais dos documentos */}
+          {docLinks.length > 0 && (
+            <>
+              <p className={styles.docLinksHeader}>Links operacionais dos documentos</p>
+              <div className={styles.docLinksList}>
+                {docLinks.map((link, index) => (
+                  <div key={index} className={styles.docLinksItem}>
+                    {buildDocLabel(link)} —{" "}
+                    <a
+                      href={link.url ?? "#"}
+                      className={styles.docLinksLink}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      abrir documento
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </section>
 
-        {/* ── Instruções de Retorno ao Correspondente ── */}
+        {/* ── Instrução/estado de retorno do correspondente ── */}
         <section className={styles.sectionCard}>
           <div className={styles.sectionHeader}>
             <div className={styles.sectionIcon}><ListIcon /></div>
-            <h3 className={styles.sectionTitle}>Instruções de Retorno ao Correspondente</h3>
+            <h3 className={styles.sectionTitle}>Instrução/estado de retorno do correspondente</h3>
           </div>
-          {/* Estado atual do retorno */}
+
+          {/* Status contextual */}
           {(data.processo_enviado_correspondente !== null || data.aguardando_retorno_correspondente !== null || data.retorno_correspondente_status) && (
-            <div className={styles.perfilGrid} style={{ marginBottom: "16px" }}>
+            <div className={styles.infoList} style={{ marginBottom: "16px" }}>
               {data.processo_enviado_correspondente !== null && (
-                <div className={styles.perfilItem}>
-                  <span className={styles.perfilLabel}>Processo Enviado</span>
-                  <span className={styles.perfilValue} style={{ color: data.processo_enviado_correspondente ? "#2dd4bf" : undefined }}>
-                    {data.processo_enviado_correspondente ? "✓ Sim" : "Não"}
+                <div className={styles.infoItem}>
+                  <span className={styles.infoLabel}>Processo enviado:</span>
+                  <span className={styles.infoValue} style={{ color: data.processo_enviado_correspondente ? "#2dd4bf" : undefined }}>
+                    {data.processo_enviado_correspondente ? "sim" : "não"}
                   </span>
                 </div>
               )}
               {data.aguardando_retorno_correspondente !== null && (
-                <div className={styles.perfilItem}>
-                  <span className={styles.perfilLabel}>Aguardando Retorno</span>
-                  <span className={styles.perfilValue} style={{ color: data.aguardando_retorno_correspondente ? "#f59e0b" : undefined }}>
-                    {data.aguardando_retorno_correspondente ? "✓ Sim" : "Não"}
+                <div className={styles.infoItem}>
+                  <span className={styles.infoLabel}>Aguardando retorno:</span>
+                  <span className={styles.infoValue} style={{ color: data.aguardando_retorno_correspondente ? "#f59e0b" : undefined }}>
+                    {data.aguardando_retorno_correspondente ? "sim" : "não"}
                   </span>
                 </div>
               )}
               {data.retorno_correspondente_status && (
-                <div className={styles.perfilItem}>
-                  <span className={styles.perfilLabel}>Status do Retorno</span>
-                  <span className={styles.perfilValue}>{data.retorno_correspondente_status}</span>
+                <div className={styles.infoItem}>
+                  <span className={styles.infoLabel}>Status do retorno:</span>
+                  <span className={styles.infoValue}>{data.retorno_correspondente_status}</span>
                 </div>
               )}
               {data.retorno_correspondente_motivo && (
-                <div className={styles.perfilItem}>
-                  <span className={styles.perfilLabel}>Motivo</span>
-                  <span className={styles.perfilValue}>{data.retorno_correspondente_motivo}</span>
+                <div className={styles.infoItem}>
+                  <span className={styles.infoLabel}>Motivo:</span>
+                  <span className={styles.infoValue}>{data.retorno_correspondente_motivo}</span>
                 </div>
               )}
             </div>
           )}
+
+          <p className={styles.instrucaoOperacionalLabel}>Instrução operacional:</p>
           <div className={styles.instrucoesList}>
             {instrucoes.map((instrucao, index) => (
-              <div key={index} className={styles.instrucaoItem}>
-                <span className={styles.instrucaoNum}>{index + 1}</span>
-                <span className={styles.instrucaoText}>{instrucao}</span>
-              </div>
+              <pre key={index} className={styles.instrucaoPreBox}>{instrucao}</pre>
             ))}
           </div>
         </section>
@@ -711,4 +726,3 @@ export default function DossieUI() {
 
   return <DossieContent data={data} />;
 }
-

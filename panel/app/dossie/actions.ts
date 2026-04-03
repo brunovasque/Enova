@@ -12,6 +12,12 @@ export type DocItem = {
   participante: string | null;
 };
 
+export type DocLink = {
+  tipo: string | null;
+  participante: string | null;
+  url: string | null;
+};
+
 export type DossieData = {
   // Identificação
   wa_id: string;
@@ -68,6 +74,20 @@ export type DossieData = {
   data_envio_analise: string | null;
   data_retorno_analise: string | null;
   parceiro_analise: string | null;
+
+  // Sinais técnicos pré-docs (enova_state.controle.etapa1_informativos)
+  sinal_moradia_atual_p1: string | null;
+  sinal_moradia_p1: string | null;
+  sinal_trabalho_p1: string | null;
+  sinal_parcela_mensal: string | null;
+  sinal_reserva_entrada: string | null;
+  sinal_reserva_entrada_valor: string | null;
+  sinal_fgts_disponivel: string | null;
+  sinal_fgts_valor: string | null;
+  sinal_curso_superior: string | null;
+
+  // Doc links (enova_docs — read-only)
+  doc_links: DocLink[] | null;
 
   // Operational (enova_attendance_meta)
   status_atencao: string | null;
@@ -209,6 +229,7 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
       "ctps_36",
       "dependentes_qtd",
       "restricao",
+      "controle",
     ].join(",");
 
     const stateEndpoint = new URL("/rest/v1/enova_state", supabaseUrl);
@@ -320,6 +341,57 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
         Array.isArray(attRows) && attRows.length > 0 ? attRows[0] : null;
     }
 
+    // ── 4. enova_docs — document links ──
+    // Same table used by the case-files API (panel/app/api/case-files/route.ts)
+    const docsLinkEndpoint = new URL("/rest/v1/enova_docs", supabaseUrl);
+    docsLinkEndpoint.searchParams.set("select", "tipo,participante,url");
+    docsLinkEndpoint.searchParams.set("wa_id", `eq.${resolvedWaId}`);
+    docsLinkEndpoint.searchParams.set("order", "created_at.asc");
+    docsLinkEndpoint.searchParams.set("limit", "100");
+
+    let docLinks: DocLink[] = [];
+    const docsLinkRes = await fetch(docsLinkEndpoint.toString(), {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    });
+    if (docsLinkRes.ok) {
+      const docsLinkRows = await readJson<Array<Record<string, unknown>>>(docsLinkRes);
+      if (Array.isArray(docsLinkRows)) {
+        docLinks = docsLinkRows
+          .map((r) => ({
+            tipo: safeString(r.tipo),
+            participante: safeString(r.participante),
+            url: safeString(r.url),
+          }))
+          .filter((d) => d.url !== null);
+      }
+    }
+
+    // ── Parse controle.etapa1_informativos for pre-docs signals ──
+    const controleRaw = stateRow.controle;
+    let etapa1: Record<string, unknown> = {};
+    if (controleRaw && typeof controleRaw === "object" && !Array.isArray(controleRaw)) {
+      const c = controleRaw as Record<string, unknown>;
+      if (c.etapa1_informativos && typeof c.etapa1_informativos === "object" && !Array.isArray(c.etapa1_informativos)) {
+        etapa1 = c.etapa1_informativos as Record<string, unknown>;
+      }
+    } else if (typeof controleRaw === "string" && controleRaw.trim()) {
+      try {
+        const parsed = JSON.parse(controleRaw) as Record<string, unknown>;
+        if (parsed?.etapa1_informativos && typeof parsed.etapa1_informativos === "object") {
+          etapa1 = parsed.etapa1_informativos as Record<string, unknown>;
+        }
+      } catch {
+        // ignore parse errors
+      }
+    }
+    const getSinal = (key: string): string | null => {
+      const v = etapa1[key];
+      if (v === null || v === undefined || v === "") return null;
+      return String(v);
+    };
+  
     // ── Consolidar resposta ──
     const data: DossieData = {
       wa_id: resolvedWaId,
@@ -390,6 +462,18 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
       prazo_proxima_acao: safeString(attendanceRow?.enova_next_action_due_at),
       proxima_acao: safeString(attendanceRow?.enova_next_action_label),
       current_base: safeString(attendanceRow?.current_base),
+
+      sinal_moradia_atual_p1: getSinal("informativo_moradia_atual_p1"),
+      sinal_moradia_p1: getSinal("informativo_moradia_p1"),
+      sinal_trabalho_p1: getSinal("informativo_trabalho_p1"),
+      sinal_parcela_mensal: getSinal("informativo_parcela_mensal"),
+      sinal_reserva_entrada: getSinal("visita_reserva_entrada_tem"),
+      sinal_reserva_entrada_valor: getSinal("visita_reserva_entrada_valor"),
+      sinal_fgts_disponivel: getSinal("visita_fgts_disponivel"),
+      sinal_fgts_valor: getSinal("visita_fgts_valor"),
+      sinal_curso_superior: getSinal("titular_curso_superior_status"),
+
+      doc_links: docLinks.length > 0 ? docLinks : null,
     };
 
     return { ok: true, data, error: null };

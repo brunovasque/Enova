@@ -538,6 +538,174 @@
   line-height: 1.5;
 }
 
+/* Hero Meta (Referência / Cliente) */
+.heroMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+
+.heroMetaLine {
+  font-size: 0.9rem;
+  color: #b6c2cf;
+}
+
+.heroMetaLine strong {
+  color: #e6edf3;
+}
+
+/* Hero text block (short paragraph / dossie_resumo) */
+.heroTextBlock {
+  margin: 16px 0;
+  padding: 12px 16px;
+  background: rgba(45, 212, 191, 0.06);
+  border-left: 3px solid rgba(45, 212, 191, 0.35);
+  border-radius: 4px;
+  font-size: 0.875rem;
+  color: #b6c2cf;
+  line-height: 1.55;
+}
+
+/* Vertical info list (replaces 2-col grid for resumo + perfil) */
+.infoList {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 16px;
+}
+
+.infoItem {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  font-size: 0.9rem;
+}
+
+.infoItem:last-child {
+  border-bottom: none;
+}
+
+.infoLabel {
+  color: #2dd4bf;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.infoValue {
+  color: #e6edf3;
+}
+
+/* Resumo subheader + text box */
+.resumoSubheader {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e6edf3;
+  margin: 16px 0 8px;
+}
+
+.resumoBox {
+  padding: 14px 16px;
+  background: rgba(30, 50, 80, 0.45);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: #b6c2cf;
+  line-height: 1.65;
+}
+
+/* Sinais técnicos PRÉ-DOCS */
+.sinaisPreDocsTitle {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e6edf3;
+  margin: 20px 0 12px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.sinaisGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.sinaisCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.sinaisCardLabel {
+  font-size: 0.7rem;
+  color: #6b7c93;
+  text-transform: none;
+  letter-spacing: 0.01em;
+}
+
+.sinaisCardValue {
+  font-size: 0.9rem;
+  color: #e6edf3;
+  font-weight: 500;
+}
+
+/* Doc links operacionais */
+.docLinksHeader {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e6edf3;
+  margin: 20px 0 10px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.docLinksList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.docLinksItem {
+  font-size: 0.875rem;
+  color: #b6c2cf;
+}
+
+.docLinksLink {
+  color: #2dd4bf;
+  text-decoration: none;
+  margin-left: 4px;
+}
+
+.docLinksLink:hover {
+  text-decoration: underline;
+}
+
+/* Instrução operacional label + pre box */
+.instrucaoOperacionalLabel {
+  font-size: 0.85rem;
+  color: #2dd4bf;
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+.instrucaoPreBox {
+  padding: 14px 16px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  color: #b6c2cf;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.6;
+  font-family: inherit;
+}
+
 /* Responsive */
 @media (max-width: 900px) {
   .heroGrid {

@@ -64,6 +64,13 @@ export type DossieData = {
   data_retorno_analise: string | null;
   parceiro_analise: string | null;
 
+  // Sinais do funil (enova_state — perfil parcial confirmado)
+  ctps_36: boolean | null;
+  restricao: boolean | null;
+  dependentes_qtd: number | null;
+  ir_declarado: boolean | null;
+  somar_renda: boolean | null;
+
   // Operational (enova_attendance_meta)
   status_atencao: string | null;
   prazo_proxima_acao: string | null;
@@ -201,6 +208,12 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
       "docs_itens_recebidos",
       "docs_itens_pendentes",
       "docs_faltantes",
+      // Sinais do funil (perfil parcial confirmado — mesmos campos de enova_attendance_v1)
+      "ctps_36",
+      "restricao",
+      "dependentes_qtd",
+      "ir_declarado",
+      "somar_renda",
     ].join(",");
 
     const stateEndpoint = new URL("/rest/v1/enova_state", supabaseUrl);
@@ -352,6 +365,12 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
       docs_itens_recebidos: safeArray<DocItem>(stateRow.docs_itens_recebidos),
       docs_itens_pendentes: safeArray<DocItem>(stateRow.docs_itens_pendentes),
       docs_faltantes: safeArray<DocItem>(stateRow.docs_faltantes),
+
+      ctps_36: safeBool(stateRow.ctps_36),
+      restricao: safeBool(stateRow.restricao),
+      dependentes_qtd: safeNumber(stateRow.dependentes_qtd),
+      ir_declarado: safeBool(stateRow.ir_declarado),
+      somar_renda: safeBool(stateRow.somar_renda),
 
       correspondente_retorno: safeString(crmRow?.correspondente_retorno),
       status_analise: safeString(crmRow?.status_analise),

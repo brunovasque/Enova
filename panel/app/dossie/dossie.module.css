@@ -299,6 +299,13 @@
   text-align: right;
 }
 
+.perfilValueDanger {
+  font-size: 0.9rem;
+  color: #f87171;
+  font-weight: 500;
+  text-align: right;
+}
+
 .perfilTags {
   display: flex;
   flex-wrap: wrap;

@@ -3146,6 +3146,14 @@ function shouldTriggerCognitiveAssist(stage, text) {
   const offtrackHints = /\b(imovel|casa|apartamento|bairro|regiao|entrada|parcela|fgts|valor|preco)\b/i.test(nt);
   const fearHints = /\b(medo|receio|reprovad|enganad|vergonha|nao quero passar|não quero passar)\b/i.test(nt);
 
+  // Bloco A topo — triggers para saudação curta e reentrada no topo do funil
+  // Cobre: inicio (pós-opening), inicio_decisao, inicio_programa (inclui pós-reset)
+  if (stage === "inicio" || stage === "inicio_decisao" || stage === "inicio_programa") {
+    const greetingHints = /^(oi+|ola|olá|opa|eae|eai|fala|bom dia|boa tarde|boa noite|e ai|e aí)\b/i.test(nt);
+    const reentryHints = /\b(quero comecar|quero começar|me tira uma duvida|me tira uma dúvida|quero saber|quero entender|tenho duvida|tenho dúvida|vim saber|voltei|to de volta|tô de volta|vamos la|vamos lá)\b/i.test(nt);
+    if (greetingHints || reentryHints) return true;
+  }
+
   // Bloco B topo — triggers específicos para inicio_nome e inicio_nacionalidade
   if (stage === "inicio_nome") {
     const nomeHints = /\b(depois eu mando|depois mando|mando depois|me chama de|pode ser so|só o primeiro|primeiro nome|apelido|pra que|para que|por que|porque)\b/i.test(nt);

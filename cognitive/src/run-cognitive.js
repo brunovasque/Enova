@@ -1841,7 +1841,15 @@ function buildTopoFunilGuidance(request) {
   const stage = normalizeText(request?.current_stage);
   const normalizedMessage = normalizeText(request?.message_text);
 
+  // Padrões de saudação curta e reentrada — compartilhados nos 3 stages do topo
+  const GREETING_TOPO = /^(oi+|ola|olá|opa|eae|eai|fala|bom dia|boa tarde|boa noite|e ai|e aí)\b/i;
+  const REENTRY_TOPO = /\b(quero comecar|quero começar|me tira uma duvida|me tira uma dúvida|quero saber|quero entender|tenho duvida|tenho dúvida|vim saber|voltei|to de volta|tô de volta|vamos la|vamos lá)\b/i;
+
   if (stage === "inicio") {
+    // Saudação curta / reentrada — resposta humana + reancoragem no topo
+    if (GREETING_TOPO.test(normalizedMessage) || REENTRY_TOPO.test(normalizedMessage)) {
+      return "Oi! Que bom ter você aqui 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Posso te ajudar com dúvidas ou, se quiser, já começamos a pré-análise rapidinho.";
+    }
     if (FEAR_PATTERN.test(normalizedMessage)) {
       return "Entendo, e pode ficar tranquilo(a). É um processo seguro e transparente.";
     }
@@ -1858,6 +1866,10 @@ function buildTopoFunilGuidance(request) {
   }
 
   if (stage === "inicio_decisao") {
+    // Saudação curta / reentrada — resposta humana + reancoragem na decisão
+    if (GREETING_TOPO.test(normalizedMessage) || REENTRY_TOPO.test(normalizedMessage)) {
+      return "Oi! Que bom te ver de volta 😊 Você já tem um atendimento aqui. Quer continuar de onde paramos (*1*) ou prefere começar do zero (*2*)?";
+    }
     if (/\b(onde parei|onde estava|em que fase|em que etapa)\b/.test(normalizedMessage)) {
       return "Você já tinha iniciado o atendimento por aqui. Continuando, eu retomo de onde paramos com seus dados anteriores.";
     }
@@ -1868,6 +1880,10 @@ function buildTopoFunilGuidance(request) {
   }
 
   if (stage === "inicio_programa") {
+    // Saudação curta / reentrada (inclui pós-reset) — resposta humana + reancoragem
+    if (GREETING_TOPO.test(normalizedMessage) || REENTRY_TOPO.test(normalizedMessage)) {
+      return "Oi! Fico feliz em te ajudar 😊 O Minha Casa Minha Vida é um programa do governo com subsídio e condições especiais. Você já sabe como funciona ou prefere que eu explique rapidinho?";
+    }
     if (/\bfgts\b/.test(normalizedMessage)) {
       return "O FGTS pode ajudar na redução da entrada ou das parcelas, mas não é obrigatório para participar.";
     }
@@ -2579,7 +2595,11 @@ function buildHeuristicResponse(request, analysis, conflictList) {
   const confidencePenalty =
     conflictList.length * CONFIDENCE_RULES.conflictPenalty +
     (analysis.offtrack ? CONFIDENCE_RULES.offtrackPenalty : 0);
-  const confidence = Math.max(0.05, Math.min(0.99, Number((confidenceBase - confidencePenalty).toFixed(2))));
+  // Topo stage com phase guidance como sinal: piso acima de COGNITIVE_V1_CONFIDENCE_MIN (0.66)
+  // para que penalidades de ambiguidade/conflito não suprimam a guidance do topo.
+  // 0.68 = margem de 0.02 acima do threshold 0.66, sobrevive a penalidades parciais.
+  const topoGuidanceFloor = TOPO_FUNIL_STAGES.has(request.current_stage) && !slotsDetectedCount ? 0.68 : 0.05;
+  const confidence = Math.max(topoGuidanceFloor, Math.min(0.99, Number((confidenceBase - confidencePenalty).toFixed(2))));
 
   return {
     reply_text: buildReplyText({

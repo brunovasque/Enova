@@ -264,6 +264,7 @@ function getEtapaEnteredAt(lead: CrmLeadRow, etapa: FaseFunil): string | null {
     case "APROVADO": return lead.aprovado_entered_at;
     case "REPROVADO": return lead.reprovado_entered_at;
     case "VISITA": return lead.visita_entered_at;
+    default: return null;
   }
 }
 
@@ -274,6 +275,7 @@ function getEtapaLastInteraction(lead: CrmLeadRow, etapa: FaseFunil): string | n
     case "APROVADO": return lead.aprovado_last_interaction_at;
     case "REPROVADO": return lead.reprovado_last_interaction_at;
     case "VISITA": return lead.visita_last_interaction_at;
+    default: return null;
   }
 }
 

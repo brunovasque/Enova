@@ -451,7 +451,7 @@ export function CrmUI() {
   if (dossieAprovado) {
     return (
       <AprovadoDossieView
-        lead={dossieAprovado as unknown as DossieLeadRow}
+        lead={dossieAprovado as DossieLeadRow}
         onBack={() => setDossieAprovado(null)}
       />
     );

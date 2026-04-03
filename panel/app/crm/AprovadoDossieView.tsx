@@ -204,7 +204,7 @@ interface AprovadoDossieViewProps {
 }
 
 export function AprovadoDossieView({ lead, onBack }: AprovadoDossieViewProps) {
-  const approvalBool = boolLabel(lead.possui_fgts_analise);
+  const fgtsBool = boolLabel(lead.possui_fgts_analise);
   const restricaoTitular = boolLabel(lead.possui_restricao_analise);
   const restricaoParceiro = boolLabel(lead.possui_restricao_parceiro_analise);
   const irTitular = boolLabel(lead.possui_ir_titular_analise);
@@ -461,8 +461,8 @@ export function AprovadoDossieView({ lead, onBack }: AprovadoDossieViewProps) {
                 </div>
                 <div className={styles.fieldItem}>
                   <span className={styles.fieldLabel}>FGTS</span>
-                  <span className={`${styles.boolBadge} ${approvalBool.className}`}>
-                    {approvalBool.text}
+                  <span className={`${styles.boolBadge} ${fgtsBool.className}`}>
+                    {fgtsBool.text}
                   </span>
                 </div>
                 <div className={styles.fieldItem}>

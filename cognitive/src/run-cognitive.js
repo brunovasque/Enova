@@ -1,5 +1,11 @@
 import { READ_ONLY_COGNITIVE_FIXTURES } from "../fixtures/read-only-cases.js";
 
+// ── Etapa 5: Global cognitive layer imports ──────────────────────────────────
+import { getCanonicalFAQ } from "./faq-lookup.js";
+import { getCanonicalObjection } from "./objections-lookup.js";
+import { getKnowledgeBaseItem } from "./knowledge-lookup.js";
+import { buildReanchor } from "./reanchor-helper.js";
+
 const REQUIRED_RESPONSE_FIELDS = Object.freeze([
   "reply_text",
   "slots_detected",
@@ -136,6 +142,98 @@ const FAMILIAR_RENDA_STAGES = new Set(["pais_casados_civil_pergunta", "confirmar
 const P3_RENDA_STAGES = new Set(["p3_tipo_pergunta", "regime_trabalho_parceiro_familiar_p3", "renda_parceiro_familiar_p3", "inicio_multi_regime_p3_pergunta", "inicio_multi_regime_p3_loop", "inicio_multi_renda_p3_pergunta", "inicio_multi_renda_p3_loop"]);
 const GATE_FINAIS_STAGES = new Set(["ir_declarado", "autonomo_compor_renda", "ctps_36", "ctps_36_parceiro", "ctps_36_parceiro_p3", "dependente", "restricao", "restricao_parceiro", "restricao_parceiro_p3", "regularizacao_restricao", "regularizacao_restricao_parceiro", "regularizacao_restricao_p3"]);
 const OPERACIONAL_FINAL_STAGES = new Set(["envio_docs", "aguardando_retorno_correspondente", "agendamento_visita", "finalizacao_processo"]);
+
+// ── Etapa 5: FAQ/Objection/KB intent-matching maps ──────────────────────────
+// Maps normalized message patterns to canonical global-layer IDs.
+// Priority: FAQ → Objection → KB. Only covers topo/docs/visita blocks.
+
+const _TOPO_FAQ_MAP = Object.freeze([
+  { pattern: /\b(como funciona|o que [eé]|o que e|o que é|me explica|minha casa minha vida|mcmv|programa|financiamento|subsidio|subsídio)\b/i, faqId: null, kbId: "elegibilidade_basica" },
+  { pattern: /\b(quanto vou|quanto posso|valor.*financ|poder.*financ|financ.*poder|financ.*quanto)\b/i, faqId: "valor_sem_analise", kbId: null },
+  { pattern: /\bfgts\b/i, faqId: "fgts_uso", kbId: "fgts_entrada" },
+  { pattern: /\b(entrada|entrada m[ií]nima|valor.*entrada|preciso.*entrada)\b/i, faqId: "entrada_minima", kbId: null },
+  { pattern: /\b(aprovad[oa]|vou ser aprovad|aprova[cç][aã]o|garantia|chance)\b/i, faqId: "aprovacao_garantia", kbId: null },
+  { pattern: /\b(confi[aá]vel|seguro|golpe|medo|fraude|piramide)\b/i, objectionId: "medo_golpe", faqId: null, kbId: null },
+  { pattern: /\b(vou pensar|depois.*vejo|pensar.*antes|pra pensar)\b/i, objectionId: "vou_pensar", faqId: null, kbId: null },
+  { pattern: /\b(presencial|plant[aã]o|ir.*pessoalmente|prefiro.*presencial|prefiro.*ir)\b/i, objectionId: "presencial_preferido", faqId: null, kbId: null },
+  { pattern: /\b(simul|j[aá] d[aá] pra simular|simulacao|simulação)\b/i, faqId: "simulacao_plantao", kbId: "simulacao_aprovacao" },
+  { pattern: /\b(restri[cç][aã]o|nome sujo|spc|serasa|negativad)\b/i, faqId: "restricao_impede", kbId: "restricao_credito" },
+  { pattern: /\b(demora|prazo|quanto tempo|rapidez)\b/i, faqId: "prazo_processo", kbId: null }
+]);
+
+const _DOCS_FAQ_MAP = Object.freeze([
+  { pattern: /\b(seguro|segur|confi[aá]vel|golpe|vazar|expost|dados)\b/i, faqId: "seguranca_docs", objectionId: "duvida_seguranca_dados", kbId: null },
+  { pattern: /\b(medo.*mandar|medo.*enviar|tenho medo|receio)\b/i, objectionId: "medo_golpe", faqId: null, kbId: null },
+  { pattern: /\b(n[aã]o.*t[oô].*com|n[aã]o tenho.*doc|sem.*doc.*agora|n[aã]o.*consigo.*agora)\b/i, objectionId: "sem_documentos_agora", faqId: null, kbId: null },
+  { pattern: /\b(mandar depois|posso.*depois|depois.*mando|mando.*depois|depois eu mando)\b/i, objectionId: "sem_documentos_agora", faqId: null, kbId: null },
+  { pattern: /\b(quais doc|que doc|lista.*doc|documentos.*precis|preciso.*quais|o que eu preciso)\b/i, faqId: null, kbId: "docs_por_perfil", objectionId: null },
+  { pattern: /\b(presencial|plant[aã]o|prefiro.*ir|prefiro.*presencial|n[aã]o.*online)\b/i, objectionId: "presencial_preferido", faqId: null, kbId: null },
+  { pattern: /\b(sem tempo|n[aã]o tenho tempo|agora n[aã]o|corrido)\b/i, objectionId: "sem_tempo", faqId: null, kbId: null }
+]);
+
+const _VISITA_FAQ_MAP = Object.freeze([
+  { pattern: /\b(hor[aá]rio|hora|dia|quando|opç[oõ]es|agenda)\b/i, faqId: null, kbId: "visita_plantao", objectionId: null },
+  { pattern: /\b(onde fica|endereço|localiza[cç][aã]o|como cheg)\b/i, faqId: null, kbId: "visita_plantao", objectionId: null },
+  { pattern: /\b(presencial|plant[aã]o|prefiro.*ir|prefiro.*presencial)\b/i, objectionId: "presencial_preferido", faqId: null, kbId: "visita_plantao" },
+  { pattern: /\b(vou pensar|depois.*vejo|pensar.*antes|quem sabe|sem pressa)\b/i, objectionId: "vou_pensar", faqId: null, kbId: null },
+  { pattern: /\b(n[aã]o quero online|n[aã]o.*online|n[aã]o.*quero.*online)\b/i, objectionId: "nao_quero_online", faqId: null, kbId: null },
+  { pattern: /\b(escolher im[oó]vel|j[aá].*escolher|unidade|empreendimento)\b/i, faqId: "imovel_escolha", kbId: null, objectionId: null }
+]);
+
+/**
+ * Etapa 5 — resolveGlobalLayerReply
+ *
+ * Given a normalized message and a map of patterns, resolves the best
+ * canonical global-layer response (FAQ → Objection → KB).
+ * Returns { reply, source, needsReanchor } or null if no match.
+ *
+ * @param {string} normalizedMessage
+ * @param {readonly {pattern: RegExp, faqId?: string|null, objectionId?: string|null, kbId?: string|null}[]} layerMap
+ * @returns {{ reply: string, source: string, needsReanchor: boolean } | null}
+ */
+function resolveGlobalLayerReply(normalizedMessage, layerMap) {
+  if (!normalizedMessage) return null;
+  for (const entry of layerMap) {
+    if (!entry.pattern.test(normalizedMessage)) continue;
+
+    // Priority 1: FAQ
+    if (entry.faqId) {
+      const faq = getCanonicalFAQ(entry.faqId);
+      if (faq) return { reply: faq.resposta, source: `faq:${entry.faqId}`, needsReanchor: true };
+    }
+
+    // Priority 2: Objection
+    if (entry.objectionId) {
+      const obj = getCanonicalObjection(entry.objectionId);
+      if (obj) return { reply: obj.resposta_canonica, source: `objection:${entry.objectionId}`, needsReanchor: true };
+    }
+
+    // Priority 3: KB
+    if (entry.kbId) {
+      const kb = getKnowledgeBaseItem(entry.kbId);
+      if (kb) return { reply: kb.conteudo, source: `kb:${entry.kbId}`, needsReanchor: true };
+    }
+  }
+  return null;
+}
+
+/**
+ * Etapa 5 — wrapWithReanchor
+ *
+ * If the reply came from a global layer (off-stage question), append reanchor
+ * to naturally bring the user back to the current stage.
+ * Returns a single concatenated string.
+ *
+ * @param {string} reply - The global-layer canonical reply
+ * @param {string} currentStage - Current funnel stage
+ * @returns {string}
+ */
+function wrapWithReanchor(reply, currentStage) {
+  if (!reply || !currentStage) return reply || "";
+  const reanchor = buildReanchor({ partialReply: reply, currentStage });
+  return reanchor.text;
+}
+
 const REPLY_TEXT_REPLACEMENTS = Object.freeze([
   [/\brunner read-only\b/gi, "atendimento"],
   [/\bmotor cognitivo de teste\b/gi, "atendimento"],
@@ -673,6 +771,11 @@ function buildDocsGuidanceByProfile(request) {
   const participantStatusGuidance = buildDocsParticipantStatusGuidance(knownSlots);
   if (participantStatusGuidance) return participantStatusGuidance;
 
+  // Etapa 5 — global layer: FAQ/objeção/KB + reancoragem para perguntas sobre docs
+  const stage = normalizeText(request?.current_stage);
+  const globalReply = resolveGlobalLayerReply(normalizedMessage, _DOCS_FAQ_MAP);
+  if (globalReply) return wrapWithReanchor(globalReply.reply, stage || "envio_docs");
+
   const composicao = normalizeText(getKnownSlotValue(knownSlots, "composicao"));
   const regime = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho"));
   const irDeclarado = normalizeText(getKnownSlotValue(knownSlots, "ir_declarado"));
@@ -912,14 +1015,16 @@ function buildVisitaGuidance(request) {
   if (VISITA_RESIST_PATTERN.test(normalizedMessage)) {
     return "Eu entendo. A visita é o momento de te mostrar o processo com mais clareza, tirar dúvidas com segurança e alinhar tudo sem criar expectativa errada pelo WhatsApp.";
   }
-  if (/\bhor[aá]rio|dia|quando\b/.test(normalizedMessage)) {
-    return "Claro. Eu sigo a agenda oficial do plantão e te passo certinho as opções válidas de dia e horário para visita.";
-  }
-  if (/\bescolher im[oó]vel|unidade|empreendimento|apartamento espec[ií]fico|casa espec[ií]fica\b/.test(normalizedMessage)) {
-    return "Para não te gerar expectativa errada, escolha de unidade, imóvel e disponibilidade é alinhada presencialmente no plantão com o corretor.";
-  }
   if (VISITA_ACCEPT_PATTERN.test(normalizedMessage)) {
     return "Perfeito, faz sentido avançar por aqui. Já te conduzo pelas opções oficiais de agenda.";
+  }
+
+  // Etapa 5 — global layer: FAQ/objeção/KB + reancoragem para perguntas sobre visita
+  const globalReply = resolveGlobalLayerReply(normalizedMessage, _VISITA_FAQ_MAP);
+  if (globalReply) return wrapWithReanchor(globalReply.reply, stage || "agendamento_visita");
+
+  if (/\bescolher im[oó]vel|unidade|empreendimento|apartamento espec[ií]fico|casa espec[ií]fica\b/.test(normalizedMessage)) {
+    return "Para não te gerar expectativa errada, escolha de unidade, imóvel e disponibilidade é alinhada presencialmente no plantão com o corretor.";
   }
 
   if (VISITA_ESFRIAMENTO_PATTERN.test(normalizedMessage) || AMBIGUOUS_HINTS.test(normalizedMessage) || DEFER_ACTION_PATTERN.test(normalizedMessage)) {
@@ -950,14 +1055,12 @@ function buildOperacionalFinalGuidance(request) {
     const regime = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho"));
     if (regime) return null;
 
+    // Etapa 5 — global layer: FAQ/objeção/KB + reancoragem para docs
+    const globalReply = resolveGlobalLayerReply(normalizedMessage, _DOCS_FAQ_MAP);
+    if (globalReply) return wrapWithReanchor(globalReply.reply, stage);
+
     if (DEFER_ACTION_PATTERN.test(normalizedMessage) || NO_TIME_PATTERN.test(normalizedMessage)) {
       return "Sem problema. Sempre que puder, me manda os documentos por aqui que eu adianto sua análise.";
-    }
-    if (FEAR_PATTERN.test(normalizedMessage) || /\bseguro\b|\bconfiavel\b|\bconfiável\b|\bvazar\b|\bgolpe\b/.test(normalizedMessage)) {
-      return "Pode enviar com tranquilidade — o processo é seguro e seus documentos ficam protegidos.";
-    }
-    if (REMOTE_REFUSAL_PATTERN.test(normalizedMessage)) {
-      return "Sem problema, no presencial também conseguimos conferir tudo com você com calma. Me confirma como prefere seguir.";
     }
     if (/\b(site|portal)\b/.test(normalizedMessage)) {
       return "Perfeito, pode enviar pelo site com tranquilidade que seguimos por lá.";
@@ -979,9 +1082,10 @@ function buildOperacionalFinalGuidance(request) {
   }
 
   if (stage === "agendamento_visita") {
-    if (/\bhor[aá]rio\b|\bdia\b|\bquando\b|\bopç[oõ]es\b/.test(normalizedMessage)) {
-      return "Claro. Eu sigo a agenda oficial do plantão e te passo as opções válidas de dia e horário para visita.";
-    }
+    // Etapa 5 — global layer: FAQ/objeção/KB + reancoragem para visita
+    const globalReply = resolveGlobalLayerReply(normalizedMessage, _VISITA_FAQ_MAP);
+    if (globalReply) return wrapWithReanchor(globalReply.reply, stage);
+
     // Reschedule requests (remarcar/reagendar/outro dia/outro horário) defer to buildVisitaGuidance
     // which produces the canonical "a gente consegue remarcar" response
     if (/\bprecisa levar\b|\bvir acompanhaad\b|\bvir com\b|\blevar algu[eé]m\b|\bacompanhante\b/.test(normalizedMessage)) {
@@ -1850,17 +1954,14 @@ function buildTopoFunilGuidance(request) {
     if (GREETING_TOPO.test(normalizedMessage) || REENTRY_TOPO.test(normalizedMessage)) {
       return "Oi! Que bom ter você aqui 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Posso te ajudar com dúvidas ou, se quiser, já começamos a pré-análise rapidinho.";
     }
+    // Etapa 5 — global layer: FAQ/objeção/KB + reancoragem para perguntas fora do stage
+    const globalReply = resolveGlobalLayerReply(normalizedMessage, _TOPO_FAQ_MAP);
+    if (globalReply) return wrapWithReanchor(globalReply.reply, stage);
     if (FEAR_PATTERN.test(normalizedMessage)) {
       return "Entendo, e pode ficar tranquilo(a). É um processo seguro e transparente.";
     }
     if (NO_TIME_PATTERN.test(normalizedMessage)) {
       return "É rápido mesmo, são poucas perguntas diretas para entender seu perfil.";
-    }
-    if (/\bfgts\b/.test(normalizedMessage) || /\bentrada\b/.test(normalizedMessage)) {
-      return "O FGTS pode ajudar na entrada ou nas parcelas, mas não é obrigatório. Para te orientar certinho, preciso de algumas informações do seu perfil.";
-    }
-    if (/\b(mcmv|minha casa minha vida|programa|como funciona|financiamento|subsidio)\b/.test(normalizedMessage)) {
-      return "O Minha Casa Minha Vida é o programa do governo que ajuda no subsídio e reduz a parcela do financiamento, conforme a renda e o perfil.";
     }
     return null;
   }
@@ -1876,6 +1977,9 @@ function buildTopoFunilGuidance(request) {
     if (/\b(precisa|necessario|necessário|tudo de novo|recomecar|recomeçar|perder)\b/.test(normalizedMessage)) {
       return "Não precisa perder o que já avançou. Pode continuar de onde parou. Se preferir, também pode começar do zero.";
     }
+    // Etapa 5 — global layer: perguntas genéricas no inicio_decisao
+    const globalReply = resolveGlobalLayerReply(normalizedMessage, _TOPO_FAQ_MAP);
+    if (globalReply) return wrapWithReanchor(globalReply.reply, stage);
     return "É só escolher: *1* para continuar de onde paramos ou *2* para começar do zero.";
   }
 
@@ -1884,26 +1988,20 @@ function buildTopoFunilGuidance(request) {
     if (GREETING_TOPO.test(normalizedMessage) || REENTRY_TOPO.test(normalizedMessage)) {
       return "Oi! Fico feliz em te ajudar 😊 O Minha Casa Minha Vida é um programa do governo com subsídio e condições especiais. Você já sabe como funciona ou prefere que eu explique rapidinho?";
     }
-    if (/\bfgts\b/.test(normalizedMessage)) {
-      return "O FGTS pode ajudar na redução da entrada ou das parcelas, mas não é obrigatório para participar.";
-    }
     if (/\bestrangeiro|estrang[ei]\b/.test(normalizedMessage)) {
       return "Estrangeiro pode sim participar, desde que tenha RNM com prazo indeterminado.";
-    }
-    if (/\bentrada\b/.test(normalizedMessage)) {
-      return "O MCMV pode reduzir ou até eliminar a necessidade de entrada, dependendo da renda e do perfil.";
     }
     if (/\brenda\b/.test(normalizedMessage) && /\b(minima|mínima|precisa|preciso|necessaria|necessária|quanto)\b/.test(normalizedMessage)) {
       return "A renda mínima varia conforme o imóvel e o perfil. O programa atende diferentes faixas — por isso eu analiso o seu caso específico.";
     }
+    // Etapa 5 — global layer: FAQ/objeção/KB + reancoragem para perguntas fora do stage
+    const globalReply = resolveGlobalLayerReply(normalizedMessage, _TOPO_FAQ_MAP);
+    if (globalReply) return wrapWithReanchor(globalReply.reply, stage);
     if (NO_TIME_PATTERN.test(normalizedMessage) || /\b(rapido|rapida|demora|demorar|tempo|quanto tempo)\b/.test(normalizedMessage)) {
       return "São poucas perguntas bem diretas. Leva poucos minutos e já te dá uma orientação clara sobre o seu perfil.";
     }
     if (FEAR_PATTERN.test(normalizedMessage)) {
       return "Entendo sua preocupação. É um processo transparente e seguro. A pré-análise não gera compromisso e não tem custo.";
-    }
-    if (/\b(mcmv|minha casa minha vida|programa|como funciona|subsidio)\b/.test(normalizedMessage)) {
-      return "O Minha Casa Minha Vida é o programa do governo que ajuda no subsídio e reduz a parcela do financiamento, conforme a renda de cada família.";
     }
     return "Posso te explicar qualquer detalhe. Para te orientar certinho, me confirma como prefere prosseguir.";
   }

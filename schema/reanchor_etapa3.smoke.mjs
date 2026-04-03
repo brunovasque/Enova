@@ -59,10 +59,9 @@ console.log("\n── GRUPO 1: lookup de variantes por fase ──");
 for (const phase of PHASES) {
   test(`1. getReanchorVariants("${phase}") retorna array não-vazio`, () => {
     const variants = getReanchorVariants(phase);
-    assert.ok(Array.isArray(variants) || (variants && typeof variants[Symbol.iterator] === "function"),
+    assert.ok(Array.isArray(variants),
       `getReanchorVariants("${phase}") deve retornar array`);
-    const arr = Array.from(variants);
-    assert.ok(arr.length > 0, `getReanchorVariants("${phase}") não deve ser vazio`);
+    assert.ok(variants.length > 0, `getReanchorVariants("${phase}") não deve ser vazio`);
   });
 }
 
@@ -285,7 +284,7 @@ test("10c. worker.js não tem mais o array hardcoded do guard interno", () => {
   );
 });
 
-test("10d. reanchor-helper.js usa buildReanchor({ currentStage: stage }) no guard interno", () => {
+test("10d. worker.js usa buildReanchor({ currentStage: stage }).lines no guard interno", () => {
   const src = loadFileText("../Enova worker.js");
   assert.ok(
     src.includes("buildReanchor({ currentStage: stage }).lines"),

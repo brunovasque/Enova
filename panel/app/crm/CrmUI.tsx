@@ -279,9 +279,11 @@ function getEtapaLastInteraction(lead: CrmLeadRow, etapa: FaseFunil): string | n
   }
 }
 
-// ── Pertencimento histórico: lead está na aba se passou por ela (entered_at) ou se é a fase atual ──
+// ── Pertencimento histórico: ANALISE/APROVADO/REPROVADO/VISITA acumulam histórico permanente.
+// PASTA é exceção: mostra apenas leads que AINDA estão com pasta incompleta no estado atual.
 // fallback para estado atual garante visibilidade de leads sem histórico ainda registrado.
 function isInEtapa(lead: CrmLeadRow, etapa: FaseFunil): boolean {
+  if (etapa === "PASTA") return getEtapaCrm(lead) === "PASTA";
   return getEtapaEnteredAt(lead, etapa) != null || getEtapaCrm(lead) === etapa;
 }
 

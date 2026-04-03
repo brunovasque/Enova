@@ -2,6 +2,15 @@
   color-scheme: dark;
 }
 
+select {
+  color-scheme: dark;
+}
+
+select option {
+  background-color: #18181b;
+  color: #e4e4e7;
+}
+
 * {
   box-sizing: border-box;
 }

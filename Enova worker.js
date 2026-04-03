@@ -159,13 +159,19 @@ async function step(env, st, messages, nextStage, options = {}) {
   // Converte sempre para array
     const rawArr = Array.isArray(messages) ? messages : [messages];
   const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
+  const v2TakesFinal = st?.__cognitive_v2_takes_final === true;
 
-  const arr = cognitivePrefix
-    ? [cognitivePrefix, ...rawArr].filter(Boolean)
-    : rawArr.filter(Boolean);
+  // Se V2 assumiu a fala final, ele substitui as mensagens mecânicas (não prefixa).
+  // Mecânico continua soberano no stage/gate/nextStage/persistência — só a fala muda.
+  const arr = v2TakesFinal && cognitivePrefix
+    ? [cognitivePrefix]
+    : cognitivePrefix
+      ? [cognitivePrefix, ...rawArr].filter(Boolean)
+      : rawArr.filter(Boolean);
 
-  // limpa prefixo transitório para não vazar para próximas respostas
+  // limpa flags transitórias para não vazar para próximas respostas
   st.__cognitive_reply_prefix = null;
+  st.__cognitive_v2_takes_final = false;
 
   // 🔥 AQUI: aplica modo humano (somente se ativo)
   const msgs = modoHumanoRender(st, arr);
@@ -20826,18 +20832,27 @@ async function runFunnel(env, st, userText) {
         ? sanitizeCognitiveReply(cognitive.reply_text)
         : "";
 
+      // V2 "on" com LLM real: se o reply_text é não-trivial (>30 chars),
+      // considerar útil mesmo sem slot/signal — cobre cenário de offtrack/dúvida humana.
+      const v2OnWithLlm = v2Mode === "on" && cognitive.reason === "cognitive_v2";
       const hasUsefulCognitiveReply =
         Boolean(cognitiveReply) &&
         (
           cognitive.answered_customer_question === true ||
           Boolean(cognitive.intent) ||
-          Boolean(cognitive.safe_stage_signal)
+          Boolean(cognitive.safe_stage_signal) ||
+          (v2OnWithLlm && cognitiveReply.length > 30)
         );
 
       if (hasUsefulCognitiveReply) {
         st.__cognitive_reply_prefix = cognitiveReply;
+        // V2 "on" com LLM: V2 assume fala final (substitui mecânico).
+        // Mecânico continua soberano em stage/gate/nextStage/persistência.
+        // Sempre definir explicitamente para evitar vazamento de estado anterior.
+        st.__cognitive_v2_takes_final = v2OnWithLlm ? true : false;
       } else {
         st.__cognitive_reply_prefix = null;
+        st.__cognitive_v2_takes_final = false;
       }
 
       const COGNITIVE_HEURISTIC_REASONS = new Set(["no_llm_or_parse", "cognitive_v2_heuristic"]);
@@ -20874,12 +20889,17 @@ async function runFunnel(env, st, userText) {
     });
 
     if (guard?.offtrack === true) {
-      const offtrackMessages = [
-        "Certo. Vou analisar seu perfil primeiro e, no final, tiro todas suas dúvidas, combinado?",
-        "Pra eu seguir aqui, me responde só a pergunta anterior direitinho. 🙏"
-      ];
+      // Se o V2 já gerou reply útil (prefixo + takes_final), usar ele como resposta
+      // em vez do offtrack hardcoded — o V2 já acolheu e reancorou.
+      const v2HasReply = Boolean(st.__cognitive_reply_prefix) && st.__cognitive_v2_takes_final === true;
+      const offtrackMessages = v2HasReply
+        ? [] // V2 reply já está no prefix e vai assumir via takes_final
+        : [
+            "Certo. Vou analisar seu perfil primeiro e, no final, tiro todas suas dúvidas, combinado?",
+            "Pra eu seguir aqui, me responde só a pergunta anterior direitinho. 🙏"
+          ];
       updateCognitiveTelemetryState(st, {
-        used_heuristic: true,
+        used_heuristic: !v2HasReply,
         offtrack_detected: true,
         slot_detected: null
       });
@@ -20887,7 +20907,7 @@ async function runFunnel(env, st, userText) {
         point: "decision_heuristic_vs_llm",
         currentStage: stage,
         nextStage: stage,
-        replyText: offtrackMessages.join("\n")
+        replyText: v2HasReply ? String(st.__cognitive_reply_prefix || "") : offtrackMessages.join("\n")
       });
       await telemetry(env, {
         wa_id: st.wa_id,

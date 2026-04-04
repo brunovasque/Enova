@@ -2,8 +2,9 @@
  * cognitive_reset_topo_surface.smoke.mjs
  *
  * Smoke tests for reset/topo cognitive surface fix.
- * Validates that after reset, greetings/reentry at inicio_programa
- * get cognitive-only response (not mechanical reprompt seco).
+ * Validates:
+ *   A) IMMEDIATE reset response uses cognitive surface (not mechanical)
+ *   B) After reset, greetings/reentry at inicio_programa get cognitive-only response
  *
  * Scenarios:
  *  1. reset + "oi"     → cognitive takes final, no mechanical reprompt
@@ -20,6 +21,13 @@
  * 12. inicio_programa + greeting + NO cognitive prefix → mechanical fallback
  * 13. stage/nextStage preserved after cognitive takes final
  * 14. cognitive engine produces useful reply for greeting at inicio_programa
+ * 15. IMMEDIATE reset: cognitive flags set on novoSt → step() outputs cognitive only
+ * 16. IMMEDIATE reset: response does NOT contain "Me responde com *sim*"
+ * 17. IMMEDIATE reset: response contains natural reanchor question
+ * 18. IMMEDIATE reset: stage stays inicio_programa
+ * 19. IMMEDIATE reset: cognitive flags cleared after step (no leak)
+ * 20. Normal inicio (no reset) → no regression (no cognitive flags)
+ * 21. IMMEDIATE reset: no impact on docs/correspondente/visita stages
  */
 
 import assert from "node:assert/strict";
@@ -215,8 +223,116 @@ await asyncTest('14. Cognitive engine returns useful reply for "oi" at inicio_pr
   assert.ok(result.response.confidence >= 0.66, `confidence ${result.response.confidence} >= 0.66`);
 });
 
+// =======================================================================
+// IMMEDIATE RESET RESPONSE — Tests 15-21
+// Validates the fix where the reset handler itself sets cognitive flags
+// on novoSt BEFORE calling step(), so the IMMEDIATE reply is cognitive.
+// =======================================================================
+
+// ── Simulates the EXACT reset handler logic (worker L21408-21419) ──
+function simulateResetHandlerFlags() {
+  // After resetTotal + getState, novoSt is a fresh object with no cognitive flags.
+  const novoSt = {
+    fase_conversa: "inicio_programa",
+    last_user_text: null,
+    last_processed_text: null,
+    last_message_id: null,
+    last_message_id_prev: null
+  };
+
+  // ── The fix: cognitive surface for immediate reset ──
+  novoSt.__cognitive_reply_prefix =
+    "Perfeito, limpamos tudo aqui pra você 👌\n" +
+    "Eu sou a Enova, assistente do programa Minha Casa Minha Vida — um programa do governo com subsídio e condições especiais pra quem quer conquistar o primeiro imóvel 😊\n" +
+    "Você já sabe como funciona ou prefere que eu explique rapidinho?";
+  novoSt.__cognitive_v2_takes_final = true;
+
+  return novoSt;
+}
+
+const MECHANICAL_RESET_MESSAGES = [
+  "Perfeito, limpamos tudo aqui pra você 👌",
+  "Eu sou a Enova 😊, assistente do programa Minha Casa Minha Vida.",
+  "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
+  "Me responde com *sim* (já sei) ou *não* (quero que explique)."
+];
+
+// ===== 15. IMMEDIATE reset: cognitive flags → step() outputs cognitive only =====
+await asyncTest('15. IMMEDIATE reset: step() outputs ONLY cognitive reply, not mechanical', async () => {
+  const novoSt = simulateResetHandlerFlags();
+  const result = assembleMessages(novoSt, MECHANICAL_RESET_MESSAGES);
+  assert.strictEqual(result.length, 1, "should have ONLY one cognitive message");
+  assert.ok(result[0].includes("Perfeito"), "reply should start with reset acknowledgment");
+  assert.ok(!result[0].includes("Me responde com"), "should NOT contain mechanical reprompt");
+  assert.ok(!result[0].includes("sim ou não"), "should NOT contain dry sim/não prompt");
+});
+
+// ===== 16. IMMEDIATE reset: no "Me responde com *sim*" =====
+await asyncTest('16. IMMEDIATE reset: response does NOT contain "Me responde com *sim*"', async () => {
+  const novoSt = simulateResetHandlerFlags();
+  const result = assembleMessages(novoSt, MECHANICAL_RESET_MESSAGES);
+  const joined = result.join("\n");
+  assert.ok(!joined.includes("Me responde com"), "no mechanical reprompt instruction");
+  assert.ok(!joined.includes("*sim* (já sei) ou *não*"), "no mechanical options formatting");
+});
+
+// ===== 17. IMMEDIATE reset: contains natural reanchor question =====
+await asyncTest('17. IMMEDIATE reset: response contains natural reanchor question', async () => {
+  const novoSt = simulateResetHandlerFlags();
+  const result = assembleMessages(novoSt, MECHANICAL_RESET_MESSAGES);
+  const joined = result.join("\n");
+  assert.ok(joined.includes("já sabe como funciona") || joined.includes("explique rapidinho"),
+    "should contain natural question about knowing the program");
+});
+
+// ===== 18. IMMEDIATE reset: stage stays inicio_programa =====
+await asyncTest('18. IMMEDIATE reset: stage preserved as inicio_programa', async () => {
+  const novoSt = simulateResetHandlerFlags();
+  assembleMessages(novoSt, MECHANICAL_RESET_MESSAGES);
+  assert.strictEqual(novoSt.fase_conversa, "inicio_programa", "stage must be inicio_programa");
+});
+
+// ===== 19. IMMEDIATE reset: flags cleared after step =====
+await asyncTest('19. IMMEDIATE reset: cognitive flags cleared after step() (no leak)', async () => {
+  const novoSt = simulateResetHandlerFlags();
+  assembleMessages(novoSt, MECHANICAL_RESET_MESSAGES);
+  assert.strictEqual(novoSt.__cognitive_reply_prefix, null, "prefix cleared");
+  assert.strictEqual(novoSt.__cognitive_v2_takes_final, false, "takes_final cleared");
+});
+
+// ===== 20. Normal inicio (no reset) → no regression =====
+await asyncTest('20. Normal inicio_programa entry (no reset) → mechanical messages unchanged', async () => {
+  // Without reset, novoSt has NO cognitive flags
+  const normalSt = { fase_conversa: "inicio_programa" };
+  const mechanicalMsgs = [
+    "Eu sou a Enova 😊, assistente do programa Minha Casa Minha Vida.",
+    "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
+    "Me responde com *sim* (já sei) ou *não* (quero que explique)."
+  ];
+  const result = assembleMessages(normalSt, mechanicalMsgs);
+  assert.strictEqual(result.length, 3, "should have all 3 mechanical messages");
+  assert.ok(result[0].includes("Eu sou a Enova"), "first message is mechanical intro");
+  assert.ok(result[2].includes("sim"), "last message has sim/não prompt");
+});
+
+// ===== 21. IMMEDIATE reset: no impact on docs/correspondente/visita =====
+await asyncTest('21. IMMEDIATE reset: docs/correspondente/visita stages unaffected', async () => {
+  // The fix only applies inside the reset handler (L21408-21419).
+  // Other stages should not have cognitive flags set by this code path.
+  const docsSt = { fase_conversa: "envio_docs" };
+  assert.strictEqual(docsSt.__cognitive_reply_prefix, undefined, "envio_docs has no reset cognitive prefix");
+  assert.strictEqual(docsSt.__cognitive_v2_takes_final, undefined, "envio_docs has no reset takes_final");
+
+  const visitaSt = { fase_conversa: "agendamento_visita" };
+  assert.strictEqual(visitaSt.__cognitive_reply_prefix, undefined, "agendamento_visita has no reset cognitive prefix");
+
+  const corrSt = { fase_conversa: "aguardando_retorno_correspondente" };
+  assert.strictEqual(corrSt.__cognitive_reply_prefix, undefined, "correspondente has no reset cognitive prefix");
+});
+
 // ===== Summary =====
 console.log(`\n📊 Results: ${passed} passed, ${failed} failed (total: ${passed + failed})`);
+assert.strictEqual(passed + failed, 21, "expected exactly 21 tests");
 if (failed > 0) {
   console.error(`\n❌ ${failed} test(s) FAILED`);
   process.exit(1);

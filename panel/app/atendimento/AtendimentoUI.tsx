@@ -719,14 +719,20 @@ export function AtendimentoUI() {
                 <div
                   key={lead.wa_id}
                   className={`${styles.leadRow} ${selectedLead?.wa_id === lead.wa_id ? styles.leadRowSelected : ""}`}
-                  onClick={() => openDetail(lead)}
+                  onClick={(e) => {
+                    // Deterministic rule: clicks inside the name column are owned by the
+                    // <Link> that navigates to the full-page detail.  Clicks anywhere else
+                    // on the row open the inline side panel.  Using closest() on the native
+                    // event target is 100% reliable — no timing dependency, no bubbling race.
+                    if ((e.target as HTMLElement).closest(`[data-col-nome]`)) return;
+                    openDetail(lead);
+                  }}
                 >
-                  <div className={styles.colNome}>
+                  <div className={styles.colNome} data-col-nome>
                     {lead.wa_id != null && lead.wa_id.trim() !== "" ? (
                       <Link
                         href={`/atendimento/${encodeURIComponent(lead.wa_id)}`}
                         className={styles.leadName}
-                        onClick={(e) => e.stopPropagation()}
                         style={{ textDecoration: "none" }}
                       >
                         {leadLabel(lead)}

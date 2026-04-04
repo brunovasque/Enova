@@ -301,7 +301,7 @@ export function AtendimentoDetalheUI({ lead }: AtendimentoDetalheUIProps) {
             </span>
           </div>
           <div className={styles.headerItem}>
-            <span className={styles.headerItemLabel}>Prazo</span>
+            <span className={styles.headerItemLabel}>Follow-up</span>
             <span className={prazoVencido ? styles.fieldValueDanger : (lead.prazo_proxima_acao ? styles.headerItemValue : styles.headerItemValueMuted)}>
               {formatDate(lead.prazo_proxima_acao)}
             </span>
@@ -329,7 +329,7 @@ export function AtendimentoDetalheUI({ lead }: AtendimentoDetalheUIProps) {
                       <span className={styles.nextActionMeta}>
                         {lead.gatilho_proxima_acao && `Gatilho: ${lead.gatilho_proxima_acao}`}
                         {lead.gatilho_proxima_acao && lead.prazo_proxima_acao && " · "}
-                        {lead.prazo_proxima_acao && `Prazo: ${formatDate(lead.prazo_proxima_acao)}`}
+                        {lead.prazo_proxima_acao && `Follow-up: ${formatDate(lead.prazo_proxima_acao)}`}
                       </span>
                     )}
                     {lead.dono_pendencia && (

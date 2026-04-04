@@ -722,14 +722,18 @@ export function AtendimentoUI() {
                   onClick={() => openDetail(lead)}
                 >
                   <div className={styles.colNome}>
-                    <Link
-                      href={`/atendimento/${encodeURIComponent(lead.wa_id)}`}
-                      className={styles.leadName}
-                      onClick={(e) => e.stopPropagation()}
-                      style={{ textDecoration: "none" }}
-                    >
-                      {leadLabel(lead)}
-                    </Link>
+                    {lead.wa_id?.trim() ? (
+                      <Link
+                        href={`/atendimento/${encodeURIComponent(lead.wa_id.trim())}`}
+                        className={styles.leadName}
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ textDecoration: "none" }}
+                      >
+                        {leadLabel(lead)}
+                      </Link>
+                    ) : (
+                      <span className={styles.leadName}>{leadLabel(lead)}</span>
+                    )}
                     <span className={styles.leadPhone}>{lead.telefone ?? lead.wa_id}</span>
                   </div>
 

@@ -22,10 +22,16 @@ export async function getAttendanceLead(
   serviceRoleKey: string,
   wa_id: string,
 ): Promise<Record<string, unknown> | null> {
+  // Trim surrounding whitespace to handle values with accidental leading/trailing spaces.
+  const safeId = wa_id.trim();
+  if (!safeId) return null;
+
   const endpoint = new URL("/rest/v1/enova_attendance_v1", supabaseUrl);
-  endpoint.searchParams.set("select", "*");
-  endpoint.searchParams.set("wa_id", `eq.${wa_id}`);
-  endpoint.searchParams.set("limit", "1");
+  // Build the filter directly with encodeURIComponent instead of URLSearchParams.set().
+  // URLSearchParams.set() uses application/x-www-form-urlencoded encoding and encodes
+  // spaces as '+', but PostgREST uses RFC 3986 decoding where '+' is a literal plus sign.
+  // encodeURIComponent encodes spaces as '%20', which PostgREST decodes correctly.
+  endpoint.search = `?select=*&wa_id=eq.${encodeURIComponent(safeId)}&limit=1`;
 
   const response = await fetch(endpoint.toString(), {
     method: "GET",

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import styles from "./atendimento.module.css";
 import { fetchAttendanceLeadsAction, fetchClientProfileAction, saveClientProfileAction } from "./actions";
 import type { ClientProfileRow, ProfileSource } from "../api/client-profile/_shared";
@@ -718,10 +719,27 @@ export function AtendimentoUI() {
                 <div
                   key={lead.wa_id}
                   className={`${styles.leadRow} ${selectedLead?.wa_id === lead.wa_id ? styles.leadRowSelected : ""}`}
-                  onClick={() => openDetail(lead)}
+                  onClick={(e) => {
+                    // Deterministic rule: clicks inside the name column are owned by the
+                    // <Link> that navigates to the full-page detail.  Clicks anywhere else
+                    // on the row open the inline side panel.  Using closest() on the native
+                    // event target is 100% reliable — no timing dependency, no bubbling race.
+                    if ((e.target as HTMLElement).closest(`[data-col-nome]`)) return;
+                    openDetail(lead);
+                  }}
                 >
-                  <div className={styles.colNome}>
-                    <span className={styles.leadName}>{leadLabel(lead)}</span>
+                  <div className={styles.colNome} data-col-nome>
+                    {lead.wa_id != null && lead.wa_id.trim() !== "" ? (
+                      <Link
+                        href={`/atendimento/${encodeURIComponent(lead.wa_id)}`}
+                        className={styles.leadName}
+                        style={{ textDecoration: "none" }}
+                      >
+                        {leadLabel(lead)}
+                      </Link>
+                    ) : (
+                      <span className={styles.leadName}>{leadLabel(lead)}</span>
+                    )}
                     <span className={styles.leadPhone}>{lead.telefone ?? lead.wa_id}</span>
                   </div>
 

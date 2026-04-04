@@ -3425,10 +3425,14 @@ function shouldTriggerCognitiveAssist(stage, text) {
     const rendaHints = /\b(bruto|liquido|líquido|varia|variavel|variável|depende do mes|depende do mês|nao sei|não sei|extra|bonus|bônus|comissao|comissão|gira em torno|mais ou menos|aproximadamente)\b/i.test(nt);
     if (rendaHints) return true;
   }
+  if (stage === "ir_declarado") {
+    const irDeclaradoHints = /\b(nao declaro|não declaro|sem ir|sem declarar|nao tenho ir|não tenho ir|mei|sou mei|microempreendedor|ainda consigo|consigo sem|possivel sem|possível sem|prejudica|atrapalha|impede|trapalha)\b/i.test(nt);
+    if (irDeclaradoHints) return true;
+  }
 
   // Bloco aprofundamento renda — triggers específicos
   if (stage === "possui_renda_extra") {
-    const rendaExtraHints = /\b(bico|bicos|freela|vendo|vendendo|por fora|precisa entrar|conta|entra|uber|ifood|informal)\b/i.test(nt);
+    const rendaExtraHints = /\b(bico|bicos|freela|vendo|vendendo|por fora|precisa entrar|conta|entra|uber|ifood|informal|comissao|comissão|hora extra|horas extras|adicional)\b/i.test(nt);
     if (rendaExtraHints) return true;
   }
   if (stage === "inicio_multi_regime_pergunta") {
@@ -26181,7 +26185,11 @@ case "possui_renda_extra": {
     }
   });
 
-  const sim = /(sim|tenho|faço|faco|uber|ifood|extra|bico)/i.test(t);
+  // Guarda: comissão, hora extra e adicional NÃO são renda mista — pertencem à leitura de renda formal fixa x variável.
+  // "extra" isolado continua como gatilho, mas "hora extra" / "horas extras" puro sem marcador de renda por fora é excluído.
+  const isHoraExtraOnly = /\bhoras?\s+extras?\b/i.test(t) && !/\b(bico|uber|ifood|freela|renda\s+extra|por\s+fora|informal)\b/i.test(t);
+  const isComissaoOnly = /\b(comiss[aã]o|adicional\s+noturno|adicional)\b/i.test(t) && !/\b(bico|uber|ifood|freela|renda\s+extra|por\s+fora|informal)\b/i.test(t);
+  const sim = !isHoraExtraOnly && !isComissaoOnly && /(sim|tenho|faço|faco|uber|ifood|extra|bico)/i.test(t);
   const nao = /^(nao|não|n\s?tem|nenhuma|zero)$/i.test(String(t || "").trim());
 
   // ============================================================

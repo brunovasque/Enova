@@ -21,6 +21,7 @@ import {
   saveClientProfileAction,
   archiveLeadAction,
   unarchiveLeadAction,
+  saveAttendanceMetaAction,
 } from "../actions";
 
 /* ── Type — mirrors AttendanceRow in AtendimentoUI ── */
@@ -263,6 +264,46 @@ function deriveUltimoFalante(
   return new Date(ultimaCliente) > new Date(ultimaEnova) ? "Cliente" : "Enova";
 }
 
+function hasTimestamps(
+  ultimaCliente: string | null | undefined,
+  ultimaEnova: string | null | undefined,
+): boolean {
+  return !!(ultimaCliente || ultimaEnova);
+}
+
+// Returns false if resumo_curto looks like an auto-generated stage marker
+// (e.g. "inicio_programa", "fase: ctps_36") rather than a real human summary.
+function isResumoUtil(resumo: string | null | undefined): boolean {
+  if (!resumo) return false;
+  const s = resumo.trim();
+  if (!s || s.length < 12) return false;
+  // Stage name pattern: single token with underscores, no spaces
+  if (/^[a-z][a-z0-9_]{3,}$/.test(s)) return false;
+  // "fase: something" prefix
+  if (/^fase:\s*/i.test(s)) return false;
+  return true;
+}
+
+/* ── Human feedback edit state ── */
+
+type HumanFeedbackState = {
+  interesse_atual: string;
+  objecao_principal: string;
+  momento_do_cliente: string;
+  responsavel: string;
+  quick_note: string;
+};
+
+function leadToFeedbackState(lead: AttendanceDetalheRow): HumanFeedbackState {
+  return {
+    interesse_atual: lead.interesse_atual ?? "",
+    objecao_principal: lead.objecao_principal ?? "",
+    momento_do_cliente: lead.momento_do_cliente ?? "",
+    responsavel: lead.responsavel ?? "",
+    quick_note: lead.quick_note ?? "",
+  };
+}
+
 /* ── Profile editing types (mirrors AtendimentoUI) ── */
 
 type ProfileEditState = {
@@ -368,6 +409,12 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [archiveFeedback, setArchiveFeedback] = useState<string | null>(null);
 
+  /* ── Human feedback edit state ── */
+  const [feedbackEdit, setFeedbackEdit] = useState<HumanFeedbackState>(leadToFeedbackState(lead));
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackFeedback, setFeedbackFeedback] = useState<string | null>(null);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+
   /* ── Profile save handler ── */
   const handleSaveProfile = useCallback(async () => {
     setProfileBusy(true);
@@ -402,6 +449,28 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
     }
     setProfileBusy(false);
   }, [lead.wa_id, profileEdit]);
+
+  /* ── Human feedback save handler ── */
+  const handleSaveFeedback = useCallback(async () => {
+    setFeedbackBusy(true);
+    setFeedbackFeedback(null);
+    setFeedbackError(null);
+    const t = (v: string) => v.trim() || null;
+    const result = await saveAttendanceMetaAction({
+      wa_id: lead.wa_id,
+      interesse_atual: t(feedbackEdit.interesse_atual),
+      objecao_principal: t(feedbackEdit.objecao_principal),
+      momento_do_cliente: t(feedbackEdit.momento_do_cliente),
+      responsavel: t(feedbackEdit.responsavel),
+      quick_note: t(feedbackEdit.quick_note),
+    });
+    setFeedbackBusy(false);
+    if (result.ok) {
+      setFeedbackFeedback("Feedback salvo.");
+    } else {
+      setFeedbackError(result.error ?? "Erro ao salvar");
+    }
+  }, [lead.wa_id, feedbackEdit]);
 
   /* ── Archive handlers ── */
   const handleArchive = useCallback(async () => {
@@ -633,116 +702,142 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
 
           {/* ═══════════════════════════════════════
              BLOCO 2 (full) — RESUMO COMERCIAL
-             Dados reais: interesse_atual, objecao_principal,
-             momento_do_cliente, responsavel, resumo_curto,
-             lead_temp, quem_falou_ultimo (derivado).
+             Dados reais: lead_temp, responsavel, quem_falou_ultimo,
+             resumo_curto (se útil). Apenas campos com valor são exibidos.
+             interesse_atual/objecao/momento ficam no bloco editável abaixo.
              ═══════════════════════════════════════ */}
-          <div className={`${styles.block} ${styles.blockFull} ${styles.blockComercial}`}>
-            <div className={styles.blockHeader}>
-              <span className={styles.blockIcon}>📊</span>
-              <h3 className={styles.blockTitle}>Resumo Comercial</h3>
-            </div>
-            <div className={styles.blockBody}>
-              <div className={styles.detailGrid}>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Interesse atual</span>
-                  <span className={lead.interesse_atual ? styles.fieldValue : styles.fieldValueMuted}>
-                    {txt(lead.interesse_atual)}
-                  </span>
+          {(() => {
+            const temTemp = !!lead.lead_temp;
+            const temResponsavel = !!lead.responsavel;
+            const temTimestamps = hasTimestamps(lead.ultima_interacao_cliente, lead.ultima_interacao_enova);
+            const temResumo = isResumoUtil(lead.resumo_curto);
+            const temAlgumCampo = temTemp || temResponsavel || temTimestamps || temResumo;
+            return (
+              <div className={`${styles.block} ${styles.blockFull} ${styles.blockComercial}`}>
+                <div className={styles.blockHeader}>
+                  <span className={styles.blockIcon}>📊</span>
+                  <h3 className={styles.blockTitle}>Resumo Comercial</h3>
                 </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Objeção principal</span>
-                  <span className={lead.objecao_principal ? styles.fieldValue : styles.fieldValueMuted}>
-                    {txt(lead.objecao_principal)}
-                  </span>
-                </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Momento do cliente</span>
-                  <span className={lead.momento_do_cliente ? styles.fieldValue : styles.fieldValueMuted}>
-                    {txt(lead.momento_do_cliente)}
-                  </span>
-                </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Quem falou por último</span>
-                  <span className={styles.fieldValue}>
-                    {deriveUltimoFalante(lead.ultima_interacao_cliente, lead.ultima_interacao_enova)}
-                  </span>
-                </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Responsável</span>
-                  <span className={lead.responsavel ? styles.fieldValue : styles.fieldValueMuted}>
-                    {txt(lead.responsavel)}
-                  </span>
-                </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Temperatura</span>
-                  {lead.lead_temp ? (
-                    <span className={`${styles.tempBadge} ${getTempBadgeCls(lead.lead_temp)}`}>
-                      {getTempLabel(lead.lead_temp)}
-                    </span>
+                <div className={styles.blockBody}>
+                  {!temAlgumCampo ? (
+                    <p className={styles.comercialEmpty}>
+                      Sem dados comerciais ainda — preencha o bloco abaixo.
+                    </p>
                   ) : (
-                    <span className={styles.fieldValueMuted}>{DASH}</span>
+                    <div className={styles.detailGrid}>
+                      {temTemp && (
+                        <div className={styles.fieldItem}>
+                          <span className={styles.fieldLabel}>Temperatura</span>
+                          <span className={`${styles.tempBadge} ${getTempBadgeCls(lead.lead_temp)}`}>
+                            {getTempLabel(lead.lead_temp)}
+                          </span>
+                        </div>
+                      )}
+                      {temResponsavel && (
+                        <div className={styles.fieldItem}>
+                          <span className={styles.fieldLabel}>Responsável</span>
+                          <span className={styles.fieldValue}>{lead.responsavel}</span>
+                        </div>
+                      )}
+                      {temTimestamps && (
+                        <div className={styles.fieldItem}>
+                          <span className={styles.fieldLabel}>Último contato</span>
+                          <span className={styles.fieldValue}>
+                            {deriveUltimoFalante(lead.ultima_interacao_cliente, lead.ultima_interacao_enova)}
+                          </span>
+                        </div>
+                      )}
+                      {temResumo && (
+                        <div className={styles.fieldItemFull}>
+                          <span className={styles.fieldLabel}>Resumo</span>
+                          <span className={styles.fieldValue}>{lead.resumo_curto}</span>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
-                {lead.resumo_curto && (
-                  <div className={styles.fieldItemFull}>
-                    <span className={styles.fieldLabel}>Resumo rápido do caso</span>
-                    <span className={styles.fieldValue}>{lead.resumo_curto}</span>
-                  </div>
-                )}
               </div>
-            </div>
-          </div>
+            );
+          })()}
 
           {/* ═══════════════════════════════════════
              BLOCO 3 (full) — FEEDBACK HUMANO DO CORRETOR
-             Dados reais: momento_do_cliente, quick_note.
-             Preparados (sem backend ainda): percepção do lead,
-             leitura comercial, interesse real, nota do corretor.
+             Formulário editável — persiste em enova_attendance_meta.
+             Campos: interesse_atual, objecao_principal,
+             momento_do_cliente, responsavel, quick_note.
+             Sem placeholders ociosos.
              ═══════════════════════════════════════ */}
           <div className={`${styles.block} ${styles.blockFull} ${styles.blockFeedback}`}>
             <div className={styles.blockHeader}>
               <span className={styles.blockIcon}>💬</span>
-              <h3 className={styles.blockTitle}>Feedback Humano do Corretor</h3>
+              <h3 className={styles.blockTitle}>Feedback do Corretor</h3>
             </div>
             <div className={styles.blockBody}>
-              <div className={styles.detailGrid}>
-                {/* Dado real: quick_note → observação interna */}
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Observação interna</span>
-                  <span className={lead.quick_note ? styles.fieldValue : styles.fieldValueMuted}>
-                    {txt(lead.quick_note)}
-                  </span>
+              <div className={styles.feedbackGrid}>
+                <div className={styles.prefillFieldRow}>
+                  <span className={styles.fieldLabel}>Interesse atual</span>
+                  <input
+                    type="text"
+                    className={styles.prefillInput}
+                    value={feedbackEdit.interesse_atual}
+                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, interesse_atual: e.target.value })}
+                    placeholder="Ex: comprar imóvel nos próximos 3 meses"
+                  />
                 </div>
-                {/* Preparado — sem campo DB ainda */}
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>
-                    Percepção do lead
-                    <span className={styles.placeholderTag}> · preparado</span>
-                  </span>
-                  <span className={styles.fieldValueMuted}>{DASH}</span>
+                <div className={styles.prefillFieldRow}>
+                  <span className={styles.fieldLabel}>Objeção principal</span>
+                  <input
+                    type="text"
+                    className={styles.prefillInput}
+                    value={feedbackEdit.objecao_principal}
+                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, objecao_principal: e.target.value })}
+                    placeholder="Ex: renda informal, restrição no CPF"
+                  />
                 </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>
-                    Leitura comercial
-                    <span className={styles.placeholderTag}> · preparado</span>
-                  </span>
-                  <span className={styles.fieldValueMuted}>{DASH}</span>
+                <div className={styles.prefillFieldRow}>
+                  <span className={styles.fieldLabel}>Momento do cliente</span>
+                  <input
+                    type="text"
+                    className={styles.prefillInput}
+                    value={feedbackEdit.momento_do_cliente}
+                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, momento_do_cliente: e.target.value })}
+                    placeholder="Ex: aguardando aprovação, buscando entrada"
+                  />
                 </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>
-                    Interesse real
-                    <span className={styles.placeholderTag}> · preparado</span>
-                  </span>
-                  <span className={styles.fieldValueMuted}>{DASH}</span>
+                <div className={styles.prefillFieldRow}>
+                  <span className={styles.fieldLabel}>Responsável</span>
+                  <input
+                    type="text"
+                    className={styles.prefillInput}
+                    value={feedbackEdit.responsavel}
+                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, responsavel: e.target.value })}
+                    placeholder="Nome do corretor responsável"
+                  />
                 </div>
-                <div className={styles.fieldItem}>
+                <div className={styles.prefillFieldRowFull}>
                   <span className={styles.fieldLabel}>
                     Nota do corretor
-                    <span className={styles.placeholderTag}> · preparado</span>
+                    <span className={styles.feedbackFieldHint}> · leitura comercial livre</span>
                   </span>
-                  <span className={styles.fieldValueMuted}>{DASH}</span>
+                  <textarea
+                    className={styles.prefillTextarea}
+                    value={feedbackEdit.quick_note}
+                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, quick_note: e.target.value })}
+                    placeholder="Leitura do caso, observação operacional, próximo passo…"
+                  />
                 </div>
+              </div>
+              <div className={styles.profileSaveRow}>
+                <button
+                  type="button"
+                  className={styles.profileSaveBtn}
+                  disabled={feedbackBusy}
+                  onClick={() => void handleSaveFeedback()}
+                >
+                  {feedbackBusy ? "Salvando…" : "Salvar feedback"}
+                </button>
+                {feedbackFeedback && <span className={styles.profileFeedback}>{feedbackFeedback}</span>}
+                {feedbackError && <span className={styles.profileFeedbackError}>{feedbackError}</span>}
               </div>
             </div>
           </div>

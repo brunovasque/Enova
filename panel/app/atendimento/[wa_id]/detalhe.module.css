@@ -980,3 +980,29 @@
   letter-spacing: 0;
   font-style: italic;
 }
+
+/* ── Resumo comercial: empty state ── */
+.comercialEmpty {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #3f3f46;
+  font-style: italic;
+  padding: 4px 0;
+}
+
+/* ── Feedback grid: 2 col + full ── */
+.feedbackGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 20px;
+}
+
+/* ── Feedback field hint ── */
+.feedbackFieldHint {
+  font-size: 0.625rem;
+  font-weight: 400;
+  color: #3f3f46;
+  text-transform: none;
+  letter-spacing: 0;
+  font-style: italic;
+}

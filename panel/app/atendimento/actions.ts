@@ -1,6 +1,6 @@
 "use server";
 
-import { listAttendanceLeads, getAttendanceLead, archiveAttendanceLead, unarchiveAttendanceLead } from "../api/atendimento/_shared";
+import { listAttendanceLeads, getAttendanceLead, archiveAttendanceLead, unarchiveAttendanceLead, patchAttendanceMeta, type AttendanceMetaHumanPayload } from "../api/atendimento/_shared";
 import { getPrefillMeta, upsertPrefillMeta, PrefillMetaRow, PrefillUpdatePayload } from "../api/prefill/_shared";
 import { getClientProfile, writeClientProfile, ClientProfileRow, ClientProfileUpdatePayload } from "../api/client-profile/_shared";
 
@@ -190,3 +190,27 @@ export async function unarchiveLeadAction(
   }
 }
 
+
+// ── Campos humanos do corretor ─────────────────────────────────────────────
+
+export async function saveAttendanceMetaAction(
+  payload: AttendanceMetaHumanPayload,
+): Promise<{ ok: boolean; error?: string }> {
+  const missingEnvs = (["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const).filter(
+    (k) => !process.env[k],
+  );
+  if (missingEnvs.length > 0) {
+    return { ok: false, error: `missing env: ${missingEnvs.join(", ")}` };
+  }
+
+  try {
+    await patchAttendanceMeta(
+      process.env.SUPABASE_URL as string,
+      process.env.SUPABASE_SERVICE_ROLE as string,
+      payload,
+    );
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "internal error" };
+  }
+}

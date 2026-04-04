@@ -386,6 +386,35 @@ function getMotivoArquivoLabel(code: string | null | undefined): string {
   return MOTIVO_ARQUIVO_LABELS[code] ?? humanizeSlug(code);
 }
 
+const GATILHO_LABELS: Record<string, string> = {
+  "New Lead Entry": "Novo lead recebido",
+  "new_lead_entry": "Novo lead recebido",
+  "nova_entrada": "Novo lead recebido",
+  "follow_up_1d": "Follow-up em 1 dia",
+  "follow_up_2d": "Follow-up em 2 dias",
+  "follow_up_3d": "Follow-up em 3 dias",
+  "follow_up_5d": "Follow-up em 5 dias",
+  "follow_up_7d": "Follow-up em 7 dias",
+  "follow_up_14d": "Follow-up em 14 dias",
+  "follow_up_24h": "Follow-up em 24h",
+  "follow_up_48h": "Follow-up em 48h",
+  "apos_visita": "Após visita",
+  "apos_docs": "Após envio de docs",
+  "apos_analise": "Após análise",
+  "retorno_correspondente": "Retorno do correspondente",
+  "sem_resposta": "Sem resposta",
+  "manual": "Manual",
+  "automatico": "Automático",
+  "sistema": "Sistema",
+  "cliente_respondeu": "Cliente respondeu",
+  "prazo_vencido": "Prazo vencido",
+};
+
+function getGatilhoLabel(gatilho: string | null | undefined): string {
+  if (!gatilho) return DASH;
+  return GATILHO_LABELS[gatilho] ?? humanizeSlug(gatilho);
+}
+
 function deriveUltimoFalante(
   ultimaCliente: string | null | undefined,
   ultimaEnova: string | null | undefined,
@@ -1068,7 +1097,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
       <div className={styles.fichaBody}>
 
         {/* ═══════════════════════════════════════
-           CABEÇALHO — 4 células de resumo
+           CABEÇALHO — 4 células de resumo + Temperatura (quando disponível)
            ═══════════════════════════════════════ */}
         <div className={styles.headerCard}>
           <div className={styles.headerItem}>
@@ -1100,6 +1129,14 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
               {formatDate(lead.prazo_proxima_acao)}
             </span>
           </div>
+          {lead.lead_temp && (
+            <div className={styles.headerItem}>
+              <span className={styles.headerItemLabel}>Temperatura</span>
+              <span className={`${styles.tempBadge} ${getTempBadgeCls(lead.lead_temp)}`}>
+                {getTempLabel(lead.lead_temp)}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* ── Blocks grid ── */}
@@ -1131,7 +1168,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                     <span className={styles.nextActionText}>{lead.proxima_acao}</span>
                     {(lead.gatilho_proxima_acao || lead.prazo_proxima_acao) && (
                       <span className={styles.nextActionMeta}>
-                        {lead.gatilho_proxima_acao && `Gatilho: ${humanizeSlug(lead.gatilho_proxima_acao)}`}
+                        {lead.gatilho_proxima_acao && `Gatilho: ${getGatilhoLabel(lead.gatilho_proxima_acao)}`}
                         {lead.gatilho_proxima_acao && lead.prazo_proxima_acao && " · "}
                         {lead.prazo_proxima_acao && `Follow-up: ${formatDate(lead.prazo_proxima_acao)}`}
                       </span>
@@ -1142,41 +1179,6 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                       </span>
                     )}
                   </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ═══════════════════════════════════════
-             BLOCO 2 (full) — RESUMO COMERCIAL
-             Exibe temperatura + último contato: sinais únicos que não duplicam
-             os blocos Feedback do Corretor ou Sinais da Conversa.
-             Ocultado automaticamente quando nenhum dos dois está disponível.
-             ═══════════════════════════════════════ */}
-          {(!!lead.lead_temp || hasTimestamps(lead.ultima_interacao_cliente, lead.ultima_interacao_enova)) && (
-            <div className={`${styles.block} ${styles.blockFull} ${styles.blockComercial}`}>
-              <div className={styles.blockHeader}>
-                <span className={styles.blockIcon}>📊</span>
-                <h3 className={styles.blockTitle}>Resumo Comercial</h3>
-              </div>
-              <div className={styles.blockBody}>
-                <div className={styles.detailGrid}>
-                  {lead.lead_temp && (
-                    <div className={styles.fieldItem}>
-                      <span className={styles.fieldLabel}>Temperatura</span>
-                      <span className={`${styles.tempBadge} ${getTempBadgeCls(lead.lead_temp)}`}>
-                        {getTempLabel(lead.lead_temp)}
-                      </span>
-                    </div>
-                  )}
-                  {hasTimestamps(lead.ultima_interacao_cliente, lead.ultima_interacao_enova) && (
-                    <div className={styles.fieldItem}>
-                      <span className={styles.fieldLabel}>Último contato</span>
-                      <span className={styles.fieldValue}>
-                        {deriveUltimoFalante(lead.ultima_interacao_cliente, lead.ultima_interacao_enova)}
-                      </span>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
@@ -1708,7 +1710,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                 {lead.gatilho_proxima_acao && (
                   <div className={styles.fieldItem}>
                     <span className={styles.fieldLabel}>Gatilho da ação</span>
-                    <span className={styles.fieldValue}>{humanizeSlug(lead.gatilho_proxima_acao)}</span>
+                    <span className={styles.fieldValue}>{getGatilhoLabel(lead.gatilho_proxima_acao)}</span>
                   </div>
                 )}
                 {lead.fase_travamento && (

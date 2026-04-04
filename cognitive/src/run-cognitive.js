@@ -1300,18 +1300,18 @@ function buildComposicaoInicialGuidance(request) {
 
   if (stage === "somar_renda_solteiro") {
     if (/\b(posso tentar sozinho|ir sozinho|sem somar|so eu|só eu|so a minha|só a minha)\b/i.test(normalizedMessage)) {
-      return "Você pode sim seguir sem somar. O sistema vai verificar a viabilidade pelo seu perfil. Você vai seguir sozinho ou vai somar renda com alguém?";
+      return "Pode sim seguir sozinho. Você vai seguir *sozinho(a)* ou somar renda com alguém?";
     }
     if (/\b(melhora|melhora minhas chances|aumenta|ajuda|vale a pena|faz diferenca|faz diferença)\b/i.test(normalizedMessage)) {
-      return "Somar renda pode ampliar o perfil de análise, mas o sistema vai avaliar o melhor caminho. Você vai somar renda com alguém ou vai seguir sozinho?";
+      return "Somar renda pode ampliar o perfil. Vai somar com alguém ou seguir *sozinho(a)*?";
     }
     if (/\b(precisa|preciso|obrigatorio|obrigatório|e obrigatorio|é obrigatório|tem que somar|precisa somar)\b/i.test(normalizedMessage)) {
-      return "Não é obrigatório. Você pode seguir sozinho ou somar com outra pessoa, conforme seu perfil. Você vai somar renda com alguém ou vai seguir sozinho?";
+      return "Não é obrigatório. Você vai somar renda com alguém ou seguir *sozinho(a)*?";
     }
     if (/\b(muda|diferente|diferenca|diferença|muda alguma coisa)\b/i.test(normalizedMessage)) {
-      return "Somar pode mudar o perfil de avaliação, mas o caminho correto depende da sua situação específica. Você vai somar renda com alguém ou vai seguir sozinho?";
+      return "Depende do seu perfil. Vai somar renda com alguém ou seguir *sozinho(a)*?";
     }
-    return "Você vai somar renda com alguém ou vai seguir sozinho?";
+    return "Vai somar renda com alguém ou seguir *sozinho(a)*?";
   }
 
   if (stage === "somar_renda_familiar") {
@@ -1332,38 +1332,38 @@ function buildComposicaoInicialGuidance(request) {
 
   if (stage === "quem_pode_somar") {
     if (/\bainda nao sei\b|\bainda não sei\b|\bnao sei ainda\b|\bnão sei ainda\b|\bnao sei\b|\bnão sei\b/i.test(normalizedMessage)) {
-      return "Sem problema. Quando você souber, me confirma com quem vai compor renda para eu seguir corretamente.";
+      return "Sem problema. Quando saber, me diz: *parceiro(a)*, *familiar* ou *sozinho(a)*?";
     }
     if (/\bnamorad[oa]\b/i.test(normalizedMessage)) {
-      return "Namorado(a) tem uma verificação específica no sistema. Me confirma com quem você pretende compor renda?";
+      return "Namorado(a) tem verificação específica. Com quem vai compor renda? *Parceiro(a)*, *familiar* ou *sozinho(a)*?";
     }
     if (/\b(m[aã]e|pai|irm[aã](?:o)?|av[oó]|tio|tia|prima|primo)\b/i.test(normalizedMessage)) {
-      return "Familiar pode entrar na composição. Me confirma o nome do familiar para o sistema seguir corretamente.";
+      return "Familiar pode compor. Confirma: *parceiro(a)*, *familiar* ou *sozinho(a)*?";
     }
     if (/\besposa\b|\besposo\b|\bmarido\b|\bcompanheira\b|\bcompanheiro\b|\bparceiro\b|\bparceira\b/i.test(normalizedMessage)) {
-      return "Parceiro(a) pode compor. Me confirma quem vai compor renda para eu seguir.";
+      return "Parceiro(a) pode compor. Confirma: *parceiro(a)*, *familiar* ou *sozinho(a)*?";
     }
-    return "Me confirma com quem você pretende compor renda?";
+    return "Com quem vai compor renda? *Parceiro(a)*, *familiar* ou *sozinho(a)*?";
   }
 
   if (stage === "interpretar_composicao") {
     if (/\b(nao sei|não sei|talvez|ainda nao|ainda não|nao tenho certeza|não tenho certeza)\b/i.test(normalizedMessage)) {
-      return "Sem problema. Quando você tiver certeza, me confirma se vai seguir com parceiro, familiar ou sozinho.";
+      return "Sem problema. Quando tiver certeza: *parceiro(a)*, *familiar* ou *sozinho(a)*?";
     }
     if (/\b(m[aã]e|pai|irm[aã](?:o)?|av[oó]|tio|tia|prima|primo)\b/i.test(normalizedMessage) &&
         /\b(parceiro|esposa|esposo|marido|companheira|companheiro)\b/i.test(normalizedMessage)) {
-      return "Entendi que pode ter mais de uma pessoa. O sistema vai identificar o caminho correto. Me confirma se vai seguir com parceiro, familiar ou sozinho?";
+      return "Entendi que pode ter mais de uma pessoa. Confirma: *parceiro(a)*, *familiar* ou *sozinho(a)*?";
     }
     if (/\b(m[aã]e|pai|irm[aã](?:o)?|av[oó]|tio|tia|prima|primo)\b/i.test(normalizedMessage)) {
-      return "Familiar entendido. O sistema vai verificar as condições. Me confirma se é familiar que vai compor renda?";
+      return "Familiar entendido. Confirma: *familiar*?";
     }
     if (/\b(parceiro|esposa|esposo|marido|companheira|companheiro)\b/i.test(normalizedMessage)) {
-      return "Parceiro(a) entendido. Me confirma se é com parceiro que vai compor renda?";
+      return "Parceiro(a) entendido. Confirma: *parceiro(a)*?";
     }
     if (/\bsozinh\b|\bso\s*eu\b|\bso\s*a\s*minha\b/i.test(normalizedMessage)) {
-      return "Entendi que vai seguir sozinho. Me confirma para o sistema seguir corretamente.";
+      return "Entendi que vai sozinho(a). Confirma?";
     }
-    return "Me confirma se vai seguir com parceiro, familiar ou sozinho?";
+    return "Vai seguir com *parceiro(a)*, *familiar* ou *sozinho(a)*?";
   }
 
   return null;
@@ -1375,21 +1375,21 @@ function buildRendaTrabalhoGuidance(request) {
 
   if (stage === "regime_trabalho") {
     if (/\b(clt|carteira assinada|registrad|de carteira)\b/i.test(normalizedMessage)) {
-      return "CLT entendido. O sistema vai registrar corretamente. Você é *CLT*, *autônomo* ou tem outro tipo de renda?";
+      return "CLT entendido. Você é *CLT*, *autônomo(a)*, *servidor(a)* ou *aposentado(a)*?";
     }
     if (/\bmei\b|\bmicro\s*empreendedor\b/i.test(normalizedMessage)) {
-      return "MEI entra como autônomo no sistema — o que importa é o CPF como pessoa física. Você é *CLT*, *autônomo/MEI* ou tem outro tipo de renda?";
+      return "MEI entra como autônomo no sistema. Qual seu tipo de trabalho? *CLT*, *autônomo/MEI*, *servidor(a)* ou *aposentado(a)*?";
     }
     if (/\baposentad\b/i.test(normalizedMessage)) {
-      return "Aposentadoria é um regime reconhecido. O sistema vai verificar as condições. Você é *aposentado(a)* ou tem também outra renda ativa?";
+      return "Aposentadoria é reconhecida. Confirma: *aposentado(a)* ou tem outra renda ativa?";
     }
     if (/\bbico\b|\binformal\b|\bfreela\b|\buber\b|\bifood\b/i.test(normalizedMessage)) {
-      return "Trabalho informal entra como autônomo. O sistema vai verificar o melhor caminho pelo seu perfil. Você é *CLT*, *autônomo* ou tem outro tipo de renda?";
+      return "Trabalho informal entra como autônomo. Qual seu tipo de trabalho? *CLT*, *autônomo(a)*, *servidor(a)* ou *aposentado(a)*?";
     }
     if (/\bnao sei\b|\bnão sei\b|\bnao tenho certeza\b|\bnão tenho certeza\b|\bnao sei qual\b|\bnão sei qual\b/i.test(normalizedMessage)) {
-      return "Sem problema. A mais comum: *CLT* = carteira assinada; *autônomo* = por conta própria, MEI ou informal; *aposentado* = renda de benefício. Qual se encaixa no seu caso?";
+      return "*CLT* = carteira assinada; *autônomo* = por conta própria, MEI; *aposentado* = benefício. Qual se encaixa?";
     }
-    return "Preciso saber como você recebe sua renda para seguir corretamente. Você é *CLT*, *autônomo* ou tem outro tipo de renda?";
+    return "Qual seu tipo de trabalho hoje? *CLT*, *autônomo(a)*, *servidor(a)* ou *aposentado(a)*?";
   }
 
   if (stage === "autonomo_ir_pergunta") {
@@ -1399,18 +1399,18 @@ function buildRendaTrabalhoGuidance(request) {
     if (irAlreadyKnown) return null;
 
     if (/\bnao declaro\b|\bnão declaro\b|\bnao tenho ir\b|\bnão tenho ir\b|\bnao declarei\b|\bnão declarei\b/i.test(normalizedMessage)) {
-      return "Tudo bem. O IR ajuda a formalizar a renda, mas a ausência não impede automaticamente — o sistema vai verificar o caminho mais seguro. Você já declarou IR nos últimos anos? Responda *sim* ou *não*.";
+      return "Tudo bem, não ter IR não impede automaticamente. Você já declarou IR? Responda *sim* ou *não*.";
     }
     if (/\bnao consigo\b|\bnão consigo\b|\bnao vou conseguir\b|\bnão vou conseguir\b|\bse eu nao tiver\b|\bse eu não tiver\b/i.test(normalizedMessage)) {
-      return "Não ter IR não trava automaticamente. Vai depender do perfil completo na análise. Você já declarou IR? Responda *sim* ou *não*.";
+      return "Não ter IR não trava automaticamente. Você já declarou IR? Responda *sim* ou *não*.";
     }
     if (/\bda tempo\b|\bdá tempo\b|\bainda da\b|\bainda dá\b|\bprazo\b/i.test(normalizedMessage)) {
-      return "O prazo de declaração depende do calendário da Receita. Por aqui, o importante é saber se você já declarou ou não. Você já declarou IR? Responda *sim* ou *não*.";
+      return "O prazo depende do calendário da Receita. Você já declarou IR? Responda *sim* ou *não*.";
     }
     if (/\bmei\b|\bsou mei\b/i.test(normalizedMessage)) {
-      return "MEI emite CNPJ, mas o financiamento é como pessoa física. O IR do titular como PF é o que conta aqui. Você já declarou IR como pessoa física? Responda *sim* ou *não*.";
+      return "MEI é CNPJ, mas o financiamento é como PF. Você já declarou IR como pessoa física? Responda *sim* ou *não*.";
     }
-    return "O IR ajuda a formalizar renda autônoma na análise. Você já declarou IR? Responda *sim* ou *não*.";
+    return "Você declara Imposto de Renda? Responda *sim* ou *não*.";
   }
 
   if (stage === "renda") {
@@ -1426,25 +1426,25 @@ function buildRendaTrabalhoGuidance(request) {
     const moneyDetected = detectMoney(request?.message_text);
     if (Number.isFinite(moneyDetected) && moneyDetected > 300) return null;
     if (/\bbruto\b|\bliquido\b|\blíquido\b/i.test(normalizedMessage)) {
-      return "Use o valor que você recebe na mão (líquido), descontando impostos e contribuições quando houver. Qual é o seu valor mensal?";
+      return "Use o valor líquido (na mão). Qual o valor mensal, tipo *2500* ou *R$ 2.500*?";
     }
     if (/\bvaria\b|\bvari[aá]vel\b|\bdepende do mes\b|\bdepende do mês\b|\bnao e fixo\b|\bnão é fixo\b/i.test(normalizedMessage)) {
-      return "Quando a renda varia, use a média dos últimos meses como referência. Qual é a sua média mensal aproximada?";
+      return "Quando varia, use a média dos últimos meses. Qual a média mensal aproximada?";
     }
     if (/\bnao sei\b|\bnão sei\b|\bnao sei ao certo\b|\bnão sei ao certo\b|\bnao sei exato\b|\bnão sei exato\b/i.test(normalizedMessage)) {
-      return "Sem problema — uma estimativa já ajuda. Qual valor você recebe por mês, em média?";
+      return "Uma estimativa já ajuda. Qual valor você recebe por mês, em média?";
     }
     if (/\bextra\b|\badicional\b|\bbonus\b|\bbônus\b|\bcomissao\b|\bcomissão\b/i.test(normalizedMessage)) {
-      return "Para esta etapa, informe apenas a renda principal. Renda extra e composição são tratados em etapas específicas. Qual é o seu valor mensal principal?";
+      return "Agora só a renda principal. Renda extra vem em etapa separada. Qual o valor mensal principal?";
     }
     if (/\bgira em torno\b|\baproximadamente\b|\bmais ou menos\b|\bpor volta de\b/i.test(normalizedMessage)) {
       const money = detectMoney(request?.message_text);
       if (Number.isFinite(money) && money > 300) {
-        return `Entendido, valor aproximado registrado. O sistema vai usar R$ ${money.toLocaleString("pt-BR")} como referência. Confirma esse valor mensal?`;
+        return `Entendido, R$ ${money.toLocaleString("pt-BR")} como referência. Confirma esse valor mensal?`;
       }
-      return "Entendido. Me confirma o valor aproximado mensal para eu seguir?";
+      return "Entendido. Me confirma o valor mensal aproximado?";
     }
-    return "Qual é o seu valor de renda mensal?";
+    return "Qual a sua renda mensal? Me diz o valor, tipo *2500* ou *R$ 2.500*.";
   }
 
   return null;
@@ -1457,27 +1457,27 @@ function buildAprofundamentoRendaGuidance(request) {
   if (stage === "possui_renda_extra") {
     // Comissão, hora extra e adicional NÃO são renda mista — pertencem à leitura de renda formal.
     if (/\bhoras?\s+extras?\b/i.test(normalizedMessage) && !/\b(bico|uber|ifood|freela|renda\s+extra|por\s+fora|informal)\b/i.test(normalizedMessage)) {
-      return "Hora extra faz parte da renda formal variável — não entra como renda extra por fora. O sistema registra isso na leitura do perfil de renda. Aqui a pergunta é sobre *renda por fora* (bico, Uber, freela). Você tem alguma renda assim? Responda *sim* ou *não*.";
+      return "Hora extra faz parte da renda formal, não é renda extra por fora. Tem alguma renda *por fora* (bico, Uber, freela)? Responda *sim* ou *não*.";
     }
     if (/\bcomiss[aã]o\b/i.test(normalizedMessage) && !/\b(bico|uber|ifood|freela|renda\s+extra|por\s+fora|informal)\b/i.test(normalizedMessage)) {
-      return "Comissão faz parte da renda formal variável — não entra como renda extra por fora. O sistema já considera isso no perfil de renda. Aqui a pergunta é sobre *renda por fora* (bico, Uber, freela). Você tem alguma renda assim? Responda *sim* ou *não*.";
+      return "Comissão é renda formal variável, não entra como extra. Tem alguma renda *por fora* (bico, Uber, freela)? Responda *sim* ou *não*.";
     }
     if (/\badicional\b/i.test(normalizedMessage) && !/\b(bico|uber|ifood|freela|renda\s+extra|por\s+fora|informal)\b/i.test(normalizedMessage)) {
-      return "Adicional faz parte da renda formal — não entra como renda extra por fora. Aqui a pergunta é sobre *renda por fora* (bico, Uber, freela). Você tem alguma renda assim? Responda *sim* ou *não*.";
+      return "Adicional é renda formal. Tem alguma renda *por fora* (bico, Uber, freela)? Responda *sim* ou *não*.";
     }
     if (/\bbico\b|\bbicos\b|\bfreela\b|\bfreelas\b|\binformal\b/i.test(normalizedMessage)) {
-      return "Bicos e trabalhos informais podem entrar como renda extra. O sistema vai verificar o que se encaixa no seu perfil. Você tem alguma renda extra além da principal? Responda *sim* ou *não*.";
+      return "Bicos e trabalhos informais podem entrar como extra. Tem renda extra além da principal? Responda *sim* ou *não*.";
     }
     if (/\bvendo\b|\bvendendo\b|\bvenda\b|\bvendas\b/i.test(normalizedMessage)) {
-      return "Renda de vendas pode ser considerada extra. O sistema avalia o que entra na composição. Você tem alguma renda extra além da principal? Responda *sim* ou *não*.";
+      return "Renda de vendas pode ser extra. Tem renda extra além da principal? Responda *sim* ou *não*.";
     }
     if (/\bpor fora\b|\brecebo por fora\b|\bganho por fora\b/i.test(normalizedMessage)) {
-      return "Renda extra informal pode ser considerada. O sistema verifica o que entra. Você tem alguma renda extra além da principal? Responda *sim* ou *não*.";
+      return "Renda informal pode ser considerada. Tem renda extra além da principal? Responda *sim* ou *não*.";
     }
     if (/\bprecisa entrar\b|\btem que entrar\b|\bconta\b|\bentra\b/i.test(normalizedMessage)) {
-      return "A decisão de o que entra ou não na composição fica com o sistema. Aqui só precisamos saber se você tem alguma renda extra. Você tem alguma renda extra além da principal? Responda *sim* ou *não*.";
+      return "O sistema decide o que entra na composição. Tem alguma renda extra além da principal? Responda *sim* ou *não*.";
     }
-    return "Você tem alguma renda extra além da sua renda principal? Responda *sim* ou *não*.";
+    return "Tem alguma renda extra além da principal? Responda *sim* ou *não*.";
   }
 
   if (stage === "inicio_multi_regime_pergunta") {
@@ -1951,18 +1951,18 @@ function buildGateFinaisGuidance(request) {
 
   if (stage === "ir_declarado") {
     if (/\bnao\s*declaro\b|\bnão\s*declaro\b|\bsem\s*ir\b|\bsem\s*declarar\b|\bnao\s*tenho\s*ir\b|\bnão\s*tenho\s*ir\b/.test(normalizedMessage)) {
-      return "Tudo bem. Não ter IR não barra automaticamente — o sistema verifica o perfil completo para orientar o melhor caminho. Você declara Imposto de Renda? Responda *sim* ou *não*.";
+      return "Tudo bem, não ter IR não barra automaticamente. Você declara IR? Responda *sim* ou *não*.";
     }
     if (/\bmei\b|\bsou\s*mei\b|\bmicro\s*empreendedor\b/.test(normalizedMessage)) {
-      return "MEI emite CNPJ, mas o financiamento é como pessoa física. O que conta aqui é o IR do titular como PF. Você declara IR como pessoa física? Responda *sim* ou *não*.";
+      return "MEI é CNPJ, mas o financiamento é como PF. Declara IR como pessoa física? Responda *sim* ou *não*.";
     }
     if (/\bainda\s*consigo\b|\bconsigo\s*sem\b|\bpossivel\s*sem\b|\bpossível\s*sem\b/.test(normalizedMessage)) {
-      return "Não ter IR não trava automaticamente — o sistema verifica o perfil completo. Você declara IR? Responda *sim* ou *não*.";
+      return "Sem IR não trava automaticamente. Você declara IR? Responda *sim* ou *não*.";
     }
     if (/\btrapalha\b|\bprejudica\b|\bimpede\b|\batrapalha\b/.test(normalizedMessage)) {
-      return "IR ajuda a formalizar renda, mas sua ausência não impede por conta própria — o sistema verifica. Você declara IR? Responda *sim* ou *não*.";
+      return "IR ajuda a formalizar renda, mas sua falta não impede sozinha. Declara IR? Responda *sim* ou *não*.";
     }
-    return "Me confirma se você declara Imposto de Renda? Responda *sim* ou *não*.";
+    return "Você declara Imposto de Renda? Responda *sim* ou *não*.";
   }
 
   if (stage === "autonomo_compor_renda") {
@@ -1980,19 +1980,18 @@ function buildGateFinaisGuidance(request) {
 
   if (stage === "ctps_36" || stage === "ctps_36_parceiro" || stage === "ctps_36_parceiro_p3") {
     const pessoa = stage === "ctps_36" ? "você" : stage === "ctps_36_parceiro" ? "o parceiro" : "o P3";
-    const label = stage === "ctps_36" ? "no seu CPF" : stage === "ctps_36_parceiro" ? "do parceiro" : "do P3";
     if (/\bprecisa\s*ser\s*seguido\b|\bprecisa\s*ser\s*continuo\b|\bininterrupto\b|\btem\s*que\s*ser\s*seguido\b/.test(normalizedMessage)) {
-      return `Não precisa ser um vínculo ininterrupto — o sistema soma os períodos dos registros em CTPS. Me confirma se ${pessoa} soma 36 meses? Responda *sim*, *não* ou *não sei*.`;
+      return `Não precisa ser seguido — soma os períodos. ${pessoa === "você" ? "Você soma" : pessoa + " soma"} 36 meses de CTPS? Responda *sim*, *não* ou *não sei*.`;
     }
     if (/\bcarteira\s*digital\b|\bdigital\b/.test(normalizedMessage) && /\bctps\b|\bcarteira\b/.test(normalizedMessage)) {
-      return `Carteira digital é aceita — o que importa é o registro, físico ou digital. Me confirma se ${pessoa} soma 36 meses ${label}? Responda *sim*, *não* ou *não sei*.`;
+      return `Digital vale igual. ${pessoa === "você" ? "Você soma" : pessoa + " soma"} 36 meses? Responda *sim*, *não* ou *não sei*.`;
     }
     if (/\bnao\s*tenho\s*tudo\b|\bnão\s*tenho\s*tudo\b|\bnao\s*chego\b|\bnão\s*chego\b|\bfalta\b|\bnao\s*bate\b|\bnão\s*bate\b/.test(normalizedMessage)) {
-      return `Mesmo sem os 36 meses o processo segue — só com impacto diferente na taxa. Me confirma se ${pessoa} soma ou não os 36 meses? Responda *sim*, *não* ou *não sei*.`;
+      return `Sem os 36 meses o processo segue, só com impacto na taxa. ${pessoa === "você" ? "Você soma" : pessoa + " soma"} os 36 meses? Responda *sim*, *não* ou *não sei*.`;
     }
-    if (stage === "ctps_36") return "Me confirma se você soma 36 meses de CTPS? Responda *sim*, *não* ou *não sei*.";
-    if (stage === "ctps_36_parceiro") return "Me confirma se o parceiro soma 36 meses de CTPS? Responda *sim*, *não* ou *não sei*.";
-    return "Me confirma se o P3 soma 36 meses de CTPS? Responda *sim*, *não* ou *não sei*.";
+    if (stage === "ctps_36") return "Você soma 36 meses de carteira assinada? Responda *sim*, *não* ou *não sei*.";
+    if (stage === "ctps_36_parceiro") return "O parceiro soma 36 meses de CTPS? Responda *sim*, *não* ou *não sei*.";
+    return "O P3 soma 36 meses de CTPS? Responda *sim*, *não* ou *não sei*.";
   }
 
   if (stage === "dependente") {
@@ -2002,12 +2001,12 @@ function buildGateFinaisGuidance(request) {
     if (composicaoKnown) return null;
 
     if (/\bnao\s*entendi\b|\bnão\s*entendi\b|\bque\s*e\s*isso\b|\bque\s*é\s*isso\b|\bpor\s*que\b|\bpra\s*que\b/.test(normalizedMessage)) {
-      return "Essa etapa verifica se você tem filho menor de 18 anos ou dependente sem renda própria até terceiro grau, pois isso pode impactar o perfil de análise. Você tem dependente? Responda *sim* ou *não*.";
+      return "Filho menor de 18 ou dependente sem renda até 3º grau pode impactar o perfil. Tem dependente? Responda *sim* ou *não*.";
     }
     if (/\bnao\s*sei\b|\bnão\s*sei\b|\bnao\s*tenho\s*certeza\b|\bnão\s*tenho\s*certeza\b/.test(normalizedMessage)) {
-      return "Sem problema. Para o sistema, o que conta é filho menor de 18 anos ou dependente sem renda própria até terceiro grau. Você tem dependente? Responda *sim* ou *não*.";
+      return "Conta filho menor de 18 ou dependente sem renda até 3º grau. Tem dependente? Responda *sim* ou *não*.";
     }
-    return "Você tem filho menor de 18 anos ou dependente sem renda até terceiro grau? Responda *sim* ou *não*.";
+    return "Tem filho menor de 18 anos ou dependente sem renda? Responda *sim* ou *não*.";
   }
 
   if (stage === "restricao" || stage === "restricao_parceiro" || stage === "restricao_parceiro_p3") {
@@ -2016,23 +2015,22 @@ function buildGateFinaisGuidance(request) {
     if (/\breprovad\b|\bscr\b|\bbacen\b|\bsinad\b|\bconres\b|\bcomprometimento\b/.test(normalizedMessage)) {
       return null;
     }
-    const pessoa = stage === "restricao" ? "seu CPF" : stage === "restricao_parceiro" ? "o CPF do parceiro" : "o CPF do P3";
-    const pronome = stage === "restricao" ? "há alguma restrição no seu CPF" : stage === "restricao_parceiro" ? "há alguma restrição no CPF do parceiro" : "há alguma restrição no CPF do P3";
+    const pronome = stage === "restricao" ? "no seu CPF" : stage === "restricao_parceiro" ? "no CPF do parceiro" : "no CPF do P3";
     if (/\bnome\s*sujo\b|\bcpf\s*sujo\b|\bspc\b|\bserasa\b|\bnegatad[oa]\b|\bnegativad[oa]\b/.test(normalizedMessage)) {
-      return `Entendi. Ter restrição não impede automaticamente — o sistema verifica a natureza e o valor para orientar o caminho certo. Me confirma se ${pronome}? Responda *sim* ou *não*.`;
+      return `Restrição não impede automaticamente. Tem alguma restrição ${pronome}? Responda *sim* ou *não*.`;
     }
     if (/\bpouca\s*coisa\b|\be\s*pequeno\b|\bé\s*pequeno\b|\bpouco\s*valor\b|\bquase\s*nada\b|\bpequena\s*divida\b|\bpequena\s*dívida\b/.test(normalizedMessage)) {
-      return `Entendido. O sistema verifica a situação completa para orientar o melhor caminho. Me confirma se ${pronome}? Responda *sim* ou *não*.`;
+      return `Entendido, o sistema verifica a situação completa. Tem restrição ${pronome}? Responda *sim* ou *não*.`;
     }
     if (/\bestou\s*pagando\b|\bpagando\b|\bem\s*negociacao\b|\bem\s*negociação\b|\bjá\s*paguei\b|\bjá\s*quitei\b/.test(normalizedMessage)) {
-      return `Regularização em andamento é considerada pelo sistema. Me confirma se ainda ${pronome} ativa? Responda *sim* ou *não*.`;
+      return `Regularização em andamento conta. Ainda tem restrição ativa ${pronome}? Responda *sim* ou *não*.`;
     }
     if (/\bisso\s*barra\b|\bvai\s*barrar\b|\bbloqueia\b|\bimpede\b|\bpassa\b|\bconsigo\b/.test(normalizedMessage)) {
-      return `Restrição tem verificação específica no sistema — não é possível afirmar sem a análise completa. Me confirma se ${pronome}? Responda *sim* ou *não*.`;
+      return `Restrição tem verificação específica. Tem alguma ${pronome}? Responda *sim* ou *não*.`;
     }
-    if (stage === "restricao") return "Há alguma restrição no seu CPF? Responda *sim* ou *não*.";
-    if (stage === "restricao_parceiro") return "Há alguma restrição no CPF do parceiro? Responda *sim* ou *não*.";
-    return "Há alguma restrição no CPF do P3? Responda *sim* ou *não*.";
+    if (stage === "restricao") return "Tem alguma restrição no seu CPF (Serasa, SPC)? Responda *sim* ou *não*.";
+    if (stage === "restricao_parceiro") return "Tem alguma restrição no CPF do parceiro? Responda *sim* ou *não*.";
+    return "Tem alguma restrição no CPF do P3? Responda *sim* ou *não*.";
   }
 
   // BLOCO 5 — regularizacao_restricao_parceiro: contrato exige pergunta sobre POSSIBILIDADE de regularizar (não status)
@@ -2144,24 +2142,24 @@ function buildTopoFunilGuidance(request) {
   if (stage === "inicio_programa") {
     // Saudação curta / reentrada (inclui pós-reset) — resposta humana + reancoragem
     if (GREETING_TOPO.test(normalizedMessage) || REENTRY_TOPO.test(normalizedMessage)) {
-      return "Oi! Fico feliz em te ajudar 😊 O Minha Casa Minha Vida é um programa do governo com subsídio e condições especiais. Você já sabe como funciona ou prefere que eu explique rapidinho?";
+      return "Oi! Fico feliz em te ajudar 😊 Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique rapidinho? Responda *sim* (já sei) ou *não* (explica).";
     }
     if (/\bestrangeiro|estrang[ei]\b/.test(normalizedMessage)) {
-      return "Estrangeiro pode sim participar, desde que tenha RNM com prazo indeterminado.";
+      return "Estrangeiro pode participar, desde que tenha RNM com prazo indeterminado.";
     }
     if (/\brenda\b/.test(normalizedMessage) && /\b(minima|mínima|precisa|preciso|necessaria|necessária|quanto)\b/.test(normalizedMessage)) {
-      return "A renda mínima varia conforme o imóvel e o perfil. O programa atende diferentes faixas — por isso eu analiso o seu caso específico.";
+      return "A renda mínima varia conforme o imóvel e o perfil. Analiso seu caso específico.";
     }
     // Etapa 7 — precedence-aware global layer no inicio_programa
     const globalReply = resolveWithPrecedence(normalizedMessage, _TOPO_FAQ_MAP, "topo");
     if (globalReply) return wrapWithReanchor(globalReply.reply, stage);
     if (NO_TIME_PATTERN.test(normalizedMessage) || /\b(rapido|rapida|demora|demorar|tempo|quanto tempo)\b/.test(normalizedMessage)) {
-      return "São poucas perguntas bem diretas. Leva poucos minutos e já te dá uma orientação clara sobre o seu perfil.";
+      return "São poucas perguntas diretas, leva poucos minutos. Você já sabe como funciona o programa? Responda *sim* ou *não*.";
     }
     if (FEAR_PATTERN.test(normalizedMessage)) {
-      return "Entendo sua preocupação. É um processo transparente e seguro. A pré-análise não gera compromisso e não tem custo.";
+      return "Entendo. É um processo transparente e seguro, sem custo. Você já sabe como funciona o MCMV? Responda *sim* ou *não*.";
     }
-    return "Posso te explicar qualquer detalhe. Para te orientar certinho, me confirma como prefere prosseguir.";
+    return "Você já sabe como funciona o programa ou prefere que eu explique rapidinho? Responda *sim* ou *não*.";
   }
 
   if (stage === "inicio_nome") {
@@ -2241,45 +2239,45 @@ function buildBloco3Guidance(request) {
 
   if (stage === "estado_civil") {
     if (/\bmoro junto\b|\bmoramos juntos\b|\bvivemos juntos\b/.test(normalizedMessage)) {
-      return "Entendi que vocês moram juntos. Pra seguir certinho, preciso saber: vocês têm *união estável registrada*, são *casados no civil*, ou é convivência sem registro? Isso faz diferença no financiamento.";
+      return "Morar junto não é igual a casamento civil. Me diz: vocês são *casados no civil*, têm *união estável* registrada, ou é convivência sem registro?";
     }
     if (/\bnao sei\b|\bnao tenho certeza\b/.test(normalizedMessage)) {
-      return "Sem problema! Me diz como é hoje: solteiro(a), casado(a) no civil, união estável, separado(a), divorciado(a) ou viúvo(a)?";
+      return "Sem problema! Qual seu estado civil hoje? *Solteiro(a)*, *casado(a) no civil*, *união estável*, *separado(a)*, *divorciado(a)* ou *viúvo(a)*?";
     }
     if (/\bdiferenca\b|\bo que muda\b|\bcomo funciona\b/.test(normalizedMessage)) {
-      return "A diferença principal: casamento civil no papel torna o processo conjunto obrigatório. União estável e convivência permitem seguir sozinho ou junto, conforme seu cenário.";
+      return "Casamento civil obriga processo conjunto. União estável permite seguir sozinho ou junto. Qual seu estado civil? *Solteiro(a)*, *casado(a)*, *união estável*, *separado(a)*, *divorciado(a)* ou *viúvo(a)*?";
     }
-    return "Me confirma seu estado civil atual: solteiro(a), casado(a) no civil, união estável, separado(a), divorciado(a) ou viúvo(a)?";
+    return "Qual seu estado civil hoje? *Solteiro(a)*, *casado(a) no civil*, *união estável*, *separado(a)*, *divorciado(a)* ou *viúvo(a)*?";
   }
 
   if (stage === "confirmar_casamento") {
     if (/\bmoro junto\b|\bmoramos juntos\b|\bvivemos juntos\b/.test(normalizedMessage)) {
-      return "Morar junto não é a mesma coisa que casamento civil no papel. Me confirma: vocês são *casados no civil* (com certidão) ou é *união estável*?";
+      return "Morar junto não é casamento civil. Vocês são *casados no civil* (com certidão) ou é *união estável*?";
     }
     if (/\breligioso\b/.test(normalizedMessage)) {
-      return "Casamento só religioso, sem registro civil, funciona como união estável no financiamento. Vocês têm o *registro civil* do casamento ou só o religioso?";
+      return "Só religioso funciona como união estável. Vocês têm *registro civil* ou só o religioso?";
     }
     if (/\bnao sei\b|\bnao tenho certeza\b/.test(normalizedMessage)) {
-      return "Se vocês foram no cartório e assinaram a certidão de casamento, é civil no papel. Se não tem esse documento, funciona como união estável. Consegue confirmar?";
+      return "Se foram no cartório e assinaram certidão, é civil. Se não, é união estável. É *civil no papel* ou *união estável*?";
     }
     if (/\bdiferenca\b|\bo que muda\b/.test(normalizedMessage)) {
-      return "Casamento civil no papel obriga processo conjunto, mesmo que só um tenha renda. União estável permite seguir sozinho ou junto. Me confirma: é *civil no papel* ou *união estável*?";
+      return "Civil obriga processo conjunto. União estável permite solo ou junto. É *civil no papel* ou *união estável*?";
     }
-    return "Me confirma: é *casamento civil no papel* (com certidão do cartório) ou *união estável*?";
+    return "É *casamento civil no papel* (com certidão) ou *união estável*?";
   }
 
   if (stage === "financiamento_conjunto") {
     if (/\bobrigatorio\b|\bprecisa ser junto\b/.test(normalizedMessage)) {
-      return "No seu caso, comprar juntos não é obrigatório. Vocês podem seguir *juntos*, *só você*, ou *apenas se precisar* somar renda.";
+      return "No seu caso não é obrigatório. Vocês querem *comprar juntos*, *só você*, ou *apenas se precisar* somar renda?";
     }
     if (/\bmelhora\b|\bmuda algo\b|\bfaz diferenca\b/.test(normalizedMessage)) {
-      return "Comprar juntos pode ajudar se precisar somar renda pra atingir o valor do imóvel. Mas não é obrigatório no seu caso. Vocês querem *comprar juntos*, *só você*, ou *apenas se precisar*?";
+      return "Juntos pode ajudar se precisar somar renda. Vocês querem *comprar juntos*, *só você*, ou *apenas se precisar*?";
     }
     if (/\bnao sei\b/.test(normalizedMessage)) {
-      return "Se não tem certeza, uma boa opção é *apenas se precisar*: eu analiso sua renda primeiro e, se precisar somar, a gente inclui. O que prefere?";
+      return "Se não tem certeza, pode ir com *apenas se precisar* — eu analiso sua renda primeiro. O que prefere: *juntos*, *só você* ou *se precisar*?";
     }
     if (/\bsozinho\b|\bsolo\b/.test(normalizedMessage)) {
-      return "Seguir sozinho é totalmente válido. Me confirma: vai ser *só você* mesmo?";
+      return "Seguir sozinho é válido. Me confirma: *só você* mesmo?";
     }
     return "Vocês querem *comprar juntos*, *só você*, ou *apenas se precisar*?";
   }
@@ -2613,6 +2611,10 @@ function ensureReplyHasNextAction(replyText, context) {
   const normalizedReply = normalizeText(safeReply);
   const normalizedAction = normalizeText(actionPrompt);
   if (normalizedAction && normalizedReply.includes(normalizedAction)) return safeReply;
+
+  // Se a guidance já termina com pergunta induzida (parseável), não concatenar
+  // ação extra — evita bloco longo de "explicação + pergunta + outra pergunta".
+  if (/\?\s*$/.test(safeReply.trim()) && safeReply.length > 40) return safeReply;
 
   return `${safeReply} ${actionPrompt}`.trim();
 }

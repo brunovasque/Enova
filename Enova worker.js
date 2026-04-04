@@ -3265,7 +3265,7 @@ function hasClearStageAnswer(stage, text) {
     const nt = normalizeText(text);
     if (!nt) return false;
     const composicao = parseComposicaoRenda(text);
-    const sozinho = /(so\s*(a\s*)?minha|so\s*eu|sozinh|ninguem|sem ninguem)/i.test(nt);
+    const sozinho = /(so\s*(a\s*)?minha|so\s*eu|sozinh|ninguem|sem ninguem|sem\s*composic|nao\s*vou\s*somar)/i.test(nt);
     return Boolean(composicao || sozinho);
   }
   if (stage === "regime_trabalho") {
@@ -22908,6 +22908,8 @@ case "somar_renda_solteiro": {
   /\bs[oó]\s+com\s+a?\s*minha\b/i.test(t) ||
   /\bs[oó]\s+eu\b/i.test(t) ||
   /\bapenas\s+eu\b/i.test(tBase) ||
+  /\bsem\s+composic/i.test(tBase) ||
+  /\bn[aã]o\s+vou\s+somar\b/i.test(t) ||
   isNo(tBase);
   
   const parceiro =
@@ -23413,30 +23415,31 @@ await funnelTelemetry(env, {
 
   // --------------------------------------------------
   // QUALQUER FAMILIAR / NÃO ESPECIFICADO
+  // Contrato: "vou com familiar" não basta — precisa descobrir qual familiar.
+  // Se não identificar, permanece perguntando.
   // --------------------------------------------------
   if (qualquer) {
 
-    // 🟩 EXIT_STAGE
+    // 🟩 EXIT_STAGE (permanece na mesma fase até identificar o familiar)
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "regime_trabalho_parceiro_familiar",
+      next_stage: "somar_renda_familiar",
       severity: "info",
-      message: "Saindo da fase: somar_renda_familiar → regime_trabalho_parceiro_familiar (familiar generico)",
+      message: "Saindo da fase: somar_renda_familiar → somar_renda_familiar (familiar genérico — precisa identificar qual)",
       details: { userText, txt }
     });
-
-    await upsertState(env, st.wa_id, { familiar_tipo: "nao_especificado", p2_tipo: "familiar" });
 
     return step(
       env,
       st,
       [
-        "Sem problema 😊",
-        "Esse familiar é **CLT**, **autônomo(a)** ou **servidor(a)**?"
+        "Entendi que é familiar 😊",
+        "Mas preciso saber **qual familiar** exatamente pra seguir certinho:",
+        "**Pai, mãe, irmão(ã), avô(ó), tio(a), primo(a)**…"
       ],
-      "regime_trabalho_parceiro_familiar"
+      "somar_renda_familiar"
     );
   }
 
@@ -26295,7 +26298,7 @@ case "interpretar_composicao": {
   const composicaoSignal = parseComposicaoRenda(t);
   const parceiro = composicaoSignal === "parceiro" || /(parceir|namorad|espos|marid|mulher|boy|girl)/i.test(t);
   const familia  = composicaoSignal === "familiar" || /(pai|m[aã]e|mae|irm[aã]|av[oó]|tia|tio|primo|prima|famil)/i.test(t);
-  const sozinho  = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|não tenho ningu[eé]m|ninguem para somar|ningu[eé]m pra somar|sem ningu[eé]m)/i.test(t);
+  const sozinho  = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|não tenho ningu[eé]m|ninguem para somar|ningu[eé]m pra somar|sem ningu[eé]m|sem composi[çc]|n[aã]o vou somar)/i.test(t);
 
   // ============================================================
   // OPÇÃO 1 — COMPOR COM PARCEIRO(A)
@@ -26460,7 +26463,7 @@ case "quem_pode_somar": {
     /(filho|filha|filhos|filhas|dependente|dependentes|crianca|criancas|bebe|bebes)/i.test(tBase);
 
   const sozinho =
-    /(so\s*(a\s*)?minha(\s+renda)?|so\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|ninguem(\s*(para|pra)\s*somar)?|sem ninguem)/i.test(tBase);
+    /(so\s*(a\s*)?minha(\s+renda)?|so\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|ninguem(\s*(para|pra)\s*somar)?|sem ninguem|sem composic|nao vou somar)/i.test(tBase);
 
   const parceiro =
     composicaoSignal === "parceiro" ||

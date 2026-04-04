@@ -45,7 +45,16 @@ const FORBIDDEN_PROMISE_PATTERNS = Object.freeze([
 const CASA_PATTERN = /\bcasa\b(?!d[oa]s?|ment|l\b|is\b)/gi;
 
 // ── Controle de tamanho ────────────────────────────────────────────────────
-const MAX_REPLY_LENGTH = 600;
+// 400 para coleta/conversação WhatsApp; 600 para stages operacionais (docs/visita/correspondente)
+// onde listas de documentos legitimamente precisam de mais espaço.
+const MAX_REPLY_LENGTH = 400;
+const MAX_REPLY_LENGTH_OPERACIONAL = 600;
+
+// Stages operacionais que legitimamente precisam de mais espaço (listas de docs, detalhes de visita)
+const OPERACIONAL_LONG_STAGES = new Set([
+  "envio_docs", "agendamento_visita", "visita_confirmada",
+  "finalizacao_processo", "aguardando_retorno_correspondente"
+]);
 
 // ── Padrões de contexto emocional (no texto do cliente) ────────────────────
 const EMOTIONAL_PATTERNS = Object.freeze([
@@ -112,20 +121,21 @@ function replaceCasa(text) {
   return text.replace(CASA_PATTERN, "imóvel");
 }
 
-function controlLength(text) {
-  if (text.length <= MAX_REPLY_LENGTH) return text;
-  const truncated = text.substring(0, MAX_REPLY_LENGTH);
+function controlLength(text, maxLen) {
+  const limit = maxLen || MAX_REPLY_LENGTH;
+  if (text.length <= limit) return text;
+  const truncated = text.substring(0, limit);
   // Try to cut at the last sentence boundary
   const lastPeriod = truncated.lastIndexOf(". ");
   const lastQuestion = truncated.lastIndexOf("? ");
   const lastExcl = truncated.lastIndexOf("! ");
   const cutPoint = Math.max(lastPeriod, lastQuestion, lastExcl);
-  if (cutPoint > MAX_REPLY_LENGTH * 0.4) {
+  if (cutPoint > limit * 0.4) {
     return truncated.substring(0, cutPoint + 1).trim();
   }
   // Fall back to word boundary
   const lastSpace = truncated.lastIndexOf(" ");
-  if (lastSpace > MAX_REPLY_LENGTH * 0.6) {
+  if (lastSpace > limit * 0.6) {
     return truncated.substring(0, lastSpace).trim() + "…";
   }
   return truncated.trim() + "…";
@@ -179,8 +189,10 @@ export function applyFinalSpeechContract(reply, context = {}) {
     empathySeed: context.empathySeed || (messageText.length % EMPATHY_PREFIXES.length)
   });
 
-  // 4. Controlar tamanho
-  result = controlLength(result);
+  // 4. Controlar tamanho (stage-aware: operacional usa limite maior)
+  const currentStage = String(context.currentStage || "").toLowerCase().trim();
+  const maxLen = OPERACIONAL_LONG_STAGES.has(currentStage) ? MAX_REPLY_LENGTH_OPERACIONAL : MAX_REPLY_LENGTH;
+  result = controlLength(result, maxLen);
 
   // 5. Normalizar espaços
   result = normalizeWhitespace(result);
@@ -237,6 +249,7 @@ export { detectEmotionalContext };
 // ── Constantes exportadas para testes ──────────────────────────────────────
 export const CONTRACT_CONFIG = Object.freeze({
   MAX_REPLY_LENGTH,
+  MAX_REPLY_LENGTH_OPERACIONAL,
   FORBIDDEN_PROMISE_PATTERNS_COUNT: FORBIDDEN_PROMISE_PATTERNS.length,
   EMOTIONAL_PATTERNS_COUNT: EMOTIONAL_PATTERNS.length,
   EMPATHY_PREFIXES_COUNT: EMPATHY_PREFIXES.length

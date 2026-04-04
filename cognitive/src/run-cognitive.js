@@ -1939,8 +1939,28 @@ function buildGateFinaisGuidance(request) {
     return "Há alguma restrição no CPF do P3? Responda *sim* ou *não*.";
   }
 
-  if (stage === "regularizacao_restricao" || stage === "regularizacao_restricao_parceiro" || stage === "regularizacao_restricao_p3") {
-    const pronome = stage === "regularizacao_restricao" ? "a restrição no seu CPF foi regularizada" : stage === "regularizacao_restricao_parceiro" ? "a restrição no CPF do parceiro foi regularizada" : "a restrição no CPF do P3 foi regularizada";
+  // BLOCO 5 — regularizacao_restricao_parceiro: contrato exige pergunta sobre POSSIBILIDADE de regularizar (não status)
+  if (stage === "regularizacao_restricao_parceiro") {
+    if (/\bestou\s*negociando\b|\bem\s*negociacao\b|\bem\s*negociação\b|\bnegociando\b|\bnegociacao\b|\bnegociação\b/.test(normalizedMessage)) {
+      return "Entendido, negociação é um passo. O parceiro tem possibilidade real de regularizar a restrição no CPF? Responda *sim*, *não* ou *não sei*.";
+    }
+    if (/\bjá\s*quitei\b|\bjá\s*paguei\b|\bquitei\b|\bpaguei\b|\bpagamento\s*feito\b/.test(normalizedMessage)) {
+      return "Ótimo, pagamento feito é importante. O parceiro tem possibilidade de regularizar essa restrição? Responda *sim*, *não* ou *não sei*.";
+    }
+    if (/\bainda\s*nao\s*baixou\b|\bainda\s*não\s*baixou\b|\bnao\s*baixou\b|\bnão\s*baixou\b|\bpendente\s*no\s*cpf\b/.test(normalizedMessage)) {
+      return "Entendido. O parceiro tem possibilidade de regularizar essa pendência no CPF? Responda *sim*, *não* ou *não sei*.";
+    }
+    if (/\bisso\s*já\s*serve\b|\bjá\s*serve\b|\bjá\s*conta\b|\bjá\s*basta\b/.test(normalizedMessage)) {
+      return "O sistema verifica a situação completa. O parceiro tem possibilidade real de regularizar a restrição? Responda *sim*, *não* ou *não sei*.";
+    }
+    if (/\bvou\s*ver\b|\bvamos\s*ver\b|\btalvez\b|\best[aá]\s*tentando\b|\bnao\s*sei\b|\bnão\s*sei\b|\bnao\s*sabe\b|\bnão\s*sabe\b/.test(normalizedMessage)) {
+      return "Entendido. Me confirma: o parceiro tem possibilidade de regularizar a restrição no CPF? Responda *sim*, *não* ou *não sei*.";
+    }
+    return "O parceiro tem possibilidade de regularizar a restrição no CPF? Responda *sim*, *não* ou *não sei*.";
+  }
+
+  if (stage === "regularizacao_restricao" || stage === "regularizacao_restricao_p3") {
+    const pronome = stage === "regularizacao_restricao" ? "a restrição no seu CPF foi regularizada" : "a restrição no CPF do P3 foi regularizada";
     if (/\bestou\s*negociando\b|\bem\s*negociacao\b|\bem\s*negociação\b|\bnegociando\b|\bnegociacao\b|\bnegociação\b/.test(normalizedMessage)) {
       return `Negociação em andamento é um passo importante, mas o sistema precisa que a regularização esteja formalizada no CPF. Me confirma se ${pronome}? Responda *sim* ou *não*.`;
     }
@@ -1954,7 +1974,6 @@ function buildGateFinaisGuidance(request) {
       return `O sistema precisa que a regularização esteja formal no CPF para validar. Me confirma se ${pronome}? Responda *sim* ou *não*.`;
     }
     if (stage === "regularizacao_restricao") return "A restrição no seu CPF foi regularizada? Responda *sim* ou *não*.";
-    if (stage === "regularizacao_restricao_parceiro") return "A restrição no CPF do parceiro foi regularizada? Responda *sim* ou *não*.";
     return "A restrição no CPF do P3 foi regularizada? Responda *sim* ou *não*.";
   }
 

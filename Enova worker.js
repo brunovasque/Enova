@@ -8298,6 +8298,18 @@ let userText = null;
       st = await getState(env, waId);
     }
 
+    // ============================================================
+    // DETECÇÃO AUTOMÁTICA DE ORIGEM DO LEAD (orgânico vs campanha)
+    // Regra: se NÃO houver sinal de origem → source_type = "organico"
+    // Sinais de campanha: source_type, base_origem, utm_source
+    // Não sobrescreve origem já existente. Não altera fase/funil.
+    // ============================================================
+    const _hasOriginSignal = Boolean(st?.source_type || st?.base_origem || st?.utm_source);
+    if (!_hasOriginSignal) {
+      await upsertState(env, waId, { source_type: "organico" });
+      st = { ...st, source_type: "organico" };
+    }
+
     if (st?.atendimento_manual === true) {
       const bypassTs = new Date().toISOString();
       await telemetry(env, {

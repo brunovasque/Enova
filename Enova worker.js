@@ -3126,6 +3126,7 @@ const COGNITIVE_V1_ALLOWED_STAGES = new Set([
   "envio_docs",
   "aguardando_retorno_correspondente",
   "agendamento_visita",
+  "visita_confirmada",
   "finalizacao_processo",
   // BLOCO 8 — Informativos pré-docs (pseudo-stages cognitivos)
   "informativo_moradia_atual",
@@ -3220,6 +3221,7 @@ const COGNITIVE_PLAYBOOK_V1 = {
     envio_docs: ["duvida_seguranca", "objecao_presencial", "deferimento_docs", "duvida_canal", "objecao_tempo_docs"],
     aguardando_retorno_correspondente: ["duvida_prazo", "duvida_status", "duvida_e_agora", "objecao"],
     agendamento_visita: ["duvida_horario", "duvida_remarcar", "duvida_acompanhante", "esfriamento_visita", "objecao"],
+    visita_confirmada: ["duvida_horario", "duvida_remarcar", "duvida_endereco", "duvida_detalhes", "esfriamento_visita", "objecao"],
     finalizacao_processo: ["duvida_proximo_passo", "duvida_aviso", "duvida_encerramento", "objecao"],
     // BLOCO 8 — Informativos pré-docs
     informativo_moradia_atual: ["moradia_resposta", "duvida_por_que", "objecao"],
@@ -3409,6 +3411,26 @@ function hasClearStageAnswer(stage, text) {
     if (isYes(text) || isNo(text)) return true;
     if (/\b(o que falta|quais doc|lista|pendencia|pendências)\b/i.test(nt)) return true;
     if (/\b(prefiro presencial|quero ir no plantao|plantao|presencial|site|portal)\b/i.test(nt)) return true;
+    return false;
+  }
+  // Bloco 13 — agendamento_visita: sim/não convite, opção data (1-3, dia semana), opção horário (1-4, hora oficial)
+  if (stage === "agendamento_visita") {
+    if (isYes(text) || isNo(text)) return true;
+    const nt = normalizeText(text);
+    if (/\b[1-4]\b/.test(nt)) return true;
+    if (/\b(segunda|terca|terça|quarta|quinta|sexta|sabado|sábado)\b/i.test(nt)) return true;
+    if (/\b(10:00|14:30|17:00|19:30)\b/.test(nt)) return true;
+    return false;
+  }
+  // Bloco 13 — visita_confirmada: reagendar, cancelar, realizada, no_show, endereço, detalhes
+  if (stage === "visita_confirmada") {
+    const nt = normalizeText(text);
+    if (/\b(reagendar|remarcar|trocar|mudar|outro dia|outro horario)\b/.test(nt)) return true;
+    if (/\b(cancelar|desistir|desmarcar|nao quero mais|não quero mais)\b/.test(nt)) return true;
+    if (/\b(realizada|realizado|ja fui|já fui|fiz a visita|fui na visita|visita concluida)\b/.test(nt)) return true;
+    if (/\b(no show|noshow|nao fui|não fui|faltei|nao consegui ir|não consegui ir)\b/.test(nt)) return true;
+    if (/\b(endereco|endereço|localizacao|localização|onde fica|como chegar)\b/.test(nt)) return true;
+    if (/\b(detalhe|detalhes|relembrar|qual dia|que dia|qual horario|que horario)\b/.test(nt)) return true;
     return false;
   }
   // Bloco 2 topo — inicio_nome, inicio_nacionalidade, inicio_rnm, inicio_rnm_validade
@@ -3692,8 +3714,13 @@ function shouldTriggerCognitiveAssist(stage, text) {
     return true;
   }
   if (stage === "agendamento_visita") {
-    const agendamentoHints = /\b(hor[aá]rio|dia|quando|outro dia|remarcar|reagend|acompanhante|precisa levar|vou pensar|preciso pensar|quem sabe|ainda nao decidi|ainda não decidi|sem pressa)\b/i.test(nt);
+    const agendamentoHints = /\b(hor[aá]rio|dia|quando|outro dia|remarcar|reagend|acompanhante|precisa levar|vou pensar|preciso pensar|quem sabe|ainda nao decidi|ainda não decidi|sem pressa|ja fui|já fui|ja passei|já passei|ja visitei|já visitei|ja estive|já estive|conhe[cç]o)\b/i.test(nt);
     if (agendamentoHints) return true;
+  }
+  // BLOCO 13 — visita_confirmada: dúvidas, objeções, "já fui ao plantão"
+  if (stage === "visita_confirmada") {
+    const visitaConfirmadaHints = /\b(hor[aá]rio|dia|quando|duvida|d[uú]vida|pode|precisa|preciso|levar|acompanhante|quem|corretor|o que|por que|como|ja fui|já fui|ja passei|já passei|ja visitei|já visitei|ja estive|já estive|conhe[cç]o)\b/i.test(nt);
+    if (visitaConfirmadaHints) return true;
   }
 
   // BLOCO 8 — Informativos pré-docs: sempre acionar cognitivo (qualquer texto é válido)
@@ -18550,6 +18577,222 @@ function buildCognitiveBloco12Reply(statusCanonico, motivo) {
   return null;
 }
 
+// ─── BLOCO 13: VISITA — casca cognitiva determinística ──────
+// mecânico define stage / cognitivo assume a fala final / mecânico valida e avança
+function buildCognitiveBloco13Reply(ctx) {
+  const {
+    subAction, visitaOrigem, dateOptions, selectedDateLabel, allowedSlots,
+    visitaDiaHora, visitaResumo, ENDERECO_PLANTAO
+  } = ctx || {};
+  const isDocOrigin = visitaOrigem === "trava_documental" || visitaOrigem === "recusa_online";
+  const docLembrete = isDocOrigin
+    ? "\n\nNo dia, lembre-se de levar: documento pessoal com foto, comprovante de residência e comprovante de renda."
+    : "";
+
+  switch (subAction) {
+
+    // ── agendamento_visita: convite pendente ──
+    case "convite_pendente": {
+      if (visitaOrigem === "trava_documental") {
+        return [
+          "O caminho mais rápido pra resolver a etapa documental é a visita presencial no plantão Boa Vista.",
+          "Lá você já leva os documentos e destrava tudo com o corretor.",
+          "\nNo dia, lembre-se de levar: documento pessoal com foto, comprovante de residência e comprovante de renda.",
+          "\nMe confirma — quer que eu já encaixe você na agenda oficial?"
+        ].join("\n");
+      }
+      if (visitaOrigem === "recusa_online") {
+        return [
+          "Sem problema com o atendimento online — a visita presencial resolve tudo.",
+          "No plantão Boa Vista você conversa direto com o corretor e avança no processo.",
+          "\nNo dia, lembre-se de levar: documento pessoal com foto, comprovante de residência e comprovante de renda.",
+          "\nMe confirma — quer que eu já encaixe você na agenda oficial?"
+        ].join("\n");
+      }
+      // aprovado / aprovado_condicionado
+      return [
+        "Boa notícia — você foi aprovado e o próximo passo agora é sua visita no plantão Boa Vista. 🎉",
+        "É nesse encontro que a gente fecha simulação, escolhe o imóvel e dá sequência.",
+        "Me confirma — quer que eu já encaixe você na agenda oficial?"
+      ].join("\n");
+    }
+
+    // ── agendamento_visita: convite aceito → mostra datas ──
+    case "convite_aceito_datas": {
+      const dateList = (dateOptions || []).map((opt, i) => `${i + 1}) ${opt.label || opt}`).join("\n");
+      return [
+        "Perfeito! Vamos agendar. Olha as datas disponíveis: 👇",
+        "",
+        dateList,
+        "",
+        "Escolha uma opção (1, 2 ou 3). Atendemos de segunda a sábado." + docLembrete
+      ].join("\n");
+    }
+
+    // ── agendamento_visita: convite adiado (persuasão firme) ──
+    case "convite_adiado": {
+      return [
+        "Entendo — mas vale garantir o horário porque as vagas preenchem rápido.",
+        "Quando decidir, me manda um *1* que eu já puxo as datas oficiais pra você."
+      ].join("\n");
+    }
+
+    // ── agendamento_visita: domingo bloqueado ──
+    case "domingo_bloqueado": {
+      const altDias = (dateOptions || []).slice(0, 2).map(o => o.label || o).join(" ou ");
+      return [
+        "No domingo não temos atendimento 😕",
+        `Posso te encaixar em ${altDias || "dia útil"}.`,
+        "Escolha 1, 2 ou 3 entre as opções oficiais."
+      ].join("\n");
+    }
+
+    // ── agendamento_visita: data escolhida → horários ──
+    case "data_escolhida_horarios": {
+      const slotList = (allowedSlots || []).map((s, i) => `${i + 1}) ${s}`).join("\n");
+      return [
+        `Fechado — visita em *${selectedDateLabel}*. ✅`,
+        "Agora escolha o horário oficial:",
+        "",
+        slotList,
+        "",
+        "Responda com o número da opção."
+      ].join("\n");
+    }
+
+    // ── agendamento_visita: data inválida → retry ──
+    case "data_invalida": {
+      const dateList = (dateOptions || []).map((opt, i) => `${i + 1}) ${opt.label || opt}`).join("\n");
+      return [
+        "Vamos seguir com as opções fechadas pra garantir o próximo horário disponível 👇",
+        "",
+        dateList,
+        "",
+        "Escolha 1, 2 ou 3."
+      ].join("\n");
+    }
+
+    // ── agendamento_visita: horário fora da grade ──
+    case "horario_fora_grade": {
+      return [
+        "Pra esse atendimento usamos somente horários oficiais.",
+        `Pra *${selectedDateLabel}*, os horários são: ${(allowedSlots || []).join(", ")}.`,
+        "Escolha uma opção pelo número."
+      ].join("\n");
+    }
+
+    // ── agendamento_visita: horário inválido → retry ──
+    case "horario_invalido": {
+      const slotList = (allowedSlots || []).map((s, i) => `${i + 1}) ${s}`).join("\n");
+      return [
+        `Escolha um horário oficial pra *${selectedDateLabel}*:`,
+        "",
+        slotList
+      ].join("\n");
+    }
+
+    // ── agendamento_visita: confirmação de visita ──
+    case "confirmacao": {
+      return [
+        "Pronto, sua visita está confirmada! ✅",
+        `📅 *${visitaDiaHora}*`,
+        `📍 Plantão Boa Vista: *${ENDERECO_PLANTAO}*`,
+        "No dia, é só avisar seu nome na recepção que já te chamam. 😉" + docLembrete
+      ].join("\n");
+    }
+
+    // ── agendamento_visita: já confirmada anteriormente ──
+    case "ja_confirmada": {
+      return [
+        `Sua visita já está confirmada pra *${visitaResumo}*. ✅`,
+        `📍 Plantão Boa Vista: *${ENDERECO_PLANTAO}*`,
+        "No dia, é só avisar seu nome na recepção. 😉"
+      ].join("\n");
+    }
+
+    // ── agendamento_visita: reset/fallback ──
+    case "reset_convite": {
+      return [
+        "Vamos retomar seu agendamento.",
+        "Me confirma — quer que eu encaixe você na agenda oficial do plantão?"
+      ].join("\n");
+    }
+
+    // ── visita_confirmada: realizada ──
+    case "visita_realizada": {
+      return [
+        "Perfeito, registrei sua visita como *realizada*. ✅",
+        "Seguimos com as próximas tratativas — te aviso por aqui sobre o andamento."
+      ].join("\n");
+    }
+
+    // ── visita_confirmada: no_show ──
+    case "visita_no_show": {
+      return [
+        "Entendi, registrei como *não comparecimento*.",
+        "Tudo bem — a gente remarca sem problema. Quer que eu já puxe as próximas datas oficiais?"
+      ].join("\n");
+    }
+
+    // ── visita_confirmada: reagendamento ──
+    case "visita_reagendar": {
+      return [
+        "Sem problema, vamos remarcar dentro da agenda oficial.",
+        "Me confirma — quer agendar agora?"
+      ].join("\n");
+    }
+
+    // ── visita_confirmada: cancelamento ──
+    case "visita_cancelar": {
+      return [
+        "Tudo certo, sua visita foi *cancelada*.",
+        "Se mudar de ideia, me avisa que eu reagendo na hora."
+      ].join("\n");
+    }
+
+    // ── visita_confirmada: endereço ──
+    case "visita_endereco": {
+      return [
+        `📍 Plantão Boa Vista: *${ENDERECO_PLANTAO}*`,
+        `Sua visita continua confirmada pra *${visitaResumo}*.`
+      ].join("\n");
+    }
+
+    // ── visita_confirmada: detalhes ──
+    case "visita_detalhes": {
+      return [
+        `Sua visita está confirmada pra *${visitaResumo}*. ✅`,
+        `📍 Plantão Boa Vista: *${ENDERECO_PLANTAO}*`
+      ].join("\n");
+    }
+
+    // ── já fui ao plantão (agendamento ou confirmada) ──
+    case "ja_fui_plantao": {
+      return [
+        "Entendo — mas nem sempre as opções são as mesmas.",
+        "Tudo depende do corretor, do perfil atualizado e das condições do momento.",
+        "Vale a pena ir de novo porque pode ter mudado bastante coisa a seu favor.",
+        "Quer manter o agendamento?"
+      ].join("\n");
+    }
+
+    // ── visita_confirmada: fallback ──
+    case "visita_confirmada_fallback": {
+      return [
+        `Sua visita continua confirmada pra *${visitaResumo}*. ✅`,
+        "Me avisa se precisar de algo:",
+        "• Reagendar",
+        "• Cancelar",
+        "• Ver endereço/localização",
+        "• Relembrar detalhes"
+      ].join("\n");
+    }
+
+    default:
+      return null;
+  }
+}
+
 function normalizeCorrespondenteReturnStatus(value) {
   const normalized = normalizeText(value || "");
   if (!normalized) return "nao_identificado";
@@ -29910,6 +30153,10 @@ case "agendamento_visita": {
     ...(shouldRunEtapa1InformativosVisita(st) ? buildEtapa1InformativosPatch(st, updates) : {})
   });
 
+  // ── BLOCO 13 — contexto cognitivo para builder ──
+  const cogB13Ctx = { visitaOrigem: visitaOrigemAtual, ENDERECO_PLANTAO };
+  const jaFoiPlantao = /\b(ja fui|já fui|ja passei|já passei|ja visitei|já visitei|ja estive|já estive)\b/.test(tNorm) && /\b(plant[aã]o|l[aá]|visita)\b/.test(tNorm);
+
   if (agendaStatus === "confirmada") {
     const visitaResumo = st.visita_dia_hora || `${st.visita_data_escolhida || ""} ${st.visita_slot_escolhido || ""}`.trim() || "data a confirmar";
     await funnelTelemetry(env, {
@@ -29921,6 +30168,8 @@ case "agendamento_visita": {
       message: "Visita já confirmada anteriormente"
     });
 
+    const cogJaConf = buildCognitiveBloco13Reply({ ...cogB13Ctx, subAction: "ja_confirmada", visitaResumo });
+    if (cogJaConf) { st.__cognitive_reply_prefix = cogJaConf; st.__cognitive_v2_takes_final = true; }
     return step(env, st,
       [
         `Sua visita já está confirmada para *${visitaResumo}*. ✅`,
@@ -29959,6 +30208,11 @@ case "agendamento_visita": {
         message: "Convite de visita aceito; ofertando datas fechadas"
       });
 
+      // Informativo path → BLOCO 8 cognitive handles; skip BLOCO 13 overlay
+      if (!shouldRunEtapa1InformativosVisita(st)) {
+        const cogAceitoDatas = buildCognitiveBloco13Reply({ ...cogB13Ctx, subAction: "convite_aceito_datas", dateOptions });
+        if (cogAceitoDatas) { st.__cognitive_reply_prefix = cogAceitoDatas; st.__cognitive_v2_takes_final = true; }
+      }
       return step(env, st,
         shouldRunEtapa1InformativosVisita(st)
           ? [
@@ -29993,6 +30247,8 @@ case "agendamento_visita": {
         message: "Cliente adiou o convite de visita"
       });
 
+      const cogAdiado = buildCognitiveBloco13Reply({ ...cogB13Ctx, subAction: "convite_adiado" });
+      if (cogAdiado) { st.__cognitive_reply_prefix = cogAdiado; st.__cognitive_v2_takes_final = true; }
       return step(env, st,
         [
           "Sem problema 🙂",
@@ -30001,6 +30257,15 @@ case "agendamento_visita": {
         "agendamento_visita"
       );
     }
+
+    // "Já fui ao plantão" → persuasão máxima (não aceitar como fim de linha)
+    if (jaFoiPlantao) {
+      const cogJaFoi = buildCognitiveBloco13Reply({ ...cogB13Ctx, subAction: "ja_fui_plantao" });
+      if (cogJaFoi) { st.__cognitive_reply_prefix = cogJaFoi; st.__cognitive_v2_takes_final = true; }
+    }
+
+    const cogConvite = !jaFoiPlantao ? buildCognitiveBloco13Reply({ ...cogB13Ctx, subAction: "convite_pendente" }) : null;
+    if (cogConvite) { st.__cognitive_reply_prefix = cogConvite; st.__cognitive_v2_takes_final = true; }
 
     await upsertState(env, st.wa_id, {
       ...visitaBasePatch,
@@ -30056,6 +30321,8 @@ case "agendamento_visita": {
         severity: "info",
         message: "Cliente tentou domingo; redirecionando para dias oficiais"
       });
+      const cogDom = buildCognitiveBloco13Reply({ ...cogB13Ctx, subAction: "domingo_bloqueado", dateOptions });
+      if (cogDom) { st.__cognitive_reply_prefix = cogDom; st.__cognitive_v2_takes_final = true; }
       return step(env, st,
         [
           "No domingo não temos atendimento 😕",
@@ -30088,6 +30355,8 @@ case "agendamento_visita": {
         details: { visita_data_escolhida: dateChoice.iso, slots: allowedSlots }
       });
 
+      const cogDataHor = buildCognitiveBloco13Reply({ ...cogB13Ctx, subAction: "data_escolhida_horarios", selectedDateLabel: dateChoice.label, allowedSlots });
+      if (cogDataHor) { st.__cognitive_reply_prefix = cogDataHor; st.__cognitive_v2_takes_final = true; }
       return step(env, st,
         [
           `Perfeito, visita em *${dateChoice.label}*.`,
@@ -30108,6 +30377,8 @@ case "agendamento_visita": {
       message: "Escolha de data inválida; mantendo grade fechada"
     });
 
+    const cogDataInv = buildCognitiveBloco13Reply({ ...cogB13Ctx, subAction: "data_invalida", dateOptions });
+    if (cogDataInv) { st.__cognitive_reply_prefix = cogDataInv; st.__cognitive_v2_takes_final = true; }
     return step(env, st,
       [
         "Vamos seguir com as opções fechadas para garantir o próximo horário disponível 👇",
@@ -30136,6 +30407,8 @@ case "agendamento_visita": {
         visita_slot_escolhido: null,
         visita_confirmada: false
       });
+      const cogDomH = buildCognitiveBloco13Reply({ ...cogB13Ctx, subAction: "domingo_bloqueado", dateOptions });
+      if (cogDomH) { st.__cognitive_reply_prefix = cogDomH; st.__cognitive_v2_takes_final = true; }
       return step(env, st,
         [
           "Domingo não temos atendimento.",
@@ -30171,6 +30444,8 @@ case "agendamento_visita": {
         }
       });
 
+      const cogConf = buildCognitiveBloco13Reply({ ...cogB13Ctx, subAction: "confirmacao", visitaDiaHora });
+      if (cogConf) { st.__cognitive_reply_prefix = cogConf; st.__cognitive_v2_takes_final = true; }
       return step(env, st,
         [
           "Fechado! ✅ Visita confirmada.",
@@ -30191,6 +30466,8 @@ case "agendamento_visita": {
         severity: "info",
         message: "Cliente pediu horário fora da grade; redirecionando para slot oficial"
       });
+      const cogHorFora = buildCognitiveBloco13Reply({ ...cogB13Ctx, subAction: "horario_fora_grade", selectedDateLabel, allowedSlots });
+      if (cogHorFora) { st.__cognitive_reply_prefix = cogHorFora; st.__cognitive_v2_takes_final = true; }
       return step(env, st,
         [
           "Para esse atendimento usamos somente horários oficiais.",
@@ -30210,6 +30487,8 @@ case "agendamento_visita": {
       message: "Escolha de horário inválida; reforçando grade fechada"
     });
 
+    const cogHorInv = buildCognitiveBloco13Reply({ ...cogB13Ctx, subAction: "horario_invalido", selectedDateLabel, allowedSlots });
+    if (cogHorInv) { st.__cognitive_reply_prefix = cogHorInv; st.__cognitive_v2_takes_final = true; }
     return step(env, st,
       [
         `Escolha um horário oficial para *${selectedDateLabel}*:`,
@@ -30235,6 +30514,8 @@ case "agendamento_visita": {
     message: "Status de agendamento inesperado; resetando para convite"
   });
 
+  const cogReset = buildCognitiveBloco13Reply({ ...cogB13Ctx, subAction: "reset_convite" });
+  if (cogReset) { st.__cognitive_reply_prefix = cogReset; st.__cognitive_v2_takes_final = true; }
   return step(env, st,
     [
       "Vamos retomar seu agendamento por aqui.",
@@ -30257,6 +30538,9 @@ case "visita_confirmada": {
   const pediuCancelamento = /\b(cancelar|desistir|desistencia|desistência|desmarcar)\b/.test(tNorm) || /\b(nao quero mais|não quero mais)\b/.test(tNorm);
   const pediuEndereco = /\b(endereco|endereco|localizacao|localizacao|onde fica|mapa|como chegar)\b/.test(tNorm);
   const pediuDetalhes = /\b(detalhe|detalhes|relembrar|relembrar|confirmada|qual dia|que dia|qual horario|que horario|quando)\b/.test(tNorm);
+  // ── BLOCO 13 — "já fui ao plantão" no pós-confirmação ──
+  const jaFoiPlantaoConf = /\b(ja fui|já fui|ja passei|já passei|ja visitei|já visitei|ja estive|já estive)\b/.test(tNorm) && /\b(plant[aã]o|l[aá]|visita)\b/.test(tNorm);
+  const cogB13ConfCtx = { visitaOrigem: st.visita_origem || "aprovado", ENDERECO_PLANTAO, visitaResumo };
 
   if (pediuResultadoRealizada) {
     await upsertState(env, st.wa_id, {
@@ -30271,6 +30555,8 @@ case "visita_confirmada": {
       severity: "success",
       message: "Resultado da visita registrado como realizada"
     });
+    const cogReal = buildCognitiveBloco13Reply({ ...cogB13ConfCtx, subAction: "visita_realizada" });
+    if (cogReal) { st.__cognitive_reply_prefix = cogReal; st.__cognitive_v2_takes_final = true; }
     return step(env, st,
       [
         "Perfeito, registrei sua visita como *realizada*. ✅",
@@ -30293,6 +30579,8 @@ case "visita_confirmada": {
       severity: "info",
       message: "Resultado da visita registrado como no_show"
     });
+    const cogNoShow = buildCognitiveBloco13Reply({ ...cogB13ConfCtx, subAction: "visita_no_show" });
+    if (cogNoShow) { st.__cognitive_reply_prefix = cogNoShow; st.__cognitive_v2_takes_final = true; }
     return step(env, st,
       [
         "Entendi, registrei como *não comparecimento (no-show)*.",
@@ -30321,6 +30609,8 @@ case "visita_confirmada": {
       severity: "info",
       message: "Cliente pediu reagendamento após visita confirmada"
     });
+    const cogReag = buildCognitiveBloco13Reply({ ...cogB13ConfCtx, subAction: "visita_reagendar" });
+    if (cogReag) { st.__cognitive_reply_prefix = cogReag; st.__cognitive_v2_takes_final = true; }
     return step(env, st,
       [
         "Perfeito, vamos reagendar sua visita.",
@@ -30350,6 +30640,8 @@ case "visita_confirmada": {
       severity: "info",
       message: "Cliente cancelou visita confirmada"
     });
+    const cogCancel = buildCognitiveBloco13Reply({ ...cogB13ConfCtx, subAction: "visita_cancelar" });
+    if (cogCancel) { st.__cognitive_reply_prefix = cogCancel; st.__cognitive_v2_takes_final = true; }
     return step(env, st,
       [
         "Tudo certo, sua visita foi *cancelada*.",
@@ -30368,6 +30660,8 @@ case "visita_confirmada": {
       severity: "info",
       message: "Cliente pediu endereço/localização da visita"
     });
+    const cogEnd = buildCognitiveBloco13Reply({ ...cogB13ConfCtx, subAction: "visita_endereco" });
+    if (cogEnd) { st.__cognitive_reply_prefix = cogEnd; st.__cognitive_v2_takes_final = true; }
     return step(env, st,
       [
         `📍 Endereço do plantão: *${ENDERECO_PLANTAO}*`,
@@ -30386,6 +30680,8 @@ case "visita_confirmada": {
       severity: "info",
       message: "Cliente pediu relembrar detalhes da visita confirmada"
     });
+    const cogDet = buildCognitiveBloco13Reply({ ...cogB13ConfCtx, subAction: "visita_detalhes" });
+    if (cogDet) { st.__cognitive_reply_prefix = cogDet; st.__cognitive_v2_takes_final = true; }
     return step(env, st,
       [
         `Sua visita está confirmada para *${visitaResumo}*. ✅`,
@@ -30393,6 +30689,12 @@ case "visita_confirmada": {
       ],
       "visita_confirmada"
     );
+  }
+
+  // "Já fui ao plantão" — persuasão máxima
+  if (jaFoiPlantaoConf) {
+    const cogJaFoiC = buildCognitiveBloco13Reply({ ...cogB13ConfCtx, subAction: "ja_fui_plantao" });
+    if (cogJaFoiC) { st.__cognitive_reply_prefix = cogJaFoiC; st.__cognitive_v2_takes_final = true; }
   }
 
   await funnelTelemetry(env, {
@@ -30404,6 +30706,10 @@ case "visita_confirmada": {
     message: "Cliente interagiu após visita confirmada"
   });
 
+  if (!jaFoiPlantaoConf) {
+    const cogFallback = buildCognitiveBloco13Reply({ ...cogB13ConfCtx, subAction: "visita_confirmada_fallback" });
+    if (cogFallback) { st.__cognitive_reply_prefix = cogFallback; st.__cognitive_v2_takes_final = true; }
+  }
   return step(env, st,
     [
       `Sua visita já está confirmada para *${visitaResumo}*. ✅`,

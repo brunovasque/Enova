@@ -1602,8 +1602,8 @@ function buildFamiliarRendaGuidance(request) {
   }
 
   if (stage === "confirmar_avo_familiar") {
-    // CONTRATO BLOCO 6: LOAS/BPC/pensão alimentícia NÃO são renda financiável
-    if (/\b(loas|bpc|pens[aã]o\s*aliment[ií]cia)\b/i.test(normalizedMessage)) {
+    // CONTRATO BLOCO 6: LOAS/BPC/pensão NÃO são renda financiável
+    if (/\b(loas|bpc|pens[aã]o\s*aliment[ií]cia|pens[aã]o\s*por\s*morte|pens[aã]o)\b/i.test(normalizedMessage)) {
       return "Atenção: benefícios como LOAS, BPC ou pensão alimentícia não entram como renda comprovada para financiamento. Se o familiar tiver outra renda além do benefício, o sistema avalia. Confirma que o familiar é avô ou avó? Responda *sim* ou *não*.";
     }
     // CONTRATO BLOCO 6: idade acima de 68 inviabiliza composição normal
@@ -1647,8 +1647,8 @@ function buildFamiliarRendaGuidance(request) {
   }
 
   if (stage === "regime_trabalho_parceiro_familiar") {
-    // CONTRATO BLOCO 6: pensionista/LOAS/BPC isoladamente não são renda financiável
-    if (/\b(pensionista|pens[aã]o\s*aliment[ií]cia|loas|bpc)\b/i.test(normalizedMessage)) {
+    // CONTRATO BLOCO 6: pensionista/LOAS/BPC/pensão isoladamente não são renda financiável
+    if (/\b(pensionista|pens[aã]o\s*aliment[ií]cia|pens[aã]o\s*por\s*morte|pens[aã]o|loas|bpc)\b/i.test(normalizedMessage)) {
       return "Atenção: pensão alimentícia, LOAS ou BPC isoladamente não contam como renda financiável para composição. Se o familiar tem outra atividade além disso, informe o regime principal. Qual é o regime de trabalho do familiar: *CLT*, *autônomo*, *servidor* ou *aposentado*?";
     }
     // CONTRATO BLOCO 6: "só benefício" não serve para composição

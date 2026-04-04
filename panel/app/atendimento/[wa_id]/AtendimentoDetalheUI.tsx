@@ -405,8 +405,7 @@ function formatMsgDayLabel(dateStr: string | null): string {
     });
     const dStr = dayFmt.format(d);
     const todayStr = dayFmt.format(now);
-    const yDate = new Date(now);
-    yDate.setDate(now.getDate() - 1);
+    const yDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
     const yStr = dayFmt.format(yDate);
     if (dStr === todayStr) return "Hoje";
     if (dStr === yStr) return "Ontem";

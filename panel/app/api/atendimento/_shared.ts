@@ -1,6 +1,7 @@
 // ============================================================
 // Atendimento — Backend helper (panel/app/api/atendimento/_shared.ts)
 // Escopo: leitura da view enova_attendance_v1 (read-only)
+//         + arquivamento em enova_attendance_meta (write restrito)
 // ============================================================
 
 function buildSupabaseHeaders(serviceRoleKey: string) {
@@ -73,4 +74,74 @@ export async function listAttendanceLeads(
   }
 
   return (await readJsonResponse<Record<string, unknown>[]>(response)) ?? [];
+}
+
+// ── Arquivamento — escreve em enova_attendance_meta ─────────────────────────
+//
+// A view enova_attendance_v1 lê archived_at de enova_attendance_meta (LEFT JOIN).
+// O arquivamento de leads do painel de atendimento DEVE escrever nessa tabela,
+// não em crm_lead_meta (que é o domínio do painel de Bases).
+//
+// UPSERT garante que mesmo leads sem linha em enova_attendance_meta possam ser
+// arquivados (cria a linha com wa_id + campos de archive).
+
+export async function archiveAttendanceLead(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  wa_id: string,
+  archive_reason_code: string | null,
+  archive_reason_note: string | null,
+): Promise<void> {
+  const now = new Date().toISOString();
+  const endpoint = new URL("/rest/v1/enova_attendance_meta", supabaseUrl);
+  endpoint.searchParams.set("on_conflict", "wa_id");
+
+  const response = await fetch(endpoint.toString(), {
+    method: "POST",
+    headers: {
+      ...buildSupabaseHeaders(serviceRoleKey),
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify([{
+      wa_id,
+      archived_at: now,
+      archive_reason_code,
+      archive_reason_note,
+      updated_at: now,
+    }]),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`FAILED_TO_ARCHIVE_ATTENDANCE:${response.status}`);
+  }
+}
+
+export async function unarchiveAttendanceLead(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  wa_id: string,
+): Promise<void> {
+  const now = new Date().toISOString();
+  const endpoint = new URL("/rest/v1/enova_attendance_meta", supabaseUrl);
+  endpoint.search = `?wa_id=eq.${encodeURIComponent(wa_id)}`;
+
+  const response = await fetch(endpoint.toString(), {
+    method: "PATCH",
+    headers: {
+      ...buildSupabaseHeaders(serviceRoleKey),
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({
+      archived_at: null,
+      archive_reason_code: null,
+      archive_reason_note: null,
+      updated_at: now,
+    }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`FAILED_TO_UNARCHIVE_ATTENDANCE:${response.status}`);
+  }
 }

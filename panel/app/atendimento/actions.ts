@@ -1,9 +1,8 @@
 "use server";
 
-import { listAttendanceLeads, getAttendanceLead } from "../api/atendimento/_shared";
+import { listAttendanceLeads, getAttendanceLead, archiveAttendanceLead, unarchiveAttendanceLead } from "../api/atendimento/_shared";
 import { getPrefillMeta, upsertPrefillMeta, PrefillMetaRow, PrefillUpdatePayload } from "../api/prefill/_shared";
 import { getClientProfile, writeClientProfile, ClientProfileRow, ClientProfileUpdatePayload } from "../api/client-profile/_shared";
-import { runBasesAction } from "../api/bases/_shared";
 
 export async function fetchAttendanceDetailAction(
   wa_id: string,
@@ -140,6 +139,8 @@ export async function saveClientProfileAction(
 }
 
 // ── Arquivamento / Desarquivamento ─────────────────────────────────────────
+// Escreve em enova_attendance_meta (tabela canônica da aba Atendimento),
+// NÃO em crm_lead_meta (que é o domínio da aba Bases).
 
 export async function archiveLeadAction(
   wa_id: string,
@@ -154,15 +155,13 @@ export async function archiveLeadAction(
   }
 
   try {
-    const result = await runBasesAction({
-      action: "archive_lead",
+    await archiveAttendanceLead(
+      process.env.SUPABASE_URL as string,
+      process.env.SUPABASE_SERVICE_ROLE as string,
       wa_id,
-      archive_reason_code: archive_reason_code ?? undefined,
-      archive_reason_note: archive_reason_note ?? undefined,
-    });
-    if (result.status !== 200) {
-      return { ok: false, error: (result.body as { error?: string }).error ?? "Erro ao arquivar" };
-    }
+      archive_reason_code,
+      archive_reason_note,
+    );
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "internal error" };
@@ -180,10 +179,11 @@ export async function unarchiveLeadAction(
   }
 
   try {
-    const result = await runBasesAction({ action: "unarchive_lead", wa_id });
-    if (result.status !== 200) {
-      return { ok: false, error: (result.body as { error?: string }).error ?? "Erro ao desarquivar" };
-    }
+    await unarchiveAttendanceLead(
+      process.env.SUPABASE_URL as string,
+      process.env.SUPABASE_SERVICE_ROLE as string,
+      wa_id,
+    );
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "internal error" };

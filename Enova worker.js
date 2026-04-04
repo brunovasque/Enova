@@ -3571,7 +3571,7 @@ function shouldTriggerCognitiveAssist(stage, text) {
     if (restricaoHints) return true;
   }
   if (stage === "regularizacao_restricao" || stage === "regularizacao_restricao_parceiro" || stage === "regularizacao_restricao_p3") {
-    const regularizacaoHints = /\b(negociando|negociacao|negociação|ja quitei|já quitei|ja paguei|já paguei|quitei|paguei|ainda nao baixou|ainda não baixou|nao baixou|não baixou|isso ja serve|isso já serve|ja serve|já serve|nao consta|não consta)\b/i.test(nt);
+    const regularizacaoHints = /\b(negociando|negociacao|negociação|ja quitei|já quitei|ja paguei|já paguei|quitei|paguei|ainda nao baixou|ainda não baixou|nao baixou|não baixou|isso ja serve|isso já serve|ja serve|já serve|nao consta|não consta|vou ver|vamos ver|talvez|esta tentando|está tentando|nao sei|não sei|nao sabe|não sabe)\b/i.test(nt);
     if (regularizacaoHints) return true;
   }
 

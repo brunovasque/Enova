@@ -1905,18 +1905,19 @@ function buildGateFinaisGuidance(request) {
   if (stage === "ctps_36" || stage === "ctps_36_parceiro" || stage === "ctps_36_parceiro_p3") {
     const pessoa = stage === "ctps_36" ? "você" : stage === "ctps_36_parceiro" ? "o parceiro" : "o P3";
     const label = stage === "ctps_36" ? "no seu CPF" : stage === "ctps_36_parceiro" ? "do parceiro" : "do P3";
+    const p3Suffix = stage === "ctps_36_parceiro_p3" ? " ou *não sei*" : "";
     if (/\bprecisa\s*ser\s*seguido\b|\bprecisa\s*ser\s*continuo\b|\bininterrupto\b|\btem\s*que\s*ser\s*seguido\b/.test(normalizedMessage)) {
-      return `Não precisa ser um vínculo ininterrupto — o sistema soma os períodos dos registros em CTPS. Me confirma se ${pessoa} soma 36 meses? Responda *sim* ou *não*.`;
+      return `Não precisa ser um vínculo ininterrupto — o sistema soma os períodos dos registros em CTPS. Me confirma se ${pessoa} soma 36 meses? Responda *sim* ou *não*${p3Suffix}.`;
     }
     if (/\bcarteira\s*digital\b|\bdigital\b/.test(normalizedMessage) && /\bctps\b|\bcarteira\b/.test(normalizedMessage)) {
-      return `Carteira digital é aceita — o que importa é o registro, físico ou digital. Me confirma se ${pessoa} soma 36 meses ${label}? Responda *sim* ou *não*.`;
+      return `Carteira digital é aceita — o que importa é o registro, físico ou digital. Me confirma se ${pessoa} soma 36 meses ${label}? Responda *sim* ou *não*${p3Suffix}.`;
     }
     if (/\bnao\s*tenho\s*tudo\b|\bnão\s*tenho\s*tudo\b|\bnao\s*chego\b|\bnão\s*chego\b|\bfalta\b|\bnao\s*bate\b|\bnão\s*bate\b/.test(normalizedMessage)) {
-      return `Mesmo sem os 36 meses o processo segue — só com impacto diferente na taxa. Me confirma se ${pessoa} soma ou não os 36 meses? Responda *sim* ou *não*.`;
+      return `Mesmo sem os 36 meses o processo segue — só com impacto diferente na taxa. Me confirma se ${pessoa} soma ou não os 36 meses? Responda *sim* ou *não*${p3Suffix}.`;
     }
     if (stage === "ctps_36") return "Me confirma se você soma 36 meses de CTPS? Responda *sim* ou *não*.";
     if (stage === "ctps_36_parceiro") return "Me confirma se o parceiro soma 36 meses de CTPS? Responda *sim* ou *não*.";
-    return "Me confirma se o P3 soma 36 meses de CTPS? Responda *sim* ou *não*.";
+    return "Me confirma se o P3 soma 36 meses de CTPS? Responda *sim*, *não* ou *não sei*.";
   }
 
   if (stage === "dependente") {
@@ -1979,22 +1980,40 @@ function buildGateFinaisGuidance(request) {
     return "O parceiro tem possibilidade de regularizar a restrição no CPF? Responda *sim*, *não* ou *não sei*.";
   }
 
-  if (stage === "regularizacao_restricao" || stage === "regularizacao_restricao_p3") {
-    const pronome = stage === "regularizacao_restricao" ? "a restrição no seu CPF foi regularizada" : "a restrição no CPF do P3 foi regularizada";
+  // BLOCO 7 — regularizacao_restricao_p3: contrato exige pergunta sobre POSSIBILIDADE de regularizar (não status)
+  if (stage === "regularizacao_restricao_p3") {
     if (/\bestou\s*negociando\b|\bem\s*negociacao\b|\bem\s*negociação\b|\bnegociando\b|\bnegociacao\b|\bnegociação\b/.test(normalizedMessage)) {
-      return `Negociação em andamento é um passo importante, mas o sistema precisa que a regularização esteja formalizada no CPF. Me confirma se ${pronome}? Responda *sim* ou *não*.`;
+      return "Entendido, negociação é um passo. O P3 tem possibilidade real de regularizar a restrição no CPF? Responda *sim*, *não* ou *não sei*.";
     }
     if (/\bjá\s*quitei\b|\bjá\s*paguei\b|\bquitei\b|\bpaguei\b|\bpagamento\s*feito\b/.test(normalizedMessage)) {
-      return `Pagamento feito é um passo importante. Me confirma se ${pronome} e já baixou no CPF? Responda *sim* ou *não*.`;
+      return "Ótimo, pagamento feito é importante. O P3 tem possibilidade de regularizar essa restrição? Responda *sim*, *não* ou *não sei*.";
     }
     if (/\bainda\s*nao\s*baixou\b|\bainda\s*não\s*baixou\b|\bnao\s*baixou\b|\bnão\s*baixou\b|\bpendente\s*no\s*cpf\b/.test(normalizedMessage)) {
-      return `Entendido. O sistema precisa que a regularização esteja formal no CPF para considerar. Me confirma se ${pronome}? Responda *sim* ou *não*.`;
+      return "Entendido. O P3 tem possibilidade de regularizar essa pendência no CPF? Responda *sim*, *não* ou *não sei*.";
     }
     if (/\bisso\s*já\s*serve\b|\bjá\s*serve\b|\bjá\s*conta\b|\bjá\s*basta\b/.test(normalizedMessage)) {
-      return `O sistema precisa que a regularização esteja formal no CPF para validar. Me confirma se ${pronome}? Responda *sim* ou *não*.`;
+      return "O sistema verifica a situação completa. O P3 tem possibilidade real de regularizar a restrição? Responda *sim*, *não* ou *não sei*.";
     }
-    if (stage === "regularizacao_restricao") return "A restrição no seu CPF foi regularizada? Responda *sim* ou *não*.";
-    return "A restrição no CPF do P3 foi regularizada? Responda *sim* ou *não*.";
+    if (/\bvou\s*ver\b|\bvamos\s*ver\b|\btalvez\b|\best[aá]\s*tentando\b|\bnao\s*sei\b|\bnão\s*sei\b|\bnao\s*sabe\b|\bnão\s*sabe\b/.test(normalizedMessage)) {
+      return "Entendido. Me confirma: o P3 tem possibilidade de regularizar a restrição no CPF? Responda *sim*, *não* ou *não sei*.";
+    }
+    return "O P3 tem possibilidade de regularizar a restrição no CPF? Responda *sim*, *não* ou *não sei*.";
+  }
+
+  if (stage === "regularizacao_restricao") {
+    if (/\bestou\s*negociando\b|\bem\s*negociacao\b|\bem\s*negociação\b|\bnegociando\b|\bnegociacao\b|\bnegociação\b/.test(normalizedMessage)) {
+      return "Negociação em andamento é um passo importante, mas o sistema precisa que a regularização esteja formalizada no CPF. Me confirma se a restrição no seu CPF foi regularizada? Responda *sim* ou *não*.";
+    }
+    if (/\bjá\s*quitei\b|\bjá\s*paguei\b|\bquitei\b|\bpaguei\b|\bpagamento\s*feito\b/.test(normalizedMessage)) {
+      return "Pagamento feito é um passo importante. Me confirma se a restrição no seu CPF foi regularizada e já baixou no CPF? Responda *sim* ou *não*.";
+    }
+    if (/\bainda\s*nao\s*baixou\b|\bainda\s*não\s*baixou\b|\bnao\s*baixou\b|\bnão\s*baixou\b|\bpendente\s*no\s*cpf\b/.test(normalizedMessage)) {
+      return "Entendido. O sistema precisa que a regularização esteja formal no CPF para considerar. Me confirma se a restrição no seu CPF foi regularizada? Responda *sim* ou *não*.";
+    }
+    if (/\bisso\s*já\s*serve\b|\bjá\s*serve\b|\bjá\s*conta\b|\bjá\s*basta\b/.test(normalizedMessage)) {
+      return "O sistema precisa que a regularização esteja formal no CPF para validar. Me confirma se a restrição no seu CPF foi regularizada? Responda *sim* ou *não*.";
+    }
+    return "A restrição no seu CPF foi regularizada? Responda *sim* ou *não*.";
   }
 
   return null;

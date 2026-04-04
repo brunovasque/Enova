@@ -1165,134 +1165,10 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
         <div className={styles.blocksGrid}>
 
           {/* ═══════════════════════════════════════
-             BLOCO 1 (full) — PRÓXIMA AÇÃO
-             ═══════════════════════════════════════ */}
-          {lead.proxima_acao && (
-            <div className={`${styles.block} ${styles.blockFull}`}>
-              <div className={styles.blockHeader}>
-                <span className={styles.blockIcon}>🎯</span>
-                <h3 className={styles.blockTitle}>Próxima Ação</h3>
-                {/* Chamar cliente — reutiliza /api/bases call_now (mesmo padrão de Bases) */}
-                <button
-                  type="button"
-                  className={styles.callHeaderBtn}
-                  onClick={() => { setCallText(suggestCallMessage(lead)); setCallOpen(true); setCallFeedback(null); setCallError(null); }}
-                >
-                  📞 Chamar cliente
-                </button>
-              </div>
-              {callFeedback && <div className={styles.callBannerOk}>{callFeedback}</div>}
-              {callError && <div className={styles.callBannerErr}>{callError}</div>}
-              <div className={styles.blockBody}>
-                <div className={styles.nextActionCard}>
-                  <span className={styles.nextActionIcon}>→</span>
-                  <div className={styles.nextActionBody}>
-                    <span className={styles.nextActionText}>{lead.proxima_acao}</span>
-                    {(lead.gatilho_proxima_acao || lead.prazo_proxima_acao) && (
-                      <span className={styles.nextActionMeta}>
-                        {lead.gatilho_proxima_acao && `Gatilho: ${getGatilhoLabel(lead.gatilho_proxima_acao)}`}
-                        {lead.gatilho_proxima_acao && lead.prazo_proxima_acao && " · "}
-                        {lead.prazo_proxima_acao && `Follow-up: ${formatDate(lead.prazo_proxima_acao)}`}
-                      </span>
-                    )}
-                    {lead.dono_pendencia && (
-                      <span className={styles.nextActionMeta}>
-                        Responsável: {lead.dono_pendencia}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ═══════════════════════════════════════
-             BLOCO 3 (full) — FEEDBACK HUMANO DO CORRETOR
-             Formulário editável — persiste em enova_attendance_meta.
-             Campos: interesse_atual, objecao_principal,
-             momento_do_cliente, responsavel, quick_note.
-             Sem placeholders ociosos.
-             ═══════════════════════════════════════ */}
-          <div className={`${styles.block} ${styles.blockFull} ${styles.blockFeedback}`}>
-            <div className={styles.blockHeader}>
-              <span className={styles.blockIcon}>💬</span>
-              <h3 className={styles.blockTitle}>Feedback do Corretor</h3>
-            </div>
-            <div className={styles.blockBody}>
-              <div className={styles.feedbackGrid}>
-                <div className={styles.prefillFieldRow}>
-                  <span className={styles.fieldLabel}>Interesse atual</span>
-                  <input
-                    type="text"
-                    className={styles.prefillInput}
-                    value={feedbackEdit.interesse_atual}
-                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, interesse_atual: e.target.value })}
-                    placeholder="Ex: comprar imóvel nos próximos 3 meses"
-                  />
-                </div>
-                <div className={styles.prefillFieldRow}>
-                  <span className={styles.fieldLabel}>Objeção principal</span>
-                  <input
-                    type="text"
-                    className={styles.prefillInput}
-                    value={feedbackEdit.objecao_principal}
-                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, objecao_principal: e.target.value })}
-                    placeholder="Ex: renda informal, restrição no CPF"
-                  />
-                </div>
-                <div className={styles.prefillFieldRow}>
-                  <span className={styles.fieldLabel}>Momento do cliente</span>
-                  <input
-                    type="text"
-                    className={styles.prefillInput}
-                    value={feedbackEdit.momento_do_cliente}
-                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, momento_do_cliente: e.target.value })}
-                    placeholder="Ex: aguardando aprovação, buscando entrada"
-                  />
-                </div>
-                <div className={styles.prefillFieldRow}>
-                  <span className={styles.fieldLabel}>Responsável</span>
-                  <input
-                    type="text"
-                    className={styles.prefillInput}
-                    value={feedbackEdit.responsavel}
-                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, responsavel: e.target.value })}
-                    placeholder="Nome do corretor responsável"
-                  />
-                </div>
-                <div className={styles.prefillFieldRowFull}>
-                  <span className={styles.fieldLabel}>
-                    Nota do corretor
-                    <span className={styles.feedbackFieldHint}> · leitura comercial livre</span>
-                  </span>
-                  <textarea
-                    className={styles.prefillTextarea}
-                    value={feedbackEdit.quick_note}
-                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, quick_note: e.target.value })}
-                    placeholder="Leitura do caso, observação operacional, próximo passo…"
-                  />
-                </div>
-              </div>
-              <div className={styles.profileSaveRow}>
-                <button
-                  type="button"
-                  className={styles.profileSaveBtn}
-                  disabled={feedbackBusy}
-                  onClick={() => void handleSaveFeedback()}
-                >
-                  {feedbackBusy ? "Salvando…" : "Salvar feedback"}
-                </button>
-                {feedbackFeedback && <span className={styles.profileFeedback}>{feedbackFeedback}</span>}
-                {feedbackError && <span className={styles.profileFeedbackError}>{feedbackError}</span>}
-              </div>
-            </div>
-          </div>
-
-          {/* ═══════════════════════════════════════
              BLOCO COGNITIVO — Estado Cognitivo do Lead (read-only)
              Leitura consolidada via PR1 (buildLeadSignals) + PR2 (classifyLeadCognitiveState).
-             Sem automação, sem persistência, sem botões de execução.
-             Diferença de Sinais da Conversa: leitura do caso, não da interação em andamento.
+             Sem automação, sem persistência.
+             CTA "Chamar cliente" aqui: o cognitivo interpreta, o operador executa.
              ═══════════════════════════════════════ */}
           {cognitiveState && (
             <div className={`${styles.block} ${styles.blockFull} ${styles.blockCognitivo}`}>
@@ -1310,7 +1186,17 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                 >
                   Confiança: {getConfiancaLabel(cognitiveState.confianca)}
                 </span>
+                {/* Chamar cliente — reutiliza /api/bases call_now (mesmo padrão de Bases) */}
+                <button
+                  type="button"
+                  className={styles.callHeaderBtn}
+                  onClick={() => { setCallText(suggestCallMessage(lead)); setCallOpen(true); setCallFeedback(null); setCallError(null); }}
+                >
+                  📞 Chamar cliente
+                </button>
               </div>
+              {callFeedback && <div className={styles.callBannerOk}>{callFeedback}</div>}
+              {callError && <div className={styles.callBannerErr}>{callError}</div>}
               <div className={styles.blockBody}>
                 <div className={styles.cognitiGrid}>
                   {/* Estado do cliente */}
@@ -1414,6 +1300,88 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
               </div>
             </div>
           )}
+
+          {/* ═══════════════════════════════════════
+             BLOCO 3 (full) — FEEDBACK HUMANO DO CORRETOR
+             Formulário editável — persiste em enova_attendance_meta.
+             Campos: interesse_atual, objecao_principal,
+             momento_do_cliente, responsavel, quick_note.
+             Sem placeholders ociosos.
+             ═══════════════════════════════════════ */}
+          <div className={`${styles.block} ${styles.blockFull} ${styles.blockFeedback}`}>
+            <div className={styles.blockHeader}>
+              <span className={styles.blockIcon}>💬</span>
+              <h3 className={styles.blockTitle}>Feedback do Corretor</h3>
+            </div>
+            <div className={styles.blockBody}>
+              <div className={styles.feedbackGrid}>
+                <div className={styles.prefillFieldRow}>
+                  <span className={styles.fieldLabel}>Interesse atual</span>
+                  <input
+                    type="text"
+                    className={styles.prefillInput}
+                    value={feedbackEdit.interesse_atual}
+                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, interesse_atual: e.target.value })}
+                    placeholder="Ex: comprar imóvel nos próximos 3 meses"
+                  />
+                </div>
+                <div className={styles.prefillFieldRow}>
+                  <span className={styles.fieldLabel}>Objeção principal</span>
+                  <input
+                    type="text"
+                    className={styles.prefillInput}
+                    value={feedbackEdit.objecao_principal}
+                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, objecao_principal: e.target.value })}
+                    placeholder="Ex: renda informal, restrição no CPF"
+                  />
+                </div>
+                <div className={styles.prefillFieldRow}>
+                  <span className={styles.fieldLabel}>Momento do cliente</span>
+                  <input
+                    type="text"
+                    className={styles.prefillInput}
+                    value={feedbackEdit.momento_do_cliente}
+                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, momento_do_cliente: e.target.value })}
+                    placeholder="Ex: aguardando aprovação, buscando entrada"
+                  />
+                </div>
+                <div className={styles.prefillFieldRow}>
+                  <span className={styles.fieldLabel}>Responsável</span>
+                  <input
+                    type="text"
+                    className={styles.prefillInput}
+                    value={feedbackEdit.responsavel}
+                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, responsavel: e.target.value })}
+                    placeholder="Nome do corretor responsável"
+                  />
+                </div>
+                <div className={styles.prefillFieldRowFull}>
+                  <span className={styles.fieldLabel}>
+                    Nota do corretor
+                    <span className={styles.feedbackFieldHint}> · leitura comercial livre</span>
+                  </span>
+                  <textarea
+                    className={styles.prefillTextarea}
+                    value={feedbackEdit.quick_note}
+                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, quick_note: e.target.value })}
+                    placeholder="Leitura do caso, observação operacional, próximo passo…"
+                  />
+                </div>
+              </div>
+              <div className={styles.profileSaveRow}>
+                <button
+                  type="button"
+                  className={styles.profileSaveBtn}
+                  disabled={feedbackBusy}
+                  onClick={() => void handleSaveFeedback()}
+                >
+                  {feedbackBusy ? "Salvando…" : "Salvar feedback"}
+                </button>
+                {feedbackFeedback && <span className={styles.profileFeedback}>{feedbackFeedback}</span>}
+                {feedbackError && <span className={styles.profileFeedbackError}>{feedbackError}</span>}
+              </div>
+            </div>
+          </div>
 
           {/* ═══════════════════════════════════════
              BLOCO CONVERSA — Interação AI (read-only)

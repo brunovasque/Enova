@@ -40,6 +40,17 @@ SELECT
   a.enova_next_action_executable                  AS proxima_acao_executavel,
   a.attention_status                              AS status_atencao,
 
+  -- ── Campos operacionais humanos (fase 2) ──
+  a.responsavel,
+  a.objecao_principal,
+  a.interesse_atual,
+  a.momento_do_cliente,
+  a.quick_note,
+  a.human_next_action,
+
+  -- ── Temperatura do lead (crm_lead_meta, join seguro por wa_id) ──
+  m.lead_temp,
+
   -- ── Origem / base ──
   a.origin_base                                   AS base_origem,
   a.current_base                                  AS base_atual,
@@ -86,6 +97,7 @@ SELECT
 
 FROM public.enova_state e
 LEFT JOIN public.enova_attendance_meta a ON a.wa_id = e.wa_id
+LEFT JOIN public.crm_lead_meta m ON m.wa_id = e.wa_id
 WHERE (
   -- ── Leads em fluxo ativo ANTES de envio_docs ──
   e.fase_conversa IN (

@@ -722,9 +722,9 @@ export function AtendimentoUI() {
                   onClick={() => openDetail(lead)}
                 >
                   <div className={styles.colNome}>
-                    {lead.wa_id?.trim() ? (
+                    {lead.wa_id != null && lead.wa_id.trim() !== "" ? (
                       <Link
-                        href={`/atendimento/${encodeURIComponent(lead.wa_id.trim())}`}
+                        href={`/atendimento/${encodeURIComponent(lead.wa_id)}`}
                         className={styles.leadName}
                         onClick={(e) => e.stopPropagation()}
                         style={{ textDecoration: "none" }}

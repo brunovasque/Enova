@@ -72,6 +72,14 @@ CREATE TABLE IF NOT EXISTS public.enova_attendance_meta (
   archive_reason_code          TEXT,
   archive_reason_note          TEXT,
 
+  -- ── Campos operacionais humanos (fase 2 — página de atendimento) ──
+  responsavel                  TEXT NULL,
+  objecao_principal            TEXT NULL,
+  interesse_atual              TEXT NULL,
+  momento_do_cliente           TEXT NULL,
+  quick_note                   TEXT NULL,
+  human_next_action            TEXT NULL,
+
   -- ── Timestamps de registro ──
   created_at                   TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at                   TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -101,3 +109,11 @@ CREATE INDEX IF NOT EXISTS enova_attendance_meta_archived_idx
 -- Compatibilidade retroativa: SIM (tabela nova, sem alterar existentes)
 -- Exige inclusão/manual no Supabase: SIM (executar este SQL no SQL Editor)
 -- ============================================================
+
+-- Se a tabela já existir, adicionar as novas colunas manualmente:
+-- ALTER TABLE public.enova_attendance_meta ADD COLUMN IF NOT EXISTS responsavel TEXT NULL;
+-- ALTER TABLE public.enova_attendance_meta ADD COLUMN IF NOT EXISTS objecao_principal TEXT NULL;
+-- ALTER TABLE public.enova_attendance_meta ADD COLUMN IF NOT EXISTS interesse_atual TEXT NULL;
+-- ALTER TABLE public.enova_attendance_meta ADD COLUMN IF NOT EXISTS momento_do_cliente TEXT NULL;
+-- ALTER TABLE public.enova_attendance_meta ADD COLUMN IF NOT EXISTS quick_note TEXT NULL;
+-- ALTER TABLE public.enova_attendance_meta ADD COLUMN IF NOT EXISTS human_next_action TEXT NULL;

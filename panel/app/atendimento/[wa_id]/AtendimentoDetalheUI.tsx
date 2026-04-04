@@ -23,6 +23,18 @@ import {
   unarchiveLeadAction,
   saveAttendanceMetaAction,
 } from "../actions";
+import { buildLeadSignals } from "../../lib/lead-signals";
+import { classifyLeadCognitiveState } from "../../lib/lead-cognitive";
+import type { LeadCognitiveState } from "../../lib/lead-cognitive";
+import {
+  getEstadoClienteLabel,
+  getMomentoCompraLabel,
+  getNivelInteresseLabel,
+  getRiscoTravamentoLabel,
+  getBolaComLabel,
+  getProximaMelhorAcaoLabel,
+  getConfiancaLabel,
+} from "../../lib/lead-cognitive-labels";
 
 /* ── Type — mirrors AttendanceRow in AtendimentoUI ── */
 export type AttendanceDetalheRow = {
@@ -823,6 +835,16 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
     }
   }, [convMsgs, lead]);
 
+  /* ── Estado Cognitivo — leitura consolidada (PR1 + PR2), never throws ── */
+  const cognitiveState = useMemo((): LeadCognitiveState | null => {
+    try {
+      const signals = buildLeadSignals(lead, convMsgs, clientProfile);
+      return classifyLeadCognitiveState(signals);
+    } catch {
+      return null;
+    }
+  }, [lead, convMsgs, clientProfile]);
+
   useEffect(() => {
     let cancelled = false;
     async function loadMsgs() {
@@ -1143,13 +1165,27 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
         <div className={styles.blocksGrid}>
 
           {/* ═══════════════════════════════════════
-             BLOCO 1 (full) — PRÓXIMA AÇÃO
+             BLOCO COGNITIVO — Estado Cognitivo do Lead (read-only)
+             Leitura consolidada via PR1 (buildLeadSignals) + PR2 (classifyLeadCognitiveState).
+             Sem automação, sem persistência.
+             CTA "Chamar cliente" aqui: o cognitivo interpreta, o operador executa.
              ═══════════════════════════════════════ */}
-          {lead.proxima_acao && (
-            <div className={`${styles.block} ${styles.blockFull}`}>
+          {cognitiveState && (
+            <div className={`${styles.block} ${styles.blockFull} ${styles.blockCognitivo}`}>
               <div className={styles.blockHeader}>
-                <span className={styles.blockIcon}>🎯</span>
-                <h3 className={styles.blockTitle}>Próxima Ação</h3>
+                <span className={styles.blockIcon}>🧠</span>
+                <h3 className={styles.blockTitle}>Estado Cognitivo</h3>
+                <span
+                  className={`${styles.cognitiConfBadge} ${
+                    cognitiveState.confianca === "alta"
+                      ? styles.cognitiConfAlta
+                      : cognitiveState.confianca === "media"
+                      ? styles.cognitiConfMedia
+                      : styles.cognitiConfBaixa
+                  }`}
+                >
+                  Confiança: {getConfiancaLabel(cognitiveState.confianca)}
+                </span>
                 {/* Chamar cliente — reutiliza /api/bases call_now (mesmo padrão de Bases) */}
                 <button
                   type="button"
@@ -1162,23 +1198,104 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
               {callFeedback && <div className={styles.callBannerOk}>{callFeedback}</div>}
               {callError && <div className={styles.callBannerErr}>{callError}</div>}
               <div className={styles.blockBody}>
-                <div className={styles.nextActionCard}>
-                  <span className={styles.nextActionIcon}>→</span>
-                  <div className={styles.nextActionBody}>
-                    <span className={styles.nextActionText}>{lead.proxima_acao}</span>
-                    {(lead.gatilho_proxima_acao || lead.prazo_proxima_acao) && (
-                      <span className={styles.nextActionMeta}>
-                        {lead.gatilho_proxima_acao && `Gatilho: ${getGatilhoLabel(lead.gatilho_proxima_acao)}`}
-                        {lead.gatilho_proxima_acao && lead.prazo_proxima_acao && " · "}
-                        {lead.prazo_proxima_acao && `Follow-up: ${formatDate(lead.prazo_proxima_acao)}`}
-                      </span>
-                    )}
-                    {lead.dono_pendencia && (
-                      <span className={styles.nextActionMeta}>
-                        Responsável: {lead.dono_pendencia}
-                      </span>
-                    )}
+                <div className={styles.cognitiGrid}>
+                  {/* Estado do cliente */}
+                  <div className={styles.cognitiItem}>
+                    <span className={styles.cognitiLabel}>Estado do cliente</span>
+                    <span className={`${styles.cognitiBadge} ${styles.cognitiEstado}`}>
+                      {getEstadoClienteLabel(cognitiveState.estado_cliente)}
+                    </span>
                   </div>
+
+                  {/* Momento de compra */}
+                  <div className={styles.cognitiItem}>
+                    <span className={styles.cognitiLabel}>Momento de compra</span>
+                    <span
+                      className={`${styles.cognitiBadge} ${
+                        cognitiveState.momento_compra === "agora"
+                          ? styles.cognitiMomentoAgora
+                          : cognitiveState.momento_compra === "curto_prazo"
+                          ? styles.cognitiMomentoCurto
+                          : cognitiveState.momento_compra === "medio_prazo"
+                          ? styles.cognitiMomentoMedio
+                          : cognitiveState.momento_compra === "curioso"
+                          ? styles.cognitiMomentoCurioso
+                          : styles.cognitiMomentoSem
+                      }`}
+                    >
+                      {getMomentoCompraLabel(cognitiveState.momento_compra)}
+                    </span>
+                  </div>
+
+                  {/* Nível de interesse */}
+                  <div className={styles.cognitiItem}>
+                    <span className={styles.cognitiLabel}>Nível de interesse</span>
+                    <span
+                      className={`${styles.cognitiBadge} ${
+                        cognitiveState.nivel_interesse === "alto"
+                          ? styles.cognitiInteresseAlto
+                          : cognitiveState.nivel_interesse === "baixo"
+                          ? styles.cognitiInteresseBaixo
+                          : styles.cognitiInteresseMedio
+                      }`}
+                    >
+                      {getNivelInteresseLabel(cognitiveState.nivel_interesse)}
+                    </span>
+                  </div>
+
+                  {/* Risco de travamento */}
+                  <div className={styles.cognitiItem}>
+                    <span className={styles.cognitiLabel}>Risco de travamento</span>
+                    <span
+                      className={`${styles.cognitiBadge} ${
+                        cognitiveState.risco_travamento === "alto"
+                          ? styles.cognitiRiscoAlto
+                          : cognitiveState.risco_travamento === "medio"
+                          ? styles.cognitiRiscoMedio
+                          : styles.cognitiRiscoBaixo
+                      }`}
+                    >
+                      {getRiscoTravamentoLabel(cognitiveState.risco_travamento)}
+                    </span>
+                  </div>
+
+                  {/* Bola com */}
+                  <div className={styles.cognitiItem}>
+                    <span className={styles.cognitiLabel}>Bola com</span>
+                    <span
+                      className={`${styles.cognitiValue} ${
+                        cognitiveState.bola_com === "enova"
+                          ? styles.cognitiBolaEnova
+                          : cognitiveState.bola_com === "lead"
+                          ? styles.cognitiBolaLead
+                          : ""
+                      }`}
+                    >
+                      {getBolaComLabel(cognitiveState.bola_com)}
+                    </span>
+                  </div>
+
+                  {/* Próxima melhor ação */}
+                  <div className={styles.cognitiItem}>
+                    <span className={styles.cognitiLabel}>Próxima melhor ação</span>
+                    <span
+                      className={`${styles.cognitiBadge} ${
+                        cognitiveState.proxima_melhor_acao === "pedir_intervencao_humana"
+                          ? styles.cognitiAcaoUrgente
+                          : styles.cognitiAcaoPadrao
+                      }`}
+                    >
+                      {getProximaMelhorAcaoLabel(cognitiveState.proxima_melhor_acao)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Justificativa */}
+                <div className={styles.cognitiJustificativaRow}>
+                  <span className={styles.cognitiLabel}>Justificativa</span>
+                  <span className={styles.cognitiJustificativa}>
+                    {cognitiveState.justificativa}
+                  </span>
                 </div>
               </div>
             </div>

@@ -176,21 +176,22 @@ export type LeadSignals = {
 
 // ── Regex de sinal do cliente (compilação única) ───────────────────────────
 
-const RX_INTERESSADO = /\b(ótimo|perfeito|quero|excelente|concordo|bora|combinado|vamos|adorei|maravilhoso)\b/;
-const RX_OBJETIVO    = /\b(ok|certo|entendi|entendido|tá|ta|claro|deu|confirmo)\b/;
-const RX_CONFUSO     = /\b(não sei|nao sei|como assim|não entend|nao entend|confuso|qual)\b/;
-const RX_EVASIVO     = /\b(depois|amanhã|amanha|mais tarde|outra hora|não agora|nao agora|semana que vem)\b/;
-const RX_RESISTENTE  = /\b(não quero|nao quero|pare|para|não tenho interesse|nao tenho|chega|cancela)\b/;
+const RX_INTERESSADO = /\b(ótimo|perfeito|quero|excelente|concordo|bora|combinado|vamos|adorei|maravilhoso)\b/i;
+const RX_OBJETIVO    = /\b(ok|certo|entendi|entendido|tá|ta|claro|deu|confirmo)\b/i;
+const RX_CONFUSO     = /\b(não sei|nao sei|como assim|não entend|nao entend|confuso|qual)\b/i;
+const RX_EVASIVO     = /\b(depois|amanhã|amanha|mais tarde|outra hora|não agora|nao agora|semana que vem)\b/i;
+// "para" (preposition) omitido — muito comum em PT-BR; usando formas imperativas específicas
+const RX_RESISTENTE  = /\b(não quero|nao quero|pare|não tenho interesse|nao tenho interesse|chega|cancela)\b/i;
 
 function deriveUltimoSinalCliente(msgs: LeadSignalMsg[]): string | null {
-  const recentClient = [...msgs]
-    .reverse()
-    .filter((m) => m.direction === "in")
-    .slice(0, 3);
+  const recentClient: LeadSignalMsg[] = [];
+  for (let i = msgs.length - 1; i >= 0 && recentClient.length < 3; i--) {
+    if (msgs[i].direction === "in") recentClient.push(msgs[i]);
+  }
 
   if (recentClient.length === 0) return null;
 
-  const text = recentClient.map((m) => (m.text ?? "").toLowerCase()).join(" ");
+  const text = recentClient.map((m) => m.text ?? "").join(" ");
 
   if (RX_INTERESSADO.test(text)) return "Interessado";
   if (RX_OBJETIVO.test(text))    return "Objetivo";

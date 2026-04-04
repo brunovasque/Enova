@@ -256,6 +256,135 @@ function getTempBadgeCls(temp: string | null | undefined): string {
   }
 }
 
+/* ── Slug humanisation ── */
+
+const FASE_LABEL_MAP: Record<string, string> = {
+  inicio: "Início",
+  inicio_decisao: "Tipo de imóvel",
+  inicio_programa: "Programa habitacional",
+  inicio_nome: "Coleta de nome",
+  inicio_nacionalidade: "Nacionalidade",
+  inicio_rnm: "RNM / documentação",
+  inicio_rnm_validade: "Validade do RNM",
+  estado_civil: "Estado civil",
+  confirmar_casamento: "Confirmação do estado civil",
+  financiamento_conjunto: "Financiamento conjunto",
+  somar_renda_solteiro: "Somar renda (solteiro)",
+  somar_renda_familiar: "Somar renda (familiar)",
+  quem_pode_somar: "Quem pode somar",
+  interpretar_composicao: "Composição de renda",
+  regime_trabalho: "Regime de trabalho",
+  clt_renda_perfil_informativo: "Perfil CLT",
+  autonomo_ir_pergunta: "IR / autônomo",
+  autonomo_sem_ir_ir_este_ano: "IR este ano (autônomo)",
+  autonomo_sem_ir_caminho: "Caminho autônomo sem IR",
+  autonomo_sem_ir_entrada: "Entrada autônomo sem IR",
+  autonomo_compor_renda: "Composição renda autônomo",
+  renda: "Renda",
+  renda_mista_detalhe: "Detalhes renda mista",
+  possui_renda_extra: "Renda extra",
+  multi_renda_detalhe: "Detalhes renda composta",
+  multi_renda_valor_clt: "Renda CLT (composição)",
+  multi_renda_valor_autonomo: "Renda autônomo (composição)",
+  multi_renda_valor_servidor: "Renda servidor (composição)",
+  multi_renda_valor_empresario: "Renda empresário (composição)",
+  multi_renda_valor_aposentado: "Renda aposentado (composição)",
+  ir_declarado: "IR declarado",
+  ctps_36: "CTPS 36 meses",
+  ctps_36_parceiro: "CTPS 36 meses (cônjuge)",
+  ctps_36_parceiro_p3: "CTPS 36 meses (comp. P3)",
+  restricao: "Restrição",
+  restricao_parceiro: "Restrição (cônjuge)",
+  restricao_parceiro_p3: "Restrição (comp. P3)",
+  regularizacao_restricao: "Regularização de restrição",
+  regularizacao_restricao_parceiro: "Regularização (cônjuge)",
+  regularizacao_restricao_p3: "Regularização (comp. P3)",
+  parceiro_tem_renda: "Renda do cônjuge",
+  regime_trabalho_parceiro: "Regime do cônjuge",
+  renda_parceiro: "Valor renda cônjuge",
+  parceiro_possui_renda_extra: "Renda extra cônjuge",
+  p3_tipo_pergunta: "Tipo de composição P3",
+  confirmar_avo_familiar: "Composição familiar",
+  informativo_moradia_atual: "Moradia atual",
+  informativo_trabalho: "Informações de trabalho",
+  informativo_moradia: "Informações de moradia",
+  informativo_parcela_mensal: "Parcela mensal estimada",
+  informativo_reserva: "Reserva financeira",
+  informativo_reserva_valor: "Valor da reserva",
+  informativo_fgts: "FGTS",
+  informativo_fgts_valor: "Valor do FGTS",
+  informativo_escolaridade: "Escolaridade",
+  informativo_profissao_atividade: "Profissão / atividade",
+  informativo_mei_pj_status: "MEI / PJ",
+  informativo_renda_estabilidade: "Estabilidade de renda",
+  informativo_decisor_visita: "Decisor para visita",
+  informativo_decisor_nome: "Nome do decisor",
+  visita: "Agendamento de visita",
+  visita_confirmada: "Visita confirmada",
+  envio_docs: "Envio de documentação",
+  finalizacao_processo: "Finalização do pacote",
+  finalizacao: "Finalização",
+  aguardando_retorno_correspondente: "Aguardando correspondente",
+  fim_ineligivel: "Inelegível",
+  fim_inelegivel: "Inelegível",
+  dependente: "Dependentes",
+  verificar_composicao: "Verificar composição",
+};
+
+function humanizeSlug(s: string): string {
+  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function getFaseLabel(fase: string | null | undefined): string {
+  if (!fase) return DASH;
+  return FASE_LABEL_MAP[fase] ?? humanizeSlug(fase);
+}
+
+const STATUS_FUNIL_LABELS: Record<string, string> = {
+  ATIVO: "Ativo",
+  TRAVADO: "Travado",
+  FINALIZADO: "Finalizado",
+  INELEGIVEL: "Inelegível",
+  ARQUIVADO: "Arquivado",
+  QUALIFICACAO: "Qualificação",
+  COLETA: "Coleta de dados",
+  ANALISE: "Em análise",
+  APROVADO: "Aprovado",
+  REPROVADO: "Reprovado",
+  AGUARDANDO: "Aguardando",
+  ENTRADA: "Início",
+};
+
+function getStatusFunilLabel(status: string | null | undefined): string {
+  if (!status) return DASH;
+  return STATUS_FUNIL_LABELS[status] ?? humanizeSlug(status);
+}
+
+const SEVERIDADE_LABELS: Record<string, string> = {
+  CRITICAL: "Crítico",
+  HIGH: "Alto",
+  MEDIUM: "Médio",
+  LOW: "Baixo",
+};
+
+function getSeveridadeLabel(sev: string | null | undefined): string {
+  if (!sev) return "Aberto";
+  return SEVERIDADE_LABELS[sev] ?? humanizeSlug(sev);
+}
+
+const MOTIVO_ARQUIVO_LABELS: Record<string, string> = {
+  ja_comprou: "Já comprou",
+  sem_interesse: "Sem interesse",
+  desistiu: "Desistiu",
+  nao_responde: "Não responde",
+  outro: "Outro",
+};
+
+function getMotivoArquivoLabel(code: string | null | undefined): string {
+  if (!code) return DASH;
+  return MOTIVO_ARQUIVO_LABELS[code] ?? humanizeSlug(code);
+}
+
 function deriveUltimoFalante(
   ultimaCliente: string | null | undefined,
   ultimaEnova: string | null | undefined,
@@ -521,7 +650,7 @@ function deriveSinaisConversa(
   // 2. Último tema tratado — do mapa de fases, com fallback prefix-match (longer keys first)
   const fase = lead.fase_funil ?? "";
   const temaKey = FASE_TEMA_KEYS.find((k) => fase === k || fase.startsWith(k + "_") || fase.startsWith(k));
-  const ultimoTema = FASE_TEMA_MAP[fase] ?? (temaKey ? FASE_TEMA_MAP[temaKey] : null) ?? (fase || DASH);
+  const ultimoTema = FASE_TEMA_MAP[fase] ?? (temaKey ? FASE_TEMA_MAP[temaKey] : null) ?? getFaseLabel(fase || null);
 
   // 3. Pendência aberta — campo operacional canônico já disponível no lead
   const pendenciaAberta = lead.pendencia_principal ?? DASH;
@@ -781,7 +910,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
     timelineEvents.push({ ts: new Date(lead.movido_base_em).getTime(), order: 2, label: `Base: ${getBaseLabel(lead.base_atual)}`, detail: formatDateTime(lead.movido_base_em) });
   }
   if (lead.movido_fase_em && lead.fase_atendimento) {
-    timelineEvents.push({ ts: new Date(lead.movido_fase_em).getTime(), order: 3, label: `Fase: ${lead.fase_atendimento}`, detail: formatDateTime(lead.movido_fase_em) });
+    timelineEvents.push({ ts: new Date(lead.movido_fase_em).getTime(), order: 3, label: `Fase: ${getFaseLabel(lead.fase_atendimento)}`, detail: formatDateTime(lead.movido_fase_em) });
   }
   if (lead.ultima_interacao_enova) {
     timelineEvents.push({ ts: new Date(lead.ultima_interacao_enova).getTime(), order: 4, label: "Última interação Enova", detail: formatDateTime(lead.ultima_interacao_enova) });
@@ -901,10 +1030,10 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
             <span className={styles.headerItemLabel}>Fase</span>
             {faseGrupo ? (
               <span className={`${styles.faseBadge} ${getFaseBadgeCls(faseGrupo)}`}>
-                {lead.fase_atendimento ?? lead.fase_funil ?? faseGrupo}
+                {getFaseLabel(lead.fase_atendimento ?? lead.fase_funil)}
               </span>
             ) : (
-              <span className={styles.headerItemValueMuted}>{txt(lead.fase_funil)}</span>
+              <span className={styles.headerItemValueMuted}>{getFaseLabel(lead.fase_funil)}</span>
             )}
           </div>
           <div className={styles.headerItem}>
@@ -1519,19 +1648,19 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
             <div className={styles.blockBody}>
               <div className={styles.detailGrid}>
                 <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Fase funil</span>
-                  <span className={lead.fase_funil ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.fase_funil)}</span>
+                  <span className={styles.fieldLabel}>Fase do funil</span>
+                  <span className={lead.fase_funil ? styles.fieldValue : styles.fieldValueMuted}>{getFaseLabel(lead.fase_funil)}</span>
                 </div>
                 <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Status funil</span>
-                  <span className={lead.status_funil ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.status_funil)}</span>
+                  <span className={styles.fieldLabel}>Status do funil</span>
+                  <span className={lead.status_funil ? styles.fieldValue : styles.fieldValueMuted}>{getStatusFunilLabel(lead.status_funil)}</span>
                 </div>
                 <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Fase atendimento</span>
-                  <span className={lead.fase_atendimento ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.fase_atendimento)}</span>
+                  <span className={styles.fieldLabel}>Etapa de atendimento</span>
+                  <span className={lead.fase_atendimento ? styles.fieldValue : styles.fieldValueMuted}>{getFaseLabel(lead.fase_atendimento)}</span>
                 </div>
                 <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Movido fase em</span>
+                  <span className={styles.fieldLabel}>Atualizado em</span>
                   <span className={lead.movido_fase_em ? styles.fieldValue : styles.fieldValueMuted}>{formatDateTime(lead.movido_fase_em)}</span>
                 </div>
                 {lead.pendencia_principal && (
@@ -1542,21 +1671,21 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                 )}
                 {lead.dono_pendencia && (
                   <div className={styles.fieldItem}>
-                    <span className={styles.fieldLabel}>Dono pendência</span>
+                    <span className={styles.fieldLabel}>Responsável pela pendência</span>
                     <span className={styles.fieldValue}>{lead.dono_pendencia}</span>
                   </div>
                 )}
                 {lead.gatilho_proxima_acao && (
                   <div className={styles.fieldItem}>
-                    <span className={styles.fieldLabel}>Gatilho próx. ação</span>
+                    <span className={styles.fieldLabel}>Gatilho da ação</span>
                     <span className={styles.fieldValue}>{lead.gatilho_proxima_acao}</span>
                   </div>
                 )}
                 {lead.fase_travamento && (
                   <>
                     <div className={styles.fieldItem}>
-                      <span className={styles.fieldLabel}>Fase travamento</span>
-                      <span className={styles.fieldValueDanger}>{lead.fase_travamento}</span>
+                      <span className={styles.fieldLabel}>Fase de travamento</span>
+                      <span className={styles.fieldValueDanger}>{getFaseLabel(lead.fase_travamento)}</span>
                     </div>
                     <div className={styles.fieldItem}>
                       <span className={styles.fieldLabel}>Travou em</span>
@@ -1634,7 +1763,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                   <div className={styles.fieldItem}>
                     <span className={styles.fieldLabel}>Severidade</span>
                     <span className={`${styles.incidenteBadge} ${getIncidenteBadgeCls(lead.severidade_incidente)}`}>
-                      {lead.severidade_incidente ?? "Aberto"}
+                      {getSeveridadeLabel(lead.severidade_incidente)}
                     </span>
                   </div>
                 </div>
@@ -1698,7 +1827,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                   {lead.codigo_motivo_arquivo && (
                     <div className={styles.fieldItem}>
                       <span className={styles.fieldLabel}>Código motivo</span>
-                      <span className={lead.codigo_motivo_arquivo ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.codigo_motivo_arquivo)}</span>
+                      <span className={lead.codigo_motivo_arquivo ? styles.fieldValue : styles.fieldValueMuted}>{getMotivoArquivoLabel(lead.codigo_motivo_arquivo)}</span>
                     </div>
                   )}
                   {lead.nota_arquivo && (

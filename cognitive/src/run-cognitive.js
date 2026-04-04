@@ -160,6 +160,19 @@ const PRE_DOCS_INFO_STAGES = new Set([
   "informativo_decisor_visita", "informativo_decisor_nome"
 ]);
 
+// ── Stage Discipline: ONE-STAGE-ONLY guard ──────────────────────────────────
+// Prevents cognitive replies from pulling collection questions of future stages.
+// A slot prompt is only allowed if the slot belongs to the current stage's own
+// pending-slots contract (STAGE_DEFAULT_PENDING_SLOTS).
+function isSlotOwnedByCurrentStage(currentStage, slot) {
+  const stage = normalizeText(currentStage);
+  const normalizedSlot = normalizeText(slot);
+  if (!stage || !normalizedSlot) return false;
+  const ownedSlots = STAGE_DEFAULT_PENDING_SLOTS[stage];
+  if (!ownedSlots) return false;
+  return ownedSlots.includes(normalizedSlot);
+}
+
 // ── Etapa 5: FAQ/Objection/KB intent-matching maps ──────────────────────────
 // Maps normalized message patterns to canonical global-layer IDs.
 // Priority: FAQ → Objection → KB. Only covers topo/docs/visita blocks.
@@ -2509,7 +2522,10 @@ function buildNextActionPrompt({ request, suggestedNextSlot, pendingSlots }) {
     return buildSlotActionPrompt("visita");
   }
 
-  if (nextSlot) {
+  // ── Stage discipline: only use generic slot prompt if the slot belongs
+  // to the current stage. Otherwise, fall through to the stage-aware
+  // prompts below, which are already scoped to each stage's own objective.
+  if (nextSlot && isSlotOwnedByCurrentStage(request?.current_stage, nextSlot)) {
     return buildSlotActionPrompt(nextSlot);
   }
 
@@ -2616,6 +2632,17 @@ function ensureReplyHasNextAction(replyText, context) {
   // ação extra — evita bloco longo de "explicação + pergunta + outra pergunta".
   const MIN_GUIDED_REPLY_LENGTH = 40;
   if (/\?\s*$/.test(safeReply.trim()) && safeReply.length > MIN_GUIDED_REPLY_LENGTH) return safeReply;
+
+  // ONE-TURN-ONE-GOAL: Se a guidance já termina com instrução de resposta explícita
+  // (ex: "Responda *sim* ou *não*.", opções com asterisco, "Me manda", "Me diz", "Me confirma"),
+  // não concatenar segunda ação — respeita o turno único com um só objetivo.
+  // Analyse the last 120 chars to detect actionable endings (covers longest option lists).
+  const TAIL_ANALYSIS_LENGTH = 120;
+  const replyTail = safeReply.trim().slice(-TAIL_ANALYSIS_LENGTH);
+  // Detects "Responda ..." ending (explicit response instruction)
+  if (/\bresponda\b.{0,60}$/i.test(replyTail) && safeReply.length > MIN_GUIDED_REPLY_LENGTH) return safeReply;
+  // Detects "*sim*" or "*não*" wrapped options ending with period/exclamation (choice-with-options pattern)
+  if (/\*(?:sim|não|nao)\*\s*[^?]*[.!)]\s*$/i.test(replyTail) && safeReply.length > MIN_GUIDED_REPLY_LENGTH) return safeReply;
 
   return `${safeReply} ${actionPrompt}`.trim();
 }
@@ -2802,6 +2829,10 @@ function buildOpenAISystemPrompt() {
     "Interprete respostas abertas, extraia slots úteis, sugira a próxima melhor pergunta e aponte ambiguidades.",
     "Toda resposta deve acolher brevemente, orientar com firmeza e fechar com uma próxima ação concreta.",
     "Nunca deixe a resposta aberta: sempre conduza para envio de documentos, próxima pergunta do funil ou agendamento de visita, conforme o contexto.",
+    "REGRA ONE-STAGE-ONLY: Sua reply_text deve tratar EXCLUSIVAMENTE do stage atual informado em current_stage.",
+    "NÃO pergunte sobre slots, dados ou temas de stages futuros.",
+    "Se o stage atual é inicio_programa, NÃO pergunte estado civil, renda, regime de trabalho ou qualquer coleta de stage posterior.",
+    "Cada turno tem UM ÚNICO objetivo: ou explicar, ou perguntar, ou confirmar, ou reorientar — nunca misturar explicação com coleta de outro stage.",
     "Você NÃO pode aprovar financiamento, NÃO pode alterar o stage oficial, NÃO pode inventar regra fora do contrato ou do contexto normativo recebido.",
     "Você NÃO pode acionar produção, Meta, Supabase oficial ou qualquer side effect.",
     "Responda APENAS JSON válido compatível com este contrato:",
@@ -3267,6 +3298,9 @@ export async function runReadOnlyCognitiveEngine(rawInput = {}, options = {}) {
     }
   };
 }
+
+// ── Stage discipline internals exported for tests ─────────────────────────
+export { isSlotOwnedByCurrentStage };
 
 function parseCliArgs(argv) {
   const parsed = {};

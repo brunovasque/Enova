@@ -706,6 +706,17 @@ function deriveSinaisConversa(
   };
 }
 
+/* ── Chamar cliente — suggested message ── */
+
+function suggestCallMessage(lead: AttendanceDetalheRow): string {
+  const firstName = lead.nome?.trim().split(/\s+/)[0] ?? null;
+  const hi = firstName ? `Oi, ${firstName}!` : "Oi, tudo bem?";
+  const pool = lead.crm_lead_pool ?? lead.base_atual ?? "";
+  if (pool.startsWith("HOT")) return `${hi} Vamos avançar? Me confirma o interesse e a gente parte para os próximos passos.`;
+  if (pool.startsWith("WARM")) return `${hi} Queria dar continuidade à nossa conversa sobre o financiamento. Tem alguma dúvida ou posso ajudar com algo?`;
+  return `${hi} Passando para ver se ainda tem interesse no financiamento. Posso tirar alguma dúvida?`;
+}
+
 /* ── Archive reason options ── */
 
 const ARCHIVE_REASON_OPTIONS = [
@@ -754,6 +765,13 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [feedbackFeedback, setFeedbackFeedback] = useState<string | null>(null);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+
+  /* ── Chamar cliente state ── */
+  const [callOpen, setCallOpen] = useState(false);
+  const [callText, setCallText] = useState("");
+  const [callBusy, setCallBusy] = useState(false);
+  const [callFeedback, setCallFeedback] = useState<string | null>(null);
+  const [callError, setCallError] = useState<string | null>(null);
 
   /* ── Conversa read-only state ── */
   const [convMsgs, setConvMsgs] = useState<ConversaMsg[]>([]);
@@ -900,6 +918,32 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
       setArchiveError(result.error ?? "Erro ao desarquivar");
     }
   }, [lead.wa_id]);
+
+  /* ── Chamar cliente handler ── */
+  const handleCallSubmit = useCallback(async () => {
+    if (!callText.trim()) return;
+    setCallBusy(true);
+    setCallError(null);
+    try {
+      const res = await fetch("/api/bases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "call_now", wa_id: lead.wa_id, text: callText.trim() }),
+        cache: "no-store",
+      });
+      const data = (await res.json()) as { ok: boolean; error?: string };
+      if (data.ok) {
+        setCallOpen(false);
+        setCallFeedback("Mensagem enviada ao cliente.");
+      } else {
+        setCallError(data.error ?? "Erro ao enviar mensagem");
+      }
+    } catch {
+      setCallError("Erro de rede ao enviar mensagem");
+    } finally {
+      setCallBusy(false);
+    }
+  }, [lead.wa_id, callText]);
 
   /* Build timeline */
   type TimelineEvent = { ts: number; order: number; label: string; detail: string };
@@ -1069,7 +1113,17 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
               <div className={styles.blockHeader}>
                 <span className={styles.blockIcon}>🎯</span>
                 <h3 className={styles.blockTitle}>Próxima Ação</h3>
+                {/* Chamar cliente — reutiliza /api/bases call_now (mesmo padrão de Bases) */}
+                <button
+                  type="button"
+                  className={styles.callHeaderBtn}
+                  onClick={() => { setCallText(suggestCallMessage(lead)); setCallOpen(true); setCallFeedback(null); setCallError(null); }}
+                >
+                  📞 Chamar cliente
+                </button>
               </div>
+              {callFeedback && <div className={styles.callBannerOk}>{callFeedback}</div>}
+              {callError && <div className={styles.callBannerErr}>{callError}</div>}
               <div className={styles.blockBody}>
                 <div className={styles.nextActionCard}>
                   <span className={styles.nextActionIcon}>→</span>
@@ -1077,7 +1131,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                     <span className={styles.nextActionText}>{lead.proxima_acao}</span>
                     {(lead.gatilho_proxima_acao || lead.prazo_proxima_acao) && (
                       <span className={styles.nextActionMeta}>
-                        {lead.gatilho_proxima_acao && `Gatilho: ${lead.gatilho_proxima_acao}`}
+                        {lead.gatilho_proxima_acao && `Gatilho: ${humanizeSlug(lead.gatilho_proxima_acao)}`}
                         {lead.gatilho_proxima_acao && lead.prazo_proxima_acao && " · "}
                         {lead.prazo_proxima_acao && `Follow-up: ${formatDate(lead.prazo_proxima_acao)}`}
                       </span>
@@ -1095,63 +1149,38 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
 
           {/* ═══════════════════════════════════════
              BLOCO 2 (full) — RESUMO COMERCIAL
-             Dados reais: lead_temp, responsavel, quem_falou_ultimo,
-             resumo_curto (se útil). Apenas campos com valor são exibidos.
-             interesse_atual/objecao/momento ficam no bloco editável abaixo.
+             Exibe temperatura + último contato: sinais únicos que não duplicam
+             os blocos Feedback do Corretor ou Sinais da Conversa.
+             Ocultado automaticamente quando nenhum dos dois está disponível.
              ═══════════════════════════════════════ */}
-          {(() => {
-            const temTemp = !!lead.lead_temp;
-            const temResponsavel = !!lead.responsavel;
-            const temTimestamps = hasTimestamps(lead.ultima_interacao_cliente, lead.ultima_interacao_enova);
-            const temResumo = isResumoUtil(lead.resumo_curto);
-            const temAlgumCampo = temTemp || temResponsavel || temTimestamps || temResumo;
-            return (
-              <div className={`${styles.block} ${styles.blockFull} ${styles.blockComercial}`}>
-                <div className={styles.blockHeader}>
-                  <span className={styles.blockIcon}>📊</span>
-                  <h3 className={styles.blockTitle}>Resumo Comercial</h3>
-                </div>
-                <div className={styles.blockBody}>
-                  {!temAlgumCampo ? (
-                    <p className={styles.comercialEmpty}>
-                      Sem dados comerciais ainda — preencha o bloco abaixo.
-                    </p>
-                  ) : (
-                    <div className={styles.detailGrid}>
-                      {temTemp && (
-                        <div className={styles.fieldItem}>
-                          <span className={styles.fieldLabel}>Temperatura</span>
-                          <span className={`${styles.tempBadge} ${getTempBadgeCls(lead.lead_temp)}`}>
-                            {getTempLabel(lead.lead_temp)}
-                          </span>
-                        </div>
-                      )}
-                      {temResponsavel && (
-                        <div className={styles.fieldItem}>
-                          <span className={styles.fieldLabel}>Responsável</span>
-                          <span className={styles.fieldValue}>{lead.responsavel}</span>
-                        </div>
-                      )}
-                      {temTimestamps && (
-                        <div className={styles.fieldItem}>
-                          <span className={styles.fieldLabel}>Último contato</span>
-                          <span className={styles.fieldValue}>
-                            {deriveUltimoFalante(lead.ultima_interacao_cliente, lead.ultima_interacao_enova)}
-                          </span>
-                        </div>
-                      )}
-                      {temResumo && (
-                        <div className={styles.fieldItemFull}>
-                          <span className={styles.fieldLabel}>Resumo</span>
-                          <span className={styles.fieldValue}>{lead.resumo_curto}</span>
-                        </div>
-                      )}
+          {(!!lead.lead_temp || hasTimestamps(lead.ultima_interacao_cliente, lead.ultima_interacao_enova)) && (
+            <div className={`${styles.block} ${styles.blockFull} ${styles.blockComercial}`}>
+              <div className={styles.blockHeader}>
+                <span className={styles.blockIcon}>📊</span>
+                <h3 className={styles.blockTitle}>Resumo Comercial</h3>
+              </div>
+              <div className={styles.blockBody}>
+                <div className={styles.detailGrid}>
+                  {lead.lead_temp && (
+                    <div className={styles.fieldItem}>
+                      <span className={styles.fieldLabel}>Temperatura</span>
+                      <span className={`${styles.tempBadge} ${getTempBadgeCls(lead.lead_temp)}`}>
+                        {getTempLabel(lead.lead_temp)}
+                      </span>
+                    </div>
+                  )}
+                  {hasTimestamps(lead.ultima_interacao_cliente, lead.ultima_interacao_enova) && (
+                    <div className={styles.fieldItem}>
+                      <span className={styles.fieldLabel}>Último contato</span>
+                      <span className={styles.fieldValue}>
+                        {deriveUltimoFalante(lead.ultima_interacao_cliente, lead.ultima_interacao_enova)}
+                      </span>
                     </div>
                   )}
                 </div>
               </div>
-            );
-          })()}
+            </div>
+          )}
 
           {/* ═══════════════════════════════════════
              BLOCO 3 (full) — FEEDBACK HUMANO DO CORRETOR
@@ -1679,7 +1708,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                 {lead.gatilho_proxima_acao && (
                   <div className={styles.fieldItem}>
                     <span className={styles.fieldLabel}>Gatilho da ação</span>
-                    <span className={styles.fieldValue}>{lead.gatilho_proxima_acao}</span>
+                    <span className={styles.fieldValue}>{humanizeSlug(lead.gatilho_proxima_acao)}</span>
                   </div>
                 )}
                 {lead.fase_travamento && (
@@ -1844,6 +1873,43 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
 
         </div>
       </div>
+
+      {/* ── Chamar cliente overlay modal ── */}
+      {callOpen && (
+        <div className={styles.callOverlay} onClick={() => setCallOpen(false)}>
+          <div className={styles.callModal} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.callModalHeader}>
+              <span className={styles.callModalTitle}>📞 Chamar cliente</span>
+              <button type="button" className={styles.callModalClose} onClick={() => setCallOpen(false)}>✕</button>
+            </div>
+            <div className={styles.callModalBody}>
+              <p className={styles.callModalHint}>
+                Revise a mensagem antes de enviar para{" "}
+                <strong>{lead.nome ?? lead.telefone ?? lead.wa_id}</strong>.
+              </p>
+              <textarea
+                className={styles.callModalTextarea}
+                value={callText}
+                onChange={(e) => setCallText(e.target.value)}
+                disabled={callBusy}
+                rows={4}
+              />
+              {callError && <p className={styles.callModalError}>{callError}</p>}
+            </div>
+            <div className={styles.callModalFooter}>
+              <button type="button" className={styles.secondaryBtn} onClick={() => setCallOpen(false)}>Cancelar</button>
+              <button
+                type="button"
+                className={styles.callSendBtn}
+                disabled={callBusy || !callText.trim()}
+                onClick={() => void handleCallSubmit()}
+              >
+                {callBusy ? "Enviando…" : "Enviar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

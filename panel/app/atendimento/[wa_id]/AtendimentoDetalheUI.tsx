@@ -253,7 +253,7 @@ export function AtendimentoDetalheUI({ lead }: AtendimentoDetalheUIProps) {
   if (lead.ultima_interacao_cliente) {
     timelineEvents.push({ ts: new Date(lead.ultima_interacao_cliente).getTime(), order: 5, label: "Última interação cliente", detail: formatDateTime(lead.ultima_interacao_cliente) });
   }
-  timelineEvents.sort((a, b) => b.ts - a.ts || a.order - b.order);
+  timelineEvents.sort((a, b) => b.ts !== a.ts ? (b.ts > a.ts ? 1 : -1) : a.order - b.order);
 
   return (
     <div className={styles.fichaPage}>
@@ -564,7 +564,7 @@ export function AtendimentoDetalheUI({ lead }: AtendimentoDetalheUIProps) {
               ) : (
                 <div className={styles.timeline}>
                   {timelineEvents.map((ev) => (
-                    <div key={`${ev.order}-${ev.label}`} className={styles.timelineItem}>
+                    <div key={`${ev.ts}-${ev.order}`} className={styles.timelineItem}>
                       <div className={styles.timelineDot} />
                       <div className={styles.timelineContent}>
                         <span className={styles.timelineLabel}>{ev.label}</span>

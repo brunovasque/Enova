@@ -1254,6 +1254,34 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                 {profileFeedback && <span className={styles.profileFeedback}>{profileFeedback}</span>}
                 {profileError && <span className={styles.profileFeedbackError}>{profileError}</span>}
               </div>
+              {/* Dados apurados pelo funil — read-only, dentro do Perfil */}
+              <div className={styles.perfilSubSection}>
+                <p className={styles.perfilSubTitle}>Dados Apurados</p>
+                <div className={styles.detailGrid}>
+                  <div className={styles.fieldItem}>
+                    <span className={styles.fieldLabel}>Somar renda</span>
+                    <span className={`${styles.boolBadge} ${somarRendaBool.cls}`}>{somarRendaBool.text}</span>
+                  </div>
+                  <div className={styles.fieldItem}>
+                    <span className={styles.fieldLabel}>Renda total</span>
+                    <span className={lead.renda_total ? styles.fieldValueHighlight : styles.fieldValueMuted}>{formatCurrency(lead.renda_total)}</span>
+                  </div>
+                  <div className={styles.fieldItem}>
+                    <span className={styles.fieldLabel}>IR declarado</span>
+                    <span className={`${styles.boolBadge} ${irBool.cls}`}>{irBool.text}</span>
+                  </div>
+                  <div className={styles.fieldItem}>
+                    <span className={styles.fieldLabel}>Composição</span>
+                    <span className={lead.composicao ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.composicao)}</span>
+                  </div>
+                  {isResumoUtil(lead.resumo_curto) && (
+                    <div className={styles.fieldItemFull}>
+                      <span className={styles.fieldLabel}>Resumo</span>
+                      <span className={styles.fieldValue}>{lead.resumo_curto}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 
@@ -1316,31 +1344,6 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                       <span className={styles.fieldValueDanger}>{txt(lead.motivo_travamento)}</span>
                     </div>
                   </>
-                )}
-              </div>
-              {/* Qualificação apurada pelo funil */}
-              <div className={styles.detailGrid} style={{ marginTop: "16px", paddingTop: "14px", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Somar renda</span>
-                  <span className={`${styles.boolBadge} ${somarRendaBool.cls}`}>{somarRendaBool.text}</span>
-                </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Renda total</span>
-                  <span className={lead.renda_total ? styles.fieldValueHighlight : styles.fieldValueMuted}>{formatCurrency(lead.renda_total)}</span>
-                </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>IR declarado</span>
-                  <span className={`${styles.boolBadge} ${irBool.cls}`}>{irBool.text}</span>
-                </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Composição</span>
-                  <span className={lead.composicao ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.composicao)}</span>
-                </div>
-                {isResumoUtil(lead.resumo_curto) && (
-                  <div className={styles.fieldItemFull}>
-                    <span className={styles.fieldLabel}>Resumo</span>
-                    <span className={styles.fieldValue}>{lead.resumo_curto}</span>
-                  </div>
                 )}
               </div>
             </div>

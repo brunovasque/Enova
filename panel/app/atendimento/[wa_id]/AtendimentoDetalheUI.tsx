@@ -157,25 +157,33 @@ function getAtencaoCls(status: string | null | undefined): string {
 
 type FaseGrupo = "ENTRADA" | "QUALIFICACAO" | "COLETA" | "AGUARDANDO" | "TRAVADO";
 
+const ENTRADA_STAGES = [
+  "inicio", "inicio_decisao", "inicio_programa", "inicio_nome",
+  "inicio_nacionalidade", "inicio_rnm", "inicio_rnm_validade",
+];
+
+const COLETA_STAGES_EXACT = [
+  "possui_renda_extra", "renda_mista_detalhe", "clt_renda_perfil_informativo",
+  "autonomo_ir_pergunta", "autonomo_sem_ir_ir_este_ano", "autonomo_sem_ir_caminho",
+  "autonomo_sem_ir_entrada", "autonomo_compor_renda", "p3_tipo_pergunta",
+  "confirmar_avo_familiar", "ir_declarado", "dependente",
+];
+
+const AGUARDANDO_STAGES = ["fim_ineligivel", "fim_inelegivel", "finalizacao"];
+
 function deriveFaseGrupo(faseAtendimento: string | null, faseTravamento: string | null): FaseGrupo | null {
   if (faseTravamento) return "TRAVADO";
   const s = faseAtendimento;
   if (!s) return null;
-  if (["inicio", "inicio_decisao", "inicio_programa", "inicio_nome",
-    "inicio_nacionalidade", "inicio_rnm", "inicio_rnm_validade"].includes(s)) {
+  if (ENTRADA_STAGES.includes(s)) {
     return "ENTRADA";
   }
   if (s.startsWith("renda") || s.startsWith("ctps_36") || s.startsWith("restricao") ||
     s.startsWith("regularizacao") || s.startsWith("verificar") ||
-    s === "ir_declarado" || s === "dependente" ||
-    s.includes("multi_renda") ||
-    ["possui_renda_extra", "renda_mista_detalhe", "clt_renda_perfil_informativo",
-      "autonomo_ir_pergunta", "autonomo_sem_ir_ir_este_ano", "autonomo_sem_ir_caminho",
-      "autonomo_sem_ir_entrada", "autonomo_compor_renda", "p3_tipo_pergunta",
-      "confirmar_avo_familiar"].includes(s)) {
+    s.includes("multi_renda") || COLETA_STAGES_EXACT.includes(s)) {
     return "COLETA";
   }
-  if (["fim_ineligivel", "fim_inelegivel", "finalizacao"].includes(s)) {
+  if (AGUARDANDO_STAGES.includes(s)) {
     return "AGUARDANDO";
   }
   return "QUALIFICACAO";
@@ -555,8 +563,8 @@ export function AtendimentoDetalheUI({ lead }: AtendimentoDetalheUIProps) {
                 <p className={styles.timelineEmpty}>Sem eventos registrados.</p>
               ) : (
                 <div className={styles.timeline}>
-                  {timelineEvents.map((ev, i) => (
-                    <div key={i} className={styles.timelineItem}>
+                  {timelineEvents.map((ev) => (
+                    <div key={`${ev.order}-${ev.label}`} className={styles.timelineItem}>
                       <div className={styles.timelineDot} />
                       <div className={styles.timelineContent}>
                         <span className={styles.timelineLabel}>{ev.label}</span>

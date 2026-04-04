@@ -1102,15 +1102,19 @@ function buildOperacionalFinalGuidance(request) {
 
   if (stage === "aguardando_retorno_correspondente") {
     if (/\bquanto tempo\b|\bdemora\b|\btempo\b|\bprazo\b|\bquando\b/.test(normalizedMessage)) {
-      return "Não tenho como informar prazo exato — o retorno depende da análise do correspondente. Sigo acompanhando e te aviso assim que houver novidade.";
+      return "Não tenho como informar prazo exato — o retorno depende da pré-análise do correspondente. Sigo acompanhando e te aviso assim que houver novidade.";
     }
     if (/\bj[aá]\s*teve\b|\bj[aá]\s*voltou\b|\bj[aá]\s*respondeu\b|\bj[aá]\s*tem\b|\bresposta\b|\bretornou\b/.test(normalizedMessage)) {
-      return "Ainda estou aguardando o retorno. Assim que chegar qualquer informação, eu te aviso aqui.";
+      return "Ainda não tive retorno da pré-análise. Assim que o correspondente se posicionar, eu te aviso aqui.";
     }
     if (/\be agora\b|\bo que\s*fa[cç]o\b|\bo que\s*acontece\b|\bpr[oó]ximo\b/.test(normalizedMessage)) {
-      return "Por enquanto, o processo está em análise com o correspondente. Não precisa fazer nada agora — eu te aviso quando houver retorno.";
+      return "O seu caso está em pré-análise com o correspondente. Não precisa fazer nada agora — eu te aviso assim que houver retorno.";
     }
-    return null;
+    if (/\baprovad|\breprovad|\bresultado\b|\bparecer\b|\bdecis/.test(normalizedMessage)) {
+      return "Ainda não há parecer do correspondente. O caso segue em pré-análise e eu te informo assim que houver posicionamento.";
+    }
+    // Catch-all: mensagem simples durante espera (anti-loop elegante)
+    return "Seu caso segue em pré-análise com o correspondente. Assim que houver qualquer atualização, te aviso por aqui.";
   }
 
   if (stage === "agendamento_visita") {
@@ -1130,16 +1134,35 @@ function buildOperacionalFinalGuidance(request) {
   }
 
   if (stage === "finalizacao_processo") {
+    const knownSlots = request?.known_slots || {};
+    const processoEnviado = getKnownSlotValue(knownSlots, "processo_enviado_correspondente");
+
     if (/\bo que\s*acontece\b|\bpr[oó]ximo\s*passo\b|\bo que\s*vem\b|\bo que\s*segue\b/.test(normalizedMessage)) {
-      return "O processo segue para as etapas finais de formalização. Assim que houver orientação concreta, eu te informo por aqui.";
+      if (processoEnviado === true) {
+        return "A etapa interna foi concluída e o caso já foi encaminhado ao correspondente pelo canal oficial. Agora aguardamos o retorno da pré-análise — te aviso assim que houver novidade.";
+      }
+      return "Estamos concluindo a etapa interna do seu caso. Assim que estiver tudo pronto, o encaminhamento ao correspondente será feito pelo canal oficial e eu te informo por aqui.";
     }
     if (/\bvoc[eê]s?\s*me\s*avis[ao]\b|\bme\s*avis[ao]\b|\bserei\s*avisad\b|\bvou\s*saber\b/.test(normalizedMessage)) {
-      return "Sim, qualquer movimentação no processo eu te comunico por aqui.";
+      return "Sim, qualquer movimentação no processo eu te comunico por aqui. Pode ficar tranquilo.";
     }
-    if (/\bacabou\b|\btermin[ao]u\b|\bfoi\b|\bencerr[ao]u\b|\btudob[eê]m\b/.test(normalizedMessage)) {
-      return "Chegamos ao fim desta etapa. O processo segue pelo trilho correto e eu te mantenho informado sobre qualquer próximo passo.";
+    if (/\bacabou\b|\btermin[ao]u\b|\bencerr[ao]u\b/.test(normalizedMessage)) {
+      if (processoEnviado === true) {
+        return "Essa etapa interna foi concluída e o caso já seguiu para o correspondente. Sigo acompanhando e te mantenho informado.";
+      }
+      return "Estamos finalizando a etapa interna. Assim que o encaminhamento ao correspondente for confirmado, te aviso por aqui.";
     }
-    return null;
+    if (/\baprovad|\breprovad|\bresultado\b|\bparecer\b|\bdecis/.test(normalizedMessage)) {
+      return "Ainda não há parecer final — essa etapa é de finalização interna e encaminhamento. A análise do correspondente vem na sequência.";
+    }
+    if (/\bvisita\b|\bplant[aã]o\b/.test(normalizedMessage)) {
+      return "A visita ao plantão vem em uma etapa posterior. Agora estamos na fase de finalização interna e encaminhamento ao correspondente.";
+    }
+    // Catch-all: mensagem simples durante finalização
+    if (processoEnviado === true) {
+      return "O caso já foi encaminhado ao correspondente pelo canal oficial. Sigo acompanhando e te aviso assim que houver retorno.";
+    }
+    return "Estamos concluindo a etapa interna do seu caso. Te mantenho informado sobre o andamento.";
   }
 
   return null;
@@ -2541,9 +2564,9 @@ function buildNextActionPrompt({ request, suggestedNextSlot, pendingSlots }) {
 
   if (OPERACIONAL_FINAL_STAGES.has(topoStage)) {
     if (topoStage === "envio_docs") return "Se quiser, já pode me mandar os documentos básicos por aqui que eu adianto sua análise.";
-    if (topoStage === "aguardando_retorno_correspondente") return "Se quiser, eu sigo acompanhando por aqui e te aviso assim que tiver retorno do correspondente.";
+    if (topoStage === "aguardando_retorno_correspondente") return "Seu caso segue em pré-análise com o correspondente. Assim que houver qualquer atualização, te aviso por aqui.";
     if (topoStage === "agendamento_visita") return "Se fizer sentido para você, eu já vejo um horário dentro da agenda oficial do plantão.";
-    if (topoStage === "finalizacao_processo") return "Se tiver alguma dúvida sobre o processo, pode me perguntar por aqui.";
+    if (topoStage === "finalizacao_processo") return "Estamos concluindo a etapa interna do seu caso. Te mantenho informado sobre o andamento.";
   }
 
   return "Se estiver tudo certo até aqui, já me manda os documentos básicos agora que isso adianta sua análise.";
@@ -2896,6 +2919,12 @@ function buildReplyText({ request, detectedSlots, pendingSlots, suggestedNextSlo
   });
 
   if (phaseGuidanceReply) {
+    // BLOCO 11: finalizacao_processo / aguardando_retorno_correspondente — respostas
+    // autossuficientes; não anexar prompt de próxima ação (evita puxar visita cedo).
+    const stageForAction = normalizeText(request?.current_stage);
+    if (stageForAction === "finalizacao_processo" || stageForAction === "aguardando_retorno_correspondente") {
+      return phaseGuidanceReply;
+    }
     return ensureReplyHasNextAction(phaseGuidanceReply, {
       request,
       pendingSlots,

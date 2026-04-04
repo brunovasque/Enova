@@ -3686,17 +3686,14 @@ function shouldTriggerCognitiveAssist(stage, text) {
     const envioDocsHints = /\b(posso mandar depois|mando depois|depois eu mando|nao consigo agora|não consigo agora|seguro|confiavel|confiável|golpe|vazar|site|portal|presencial|quero ir presencial|prefiro presencial|nao tenho tempo|não tenho tempo)\b/i.test(nt);
     if (envioDocsHints) return true;
   }
-  if (stage === "aguardando_retorno_correspondente") {
-    const aguardandoHints = /\b(quanto tempo|demora|prazo|quando|j[aá] teve|j[aá] voltou|j[aá] respondeu|j[aá] tem resposta|retornou|e agora|o que fa[cç]o|o que acontece|pr[oó]ximo passo)\b/i.test(nt);
-    if (aguardandoHints) return true;
+  // BLOCO 11 — finalizacao_processo + aguardando_retorno_correspondente: sempre acionar cognitivo
+  // Esses stages são espera operacional viva; qualquer mensagem do cliente deve gerar fala cognitiva.
+  if (stage === "aguardando_retorno_correspondente" || stage === "finalizacao_processo") {
+    return true;
   }
   if (stage === "agendamento_visita") {
     const agendamentoHints = /\b(hor[aá]rio|dia|quando|outro dia|remarcar|reagend|acompanhante|precisa levar|vou pensar|preciso pensar|quem sabe|ainda nao decidi|ainda não decidi|sem pressa)\b/i.test(nt);
     if (agendamentoHints) return true;
-  }
-  if (stage === "finalizacao_processo") {
-    const finalizacaoHints = /\b(o que acontece|pr[oó]ximo passo|voc[eê]s? me avis[ao]|me avis[ao]|serei avisad|acabou|encerr[ao]u|terminou|o que vem|o que segue)\b/i.test(nt);
-    if (finalizacaoHints) return true;
   }
 
   // BLOCO 8 — Informativos pré-docs: sempre acionar cognitivo (qualquer texto é válido)
@@ -3921,6 +3918,8 @@ async function runCognitiveV2WithAdapter(env, stage, userText, st) {
     if (st.renda) knownSlots.renda = { value: st.renda };
     // st.regime mapeia para slot "regime_trabalho" (nome diferente no state vs. slot canônico)
     if (st.regime) knownSlots.regime_trabalho = { value: st.regime };
+    // BLOCO 11: processo_enviado_correspondente para prontidão do pacote
+    if (st.processo_enviado_correspondente != null) knownSlots.processo_enviado_correspondente = { value: st.processo_enviado_correspondente };
 
     const rawInput = {
       current_stage: stage,

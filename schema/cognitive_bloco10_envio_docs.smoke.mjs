@@ -420,7 +420,7 @@ await asyncTest('17. BLINDAGEM: nenhuma resposta declara pasta completa', async 
     );
     const reply = nf(result.response.reply_text);
     assert.ok(
-      !reply.includes("pasta completa") && !reply.includes("tudo certo") && !reply.includes("todos os doc.*recebido"),
+      !reply.includes("pasta completa") && !reply.includes("tudo certo") && !reply.includes("todos os documentos recebido"),
       `reply must not declare pasta completa for "${msg}": "${result.response.reply_text}"`
     );
   }
@@ -446,7 +446,7 @@ await asyncTest('18. BLINDAGEM: nenhuma resposta promete validação final', asy
     );
     const reply = nf(result.response.reply_text);
     assert.ok(
-      !reply.includes("aprovado") && !reply.includes("validado final") && !reply.includes("documento.*aprovad"),
+      !reply.includes("aprovado") && !reply.includes("validado final") && !reply.includes("documento aprovado"),
       `reply must not promise final validation for "${msg}": "${result.response.reply_text}"`
     );
   }

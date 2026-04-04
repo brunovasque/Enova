@@ -3657,7 +3657,7 @@ function shouldTriggerCognitiveAssist(stage, text) {
     if (comporHints) return true;
   }
   if (stage === "ctps_36" || stage === "ctps_36_parceiro" || stage === "ctps_36_parceiro_p3") {
-    const ctpsHints = /\b(precisa ser seguido|seguido|continuo|ininterrupto|carteira digital|digital|nao tenho tudo|não tenho tudo|nao chego|não chego|falta|pra que|por que|para que|serve|reduz|juros|taxa)\b/i.test(nt);
+    const ctpsHints = /\b(precisa ser seguido|seguido|continuo|ininterrupto|carteira digital|digital|nao tenho tudo|não tenho tudo|nao chego|não chego|falta|pra que|por que|para que|serve|reduz|juros|taxa|nao sei|não sei|nao tenho certeza|não tenho certeza|nao sei informar|não sei informar)\b/i.test(nt);
     if (ctpsHints) return true;
   }
   if (stage === "dependente") {

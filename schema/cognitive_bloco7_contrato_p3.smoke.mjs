@@ -13,9 +13,9 @@
  *  7. ctps_36_parceiro_p3 "precisa ser seguido?" → inclui "não sei" para P3
  *  8. ctps_36_parceiro_p3 "serve carteira digital?" → inclui "não sei" para P3
  *  9. ctps_36_parceiro_p3 "não chego nos 36" → inclui "não sei" para P3
- * 10. regularizacao_restricao (titular) NÃO pergunta possibilidade — pergunta status
- * 11. ctps_36 (titular) NÃO inclui "não sei" — binary sim/não
- * 12. ctps_36_parceiro (P2) NÃO inclui "não sei" — binary sim/não
+ * 10. regularizacao_restricao (titular) pergunta POSSIBILIDADE (BLOCO 9 contrato)
+ * 11. ctps_36 (titular) inclui "não sei" como opção (BLOCO 9 contrato)
+ * 12. ctps_36_parceiro (P2) inclui "não sei" como opção (BLOCO 9 contrato)
  * 13. P3 separação: p3_tipo_pergunta não mistura com parceiro conjugal
  * 14. P3 separação: renda_parceiro_familiar_p3 não pede docs
  * 15. P3 separação: regime_trabalho_parceiro_familiar_p3 separado do familiar P2
@@ -195,8 +195,8 @@ await asyncTest('9. ctps_36_parceiro_p3: "não chego nos 36" → inclui "não se
   );
 });
 
-// ===== 10. regularizacao_restricao (TITULAR) NÃO pergunta possibilidade =====
-await asyncTest('10. regularizacao_restricao (titular): pergunta STATUS "foi regularizada" (não possibilidade)', async () => {
+// ===== 10. regularizacao_restricao (TITULAR) pergunta POSSIBILIDADE (BLOCO 9 contrato) =====
+await asyncTest('10. regularizacao_restricao (titular): pergunta POSSIBILIDADE "possibilidade de regularizar"', async () => {
   const result = await runReadOnlyCognitiveEngine(
     { current_stage: "regularizacao_restricao", message_text: "opa", known_slots: { restricao: true }, pending_slots: ["regularizacao_restricao"] },
     heuristicOnlyRuntime
@@ -205,17 +205,17 @@ await asyncTest('10. regularizacao_restricao (titular): pergunta STATUS "foi reg
   assert.strictEqual(result.response.should_advance_stage, false);
   const reply = nf(result.response.reply_text);
   assert.ok(
-    reply.includes("regularizada") || reply.includes("cpf"),
-    `titular reply must ask about STATUS: "${result.response.reply_text}"`
+    reply.includes("possibilidade"),
+    `titular reply must ask about POSSIBILIDADE: "${result.response.reply_text}"`
   );
   assert.ok(
-    !reply.includes("possibilidade"),
-    `titular reply must NOT ask about possibilidade: "${result.response.reply_text}"`
+    reply.includes("nao sei"),
+    `titular reply must accept "não sei": "${result.response.reply_text}"`
   );
 });
 
-// ===== 11. ctps_36 (TITULAR) NÃO inclui "não sei" =====
-await asyncTest('11. ctps_36 (titular): default NÃO inclui "não sei" — binary sim/não', async () => {
+// ===== 11. ctps_36 (TITULAR) inclui "não sei" como opção (BLOCO 9 contrato) =====
+await asyncTest('11. ctps_36 (titular): default inclui "não sei" como opção', async () => {
   const result = await runReadOnlyCognitiveEngine(
     { current_stage: "ctps_36", message_text: "opa", known_slots: { regime_trabalho: "clt" }, pending_slots: ["ctps_36"] },
     heuristicOnlyRuntime
@@ -224,13 +224,13 @@ await asyncTest('11. ctps_36 (titular): default NÃO inclui "não sei" — binar
   assert.strictEqual(result.response.should_advance_stage, false);
   const reply = nf(result.response.reply_text);
   assert.ok(
-    !reply.includes("nao sei"),
-    `titular ctps reply must NOT include "não sei": "${result.response.reply_text}"`
+    reply.includes("nao sei"),
+    `titular ctps reply must include "não sei": "${result.response.reply_text}"`
   );
 });
 
-// ===== 12. ctps_36_parceiro (P2) NÃO inclui "não sei" =====
-await asyncTest('12. ctps_36_parceiro (P2): default NÃO inclui "não sei" — binary sim/não', async () => {
+// ===== 12. ctps_36_parceiro (P2) inclui "não sei" como opção (BLOCO 9 contrato) =====
+await asyncTest('12. ctps_36_parceiro (P2): default inclui "não sei" como opção', async () => {
   const result = await runReadOnlyCognitiveEngine(
     { current_stage: "ctps_36_parceiro", message_text: "opa", known_slots: { composicao: "parceiro" }, pending_slots: ["ctps_36_parceiro"] },
     heuristicOnlyRuntime
@@ -239,8 +239,8 @@ await asyncTest('12. ctps_36_parceiro (P2): default NÃO inclui "não sei" — b
   assert.strictEqual(result.response.should_advance_stage, false);
   const reply = nf(result.response.reply_text);
   assert.ok(
-    !reply.includes("nao sei"),
-    `parceiro ctps reply must NOT include "não sei": "${result.response.reply_text}"`
+    reply.includes("nao sei"),
+    `parceiro ctps reply must include "não sei": "${result.response.reply_text}"`
   );
 });
 

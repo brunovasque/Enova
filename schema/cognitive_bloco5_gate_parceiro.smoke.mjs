@@ -304,8 +304,8 @@ await asyncTest('14. BLINDAGEM: gate parceiro não contamina titular/familiar/P3
   );
 });
 
-// ===== 15. REGRESSÃO: regularizacao_restricao titular NÃO foi afetada =====
-await asyncTest('15. REGRESSÃO: regularizacao_restricao (titular) mantém comportamento original', async () => {
+// ===== 15. REGRESSÃO: regularizacao_restricao titular agora pergunta possibilidade (BLOCO 9) =====
+await asyncTest('15. REGRESSÃO: regularizacao_restricao (titular) pergunta possibilidade', async () => {
   const result = await runReadOnlyCognitiveEngine(
     { current_stage: "regularizacao_restricao", message_text: "estou negociando", known_slots: { restricao: "sim" }, pending_slots: ["regularizacao_restricao"] },
     heuristicOnlyRuntime
@@ -314,10 +314,10 @@ await asyncTest('15. REGRESSÃO: regularizacao_restricao (titular) mantém compo
   const v = validateReadOnlyCognitiveResponse(result.response);
   assert.ok(v.valid, `response must be valid: ${v.errors.join(", ")}`);
   const reply = normalizeForMatch(result.response.reply_text);
-  // Titular mantém pergunta de STATUS (foi regularizada?)
+  // Titular agora pergunta POSSIBILIDADE (BLOCO 9 contrato)
   assert.ok(
-    reply.includes("regulariza"),
-    `titular reply should address regularização: "${result.response.reply_text}"`
+    reply.includes("possibilidade"),
+    `titular reply should ask about possibilidade: "${result.response.reply_text}"`
   );
   // Não deve contaminar com parceiro
   assert.ok(

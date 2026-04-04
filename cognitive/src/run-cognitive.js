@@ -1379,6 +1379,16 @@ function buildAprofundamentoRendaGuidance(request) {
   const normalizedMessage = normalizeText(request?.message_text);
 
   if (stage === "possui_renda_extra") {
+    // Comissão, hora extra e adicional NÃO são renda mista — pertencem à leitura de renda formal.
+    if (/\bhoras?\s+extras?\b/i.test(normalizedMessage) && !/\b(bico|uber|ifood|freela|renda\s+extra|por\s+fora|informal)\b/i.test(normalizedMessage)) {
+      return "Hora extra faz parte da renda formal variável — não entra como renda extra por fora. O sistema registra isso na leitura do perfil de renda. Aqui a pergunta é sobre *renda por fora* (bico, Uber, freela). Você tem alguma renda assim? Responda *sim* ou *não*.";
+    }
+    if (/\bcomiss[aã]o\b/i.test(normalizedMessage) && !/\b(bico|uber|ifood|freela|renda\s+extra|por\s+fora|informal)\b/i.test(normalizedMessage)) {
+      return "Comissão faz parte da renda formal variável — não entra como renda extra por fora. O sistema já considera isso no perfil de renda. Aqui a pergunta é sobre *renda por fora* (bico, Uber, freela). Você tem alguma renda assim? Responda *sim* ou *não*.";
+    }
+    if (/\badicional\b/i.test(normalizedMessage) && !/\b(bico|uber|ifood|freela|renda\s+extra|por\s+fora|informal)\b/i.test(normalizedMessage)) {
+      return "Adicional faz parte da renda formal — não entra como renda extra por fora. Aqui a pergunta é sobre *renda por fora* (bico, Uber, freela). Você tem alguma renda assim? Responda *sim* ou *não*.";
+    }
     if (/\bbico\b|\bbicos\b|\bfreela\b|\bfreelas\b|\binformal\b/i.test(normalizedMessage)) {
       return "Bicos e trabalhos informais podem entrar como renda extra. O sistema vai verificar o que se encaixa no seu perfil. Você tem alguma renda extra além da principal? Responda *sim* ou *não*.";
     }

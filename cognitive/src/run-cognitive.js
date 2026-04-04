@@ -101,6 +101,8 @@ const VISITA_RESCHEDULE_PATTERN = /\b(remarcar|reagendar|outro hor[aá]rio|outro
 const VISITA_ACCEPT_PATTERN = /\b(quero visitar|aceito visita|vamos agendar|pode agendar|quero agendar)\b/i;
 const VISITA_RESIST_PATTERN = /\b(n[aã]o quero visitar|prefiro n[aã]o visitar|pra que visitar|por que visitar)\b/i;
 const VISITA_ESFRIAMENTO_PATTERN = /\b(vou pensar|preciso pensar|quem sabe|ainda nao decidi|ainda não decidi|deixa eu ver|quando puder|sem pressa)\b/i;
+const JA_FOI_PLANTAO_VERB_PATTERN = /\b(ja fui|já fui|ja passei|já passei|ja visitei|já visitei|ja estive|já estive)\b/;
+const JA_FOI_PLANTAO_CONTEXT_PATTERN = /\b(plant[aã]o|l[aá]|visita)\b/;
 const ALUGUEL_HINT_PATTERN = /\b(aluguel|alugar|alugo|alugando)\b/i;
 const DOC_TIPO_RESPOSTA_PATTERN =
   /\b(holerite|comprovante(?: de (?:residencia|renda))?|ctps|carteira de trabalho|rg|cnh|cpf|declaracao|imposto de renda|extrato|identidade|documento pessoal)\b/i;
@@ -1043,6 +1045,17 @@ function buildVisitaGuidance(request) {
     return "Perfeito, faz sentido avançar por aqui. Já te conduzo pelas opções oficiais de agenda.";
   }
 
+  // BLOCO 13 — "já fui ao plantão" → persuasão máxima, não aceitar como fim de linha
+  if (JA_FOI_PLANTAO_VERB_PATTERN.test(normalizedMessage) && JA_FOI_PLANTAO_CONTEXT_PATTERN.test(normalizedMessage)) {
+    return "Entendo — mas nem sempre as opções são as mesmas. Tudo depende do corretor, do perfil atualizado e das condições do momento. Vale a pena ir de novo porque pode ter mudado bastante coisa a seu favor.";
+  }
+
+  // BLOCO 13 — trava_documental/recusa_online: orientar docs mínimos
+  const visitaOrigem = getKnownSlotValue(knownSlots, "visita_origem");
+  if ((visitaOrigem === "trava_documental" || visitaOrigem === "recusa_online") && /\b(o que lev|que lev|preciso levar|documentos|docs|documento)\b/.test(normalizedMessage)) {
+    return "No dia da visita, leve: documento pessoal com foto, comprovante de residência e comprovante de renda. Sem isso não adianta ir ao plantão.";
+  }
+
   // Etapa 7 — precedence-aware global layer: stage context guard + objection priority para visita
   const globalReply = resolveWithPrecedence(normalizedMessage, _VISITA_FAQ_MAP, "visita");
   if (globalReply) return wrapWithReanchor(globalReply.reply, stage || "agendamento_visita");
@@ -1122,13 +1135,32 @@ function buildOperacionalFinalGuidance(request) {
     const globalReply = resolveGlobalLayerReply(normalizedMessage, _VISITA_FAQ_MAP);
     if (globalReply) return wrapWithReanchor(globalReply.reply, stage);
 
+    // BLOCO 13 — "já fui ao plantão" → persuasão máxima
+    if (JA_FOI_PLANTAO_VERB_PATTERN.test(normalizedMessage) && JA_FOI_PLANTAO_CONTEXT_PATTERN.test(normalizedMessage)) {
+      return "Nem sempre as opções são as mesmas — tudo depende do corretor e do perfil atualizado. Vale a pena ir de novo. Quer que eu encaixe você na agenda oficial?";
+    }
+
     // Reschedule requests (remarcar/reagendar/outro dia/outro horário) defer to buildVisitaGuidance
     // which produces the canonical "a gente consegue remarcar" response
     if (/\bprecisa levar\b|\bvir acompanhaad\b|\bvir com\b|\blevar algu[eé]m\b|\bacompanhante\b/.test(normalizedMessage)) {
       return "Para aproveitar melhor a visita, recomendo que venha com quem vai participar da decisão. Isso facilita o alinhamento no plantão.";
     }
     if (DEFER_ACTION_PATTERN.test(normalizedMessage) || VISITA_ESFRIAMENTO_PATTERN.test(normalizedMessage)) {
-      return "Sem pressa. Quando estiver pronto, me confirma que eu verifico as opções disponíveis na agenda oficial do plantão.";
+      return "Entendo — mas vale garantir o horário porque as vagas preenchem rápido. Quando decidir, me avisa que eu já puxo as datas oficiais.";
+    }
+    return null;
+  }
+
+  // BLOCO 13 — visita_confirmada: guidance para off-track
+  if (stage === "visita_confirmada") {
+    if (JA_FOI_PLANTAO_VERB_PATTERN.test(normalizedMessage) && JA_FOI_PLANTAO_CONTEXT_PATTERN.test(normalizedMessage)) {
+      return "Nem sempre as opções são as mesmas — tudo depende do corretor e do perfil atualizado. Vale a pena ir de novo porque pode ter mudado bastante coisa a seu favor.";
+    }
+    if (/\bprecisa levar\b|\bvir acompanhaad\b|\bvir com\b|\blevar algu[eé]m\b|\bacompanhante\b/.test(normalizedMessage)) {
+      return "Para aproveitar melhor a visita, recomendo que venha com quem vai participar da decisão. Isso facilita o alinhamento no plantão.";
+    }
+    if (/\bonde fica\b|\bendereco\b|\bendereço\b|\blocalizacao\b|\blocalização\b|\bcomo cheg/.test(normalizedMessage)) {
+      return "O plantão fica na Av. Paraná, 2474 — Boa Vista, em frente ao Terminal do Boa Vista.";
     }
     return null;
   }

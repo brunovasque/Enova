@@ -273,12 +273,16 @@ function hasTimestamps(
 
 // Returns false if resumo_curto looks like an auto-generated stage marker
 // (e.g. "inicio_programa", "fase: ctps_36") rather than a real human summary.
+const MIN_USEFUL_RESUMO_LENGTH = 12;
+// Matches a single lowercase token with underscores — typical auto-generated stage name
+const STAGE_NAME_PATTERN = /^[a-z][a-z0-9_]{3,}$/;
+
 function isResumoUtil(resumo: string | null | undefined): boolean {
   if (!resumo) return false;
   const s = resumo.trim();
-  if (!s || s.length < 12) return false;
+  if (!s || s.length < MIN_USEFUL_RESUMO_LENGTH) return false;
   // Stage name pattern: single token with underscores, no spaces
-  if (/^[a-z][a-z0-9_]{3,}$/.test(s)) return false;
+  if (STAGE_NAME_PATTERN.test(s)) return false;
   // "fase: something" prefix
   if (/^fase:\s*/i.test(s)) return false;
   return true;

@@ -104,6 +104,9 @@ export async function patchAttendanceMeta(
     method: "POST",
     headers: {
       ...buildSupabaseHeaders(serviceRoleKey),
+      // "resolution=merge-duplicates" enables UPSERT: when combined with on_conflict=wa_id,
+      // PostgREST merges the new fields into an existing row (preserving other columns)
+      // or inserts a new row if none exists. This is safe for leads without a meta row yet.
       Prefer: "resolution=merge-duplicates,return=minimal",
     },
     body: JSON.stringify([{ wa_id, ...fields, updated_at: now }]),

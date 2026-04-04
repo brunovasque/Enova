@@ -4,6 +4,13 @@ import { listAttendanceLeads, getAttendanceLead, archiveAttendanceLead, unarchiv
 import { getPrefillMeta, upsertPrefillMeta, PrefillMetaRow, PrefillUpdatePayload } from "../api/prefill/_shared";
 import { getClientProfile, writeClientProfile, ClientProfileRow, ClientProfileUpdatePayload } from "../api/client-profile/_shared";
 
+// Shared env guard used by action functions in this file.
+function checkSupabaseEnvs(): { ok: true; url: string; key: string } | { ok: false; error: string } {
+  const missing = (["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const).filter((k) => !process.env[k]);
+  if (missing.length > 0) return { ok: false, error: `missing env: ${missing.join(", ")}` };
+  return { ok: true, url: process.env.SUPABASE_URL as string, key: process.env.SUPABASE_SERVICE_ROLE as string };
+}
+
 export async function fetchAttendanceDetailAction(
   wa_id: string,
 ): Promise<{ ok: boolean; lead?: Record<string, unknown> | null; error?: string }> {
@@ -196,19 +203,11 @@ export async function unarchiveLeadAction(
 export async function saveAttendanceMetaAction(
   payload: AttendanceMetaHumanPayload,
 ): Promise<{ ok: boolean; error?: string }> {
-  const missingEnvs = (["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const).filter(
-    (k) => !process.env[k],
-  );
-  if (missingEnvs.length > 0) {
-    return { ok: false, error: `missing env: ${missingEnvs.join(", ")}` };
-  }
+  const envs = checkSupabaseEnvs();
+  if (!envs.ok) return { ok: false, error: envs.error };
 
   try {
-    await patchAttendanceMeta(
-      process.env.SUPABASE_URL as string,
-      process.env.SUPABASE_SERVICE_ROLE as string,
-      payload,
-    );
+    await patchAttendanceMeta(envs.url, envs.key, payload);
     return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "internal error" };

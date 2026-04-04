@@ -445,6 +445,137 @@ function groupMsgsByDay(msgs: ConversaMsg[]): Array<{ label: string; msgs: Conve
   return groups;
 }
 
+/* ── Sinais da Conversa — heurística leve, 100% client-side ── */
+
+type SinaisConversa = {
+  bolaComLabel: string;
+  ultimoTema: string;
+  pendenciaAberta: string;
+  riscoTravamento: "BAIXO" | "MEDIO" | "ALTO" | null;
+  ultimoSinalCliente: string;
+  proximaAbordagem: string;
+};
+
+const FASE_TEMA_MAP: Record<string, string> = {
+  inicio: "Qualificação inicial",
+  inicio_nome: "Nome",
+  inicio_nacionalidade: "Nacionalidade",
+  inicio_rnm: "RNM / documentação",
+  estado_civil: "Estado civil",
+  confirmar_casamento: "Estado civil",
+  financiamento_conjunto: "Composição",
+  somar_renda: "Composição de renda",
+  parceiro_tem_renda: "Composição de renda",
+  regime_trabalho: "Regime de trabalho",
+  renda: "Renda",
+  possui_renda_extra: "Renda complementar",
+  autonomo_ir_pergunta: "IR / autonomo",
+  ir_declarado: "IR declarado",
+  ctps_36: "Carteira de trabalho",
+  restricao: "Restrição",
+  regularizacao_restricao: "Regularização",
+  visita: "Visita",
+  visita_confirmada: "Visita confirmada",
+  envio_docs: "Documentação",
+  finalizacao_processo: "Finalização do pacote",
+  aguardando_retorno_correspondente: "Retorno do correspondente",
+};
+
+const FASE_ABORDAGEM_MAP: Record<string, string> = {
+  inicio: "Confirmar nome e dados iniciais",
+  renda: "Confirmar regime e valor de renda",
+  ir_declarado: "Perguntar sobre IR declarado",
+  ctps_36: "Verificar CTPS com 36 meses",
+  restricao: "Avaliar pendência de restrição",
+  visita: "Confirmar disponibilidade para visita",
+  envio_docs: "Orientar envio de documentação",
+  finalizacao_processo: "Confirmar envio do pacote ao correspondente",
+  aguardando_retorno_correspondente: "Acompanhar retorno do correspondente",
+};
+
+// Pre-sorted keys (longest first) for reliable prefix-match: "envio_docs" must not match before "envio_docs_complementar" etc.
+const FASE_TEMA_KEYS = Object.keys(FASE_TEMA_MAP).sort((a, b) => b.length - a.length);
+const FASE_ABORDAGEM_KEYS = Object.keys(FASE_ABORDAGEM_MAP).sort((a, b) => b.length - a.length);
+
+// Module-level compiled regexes — avoid recompilation on every deriveSinaisConversa call
+const RX_INTERESSADO = /\b(ótimo|perfeito|quero|excelente|concordo|bora|combinado|vamos|adorei|maravilhoso)\b/;
+const RX_OBJETIVO    = /\b(ok|certo|entendi|entendido|tá|ta|claro|deu|confirmo)\b/;
+const RX_CONFUSO     = /\b(não sei|nao sei|como assim|não entend|nao entend|confuso|qual)\b/;
+const RX_EVASIVO     = /\b(depois|amanhã|amanha|mais tarde|outra hora|não agora|nao agora|semana que vem)\b/;
+const RX_RESISTENTE  = /\b(não quero|nao quero|pare|para|não tenho interesse|nao tenho|chega|cancela)\b/;
+
+function deriveSinaisConversa(
+  msgs: ConversaMsg[],
+  lead: AttendanceDetalheRow,
+): SinaisConversa {
+  const DASH = "—";
+
+  // 1. Bola com — último remetente determina de quem é a vez
+  const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+  const bolaComLabel = lastMsg
+    ? lastMsg.direction === "in"
+      ? "Enova"
+      : "Cliente"
+    : DASH;
+
+  // 2. Último tema tratado — do mapa de fases, com fallback prefix-match (longer keys first)
+  const fase = lead.fase_funil ?? "";
+  const temaKey = FASE_TEMA_KEYS.find((k) => fase === k || fase.startsWith(k + "_") || fase.startsWith(k));
+  const ultimoTema = FASE_TEMA_MAP[fase] ?? (temaKey ? FASE_TEMA_MAP[temaKey] : null) ?? (fase || DASH);
+
+  // 3. Pendência aberta — campo operacional canônico já disponível no lead
+  const pendenciaAberta = lead.pendencia_principal ?? DASH;
+
+  // 4. Risco de travamento — travamento ativo = alto; gap de dias = médio/baixo
+  let riscoTravamento: SinaisConversa["riscoTravamento"] = null;
+  if (lead.fase_travamento) {
+    riscoTravamento = "ALTO";
+  } else {
+    // Use the most recent interaction timestamp available
+    const lastMsgAt = lastMsg?.created_at ?? null;
+    const lastInteraction = lead.ultima_interacao_cliente ?? lastMsgAt;
+    if (lastInteraction) {
+      const daysSince = (Date.now() - new Date(lastInteraction).getTime()) / (1000 * 60 * 60 * 24);
+      riscoTravamento = daysSince > 7 ? "MEDIO" : "BAIXO";
+    } else if (msgs.length > 0) {
+      riscoTravamento = "BAIXO";
+    }
+  }
+
+  // 5. Último sinal do cliente — keyword matching nos últimos 3 msgs do cliente
+  const recentClientMsgs = [...msgs]
+    .reverse()
+    .filter((m) => m.direction === "in")
+    .slice(0, 3);
+  const recentText = recentClientMsgs
+    .map((m) => (m.text ?? "").toLowerCase())
+    .join(" ");
+  let ultimoSinalCliente = DASH;
+  if (recentClientMsgs.length > 0) {
+    if (RX_INTERESSADO.test(recentText))     ultimoSinalCliente = "Interessado";
+    else if (RX_OBJETIVO.test(recentText))   ultimoSinalCliente = "Objetivo";
+    else if (RX_CONFUSO.test(recentText))    ultimoSinalCliente = "Confuso";
+    else if (RX_EVASIVO.test(recentText))    ultimoSinalCliente = "Evasivo";
+    else if (RX_RESISTENTE.test(recentText)) ultimoSinalCliente = "Resistente";
+    else                                      ultimoSinalCliente = "Neutro";
+  }
+
+  // 6. Próxima abordagem sugerida — do mapa de fases (longer keys first) ou resumo_curto
+  const abordagemKey = FASE_ABORDAGEM_KEYS.find((k) => fase === k || fase.startsWith(k + "_") || fase.startsWith(k));
+  const proximaAbordagem =
+    (abordagemKey ? FASE_ABORDAGEM_MAP[abordagemKey] : null) ??
+    (lead.resumo_curto ? lead.resumo_curto.slice(0, 80) : DASH);
+
+  return {
+    bolaComLabel,
+    ultimoTema,
+    pendenciaAberta,
+    riscoTravamento,
+    ultimoSinalCliente,
+    proximaAbordagem,
+  };
+}
+
 /* ── Archive reason options ── */
 
 const ARCHIVE_REASON_OPTIONS = [
@@ -960,72 +1091,151 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
 
           {/* ═══════════════════════════════════════
              BLOCO CONVERSA — Interação AI (read-only)
+             + Sinais da Conversa (painel lateral)
              Fonte: enova_log via /api/messages
              Tags: meta_minimal (in) · DECISION_OUTPUT/SEND_OK (out)
              100% read-only — sem input, sem botão, sem ação
              ═══════════════════════════════════════ */}
-          <div className={`${styles.block} ${styles.blockFull} ${styles.blockConversa}`}>
-            <div className={styles.blockHeader}>
-              <span className={styles.blockIcon}>🗨️</span>
-              <h3 className={styles.blockTitle}>Interação AI</h3>
-            </div>
-            <div className={styles.blockBody}>
-              {convLoading ? (
-                <p className={styles.convLoading}>Carregando conversa…</p>
-              ) : convError ? (
-                <p className={styles.convEmpty}>{convError}</p>
-              ) : convMsgs.length === 0 ? (
-                <p className={styles.convEmpty}>
-                  Sem mensagens registradas para este atendimento.
-                </p>
-              ) : (
-                <div className={styles.convScroll}>
-                  {groupMsgsByDay(convMsgs).map(({ label, msgs: dayMsgs }) => (
-                    <div key={label}>
-                      <div className={styles.convDateDivider}>
-                        <span className={styles.convDateLabel}>{label}</span>
-                      </div>
-                      {dayMsgs.map((msg, idx) => (
-                        <div
-                          key={msg.id ?? `${label}-${idx}`}
-                          className={`${styles.convBubbleRow} ${
-                            msg.direction === "in"
-                              ? styles.convBubbleRowIn
-                              : styles.convBubbleRowOut
-                          }`}
-                        >
-                          <div className={styles.convMeta}>
-                            <span
-                              className={`${styles.convSender} ${
-                                msg.direction === "in"
-                                  ? styles.convSenderIn
-                                  : styles.convSenderOut
-                              }`}
-                            >
-                              {msg.direction === "in" ? "Cliente" : "Enova"}
-                            </span>
-                            {msg.created_at && (
-                              <span className={styles.convTime}>
-                                {formatMsgTime(msg.created_at)}
-                              </span>
-                            )}
-                          </div>
+          <div className={`${styles.blockFull} ${styles.convSinaisWrapper}`}>
+            {/* ── Conversa: ~65% ── */}
+            <div className={`${styles.block} ${styles.blockConversa} ${styles.convMainPanel}`}>
+              <div className={styles.blockHeader}>
+                <span className={styles.blockIcon}>🗨️</span>
+                <h3 className={styles.blockTitle}>Interação AI</h3>
+              </div>
+              <div className={styles.blockBody}>
+                {convLoading ? (
+                  <p className={styles.convLoading}>Carregando conversa…</p>
+                ) : convError ? (
+                  <p className={styles.convEmpty}>{convError}</p>
+                ) : convMsgs.length === 0 ? (
+                  <p className={styles.convEmpty}>
+                    Sem mensagens registradas para este atendimento.
+                  </p>
+                ) : (
+                  <div className={styles.convScroll}>
+                    {groupMsgsByDay(convMsgs).map(({ label, msgs: dayMsgs }) => (
+                      <div key={label}>
+                        <div className={styles.convDateDivider}>
+                          <span className={styles.convDateLabel}>{label}</span>
+                        </div>
+                        {dayMsgs.map((msg, idx) => (
                           <div
-                            className={`${styles.convBubble} ${
+                            key={msg.id ?? `${label}-${idx}`}
+                            className={`${styles.convBubbleRow} ${
                               msg.direction === "in"
-                                ? styles.convBubbleIn
-                                : styles.convBubbleOut
+                                ? styles.convBubbleRowIn
+                                : styles.convBubbleRowOut
                             }`}
                           >
-                            {msg.text}
+                            <div className={styles.convMeta}>
+                              <span
+                                className={`${styles.convSender} ${
+                                  msg.direction === "in"
+                                    ? styles.convSenderIn
+                                    : styles.convSenderOut
+                                }`}
+                              >
+                                {msg.direction === "in" ? "Cliente" : "Enova"}
+                              </span>
+                              {msg.created_at && (
+                                <span className={styles.convTime}>
+                                  {formatMsgTime(msg.created_at)}
+                                </span>
+                              )}
+                            </div>
+                            <div
+                              className={`${styles.convBubble} ${
+                                msg.direction === "in"
+                                  ? styles.convBubbleIn
+                                  : styles.convBubbleOut
+                              }`}
+                            >
+                              {msg.text}
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
+
+            {/* ── Sinais da Conversa: ~35% ── */}
+            {(() => {
+              const sinais = deriveSinaisConversa(convMsgs, lead);
+              return (
+                <div className={`${styles.block} ${styles.blockSinais}`}>
+                  <div className={styles.blockHeader}>
+                    <span className={styles.blockIcon}>📡</span>
+                    <h3 className={styles.blockTitle}>Sinais da Conversa</h3>
+                  </div>
+                  <div className={styles.blockBody}>
+                    <div className={styles.sinaisList}>
+                      <div className={styles.sinaisItem}>
+                        <span className={styles.sinaisLabel}>Bola com</span>
+                        <span
+                          className={`${styles.sinaisValue} ${
+                            sinais.bolaComLabel === "Cliente"
+                              ? styles.sinaisBolaCliente
+                              : sinais.bolaComLabel === "Enova"
+                              ? styles.sinaisBolaEnova
+                              : ""
+                          }`}
+                        >
+                          {sinais.bolaComLabel === "Enova"
+                            ? "🤖 Enova"
+                            : sinais.bolaComLabel === "Cliente"
+                            ? "👤 Cliente"
+                            : "—"}
+                        </span>
+                      </div>
+                      <div className={styles.sinaisItem}>
+                        <span className={styles.sinaisLabel}>Último tema</span>
+                        <span className={styles.sinaisValue}>{sinais.ultimoTema}</span>
+                      </div>
+                      <div className={styles.sinaisItem}>
+                        <span className={styles.sinaisLabel}>Pendência aberta</span>
+                        <span className={styles.sinaisValue}>{sinais.pendenciaAberta}</span>
+                      </div>
+                      <div className={styles.sinaisItem}>
+                        <span className={styles.sinaisLabel}>Risco de travamento</span>
+                        {sinais.riscoTravamento ? (
+                          <span
+                            className={`${styles.sinaisBadge} ${
+                              sinais.riscoTravamento === "ALTO"
+                                ? styles.sinaisRiscoAlto
+                                : sinais.riscoTravamento === "MEDIO"
+                                ? styles.sinaisRiscoMedio
+                                : styles.sinaisRiscoBaixo
+                            }`}
+                          >
+                            {sinais.riscoTravamento === "ALTO"
+                              ? "Alto"
+                              : sinais.riscoTravamento === "MEDIO"
+                              ? "Médio"
+                              : "Baixo"}
+                          </span>
+                        ) : (
+                          <span className={styles.sinaisValue}>—</span>
+                        )}
+                      </div>
+                      <div className={styles.sinaisItem}>
+                        <span className={styles.sinaisLabel}>Sinal do cliente</span>
+                        <span className={styles.sinaisValue}>{sinais.ultimoSinalCliente}</span>
+                      </div>
+                      <div className={`${styles.sinaisItem} ${styles.sinaisItemFull}`}>
+                        <span className={styles.sinaisLabel}>Próxima abordagem</span>
+                        <span className={`${styles.sinaisValue} ${styles.sinaisAbordagem}`}>
+                          {sinais.proximaAbordagem}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
           {/* ═══════════════════════════════════════

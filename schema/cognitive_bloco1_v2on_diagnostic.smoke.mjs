@@ -80,21 +80,34 @@ await asyncTest("T2: no cognitive reply → mechanical only (no cognitive leak)"
 });
 
 await asyncTest("T3: opening guard — inicio + opening_used=false → prefix nullified", () => {
+  const stage = "inicio";
   const st = { opening_used: false, __cognitive_reply_prefix: "Oi! Que bom..." };
 
-  // Simulate opening guard
-  if ("inicio" === "inicio" && st.opening_used !== true) {
+  // Simulate opening guard (worker.js L20852-20853)
+  if (stage === "inicio" && st.opening_used !== true) {
     st.__cognitive_reply_prefix = null;
   }
 
   assert.strictEqual(st.__cognitive_reply_prefix, null, "prefix must be null after opening guard");
 });
 
+await asyncTest("T3b: opening guard — non-inicio stage → prefix preserved regardless of opening_used", () => {
+  const stage = "inicio_programa";
+  const st = { opening_used: false, __cognitive_reply_prefix: "Oi! Que bom..." };
+
+  if (stage === "inicio" && st.opening_used !== true) {
+    st.__cognitive_reply_prefix = null;
+  }
+
+  assert.strictEqual(st.__cognitive_reply_prefix, "Oi! Que bom...", "prefix must survive for non-inicio stages");
+});
+
 await asyncTest("T4: opening guard — inicio + opening_used=true → prefix preserved", () => {
+  const stage = "inicio";
   const st = { opening_used: true, __cognitive_reply_prefix: "Oi! Que bom..." };
 
-  // Opening guard should NOT fire
-  if ("inicio" === "inicio" && st.opening_used !== true) {
+  // Opening guard should NOT fire when opening_used=true
+  if (stage === "inicio" && st.opening_used !== true) {
     st.__cognitive_reply_prefix = null;
   }
 

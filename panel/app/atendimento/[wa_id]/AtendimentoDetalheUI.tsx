@@ -65,6 +65,15 @@ export type AttendanceDetalheRow = {
   nacionalidade: string | null;
   entrada_valor: number | null;
   resumo_curto: string | null;
+  // ── Campos operacionais humanos (enova_attendance_meta fase 2) ──
+  responsavel: string | null;
+  objecao_principal: string | null;
+  interesse_atual: string | null;
+  momento_do_cliente: string | null;
+  quick_note: string | null;
+  human_next_action: string | null;
+  // ── Temperatura do lead (crm_lead_meta) ──
+  lead_temp: string | null;
   tem_incidente_aberto: boolean | null;
   tipo_incidente: string | null;
   severidade_incidente: string | null;
@@ -224,6 +233,34 @@ function getIncidenteBadgeCls(severidade: string | null | undefined): string {
 function isPrazoVencido(prazo: string | null | undefined): boolean {
   if (!prazo) return false;
   return new Date(prazo) < new Date();
+}
+
+function getTempLabel(temp: string | null | undefined): string {
+  switch (temp) {
+    case "HOT": return "🔥 Quente";
+    case "WARM": return "🌡 Morno";
+    case "COLD": return "❄️ Frio";
+    default: return temp ?? DASH;
+  }
+}
+
+function getTempBadgeCls(temp: string | null | undefined): string {
+  switch (temp) {
+    case "HOT": return styles.tempBadgeHot;
+    case "WARM": return styles.tempBadgeWarm;
+    case "COLD": return styles.tempBadgeCold;
+    default: return styles.tempBadgeUnknown;
+  }
+}
+
+function deriveUltimoFalante(
+  ultimaCliente: string | null | undefined,
+  ultimaEnova: string | null | undefined,
+): string {
+  if (!ultimaCliente && !ultimaEnova) return DASH;
+  if (!ultimaCliente) return "Enova";
+  if (!ultimaEnova) return "Cliente";
+  return new Date(ultimaCliente) > new Date(ultimaEnova) ? "Cliente" : "Enova";
 }
 
 /* ── Profile editing types (mirrors AtendimentoUI) ── */
@@ -595,7 +632,130 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
           )}
 
           {/* ═══════════════════════════════════════
-             BLOCO 2 — PERFIL EDITÁVEL DO SOLICITANTE
+             BLOCO 2 (full) — RESUMO COMERCIAL
+             Dados reais: interesse_atual, objecao_principal,
+             momento_do_cliente, responsavel, resumo_curto,
+             lead_temp, quem_falou_ultimo (derivado).
+             ═══════════════════════════════════════ */}
+          <div className={`${styles.block} ${styles.blockFull} ${styles.blockComercial}`}>
+            <div className={styles.blockHeader}>
+              <span className={styles.blockIcon}>📊</span>
+              <h3 className={styles.blockTitle}>Resumo Comercial</h3>
+            </div>
+            <div className={styles.blockBody}>
+              <div className={styles.detailGrid}>
+                <div className={styles.fieldItem}>
+                  <span className={styles.fieldLabel}>Interesse atual</span>
+                  <span className={lead.interesse_atual ? styles.fieldValue : styles.fieldValueMuted}>
+                    {txt(lead.interesse_atual)}
+                  </span>
+                </div>
+                <div className={styles.fieldItem}>
+                  <span className={styles.fieldLabel}>Objeção principal</span>
+                  <span className={lead.objecao_principal ? styles.fieldValue : styles.fieldValueMuted}>
+                    {txt(lead.objecao_principal)}
+                  </span>
+                </div>
+                <div className={styles.fieldItem}>
+                  <span className={styles.fieldLabel}>Momento do cliente</span>
+                  <span className={lead.momento_do_cliente ? styles.fieldValue : styles.fieldValueMuted}>
+                    {txt(lead.momento_do_cliente)}
+                  </span>
+                </div>
+                <div className={styles.fieldItem}>
+                  <span className={styles.fieldLabel}>Quem falou por último</span>
+                  <span className={styles.fieldValue}>
+                    {deriveUltimoFalante(lead.ultima_interacao_cliente, lead.ultima_interacao_enova)}
+                  </span>
+                </div>
+                <div className={styles.fieldItem}>
+                  <span className={styles.fieldLabel}>Responsável</span>
+                  <span className={lead.responsavel ? styles.fieldValue : styles.fieldValueMuted}>
+                    {txt(lead.responsavel)}
+                  </span>
+                </div>
+                <div className={styles.fieldItem}>
+                  <span className={styles.fieldLabel}>Temperatura</span>
+                  {lead.lead_temp ? (
+                    <span className={`${styles.tempBadge} ${getTempBadgeCls(lead.lead_temp)}`}>
+                      {getTempLabel(lead.lead_temp)}
+                    </span>
+                  ) : (
+                    <span className={styles.fieldValueMuted}>{DASH}</span>
+                  )}
+                </div>
+                {lead.resumo_curto && (
+                  <div className={styles.fieldItemFull}>
+                    <span className={styles.fieldLabel}>Resumo rápido do caso</span>
+                    <span className={styles.fieldValue}>{lead.resumo_curto}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* ═══════════════════════════════════════
+             BLOCO 3 (full) — FEEDBACK HUMANO DO CORRETOR
+             Dados reais: momento_do_cliente, quick_note.
+             Preparados (sem backend ainda): percepção do lead,
+             leitura comercial, interesse real, nota do corretor.
+             ═══════════════════════════════════════ */}
+          <div className={`${styles.block} ${styles.blockFull} ${styles.blockFeedback}`}>
+            <div className={styles.blockHeader}>
+              <span className={styles.blockIcon}>💬</span>
+              <h3 className={styles.blockTitle}>Feedback Humano do Corretor</h3>
+            </div>
+            <div className={styles.blockBody}>
+              <div className={styles.detailGrid}>
+                {/* Dado real: momento_do_cliente */}
+                <div className={styles.fieldItem}>
+                  <span className={styles.fieldLabel}>Momento do cliente</span>
+                  <span className={lead.momento_do_cliente ? styles.fieldValue : styles.fieldValueMuted}>
+                    {txt(lead.momento_do_cliente)}
+                  </span>
+                </div>
+                {/* Dado real: quick_note → observação interna */}
+                <div className={styles.fieldItem}>
+                  <span className={styles.fieldLabel}>Observação interna</span>
+                  <span className={lead.quick_note ? styles.fieldValue : styles.fieldValueMuted}>
+                    {txt(lead.quick_note)}
+                  </span>
+                </div>
+                {/* Preparado — sem campo DB ainda */}
+                <div className={styles.fieldItem}>
+                  <span className={styles.fieldLabel}>
+                    Percepção do lead
+                    <span className={styles.placeholderTag}> · preparado</span>
+                  </span>
+                  <span className={styles.fieldValueMuted}>{DASH}</span>
+                </div>
+                <div className={styles.fieldItem}>
+                  <span className={styles.fieldLabel}>
+                    Leitura comercial
+                    <span className={styles.placeholderTag}> · preparado</span>
+                  </span>
+                  <span className={styles.fieldValueMuted}>{DASH}</span>
+                </div>
+                <div className={styles.fieldItem}>
+                  <span className={styles.fieldLabel}>
+                    Interesse real
+                    <span className={styles.placeholderTag}> · preparado</span>
+                  </span>
+                  <span className={styles.fieldValueMuted}>{DASH}</span>
+                </div>
+                <div className={styles.fieldItem}>
+                  <span className={styles.fieldLabel}>
+                    Nota do corretor
+                    <span className={styles.placeholderTag}> · preparado</span>
+                  </span>
+                  <span className={styles.fieldValueMuted}>{DASH}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ═══════════════════════════════════════
+             BLOCO 4 — PERFIL EDITÁVEL DO SOLICITANTE
              ═══════════════════════════════════════ */}
           <div className={`${styles.block} ${styles.blockFull}`}>
             <div className={styles.blockHeader}>

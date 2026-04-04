@@ -11,7 +11,7 @@
 //     PR 3 = Estado Cognitivo no CRM
 //
 // Fontes reais usadas:
-//   - AttendanceDetalheRow  (enova_attendance_v1 — view principal do atendimento)
+//   - LeadSignalsInput      (contrato canônico de entrada — enova_attendance_v1)
 //   - LeadSignalMsg[]       (mensagens opcionais — enova_messages, se já carregadas)
 //   - ClientProfileRow      (enova_state + enova_prefill_meta, opcional)
 //
@@ -24,7 +24,6 @@
 //   - Sugestão de ação: intencionalmente fora — PR 2/3.
 // ============================================================
 
-import type { AttendanceDetalheRow } from "../atendimento/[wa_id]/AtendimentoDetalheUI";
 import type { ClientProfileRow } from "../api/client-profile/_shared";
 
 // ── Input types ────────────────────────────────────────────────────────────
@@ -35,6 +34,71 @@ export type LeadSignalMsg = {
   direction: "in" | "out"; // "in" = do cliente; "out" = da Enova
   text: string | null;
   created_at: string | null;
+};
+
+/**
+ * LeadSignalsInput — contrato canônico de entrada do agregador de sinais.
+ *
+ * Define exatamente os campos que buildLeadSignals() consome de enova_attendance_v1.
+ * Desacoplado do componente de UI: qualquer objeto com estes campos é aceito
+ * (duck-typing estrutural do TypeScript).
+ * AttendanceDetalheRow é um superconjunto deste tipo e satisfaz o contrato.
+ */
+export type LeadSignalsInput = {
+  // ── Identificação ──
+  wa_id: string;
+  lead_id: string | null;
+  nome: string | null;
+  telefone: string | null;
+  // ── Interação ──
+  ultima_interacao_cliente: string | null;
+  ultima_interacao_enova: string | null;
+  // ── Funil / operação ──
+  fase_funil: string | null;
+  fase_atendimento: string | null;
+  fase_travamento: string | null;
+  status_funil: string | null;
+  status_atencao: string | null;
+  pendencia_principal: string | null;
+  proxima_acao: string | null;
+  prazo_proxima_acao: string | null;
+  gatilho_proxima_acao: string | null;
+  proxima_acao_executavel: boolean | null;
+  tem_incidente_aberto: boolean | null;
+  tipo_incidente: string | null;
+  severidade_incidente: string | null;
+  // ── Perfil ──
+  nacionalidade: string | null;
+  estado_civil: string | null;
+  regime_trabalho: string | null;
+  renda: number | null;
+  renda_total: number | null;
+  somar_renda: boolean | null;
+  composicao: string | null;
+  ctps_36: boolean | null;
+  restricao: boolean | null;
+  dependentes_qtd: number | null;
+  entrada_valor: number | null;
+  ir_declarado: boolean | null;
+  // ── Feedback humano ──
+  responsavel: string | null;
+  interesse_atual: string | null;
+  objecao_principal: string | null;
+  momento_do_cliente: string | null;
+  quick_note: string | null;
+  human_next_action: string | null;
+  // ── Timing ──
+  criado_em: string | null;
+  atualizado_em: string | null;
+  movido_fase_em: string | null;
+  movido_base_em: string | null;
+  travou_em: string | null;
+  arquivado_em: string | null;
+  // ── Contexto / CRM ──
+  crm_lead_pool: string | null;
+  base_atual: string | null;
+  base_origem: string | null;
+  lead_temp: string | null;
 };
 
 // ── Output type ────────────────────────────────────────────────────────────
@@ -218,12 +282,12 @@ function deriveUltimoSinalCliente(msgs: LeadSignalMsg[]): string | null {
  *   - Sem escrita em banco de dados.
  *   - Sem side effects.
  *
- * @param lead    - Ficha de atendimento (enova_attendance_v1).
+ * @param lead    - Campos canônicos de entrada (enova_attendance_v1).
  * @param msgs    - Mensagens de conversa já carregadas (opcional).
- * @param profile - Perfil canônico do cliente (opcional, enriquece `perfil` e `contexto`).
+ * @param profile - Perfil canônico do cliente (opcional, enriquece `contexto.origem_lead`).
  */
 export function buildLeadSignals(
-  lead: AttendanceDetalheRow,
+  lead: LeadSignalsInput,
   msgs: LeadSignalMsg[] = [],
   profile: ClientProfileRow | null = null,
 ): LeadSignals {

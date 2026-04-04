@@ -22217,10 +22217,12 @@ case "inicio_programa": {
     nt.includes("não entendi") ||
     nt.includes("nao entendi") ||
     nt.includes("explica") ||
+    nt.includes("explique") ||
     nt.includes("me explica") ||
     nt.includes("pode explicar") ||
     nt.includes("como funciona") ||
     nt.includes("quero saber") ||
+    nt.includes("quero entender") ||
     nt.includes("quero que explique") ||
     nt.includes("manda de outro jeito") ||
     nt.includes("manda de outro jeitinho") ||

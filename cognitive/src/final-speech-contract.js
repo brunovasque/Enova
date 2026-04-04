@@ -92,12 +92,12 @@ const SAFE_REPLACEMENT_MAP = Object.freeze({
 // collection patterns. A reply in stage X must not contain collection questions
 // about any stage group that follows X in the funnel.
 const COLLECTION_PATTERNS = Object.freeze({
-  estado_civil: /\b(?:estado civil|solteiro|casad[oa]|divorci|separad[oa]|vi[uú]v[oa]|uni[aã]o est[aá]vel)\b.*?\?/gi,
-  regime_trabalho: /\b(?:regime de trabalho|CLT|aut[oô]nomo|servidor|aposentad[oa])\b.*?\?/gi,
-  renda: /\b(?:renda mensal|quanto (?:voc[eê] )?ganh|sal[aá]rio mensal|valor d[ae] renda)\b.*?\?/gi,
-  composicao: /\b(?:somar renda|sozinho ou com|vai (?:seguir|compor) (?:sozinho|com))\b.*?\?/gi,
-  ctps: /\b(?:CTPS|carteira de trabalho|36 meses)\b.*?\?/gi,
-  restricao: /\b(?:restri[cç][aã]o no (?:seu )?CPF|nome sujo|SPC|Serasa)\b.*?\?/gi,
+  estado_civil: /\b(?:estado civil|solteiro|casad[oa]|divorci|separad[oa]|vi[uú]v[oa]|uni[aã]o est[aá]vel)\b[^?]*?\?/gi,
+  regime_trabalho: /\b(?:regime de trabalho|CLT|aut[oô]nomo|servidor|aposentad[oa])\b[^?]*?\?/gi,
+  renda: /\b(?:renda mensal|quanto (?:voc[eê] )?ganh|sal[aá]rio mensal|valor d[ae] renda)\b[^?]*?\?/gi,
+  composicao: /\b(?:somar renda|sozinho ou com|vai (?:seguir|compor) (?:sozinho|com))\b[^?]*?\?/gi,
+  ctps: /\b(?:CTPS|carteira de trabalho|36 meses)\b[^?]*?\?/gi,
+  restricao: /\b(?:restri[cç][aã]o no (?:seu )?CPF|nome sujo|SPC|Serasa)\b[^?]*?\?/gi,
 });
 
 // Maps each stage group to the collection patterns that are FORBIDDEN in replies
@@ -135,12 +135,12 @@ function stripFutureStageCollection(reply, currentStage) {
   for (const patternKey of forbidden) {
     const regex = COLLECTION_PATTERNS[patternKey];
     if (!regex) continue;
-    // Create fresh RegExp to avoid lastIndex mutation
-    const fresh = new RegExp(regex.source, regex.flags);
-    result = result.replace(fresh, "").trim();
+    // Reset lastIndex before each use (regex has 'g' flag)
+    regex.lastIndex = 0;
+    result = result.replace(regex, "").trim();
   }
-  // Clean up trailing orphan punctuation or whitespace from stripping
-  result = result.replace(/\s{2,}/g, " ").replace(/\s+([,.!?;:])/g, "$1").trim();
+  // Clean up double spaces and orphan punctuation from stripping in one pass
+  result = result.replace(/\s{2,}|\s+(?=[,.!?;:])/g, (m) => /\s+(?=[,.!?;:])/.test(m) ? "" : " ").trim();
   return result;
 }
 

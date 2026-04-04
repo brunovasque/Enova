@@ -2636,8 +2636,12 @@ function ensureReplyHasNextAction(replyText, context) {
   // ONE-TURN-ONE-GOAL: Se a guidance já termina com instrução de resposta explícita
   // (ex: "Responda *sim* ou *não*.", opções com asterisco, "Me manda", "Me diz", "Me confirma"),
   // não concatenar segunda ação — respeita o turno único com um só objetivo.
-  const replyTail = safeReply.trim().slice(-120);
+  // Analyse the last 120 chars to detect actionable endings (covers longest option lists).
+  const TAIL_ANALYSIS_LENGTH = 120;
+  const replyTail = safeReply.trim().slice(-TAIL_ANALYSIS_LENGTH);
+  // Detects "Responda ..." ending (explicit response instruction)
   if (/\bresponda\b.{0,60}$/i.test(replyTail) && safeReply.length > MIN_GUIDED_REPLY_LENGTH) return safeReply;
+  // Detects "*sim*" or "*não*" wrapped options ending with period/exclamation (choice-with-options pattern)
   if (/\*(?:sim|não|nao)\*\s*[^?]*[.!)]\s*$/i.test(replyTail) && safeReply.length > MIN_GUIDED_REPLY_LENGTH) return safeReply;
 
   return `${safeReply} ${actionPrompt}`.trim();

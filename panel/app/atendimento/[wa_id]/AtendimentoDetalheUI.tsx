@@ -707,13 +707,6 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
             </div>
             <div className={styles.blockBody}>
               <div className={styles.detailGrid}>
-                {/* Dado real: momento_do_cliente */}
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Momento do cliente</span>
-                  <span className={lead.momento_do_cliente ? styles.fieldValue : styles.fieldValueMuted}>
-                    {txt(lead.momento_do_cliente)}
-                  </span>
-                </div>
                 {/* Dado real: quick_note → observação interna */}
                 <div className={styles.fieldItem}>
                   <span className={styles.fieldLabel}>Observação interna</span>

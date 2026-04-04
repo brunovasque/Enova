@@ -1006,3 +1006,137 @@
   letter-spacing: 0;
   font-style: italic;
 }
+
+/* ── Bloco Interação AI (indigo accent) ── */
+.blockConversa {
+  border-left: 3px solid rgba(129, 140, 248, 0.3);
+}
+
+/* ── Conversation scroll container ── */
+.convScroll {
+  max-height: 480px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 6px;
+}
+
+.convScroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.convScroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 999px;
+}
+
+/* ── Date divider ── */
+.convDateDivider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 8px;
+}
+
+.convDateDivider::before,
+.convDateDivider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.convDateLabel {
+  font-size: 0.6875rem;
+  color: #52525b;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Bubble rows ── */
+.convBubbleRow {
+  display: flex;
+  flex-direction: column;
+  max-width: 74%;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.convBubbleRowIn {
+  align-self: flex-start;
+}
+
+.convBubbleRowOut {
+  align-self: flex-end;
+  align-items: flex-end;
+}
+
+/* ── Sender + time meta line ── */
+.convMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.convSender {
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.convSenderIn {
+  color: #71717a;
+}
+
+.convSenderOut {
+  color: #4d9f9f;
+}
+
+.convTime {
+  font-size: 0.625rem;
+  color: #3f3f46;
+}
+
+/* ── Bubbles ── */
+.convBubble {
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.convBubbleIn {
+  background: rgba(255, 255, 255, 0.05);
+  color: #d4d4d8;
+  border-bottom-left-radius: 3px;
+}
+
+.convBubbleOut {
+  background: rgba(45, 165, 165, 0.1);
+  color: #7dd3d3;
+  border: 1px solid rgba(45, 165, 165, 0.1);
+  border-bottom-right-radius: 3px;
+}
+
+/* ── Empty / loading / error states ── */
+.convEmpty {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #3f3f46;
+  font-style: italic;
+  padding: 20px 0;
+  text-align: center;
+}
+
+.convLoading {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #52525b;
+  padding: 20px 0;
+  text-align: center;
+}

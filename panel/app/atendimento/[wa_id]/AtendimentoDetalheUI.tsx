@@ -14,7 +14,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import styles from "./detalhe.module.css";
 import type { ClientProfileRow } from "../../api/client-profile/_shared";
 import {
@@ -370,6 +370,80 @@ function sourceBadgeClass(source: ProfileSource): string {
   }
 }
 
+/* ── Conversa read-only ── */
+
+type ConversaMsg = {
+  id: string | null;
+  direction: "in" | "out";
+  text: string | null;
+  created_at: string | null;
+};
+
+function formatMsgTime(dateStr: string | null): string {
+  if (!dateStr) return "";
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "America/Sao_Paulo",
+    }).format(new Date(dateStr));
+  } catch {
+    return "";
+  }
+}
+
+function formatMsgDayLabel(dateStr: string | null): string {
+  if (!dateStr) return "Sem data";
+  try {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const dayFmt = new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      timeZone: "America/Sao_Paulo",
+    });
+    const dStr = dayFmt.format(d);
+    const todayStr = dayFmt.format(now);
+    const yDate = new Date(now);
+    yDate.setDate(now.getDate() - 1);
+    const yStr = dayFmt.format(yDate);
+    if (dStr === todayStr) return "Hoje";
+    if (dStr === yStr) return "Ontem";
+    return dStr;
+  } catch {
+    return "Sem data";
+  }
+}
+
+function groupMsgsByDay(msgs: ConversaMsg[]): Array<{ label: string; msgs: ConversaMsg[] }> {
+  const groups: { key: string; label: string; msgs: ConversaMsg[] }[] = [];
+  const keyIdx = new Map<string, number>();
+  for (const msg of msgs) {
+    let key = "sem_data";
+    if (msg.created_at) {
+      try {
+        key = new Intl.DateTimeFormat("pt-BR", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          timeZone: "America/Sao_Paulo",
+        }).format(new Date(msg.created_at));
+      } catch {
+        key = "sem_data";
+      }
+    }
+    const idx = keyIdx.get(key);
+    if (idx !== undefined) {
+      groups[idx].msgs.push(msg);
+    } else {
+      keyIdx.set(key, groups.length);
+      groups.push({ key, label: formatMsgDayLabel(msg.created_at), msgs: [msg] });
+    }
+  }
+  return groups;
+}
+
 /* ── Archive reason options ── */
 
 const ARCHIVE_REASON_OPTIONS = [
@@ -418,6 +492,43 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [feedbackFeedback, setFeedbackFeedback] = useState<string | null>(null);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+
+  /* ── Conversa read-only state ── */
+  const [convMsgs, setConvMsgs] = useState<ConversaMsg[]>([]);
+  const [convLoading, setConvLoading] = useState(true);
+  const [convError, setConvError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMsgs() {
+      setConvLoading(true);
+      setConvError(null);
+      try {
+        const resp = await fetch(
+          `/api/messages?wa_id=${encodeURIComponent(lead.wa_id)}&limit=200`,
+          { cache: "no-store" },
+        );
+        const data = (await resp.json()) as {
+          ok: boolean;
+          messages?: ConversaMsg[];
+          error?: string | null;
+        };
+        if (!cancelled) {
+          if (data.ok && Array.isArray(data.messages)) {
+            setConvMsgs(data.messages);
+          } else {
+            setConvError(data.error ?? "Erro ao carregar conversa");
+          }
+        }
+      } catch {
+        if (!cancelled) setConvError("Erro ao carregar conversa");
+      } finally {
+        if (!cancelled) setConvLoading(false);
+      }
+    }
+    void loadMsgs();
+    return () => { cancelled = true; };
+  }, [lead.wa_id]);
 
   /* ── Profile save handler ── */
   const handleSaveProfile = useCallback(async () => {
@@ -843,6 +954,76 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                 {feedbackFeedback && <span className={styles.profileFeedback}>{feedbackFeedback}</span>}
                 {feedbackError && <span className={styles.profileFeedbackError}>{feedbackError}</span>}
               </div>
+            </div>
+          </div>
+
+          {/* ═══════════════════════════════════════
+             BLOCO CONVERSA — Interação AI (read-only)
+             Fonte: enova_log via /api/messages
+             Tags: meta_minimal (in) · DECISION_OUTPUT/SEND_OK (out)
+             100% read-only — sem input, sem botão, sem ação
+             ═══════════════════════════════════════ */}
+          <div className={`${styles.block} ${styles.blockFull} ${styles.blockConversa}`}>
+            <div className={styles.blockHeader}>
+              <span className={styles.blockIcon}>🗨️</span>
+              <h3 className={styles.blockTitle}>Interação AI</h3>
+            </div>
+            <div className={styles.blockBody}>
+              {convLoading ? (
+                <p className={styles.convLoading}>Carregando conversa…</p>
+              ) : convError ? (
+                <p className={styles.convEmpty}>{convError}</p>
+              ) : convMsgs.length === 0 ? (
+                <p className={styles.convEmpty}>
+                  Sem mensagens registradas para este atendimento.
+                </p>
+              ) : (
+                <div className={styles.convScroll}>
+                  {groupMsgsByDay(convMsgs).map(({ label, msgs: dayMsgs }) => (
+                    <div key={label}>
+                      <div className={styles.convDateDivider}>
+                        <span className={styles.convDateLabel}>{label}</span>
+                      </div>
+                      {dayMsgs.map((msg, idx) => (
+                        <div
+                          key={msg.id ?? `${label}-${idx}`}
+                          className={`${styles.convBubbleRow} ${
+                            msg.direction === "in"
+                              ? styles.convBubbleRowIn
+                              : styles.convBubbleRowOut
+                          }`}
+                        >
+                          <div className={styles.convMeta}>
+                            <span
+                              className={`${styles.convSender} ${
+                                msg.direction === "in"
+                                  ? styles.convSenderIn
+                                  : styles.convSenderOut
+                              }`}
+                            >
+                              {msg.direction === "in" ? "Cliente" : "Enova"}
+                            </span>
+                            {msg.created_at && (
+                              <span className={styles.convTime}>
+                                {formatMsgTime(msg.created_at)}
+                              </span>
+                            )}
+                          </div>
+                          <div
+                            className={`${styles.convBubble} ${
+                              msg.direction === "in"
+                                ? styles.convBubbleIn
+                                : styles.convBubbleOut
+                            }`}
+                          >
+                            {msg.text}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

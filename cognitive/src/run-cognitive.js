@@ -101,6 +101,8 @@ const VISITA_RESCHEDULE_PATTERN = /\b(remarcar|reagendar|outro hor[aá]rio|outro
 const VISITA_ACCEPT_PATTERN = /\b(quero visitar|aceito visita|vamos agendar|pode agendar|quero agendar)\b/i;
 const VISITA_RESIST_PATTERN = /\b(n[aã]o quero visitar|prefiro n[aã]o visitar|pra que visitar|por que visitar)\b/i;
 const VISITA_ESFRIAMENTO_PATTERN = /\b(vou pensar|preciso pensar|quem sabe|ainda nao decidi|ainda não decidi|deixa eu ver|quando puder|sem pressa)\b/i;
+const JA_FOI_PLANTAO_VERB_PATTERN = /\b(ja fui|já fui|ja passei|já passei|ja visitei|já visitei|ja estive|já estive)\b/;
+const JA_FOI_PLANTAO_CONTEXT_PATTERN = /\b(plant[aã]o|l[aá]|visita)\b/;
 const ALUGUEL_HINT_PATTERN = /\b(aluguel|alugar|alugo|alugando)\b/i;
 const DOC_TIPO_RESPOSTA_PATTERN =
   /\b(holerite|comprovante(?: de (?:residencia|renda))?|ctps|carteira de trabalho|rg|cnh|cpf|declaracao|imposto de renda|extrato|identidade|documento pessoal)\b/i;
@@ -1044,7 +1046,7 @@ function buildVisitaGuidance(request) {
   }
 
   // BLOCO 13 — "já fui ao plantão" → persuasão máxima, não aceitar como fim de linha
-  if (/\b(ja fui|já fui|ja passei|já passei|ja visitei|já visitei|ja estive|já estive)\b/.test(normalizedMessage) && /\b(plant[aã]o|l[aá]|visita)\b/.test(normalizedMessage)) {
+  if (JA_FOI_PLANTAO_VERB_PATTERN.test(normalizedMessage) && JA_FOI_PLANTAO_CONTEXT_PATTERN.test(normalizedMessage)) {
     return "Entendo — mas nem sempre as opções são as mesmas. Tudo depende do corretor, do perfil atualizado e das condições do momento. Vale a pena ir de novo porque pode ter mudado bastante coisa a seu favor.";
   }
 
@@ -1134,7 +1136,7 @@ function buildOperacionalFinalGuidance(request) {
     if (globalReply) return wrapWithReanchor(globalReply.reply, stage);
 
     // BLOCO 13 — "já fui ao plantão" → persuasão máxima
-    if (/\b(ja fui|já fui|ja passei|já passei|ja visitei|já visitei|ja estive|já estive)\b/.test(normalizedMessage) && /\b(plant[aã]o|l[aá]|visita)\b/.test(normalizedMessage)) {
+    if (JA_FOI_PLANTAO_VERB_PATTERN.test(normalizedMessage) && JA_FOI_PLANTAO_CONTEXT_PATTERN.test(normalizedMessage)) {
       return "Nem sempre as opções são as mesmas — tudo depende do corretor e do perfil atualizado. Vale a pena ir de novo. Quer que eu encaixe você na agenda oficial?";
     }
 
@@ -1151,7 +1153,7 @@ function buildOperacionalFinalGuidance(request) {
 
   // BLOCO 13 — visita_confirmada: guidance para off-track
   if (stage === "visita_confirmada") {
-    if (/\b(ja fui|já fui|ja passei|já passei|ja visitei|já visitei|ja estive|já estive)\b/.test(normalizedMessage) && /\b(plant[aã]o|l[aá]|visita)\b/.test(normalizedMessage)) {
+    if (JA_FOI_PLANTAO_VERB_PATTERN.test(normalizedMessage) && JA_FOI_PLANTAO_CONTEXT_PATTERN.test(normalizedMessage)) {
       return "Nem sempre as opções são as mesmas — tudo depende do corretor e do perfil atualizado. Vale a pena ir de novo porque pode ter mudado bastante coisa a seu favor.";
     }
     if (/\bprecisa levar\b|\bvir acompanhaad\b|\bvir com\b|\blevar algu[eé]m\b|\bacompanhante\b/.test(normalizedMessage)) {

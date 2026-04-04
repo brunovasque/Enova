@@ -254,6 +254,26 @@ test('12. "já sei" → sim=true (regression: já sei still works)', () => {
   assert.strictEqual(nao, false, "nao must be false for 'já sei'");
 });
 
+// ──────────────────────────────────────────────
+// 13. "quero explicação" — explicacao contains "explica" as substring after normalization
+// ──────────────────────────────────────────────
+test('13. "quero explicação" → nao=true (explicacao substring of explica)', () => {
+  const { sim, nao, ambiguo } = detectInicioProgramaIntent("quero explicação");
+  assert.strictEqual(nao, true, "nao must be true for 'quero explicação' (explicacao contains 'explica')");
+  assert.strictEqual(sim, false, "sim must be false");
+  assert.strictEqual(ambiguo, false, "must not be ambiguous");
+});
+
+// ──────────────────────────────────────────────
+// 14. "me explique sobre o programa" — explique patch + compound phrase
+// ──────────────────────────────────────────────
+test('14. "me explique sobre o programa" → nao=true (explique patch, compound)', () => {
+  const { sim, nao, ambiguo } = detectInicioProgramaIntent("me explique sobre o programa");
+  assert.strictEqual(nao, true, "nao must be true for 'me explique sobre o programa'");
+  assert.strictEqual(sim, false, "sim must be false");
+  assert.strictEqual(ambiguo, false, "must not be ambiguous");
+});
+
 // ── Summary
 console.log(`\n${"─".repeat(50)}`);
 console.log(`cognitive_inicio_programa_explicacao.smoke: ${passed} passed, ${failed} failed`);

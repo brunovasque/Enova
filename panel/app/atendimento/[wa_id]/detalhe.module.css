@@ -1165,8 +1165,11 @@
 /* ── Conversa + Sinais split layout ── */
 .convSinaisWrapper {
   display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   gap: 16px;
   align-items: stretch;
+  width: 100%;
 }
 
 /* Main conversation panel: fills remaining space */
@@ -1180,7 +1183,8 @@
   flex: 0 0 290px;
   min-width: 240px;
   max-width: 320px;
-  border-left: 3px solid rgba(99, 102, 241, 0.25);
+  min-height: 200px;
+  border-left: 3px solid rgba(99, 102, 241, 0.35);
 }
 
 /* ── Sinais da Conversa — list layout ── */

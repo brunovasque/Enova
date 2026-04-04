@@ -14,7 +14,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import styles from "./detalhe.module.css";
 import type { ClientProfileRow } from "../../api/client-profile/_shared";
 import {
@@ -630,6 +630,22 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
   const [convLoading, setConvLoading] = useState(true);
   const [convError, setConvError] = useState<string | null>(null);
 
+  /* ── Sinais da Conversa — derived client-side, never throws ── */
+  const sinais = useMemo(() => {
+    try {
+      return deriveSinaisConversa(convMsgs, lead);
+    } catch {
+      return {
+        bolaComLabel: "—",
+        ultimoTema: "—",
+        pendenciaAberta: "—",
+        riscoTravamento: null,
+        ultimoSinalCliente: "—",
+        proximaAbordagem: "—",
+      } satisfies SinaisConversa;
+    }
+  }, [convMsgs, lead]);
+
   useEffect(() => {
     let cancelled = false;
     async function loadMsgs() {
@@ -1163,79 +1179,74 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
             </div>
 
             {/* ── Sinais da Conversa: ~35% ── */}
-            {(() => {
-              const sinais = deriveSinaisConversa(convMsgs, lead);
-              return (
-                <div className={`${styles.block} ${styles.blockSinais}`}>
-                  <div className={styles.blockHeader}>
-                    <span className={styles.blockIcon}>📡</span>
-                    <h3 className={styles.blockTitle}>Sinais da Conversa</h3>
+            <div className={`${styles.block} ${styles.blockSinais}`}>
+              <div className={styles.blockHeader}>
+                <span className={styles.blockIcon}>📡</span>
+                <h3 className={styles.blockTitle}>Sinais da Conversa</h3>
+              </div>
+              <div className={styles.blockBody}>
+                <div className={styles.sinaisList}>
+                  <div className={styles.sinaisItem}>
+                    <span className={styles.sinaisLabel}>Bola com</span>
+                    <span
+                      className={`${styles.sinaisValue} ${
+                        sinais.bolaComLabel === "Cliente"
+                          ? styles.sinaisBolaCliente
+                          : sinais.bolaComLabel === "Enova"
+                          ? styles.sinaisBolaEnova
+                          : ""
+                      }`}
+                    >
+                      {sinais.bolaComLabel === "Enova"
+                        ? "🤖 Enova"
+                        : sinais.bolaComLabel === "Cliente"
+                        ? "👤 Cliente"
+                        : "—"}
+                    </span>
                   </div>
-                  <div className={styles.blockBody}>
-                    <div className={styles.sinaisList}>
-                      <div className={styles.sinaisItem}>
-                        <span className={styles.sinaisLabel}>Bola com</span>
-                        <span
-                          className={`${styles.sinaisValue} ${
-                            sinais.bolaComLabel === "Cliente"
-                              ? styles.sinaisBolaCliente
-                              : sinais.bolaComLabel === "Enova"
-                              ? styles.sinaisBolaEnova
-                              : ""
-                          }`}
-                        >
-                          {sinais.bolaComLabel === "Enova"
-                            ? "🤖 Enova"
-                            : sinais.bolaComLabel === "Cliente"
-                            ? "👤 Cliente"
-                            : "—"}
-                        </span>
-                      </div>
-                      <div className={styles.sinaisItem}>
-                        <span className={styles.sinaisLabel}>Último tema</span>
-                        <span className={styles.sinaisValue}>{sinais.ultimoTema}</span>
-                      </div>
-                      <div className={styles.sinaisItem}>
-                        <span className={styles.sinaisLabel}>Pendência aberta</span>
-                        <span className={styles.sinaisValue}>{sinais.pendenciaAberta}</span>
-                      </div>
-                      <div className={styles.sinaisItem}>
-                        <span className={styles.sinaisLabel}>Risco de travamento</span>
-                        {sinais.riscoTravamento ? (
-                          <span
-                            className={`${styles.sinaisBadge} ${
-                              sinais.riscoTravamento === "ALTO"
-                                ? styles.sinaisRiscoAlto
-                                : sinais.riscoTravamento === "MEDIO"
-                                ? styles.sinaisRiscoMedio
-                                : styles.sinaisRiscoBaixo
-                            }`}
-                          >
-                            {sinais.riscoTravamento === "ALTO"
-                              ? "Alto"
-                              : sinais.riscoTravamento === "MEDIO"
-                              ? "Médio"
-                              : "Baixo"}
-                          </span>
-                        ) : (
-                          <span className={styles.sinaisValue}>—</span>
-                        )}
-                      </div>
-                      <div className={styles.sinaisItem}>
-                        <span className={styles.sinaisLabel}>Sinal do cliente</span>
-                        <span className={styles.sinaisValue}>{sinais.ultimoSinalCliente}</span>
-                      </div>
-                      <div className={`${styles.sinaisItem} ${styles.sinaisItemFull}`}>
-                        <span className={styles.sinaisLabel}>Próxima abordagem</span>
-                        <span className={`${styles.sinaisValue} ${styles.sinaisAbordagem}`}>
-                          {sinais.proximaAbordagem}
-                        </span>
-                      </div>
-                    </div>
+                  <div className={styles.sinaisItem}>
+                    <span className={styles.sinaisLabel}>Último tema</span>
+                    <span className={styles.sinaisValue}>{sinais.ultimoTema}</span>
+                  </div>
+                  <div className={styles.sinaisItem}>
+                    <span className={styles.sinaisLabel}>Pendência aberta</span>
+                    <span className={styles.sinaisValue}>{sinais.pendenciaAberta}</span>
+                  </div>
+                  <div className={styles.sinaisItem}>
+                    <span className={styles.sinaisLabel}>Risco de travamento</span>
+                    {sinais.riscoTravamento ? (
+                      <span
+                        className={`${styles.sinaisBadge} ${
+                          sinais.riscoTravamento === "ALTO"
+                            ? styles.sinaisRiscoAlto
+                            : sinais.riscoTravamento === "MEDIO"
+                            ? styles.sinaisRiscoMedio
+                            : styles.sinaisRiscoBaixo
+                        }`}
+                      >
+                        {sinais.riscoTravamento === "ALTO"
+                          ? "Alto"
+                          : sinais.riscoTravamento === "MEDIO"
+                          ? "Médio"
+                          : "Baixo"}
+                      </span>
+                    ) : (
+                      <span className={styles.sinaisValue}>—</span>
+                    )}
+                  </div>
+                  <div className={styles.sinaisItem}>
+                    <span className={styles.sinaisLabel}>Sinal do cliente</span>
+                    <span className={styles.sinaisValue}>{sinais.ultimoSinalCliente}</span>
+                  </div>
+                  <div className={`${styles.sinaisItem} ${styles.sinaisItemFull}`}>
+                    <span className={styles.sinaisLabel}>Próxima abordagem</span>
+                    <span className={`${styles.sinaisValue} ${styles.sinaisAbordagem}`}>
+                      {sinais.proximaAbordagem}
+                    </span>
                   </div>
                 </div>
-              );
-            })()}
+              </div>
+            </div>
           </div>
 
           {/* ═══════════════════════════════════════

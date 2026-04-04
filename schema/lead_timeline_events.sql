@@ -9,10 +9,12 @@ CREATE TABLE IF NOT EXISTS public.lead_timeline_events (
   id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   wa_id       TEXT        NOT NULL,
   event_type  TEXT        NOT NULL,
+  -- event_at: moment the event occurred (may be set explicitly for backfilled events)
   event_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
   author      TEXT        NULL,
   author_type TEXT        NULL,
   summary     TEXT        NULL,
+  -- created_at: moment the record was inserted (always set by the DB, not overrideable)
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

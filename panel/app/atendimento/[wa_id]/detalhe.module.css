@@ -1076,21 +1076,20 @@
   flex-shrink: 0;
 }
 
-/* ── Bubble rows ── */
+/* ── Bubble rows — full-width so no lateral dead space ── */
 .convBubbleRow {
   display: flex;
   flex-direction: column;
-  max-width: 82%;
+  width: 100%;
   gap: 3px;
   margin-bottom: 6px;
 }
 
 .convBubbleRowIn {
-  align-self: flex-start;
+  align-items: flex-start;
 }
 
 .convBubbleRowOut {
-  align-self: flex-end;
   align-items: flex-end;
 }
 
@@ -1123,6 +1122,7 @@
 
 /* ── Bubbles ── */
 .convBubble {
+  max-width: 88%;
   padding: 8px 12px;
   border-radius: 10px;
   font-size: 0.8125rem;

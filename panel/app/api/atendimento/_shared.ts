@@ -51,6 +51,38 @@ export async function getAttendanceLead(
   return rows[0] ?? null;
 }
 
+// ── Lê lead_pool canônico de crm_lead_meta (panel-only, read-only) ──────────
+// base_atual / base_origem no enova_attendance_v1 vêm de enova_attendance_meta
+// (LEFT JOIN — pode ser NULL para leads orgânicos que nunca tiveram attendance_meta).
+// O pool canônico real está em crm_lead_meta.lead_pool. Fetch separado, sem
+// alterar view/schema — enriquecimento panel-side exclusivo.
+export async function getCrmLeadPool(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  wa_id: string,
+): Promise<string | null> {
+  if (!wa_id || !wa_id.trim()) return null;
+
+  const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
+  endpoint.search = `?select=lead_pool&wa_id=eq.${encodeURIComponent(wa_id)}&limit=1`;
+
+  const response = await fetch(endpoint.toString(), {
+    method: "GET",
+    headers: buildSupabaseHeaders(serviceRoleKey),
+    cache: "no-store",
+  });
+
+  if (!response.ok) return null;
+
+  // Returning null for both "no row found" and "error" is intentional:
+  // the caller (fetchAttendanceDetailAction) merges this as crm_lead_pool=null
+  // into the lead object, and the UI falls back to base_atual. Distinguishing
+  // "not found" vs "error" would add noise with no behaviour change.
+  const rows = (await readJsonResponse<Record<string, unknown>[]>(response)) ?? [];
+  const pool = rows[0]?.lead_pool;
+  return typeof pool === "string" ? pool : null;
+}
+
 export async function listAttendanceLeads(
   supabaseUrl: string,
   serviceRoleKey: string,

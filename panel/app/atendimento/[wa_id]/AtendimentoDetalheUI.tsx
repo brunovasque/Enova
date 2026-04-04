@@ -75,6 +75,8 @@ export type AttendanceDetalheRow = {
   human_next_action: string | null;
   // ── Temperatura do lead (crm_lead_meta) ──
   lead_temp: string | null;
+  // ── Pool canônico do lead (crm_lead_meta.lead_pool — enriquecimento panel-side) ──
+  crm_lead_pool: string | null;
   tem_incidente_aberto: boolean | null;
   tipo_incidente: string | null;
   severidade_incidente: string | null;
@@ -1361,14 +1363,16 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
               <div className={styles.detailGrid}>
                 <div className={styles.fieldItem}>
                   <span className={styles.fieldLabel}>Base origem</span>
+                  {/* base_origem vem de attendance_meta — único registro confiável de origem */}
                   <span className={`${styles.baseBadge} ${getBaseBadgeCls(lead.base_origem)}`}>
                     {getBaseLabel(lead.base_origem)}
                   </span>
                 </div>
                 <div className={styles.fieldItem}>
                   <span className={styles.fieldLabel}>Base atual</span>
-                  <span className={`${styles.baseBadge} ${getBaseBadgeCls(lead.base_atual)}`}>
-                    {getBaseLabel(lead.base_atual)}
+                  {/* crm_lead_pool é a fonte canônica — base_atual (attendance_meta) pode ser null */}
+                  <span className={`${styles.baseBadge} ${getBaseBadgeCls(lead.crm_lead_pool ?? lead.base_atual)}`}>
+                    {getBaseLabel(lead.crm_lead_pool ?? lead.base_atual)}
                   </span>
                 </div>
                 <div className={styles.fieldItem}>

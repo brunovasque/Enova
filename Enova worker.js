@@ -3438,6 +3438,16 @@ function hasClearStageAnswer(stage, text) {
     const raw = String(text || "").trim()
       .replace(/^(meu nome e|meu nome é|me chamo|me chama|sou|sou o|sou a|aqui e|aqui é)\s*/i, "")
       .replace(/^["'\-–—\s]+|["'\-–—\s]+$/g, "").trim();
+    // semantic guard — mirrors the guard in case "inicio_nome"
+    const _ntg = normalizeText(raw);
+    if (
+      /\bexplica|\bexplique/.test(_ntg) ||
+      /\bcomo funciona\b/.test(_ntg) ||
+      /\bquero (entender|saber)\b/.test(_ntg) ||
+      /\bpode explicar\b/.test(_ntg) ||
+      /\bnao sei\b/.test(_ntg) ||
+      /\bprefiro que\b/.test(_ntg)
+    ) return false;
     const partes = raw.split(/\s+/).filter(p => p.length >= 2);
     return raw.length >= 2 && partes.length >= 1 && partes.length <= 6;
   }
@@ -22344,6 +22354,42 @@ case "inicio_nome": {
 
   // Limpa aspas e pontuação forte nas pontas
   rawNome = rawNome.replace(/^[\"'\-–—\s]+|[\"'\-–—\s]+$/g, "").trim();
+
+  // ── Guarda semântico: rejeita frases de intenção/explicação/pedido que não são nome.
+  // Atua sobre rawNome já limpo (sem prefixo, sem pontuação nas pontas).
+  // Padrões cobertos: explicação ("explica*", "explique*"), dúvida ("não sei"),
+  // pergunta de funcionamento ("como funciona"), pedidos ("pode explicar",
+  // "quero entender/saber", "prefiro que"). Nenhum nome brasileiro real contém esses tokens.
+  const _ntNomeGuard = normalizeText(rawNome);
+  const _isIntentNotName =
+    /\bexplica|\bexplique/.test(_ntNomeGuard) ||
+    /\bcomo funciona\b/.test(_ntNomeGuard) ||
+    /\bquero (entender|saber)\b/.test(_ntNomeGuard) ||
+    /\bpode explicar\b/.test(_ntNomeGuard) ||
+    /\bnao sei\b/.test(_ntNomeGuard) ||
+    /\bprefiro que\b/.test(_ntNomeGuard);
+
+  if (_isIntentNotName) {
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "inicio_nome",
+      severity: "info",
+      message: "inicio_nome: texto parece intenção/pedido, não nome — solicitando nome novamente",
+      details: { userText, rawNome, guard: "intent_phrase" }
+    });
+
+    return step(
+      env,
+      st,
+      [
+        "Ops, não consegui pegar seu nome 😅",
+        "Me manda seu *nome completo*, por favor, tipo: *Ana Silva*."
+      ],
+      "inicio_nome"
+    );
+  }
 
   // Se ainda ficou vazio ou muito curto, pede de novo
   if (!rawNome || rawNome.length < 2) {

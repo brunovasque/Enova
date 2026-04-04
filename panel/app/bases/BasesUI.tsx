@@ -268,7 +268,7 @@ export function BasesUI() {
       if (showAddModal) { setShowAddModal(false); return; }
       if (showImportModal) { setShowImportModal(false); return; }
       if (showWarmupModal) { setShowWarmupModal(false); return; }
-      if (archiveTarget) { setArchiveTarget(null); setArchiveReasonCode(""); setArchiveNote(""); return; }
+      if (archiveTarget) { closeArchiveModal(); return; }
       if (moveTarget) { setMoveTarget(null); return; }
       if (callNowTarget) { setCallNowTarget(null); return; }
     }
@@ -517,6 +517,8 @@ export function BasesUI() {
     setCallNowTarget(null);
   };
 
+  const closeArchiveModal = () => { setArchiveTarget(null); setArchiveReasonCode(""); setArchiveNote(""); };
+
   const handleArchiveLead = async (lead: CrmLeadMetaRow) => {
     await runAndRefresh(
       async () => callAction({
@@ -527,9 +529,7 @@ export function BasesUI() {
       }),
       `Lead ${leadLabel(lead)} arquivado.`,
     );
-    setArchiveTarget(null);
-    setArchiveReasonCode("");
-    setArchiveNote("");
+    closeArchiveModal();
   };
 
   const handleUnarchiveLead = async (lead: CrmLeadMetaRow) => {
@@ -1499,11 +1499,11 @@ export function BasesUI() {
         </div>
       )}
       {archiveTarget && (
-        <div className={styles.overlay} onClick={() => { setArchiveTarget(null); setArchiveReasonCode(""); setArchiveNote(""); }}>
+        <div className={styles.overlay} onClick={closeArchiveModal}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2 className={styles.modalTitle}>Arquivar lead</h2>
-              <button type="button" className={styles.closeButton} onClick={() => { setArchiveTarget(null); setArchiveReasonCode(""); setArchiveNote(""); }}>
+              <button type="button" className={styles.closeButton} onClick={closeArchiveModal}>
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                   <path d="M1 1L13 13M1 13L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                 </svg>
@@ -1539,7 +1539,7 @@ export function BasesUI() {
               </div>
             </div>
             <div className={styles.modalFooter}>
-              <button type="button" className={styles.secondaryButton} onClick={() => { setArchiveTarget(null); setArchiveReasonCode(""); setArchiveNote(""); }}>
+              <button type="button" className={styles.secondaryButton} onClick={closeArchiveModal}>
                 Cancelar
               </button>
               <button

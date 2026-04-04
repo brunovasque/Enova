@@ -1204,6 +1204,103 @@ async function upsertCrmStageHistory(env, wa_id, etapa_crm) {
 }
 
 // =============================================================
+// 🌱 CRM_LEAD_META — Registro orgânico automático
+// =============================================================
+
+/**
+ * Read existing crm_lead_meta row for a wa_id.
+ * Returns null if not found or table doesn't exist (graceful degradation).
+ */
+async function getCrmLeadMeta(env, wa_id) {
+  const simCtx = getSimulationContext(env);
+  if (simCtx?.active) {
+    return simCtx._crmLeadMeta?.[wa_id] || null;
+  }
+  try {
+    const result = await sbFetch(env, `/rest/v1/crm_lead_meta`, {
+      method: "GET",
+      query: `wa_id=eq.${encodeURIComponent(wa_id)}&limit=1`,
+      headers: {
+        "Content-Type": "application/json",
+        apikey: env.SUPABASE_SERVICE_ROLE,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE}`
+      }
+    });
+    const rows = normalizeSupabaseRows(result);
+    return rows?.[0] || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * If no crm_lead_meta row exists for wa_id, insert a new organic lead record.
+ * Noop if: row already exists, or table doesn't exist yet.
+ * Non-blocking — never breaks the funnel.
+ * Only called when no origin signal was detected (organic path).
+ */
+async function registerOrganicLeadInCrmMeta(env, wa_id, nome) {
+  if (!wa_id) return;
+  const simCtx = getSimulationContext(env);
+  try {
+    if (simCtx?.active) {
+      simCtx._crmLeadMeta = simCtx._crmLeadMeta || {};
+      if (simCtx._crmLeadMeta[wa_id]) return; // already exists — don't overwrite
+      const now = new Date().toISOString();
+      simCtx._crmLeadMeta[wa_id] = {
+        wa_id,
+        nome: nome || null,
+        lead_pool: "COLD_POOL",
+        lead_temp: "COLD",
+        lead_source: "organico",
+        tags: [],
+        auto_outreach_enabled: true,
+        is_paused: false,
+        is_archived: false,
+        created_at: now,
+        updated_at: now
+      };
+      return;
+    }
+
+    const existing = await getCrmLeadMeta(env, wa_id);
+    if (existing) return; // already exists — don't overwrite
+
+    const now = new Date().toISOString();
+    await sbFetch(env, "/rest/v1/crm_lead_meta", {
+      method: "POST",
+      query: null,
+      body: JSON.stringify({
+        wa_id,
+        nome: nome || null,
+        lead_pool: "COLD_POOL",
+        lead_temp: "COLD",
+        lead_source: "organico",
+        tags: [],
+        auto_outreach_enabled: true,
+        is_paused: false,
+        is_archived: false,
+        created_at: now,
+        updated_at: now
+      }),
+      headers: {
+        "Content-Type": "application/json",
+        Prefer: "return=minimal",
+        apikey: env.SUPABASE_SERVICE_ROLE,
+        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE}`
+      }
+    });
+  } catch (err) {
+    const errMsg = String(err?.data?.message || err?.message || err || "");
+    if (/crm_lead_meta/.test(errMsg) && /schema cache|does not exist|relation/i.test(errMsg)) {
+      console.log("CRM_LEAD_META_SKIP: tabela crm_lead_meta ainda não existe. Ignorando registro orgânico.");
+      return;
+    }
+    console.error("CRM_LEAD_META_ORGANIC_ERROR:", errMsg);
+  }
+}
+
+// =============================================================
 // 🚨 INCIDENTES — Helpers de persistência (enova_incidents)
 // =============================================================
 
@@ -8308,6 +8405,8 @@ let userText = null;
     if (!_hasOriginSignal) {
       await upsertState(env, waId, { source_type: "organico" });
       st = { ...st, source_type: "organico" };
+      // Registrar na base operacional (crm_lead_meta) se ainda não existir
+      registerOrganicLeadInCrmMeta(env, waId, st?.nome || null).catch(() => {});
     }
 
     if (st?.atendimento_manual === true) {

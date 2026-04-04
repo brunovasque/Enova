@@ -149,6 +149,14 @@ const FAMILIAR_RENDA_STAGES = new Set(["pais_casados_civil_pergunta", "confirmar
 const P3_RENDA_STAGES = new Set(["p3_tipo_pergunta", "regime_trabalho_parceiro_familiar_p3", "renda_parceiro_familiar_p3", "inicio_multi_regime_p3_pergunta", "inicio_multi_regime_p3_loop", "inicio_multi_renda_p3_pergunta", "inicio_multi_renda_p3_loop"]);
 const GATE_FINAIS_STAGES = new Set(["ir_declarado", "autonomo_compor_renda", "ctps_36", "ctps_36_parceiro", "ctps_36_parceiro_p3", "dependente", "restricao", "restricao_parceiro", "restricao_parceiro_p3", "regularizacao_restricao", "regularizacao_restricao_parceiro", "regularizacao_restricao_p3"]);
 const OPERACIONAL_FINAL_STAGES = new Set(["envio_docs", "aguardando_retorno_correspondente", "agendamento_visita", "finalizacao_processo"]);
+const PRE_DOCS_INFO_STAGES = new Set([
+  "informativo_moradia_atual", "informativo_trabalho", "informativo_moradia",
+  "informativo_parcela_mensal", "informativo_reserva", "informativo_reserva_valor",
+  "informativo_fgts", "informativo_fgts_valor", "informativo_escolaridade",
+  "informativo_profissao_atividade", "informativo_mei_pj_status",
+  "informativo_renda_estabilidade",
+  "informativo_decisor_visita", "informativo_decisor_nome"
+]);
 
 // ── Etapa 5: FAQ/Objection/KB intent-matching maps ──────────────────────────
 // Maps normalized message patterns to canonical global-layer IDs.
@@ -2208,9 +2216,122 @@ function buildBloco3Guidance(request) {
   return null;
 }
 
+// ── BLOCO 8: PRÉ-DOCS INFORMATIVO — guidance cognitiva ──────────────────────
+function isPreDocsInformativoContext(request) {
+  return PRE_DOCS_INFO_STAGES.has(request?.current_stage);
+}
+
+function buildPreDocsInformativoGuidance(request) {
+  const stage = normalizeText(request?.current_stage);
+  const normalizedMessage = normalizeText(request?.message_text);
+
+  // moradia_atual — onde mora hoje
+  if (stage === "informativo_moradia_atual") {
+    if (/\bnao\s*quero\b|\bnão\s*quero\b|\bpor\s*que\b|\bpra\s*que\b|\bpara\s*que\b/.test(normalizedMessage)) {
+      return "Essa informação é só pra eu te orientar melhor nas opções de imóvel — não trava nada no seu processo. Me conta onde você mora hoje? Pode ser bairro, região ou uma referência simples.";
+    }
+    return "Perfeito, agora pra te orientar melhor nas opções de imóvel: me conta onde você mora hoje? Pode ser bairro, região ou referência simples.";
+  }
+
+  // trabalho — onde trabalha
+  if (stage === "informativo_trabalho") {
+    if (/\bnao\s*quero\b|\bnão\s*quero\b|\bpor\s*que\b|\bpra\s*que\b|\bpara\s*que\b/.test(normalizedMessage)) {
+      return "É só informativo — ajuda na orientação do correspondente. Me conta qual seu local de trabalho hoje? Endereço, bairro ou referência.";
+    }
+    return "Anotei! E qual seu local de trabalho hoje? Endereço, bairro ou referência simples.";
+  }
+
+  // moradia (preferência) — onde quer o imóvel
+  if (stage === "informativo_moradia") {
+    if (/\bnao\s*sei\b|\bnão\s*sei\b|\bainda\s*nao\b|\bainda\s*não\b|\bqualquer\b|\btanto\s*faz\b/.test(normalizedMessage)) {
+      return "Sem problema, depois você pode definir com calma. Se tiver alguma região de preferência, me conta — se não, a gente segue.";
+    }
+    return "Perfeito! Agora, em qual região ou bairro você tem preferência pra buscar imóvel? Isso é só informativo — não é escolha definitiva.";
+  }
+
+  // parcela_mensal — valor que considera pagar
+  if (stage === "informativo_parcela_mensal") {
+    if (/\bnao\s*sei\b|\bnão\s*sei\b|\bdepende\b|\bpreciso\s*ver\b/.test(normalizedMessage)) {
+      return "Sem problema — é só pra ter uma referência. Se tiver um valor aproximado de parcela que faria sentido nos seus gastos atuais, me conta. Se não souber agora, tudo bem, a gente segue.";
+    }
+    return "Anotei! Agora, considerando seus gastos atuais, até qual valor mensal faria sentido pra você pagar de parcela? É só informativo — não é valor aprovado.";
+  }
+
+  // reserva — tem reserva para entrada
+  if (stage === "informativo_reserva") {
+    if (/\bnao\s*tenho\b|\bnão\s*tenho\b|\bnada\b|\bzero\b/.test(normalizedMessage)) {
+      return "Sem problema, isso não trava seu processo de jeito nenhum. A gente segue normalmente.";
+    }
+    return "Agora, só pra te orientar melhor: você tem alguma reserva pra ajudar na entrada? Responda *sim* ou *não* — não trava nada.";
+  }
+
+  // reserva_valor — quanto de reserva
+  if (stage === "informativo_reserva_valor") {
+    return "Qual valor aproximado de reserva pra entrada? Se não quiser informar agora, sem problema.";
+  }
+
+  // fgts — tem FGTS disponível
+  if (stage === "informativo_fgts") {
+    if (/\bnao\s*tenho\b|\bnão\s*tenho\b|\bnao\s*sei\b|\bnão\s*sei\b/.test(normalizedMessage)) {
+      return "Sem problema — FGTS ajuda mas não é obrigatório. A gente segue normalmente.";
+    }
+    return "Perfeito. E você tem FGTS disponível hoje? Responda *sim* ou *não* — é só informativo.";
+  }
+
+  // fgts_valor — quanto de FGTS
+  if (stage === "informativo_fgts_valor") {
+    return "Qual valor aproximado de FGTS disponível? Se não souber ao certo, sem problema.";
+  }
+
+  // escolaridade — curso superior (renda ≤ 3500)
+  if (stage === "informativo_escolaridade") {
+    if (/\bpor\s*que\b|\bpra\s*que\b|\bpara\s*que\b/.test(normalizedMessage)) {
+      return "Essa informação pode ajudar em condições especiais do programa. Você tem curso superior completo, incompleto, está cursando ou não tem?";
+    }
+    return "Último ponto informativo: você tem curso superior completo, incompleto, está cursando ou não tem?";
+  }
+
+  // profissao_atividade — profissão do autônomo
+  if (stage === "informativo_profissao_atividade") {
+    return "Perfeito. Antes de seguir, me diz qual sua profissão ou atividade principal como autônomo(a)?";
+  }
+
+  // mei_pj_status — é MEI ou PJ
+  if (stage === "informativo_mei_pj_status") {
+    if (/\bmei\b/.test(normalizedMessage)) {
+      return "Anotei como MEI. Lembrando que o financiamento segue como pessoa física — a análise é do titular, não da empresa.";
+    }
+    if (/\bpj\b|\bcnpj\b|\bempresa\b/.test(normalizedMessage)) {
+      return "Anotei. Lembrando que o financiamento segue como pessoa física — a análise é sua, não da empresa. Você atua como pessoa física, MEI ou PJ?";
+    }
+    return "Você atua como pessoa física, MEI ou PJ? É só informativo — o financiamento segue como pessoa física.";
+  }
+
+  // renda_estabilidade — estabilidade da renda
+  if (stage === "informativo_renda_estabilidade") {
+    return "E sua renda costuma ser mais estável ou varia bastante de mês pra mês?";
+  }
+
+  // decisor_visita — decisor adicional
+  if (stage === "informativo_decisor_visita") {
+    return "Na visita, existe mais alguém com poder de decisão além de você? Responda *sim* ou *não*.";
+  }
+
+  // decisor_nome — nome do decisor
+  if (stage === "informativo_decisor_nome") {
+    return "Qual o nome dessa pessoa que também decide? Pode ser só o primeiro nome.";
+  }
+
+  return null;
+}
+
 function buildPhaseGuidanceReply({ request, suggestedNextSlot, pendingSlots }) {
   // Prioridade intencional: temas operacionais específicos antes de temas amplos
   // (docs/correspondente/visita) para evitar resposta genérica quando há regra fechada.
+  if (isPreDocsInformativoContext(request)) {
+    const infoReply = buildPreDocsInformativoGuidance(request);
+    if (infoReply) return infoReply;
+  }
   if (isTopoFunilContext(request)) {
     const topoReply = buildTopoFunilGuidance(request);
     if (topoReply) return topoReply;

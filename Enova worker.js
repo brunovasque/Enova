@@ -2688,6 +2688,46 @@ function parseOptionalInformativoValue(text) {
   return raw;
 }
 
+// BLOCO 8 — Helper: resolve slot topic → informativo pseudo-stage name para casca cognitiva
+function resolveInformativoPseudoStage(slotTopic) {
+  const map = {
+    moradia_atual: "informativo_moradia_atual",
+    trabalho: "informativo_trabalho",
+    moradia: "informativo_moradia",
+    parcela_mensal: "informativo_parcela_mensal",
+    reserva: "informativo_reserva",
+    reserva_valor: "informativo_reserva_valor",
+    fgts: "informativo_fgts",
+    fgts_valor: "informativo_fgts_valor",
+    escolaridade: "informativo_escolaridade",
+    profissao_atividade: "informativo_profissao_atividade",
+    mei_pj_status: "informativo_mei_pj_status",
+    renda_estabilidade: "informativo_renda_estabilidade",
+    decisor: "informativo_decisor_visita",
+    decisor_nome: "informativo_decisor_nome"
+  };
+  return map[slotTopic] || null;
+}
+
+// BLOCO 8 — Helper: tenta ativar casca cognitiva para a próxima pergunta informativa
+async function maybeCognitiveShellForInformativo(env, st, userText, slotTopic) {
+  const pseudoStage = resolveInformativoPseudoStage(slotTopic);
+  if (!pseudoStage) return;
+  try {
+    const v2Mode = String(env.COGNITIVE_V2_MODE || "off").toLowerCase();
+    if (v2Mode !== "on" && v2Mode !== "shadow") return;
+    const cognitive = await runCognitiveV2WithAdapter(env, pseudoStage, userText, st);
+    const cogReply = sanitizeCognitiveReply(cognitive?.reply_text);
+    const confidence = Number(cognitive?.confidence || 0);
+    if (cogReply && cogReply.length > 30 && confidence >= COGNITIVE_V1_CONFIDENCE_MIN) {
+      st.__cognitive_reply_prefix = cogReply;
+      st.__cognitive_v2_takes_final = true;
+    }
+  } catch (_e) {
+    // Silent fallback — mecânico continua soberano
+  }
+}
+
 async function maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt) {
   if (!shouldCollectInformativosPreDocs(st)) return null;
   const infoSlot = getNextInformativoPreDocsSlot(st);
@@ -2726,6 +2766,7 @@ async function maybeCaptureEtapa1PreDocsInput(env, st, userText, stageForPrompt)
   }
   const remainingSlot = getNextInformativoPreDocsSlot(st);
   if (remainingSlot) {
+    await maybeCognitiveShellForInformativo(env, st, userText, remainingSlot.topic);
     return step(env, st, buildInformativoPreDocsQuestion(remainingSlot), stageForPrompt);
   }
   return null;
@@ -2883,6 +2924,7 @@ async function maybeHandleAutonomoInformativos(env, st, userText, stageForPrompt
 
   const proximo = nextAutonomoInformativoPendente(st);
   if (proximo) {
+    await maybeCognitiveShellForInformativo(env, st, userText, proximo);
     return step(env, st, buildAutonomoInformativoQuestion(proximo), stageForPrompt);
   }
   if (readAutonomoIrDeclaradoState(st) !== null) return null;
@@ -3017,6 +3059,7 @@ async function maybeHandleEtapa1VisitaInformativoInput(env, st, t, withEtapa1Inf
 
   const proximoInformativo = nextVisitaInformativoPendente(st);
   if (proximoInformativo) {
+    await maybeCognitiveShellForInformativo(env, st, t, proximoInformativo);
     return step(env, st, buildVisitaInformativoQuestion(proximoInformativo), "agendamento_visita");
   }
   return null;
@@ -3083,7 +3126,22 @@ const COGNITIVE_V1_ALLOWED_STAGES = new Set([
   "envio_docs",
   "aguardando_retorno_correspondente",
   "agendamento_visita",
-  "finalizacao_processo"
+  "finalizacao_processo",
+  // BLOCO 8 — Informativos pré-docs (pseudo-stages cognitivos)
+  "informativo_moradia_atual",
+  "informativo_trabalho",
+  "informativo_moradia",
+  "informativo_parcela_mensal",
+  "informativo_reserva",
+  "informativo_reserva_valor",
+  "informativo_fgts",
+  "informativo_fgts_valor",
+  "informativo_escolaridade",
+  "informativo_profissao_atividade",
+  "informativo_mei_pj_status",
+  "informativo_renda_estabilidade",
+  "informativo_decisor_visita",
+  "informativo_decisor_nome"
 ]);
 
 const COGNITIVE_V1_CONFIDENCE_MIN = 0.66;
@@ -3162,7 +3220,22 @@ const COGNITIVE_PLAYBOOK_V1 = {
     envio_docs: ["duvida_seguranca", "objecao_presencial", "deferimento_docs", "duvida_canal", "objecao_tempo_docs"],
     aguardando_retorno_correspondente: ["duvida_prazo", "duvida_status", "duvida_e_agora", "objecao"],
     agendamento_visita: ["duvida_horario", "duvida_remarcar", "duvida_acompanhante", "esfriamento_visita", "objecao"],
-    finalizacao_processo: ["duvida_proximo_passo", "duvida_aviso", "duvida_encerramento", "objecao"]
+    finalizacao_processo: ["duvida_proximo_passo", "duvida_aviso", "duvida_encerramento", "objecao"],
+    // BLOCO 8 — Informativos pré-docs
+    informativo_moradia_atual: ["moradia_resposta", "duvida_por_que", "objecao"],
+    informativo_trabalho: ["trabalho_resposta", "duvida_por_que", "objecao"],
+    informativo_moradia: ["preferencia_local", "nao_sei_ainda", "duvida_por_que", "objecao"],
+    informativo_parcela_mensal: ["parcela_valor", "nao_sei", "duvida_valor", "objecao"],
+    informativo_reserva: ["reserva_sim", "reserva_nao", "nao_sei", "objecao"],
+    informativo_reserva_valor: ["reserva_valor_resposta", "nao_quero_informar", "objecao"],
+    informativo_fgts: ["fgts_sim", "fgts_nao", "nao_sei", "objecao"],
+    informativo_fgts_valor: ["fgts_valor_resposta", "nao_quero_informar", "objecao"],
+    informativo_escolaridade: ["superior_completo", "superior_incompleto", "cursando", "sem_superior", "objecao"],
+    informativo_profissao_atividade: ["profissao_resposta", "duvida_por_que", "objecao"],
+    informativo_mei_pj_status: ["pessoa_fisica", "mei", "pj", "duvida_diferenca", "objecao"],
+    informativo_renda_estabilidade: ["estavel", "variavel", "depende", "objecao"],
+    informativo_decisor_visita: ["decisor_sim", "decisor_nao", "objecao"],
+    informativo_decisor_nome: ["nome_decisor", "objecao"]
   },
   entities_supported: [
     "estado_civil",
@@ -3346,6 +3419,31 @@ function hasClearStageAnswer(stage, text) {
   if (stage === "inicio_rnm_validade") {
     const nt = normalizeText(text);
     return /\b(indeterminado|valido|válido|com validade|definida)\b/i.test(nt);
+  }
+  // BLOCO 8 — Informativos pré-docs: qualquer texto não-vazio é resposta válida
+  if (stage === "informativo_moradia_atual" || stage === "informativo_trabalho" || stage === "informativo_moradia") {
+    return String(text || "").trim().length >= 2;
+  }
+  if (stage === "informativo_parcela_mensal" || stage === "informativo_reserva_valor" || stage === "informativo_fgts_valor") {
+    return String(text || "").trim().length >= 1;
+  }
+  if (stage === "informativo_reserva" || stage === "informativo_fgts" || stage === "informativo_decisor_visita") {
+    return isYes(text) || isNo(text);
+  }
+  if (stage === "informativo_escolaridade") {
+    const nt = normalizeText(text);
+    return /\b(completo|incompleto|cursando|nao tenho|não tenho|sim|nao|não|tenho|superior)\b/i.test(nt);
+  }
+  if (stage === "informativo_profissao_atividade" || stage === "informativo_decisor_nome") {
+    return String(text || "").trim().length >= 2;
+  }
+  if (stage === "informativo_mei_pj_status") {
+    const nt = normalizeText(text);
+    return /\b(pessoa fisica|pessoa física|pf|mei|pj|cnpj|empresa|autonomo|autônomo)\b/i.test(nt);
+  }
+  if (stage === "informativo_renda_estabilidade") {
+    const nt = normalizeText(text);
+    return /\b(estavel|estável|varia|variavel|variável|depende|mais ou menos|instavel|instável|fixa|fixo)\b/i.test(nt);
   }
   return false;
 }
@@ -3591,6 +3689,11 @@ function shouldTriggerCognitiveAssist(stage, text) {
   if (stage === "finalizacao_processo") {
     const finalizacaoHints = /\b(o que acontece|pr[oó]ximo passo|voc[eê]s? me avis[ao]|me avis[ao]|serei avisad|acabou|encerr[ao]u|terminou|o que vem|o que segue)\b/i.test(nt);
     if (finalizacaoHints) return true;
+  }
+
+  // BLOCO 8 — Informativos pré-docs: sempre acionar cognitivo (qualquer texto é válido)
+  if (stage && String(stage).startsWith("informativo_")) {
+    return true;
   }
 
   return hasQuestion || hasConnector || offtrackHints || fearHints;

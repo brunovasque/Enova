@@ -3403,6 +3403,14 @@ function hasClearStageAnswer(stage, text) {
   if (stage === "dependente") return isYes(text) || isNo(text);
   if (stage === "restricao" || stage === "restricao_parceiro" || stage === "restricao_parceiro_p3") return isYes(text) || isNo(text);
   if (stage === "regularizacao_restricao" || stage === "regularizacao_restricao_parceiro" || stage === "regularizacao_restricao_p3") return isYes(text) || isNo(text);
+  // Bloco 10 — envio_docs: aceitar lista, recusar, pedir resumo, pedir canal
+  if (stage === "envio_docs") {
+    const nt = normalizeText(text);
+    if (isYes(text) || isNo(text)) return true;
+    if (/\b(o que falta|quais doc|lista|pendencia|pendências)\b/i.test(nt)) return true;
+    if (/\b(prefiro presencial|quero ir no plantao|plantao|presencial|site|portal)\b/i.test(nt)) return true;
+    return false;
+  }
   // Bloco 2 topo — inicio_nome, inicio_nacionalidade, inicio_rnm, inicio_rnm_validade
   if (stage === "inicio_nome") {
     const raw = String(text || "").trim()
@@ -10438,7 +10446,7 @@ function buildEnvioDocsListaMensagens(itensEnvioDocs = []) {
     : "documento de identificação e comprovantes do seu processo";
   const mensagemPrincipal = `Fechamos por envio online aqui no WhatsApp.\nA lista é simples: ${listaTexto}. Pode ser foto, imagem ou PDF.`;
 
-  return [mensagemPrincipal, buildEnvioDocsCallToAction(participanteAtual)];
+  return [mensagemPrincipal, "📌 Envie os documentos *um por vez* para que eu registre cada um corretamente no sistema.", buildEnvioDocsCallToAction(participanteAtual)];
 }
 
 function appendChecklistByRegime(checklist, participante, regime, irDeclarado) {
@@ -29365,6 +29373,7 @@ case "envio_docs": {
     return step(env, st, [
       "Perfeito, seguimos com atendimento presencial ✅",
       "Vamos destravar sua etapa documental com visita no plantão.",
+      "Para a visita, leve: documentos pessoais (RG ou CNH com CPF), comprovante de residência e comprovante de renda.",
       "Já vou abrir agora o agendamento oficial com datas e horários fechados.",
       "Se preferir adiantar, também posso liberar o envio online pelo site.",
       ...(linhaContextoVisita ? [linhaContextoVisita] : [])
@@ -29632,8 +29641,9 @@ const patchCanal = {
   }
 
   return step(env, st, [
-    "Pode me enviar os documentos por aqui mesmo para seguir online 😊",
-    "Se preferir envio digital fora do WhatsApp, eu te direciono pelo site."
+    "Estou no aguardo dos seus documentos para dar sequência à análise 😊",
+    "Lembre-se: envie *um por vez* por aqui mesmo, pode ser foto ou PDF.",
+    "Se preferir envio fora do WhatsApp, eu te direciono pelo site."
   ], "envio_docs");
 }
 

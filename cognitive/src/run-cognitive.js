@@ -792,11 +792,15 @@ function buildDocsGuidanceByProfile(request) {
 
   // Etapa 7 — precedence-aware global layer: stage context guard + objection priority para docs
   const stage = normalizeText(request?.current_stage);
+  const regime = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho"));
   const globalReply = resolveWithPrecedence(normalizedMessage, _DOCS_FAQ_MAP, "docs");
-  if (globalReply) return wrapWithReanchor(globalReply.reply, stage || "envio_docs");
+  // Quando o regime já é conhecido e o global reply é o KB genérico de docs_por_perfil,
+  // o perfil fechado deve prevalecer — a guidance personalizada por regime é mais precisa.
+  if (globalReply && !(regime && globalReply.source === "kb:docs_por_perfil")) {
+    return wrapWithReanchor(globalReply.reply, stage || "envio_docs");
+  }
 
   const composicao = normalizeText(getKnownSlotValue(knownSlots, "composicao"));
-  const regime = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho"));
   const irDeclarado = normalizeText(getKnownSlotValue(knownSlots, "ir_declarado"));
   const ctps = normalizeText(getKnownSlotValue(knownSlots, "ctps"));
   const regimeExtra = normalizeText(getKnownSlotValue(knownSlots, "regime_trabalho_extra"));
@@ -914,6 +918,7 @@ function buildDocsGuidanceByProfile(request) {
   return [
     empathyNote,
     `Pelo seu perfil, para adiantar sua análise, o ideal é separar ${humanJoinList(docs)}.`,
+    "Envie um documento por vez para que eu registre cada um corretamente.",
     autonomoIrNote,
     doubtNote,
     channelNote,
@@ -1079,10 +1084,18 @@ function buildOperacionalFinalGuidance(request) {
     if (globalReply) return wrapWithReanchor(globalReply.reply, stage);
 
     if (DEFER_ACTION_PATTERN.test(normalizedMessage) || NO_TIME_PATTERN.test(normalizedMessage)) {
-      return "Sem problema. Sempre que puder, me manda os documentos por aqui que eu adianto sua análise.";
+      return "Sem problema. Sempre que puder, me manda os documentos por aqui que eu adianto sua análise. Envie um por vez para eu registrar direitinho.";
     }
     if (/\b(site|portal)\b/.test(normalizedMessage)) {
       return "Perfeito, pode enviar pelo site com tranquilidade que seguimos por lá.";
+    }
+    // Cliente diz que ainda não tem tudo pronto
+    if (/\b(n[aã]o tenho tudo|falta.*doc|ainda n[aã]o.*tudo|n[aã]o.*pronto|s[oó] tenho.*parte)\b/.test(normalizedMessage)) {
+      return "Sem problema, pode ir mandando o que tiver pronto que eu já vou registrando. Envie um documento por vez que facilita o controle.";
+    }
+    // Cliente pergunta de quem é o documento ou expressa dúvida de participante
+    if (/\b(de quem|pra quem|qual.*pessoa|titular|parceiro|familiar|esposa|marido|companheiro)\b/.test(normalizedMessage)) {
+      return "Cada documento precisa ser identificado por participante. Quando enviar, me diga se é do titular, parceiro(a), familiar ou da terceira pessoa na composição.";
     }
     return null;
   }

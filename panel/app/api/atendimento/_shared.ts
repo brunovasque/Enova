@@ -76,6 +76,48 @@ export async function listAttendanceLeads(
   return (await readJsonResponse<Record<string, unknown>[]>(response)) ?? [];
 }
 
+// ── Campos humanos editáveis — escreve em enova_attendance_meta ─────────────
+// Campos canônicos já existentes na tabela (sem nova coluna).
+// UPSERT: cria linha se não existir (leads sem row em enova_attendance_meta).
+
+export type AttendanceMetaHumanPayload = {
+  wa_id: string;
+  interesse_atual?: string | null;
+  objecao_principal?: string | null;
+  momento_do_cliente?: string | null;
+  responsavel?: string | null;
+  quick_note?: string | null;
+};
+
+export async function patchAttendanceMeta(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  payload: AttendanceMetaHumanPayload,
+): Promise<void> {
+  const { wa_id, ...fields } = payload;
+  const now = new Date().toISOString();
+
+  const endpoint = new URL("/rest/v1/enova_attendance_meta", supabaseUrl);
+  endpoint.searchParams.set("on_conflict", "wa_id");
+
+  const response = await fetch(endpoint.toString(), {
+    method: "POST",
+    headers: {
+      ...buildSupabaseHeaders(serviceRoleKey),
+      // "resolution=merge-duplicates" enables UPSERT: when combined with on_conflict=wa_id,
+      // PostgREST merges the new fields into an existing row (preserving other columns)
+      // or inserts a new row if none exists. This is safe for leads without a meta row yet.
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify([{ wa_id, ...fields, updated_at: now }]),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`FAILED_TO_PATCH_ATTENDANCE_META:${response.status}`);
+  }
+}
+
 // ── Arquivamento — escreve em enova_attendance_meta ─────────────────────────
 //
 // A view enova_attendance_v1 lê archived_at de enova_attendance_meta (LEFT JOIN).

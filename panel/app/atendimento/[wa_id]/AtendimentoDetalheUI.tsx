@@ -21,6 +21,7 @@ import {
   saveClientProfileAction,
   archiveLeadAction,
   unarchiveLeadAction,
+  saveAttendanceMetaAction,
 } from "../actions";
 
 /* ── Type — mirrors AttendanceRow in AtendimentoUI ── */
@@ -65,6 +66,15 @@ export type AttendanceDetalheRow = {
   nacionalidade: string | null;
   entrada_valor: number | null;
   resumo_curto: string | null;
+  // ── Campos operacionais humanos (enova_attendance_meta fase 2) ──
+  responsavel: string | null;
+  objecao_principal: string | null;
+  interesse_atual: string | null;
+  momento_do_cliente: string | null;
+  quick_note: string | null;
+  human_next_action: string | null;
+  // ── Temperatura do lead (crm_lead_meta) ──
+  lead_temp: string | null;
   tem_incidente_aberto: boolean | null;
   tipo_incidente: string | null;
   severidade_incidente: string | null;
@@ -226,6 +236,78 @@ function isPrazoVencido(prazo: string | null | undefined): boolean {
   return new Date(prazo) < new Date();
 }
 
+function getTempLabel(temp: string | null | undefined): string {
+  switch (temp) {
+    case "HOT": return "🔥 Quente";
+    case "WARM": return "🌡 Morno";
+    case "COLD": return "❄️ Frio";
+    default: return temp ?? DASH;
+  }
+}
+
+function getTempBadgeCls(temp: string | null | undefined): string {
+  switch (temp) {
+    case "HOT": return styles.tempBadgeHot;
+    case "WARM": return styles.tempBadgeWarm;
+    case "COLD": return styles.tempBadgeCold;
+    default: return styles.tempBadgeUnknown;
+  }
+}
+
+function deriveUltimoFalante(
+  ultimaCliente: string | null | undefined,
+  ultimaEnova: string | null | undefined,
+): string {
+  if (!ultimaCliente && !ultimaEnova) return DASH;
+  if (!ultimaCliente) return "Enova";
+  if (!ultimaEnova) return "Cliente";
+  return new Date(ultimaCliente) > new Date(ultimaEnova) ? "Cliente" : "Enova";
+}
+
+function hasTimestamps(
+  ultimaCliente: string | null | undefined,
+  ultimaEnova: string | null | undefined,
+): boolean {
+  return !!(ultimaCliente || ultimaEnova);
+}
+
+// Returns false if resumo_curto looks like an auto-generated stage marker
+// (e.g. "inicio_programa", "fase: ctps_36") rather than a real human summary.
+const MIN_USEFUL_RESUMO_LENGTH = 12;
+// Matches a single lowercase token with underscores — typical auto-generated stage name
+const STAGE_NAME_PATTERN = /^[a-z][a-z0-9_]{3,}$/;
+
+function isResumoUtil(resumo: string | null | undefined): boolean {
+  if (!resumo) return false;
+  const s = resumo.trim();
+  if (!s || s.length < MIN_USEFUL_RESUMO_LENGTH) return false;
+  // Stage name pattern: single token with underscores, no spaces
+  if (STAGE_NAME_PATTERN.test(s)) return false;
+  // "fase: something" prefix
+  if (/^fase:\s*/i.test(s)) return false;
+  return true;
+}
+
+/* ── Human feedback edit state ── */
+
+type HumanFeedbackState = {
+  interesse_atual: string;
+  objecao_principal: string;
+  momento_do_cliente: string;
+  responsavel: string;
+  quick_note: string;
+};
+
+function leadToFeedbackState(lead: AttendanceDetalheRow): HumanFeedbackState {
+  return {
+    interesse_atual: lead.interesse_atual ?? "",
+    objecao_principal: lead.objecao_principal ?? "",
+    momento_do_cliente: lead.momento_do_cliente ?? "",
+    responsavel: lead.responsavel ?? "",
+    quick_note: lead.quick_note ?? "",
+  };
+}
+
 /* ── Profile editing types (mirrors AtendimentoUI) ── */
 
 type ProfileEditState = {
@@ -331,6 +413,12 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [archiveFeedback, setArchiveFeedback] = useState<string | null>(null);
 
+  /* ── Human feedback edit state ── */
+  const [feedbackEdit, setFeedbackEdit] = useState<HumanFeedbackState>(leadToFeedbackState(lead));
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
+  const [feedbackFeedback, setFeedbackFeedback] = useState<string | null>(null);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+
   /* ── Profile save handler ── */
   const handleSaveProfile = useCallback(async () => {
     setProfileBusy(true);
@@ -365,6 +453,28 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
     }
     setProfileBusy(false);
   }, [lead.wa_id, profileEdit]);
+
+  /* ── Human feedback save handler ── */
+  const handleSaveFeedback = useCallback(async () => {
+    setFeedbackBusy(true);
+    setFeedbackFeedback(null);
+    setFeedbackError(null);
+    const t = (v: string) => v.trim() || null;
+    const result = await saveAttendanceMetaAction({
+      wa_id: lead.wa_id,
+      interesse_atual: t(feedbackEdit.interesse_atual),
+      objecao_principal: t(feedbackEdit.objecao_principal),
+      momento_do_cliente: t(feedbackEdit.momento_do_cliente),
+      responsavel: t(feedbackEdit.responsavel),
+      quick_note: t(feedbackEdit.quick_note),
+    });
+    setFeedbackBusy(false);
+    if (result.ok) {
+      setFeedbackFeedback("Feedback salvo.");
+    } else {
+      setFeedbackError(result.error ?? "Erro ao salvar");
+    }
+  }, [lead.wa_id, feedbackEdit]);
 
   /* ── Archive handlers ── */
   const handleArchive = useCallback(async () => {
@@ -595,7 +705,149 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
           )}
 
           {/* ═══════════════════════════════════════
-             BLOCO 2 — PERFIL EDITÁVEL DO SOLICITANTE
+             BLOCO 2 (full) — RESUMO COMERCIAL
+             Dados reais: lead_temp, responsavel, quem_falou_ultimo,
+             resumo_curto (se útil). Apenas campos com valor são exibidos.
+             interesse_atual/objecao/momento ficam no bloco editável abaixo.
+             ═══════════════════════════════════════ */}
+          {(() => {
+            const temTemp = !!lead.lead_temp;
+            const temResponsavel = !!lead.responsavel;
+            const temTimestamps = hasTimestamps(lead.ultima_interacao_cliente, lead.ultima_interacao_enova);
+            const temResumo = isResumoUtil(lead.resumo_curto);
+            const temAlgumCampo = temTemp || temResponsavel || temTimestamps || temResumo;
+            return (
+              <div className={`${styles.block} ${styles.blockFull} ${styles.blockComercial}`}>
+                <div className={styles.blockHeader}>
+                  <span className={styles.blockIcon}>📊</span>
+                  <h3 className={styles.blockTitle}>Resumo Comercial</h3>
+                </div>
+                <div className={styles.blockBody}>
+                  {!temAlgumCampo ? (
+                    <p className={styles.comercialEmpty}>
+                      Sem dados comerciais ainda — preencha o bloco abaixo.
+                    </p>
+                  ) : (
+                    <div className={styles.detailGrid}>
+                      {temTemp && (
+                        <div className={styles.fieldItem}>
+                          <span className={styles.fieldLabel}>Temperatura</span>
+                          <span className={`${styles.tempBadge} ${getTempBadgeCls(lead.lead_temp)}`}>
+                            {getTempLabel(lead.lead_temp)}
+                          </span>
+                        </div>
+                      )}
+                      {temResponsavel && (
+                        <div className={styles.fieldItem}>
+                          <span className={styles.fieldLabel}>Responsável</span>
+                          <span className={styles.fieldValue}>{lead.responsavel}</span>
+                        </div>
+                      )}
+                      {temTimestamps && (
+                        <div className={styles.fieldItem}>
+                          <span className={styles.fieldLabel}>Último contato</span>
+                          <span className={styles.fieldValue}>
+                            {deriveUltimoFalante(lead.ultima_interacao_cliente, lead.ultima_interacao_enova)}
+                          </span>
+                        </div>
+                      )}
+                      {temResumo && (
+                        <div className={styles.fieldItemFull}>
+                          <span className={styles.fieldLabel}>Resumo</span>
+                          <span className={styles.fieldValue}>{lead.resumo_curto}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* ═══════════════════════════════════════
+             BLOCO 3 (full) — FEEDBACK HUMANO DO CORRETOR
+             Formulário editável — persiste em enova_attendance_meta.
+             Campos: interesse_atual, objecao_principal,
+             momento_do_cliente, responsavel, quick_note.
+             Sem placeholders ociosos.
+             ═══════════════════════════════════════ */}
+          <div className={`${styles.block} ${styles.blockFull} ${styles.blockFeedback}`}>
+            <div className={styles.blockHeader}>
+              <span className={styles.blockIcon}>💬</span>
+              <h3 className={styles.blockTitle}>Feedback do Corretor</h3>
+            </div>
+            <div className={styles.blockBody}>
+              <div className={styles.feedbackGrid}>
+                <div className={styles.prefillFieldRow}>
+                  <span className={styles.fieldLabel}>Interesse atual</span>
+                  <input
+                    type="text"
+                    className={styles.prefillInput}
+                    value={feedbackEdit.interesse_atual}
+                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, interesse_atual: e.target.value })}
+                    placeholder="Ex: comprar imóvel nos próximos 3 meses"
+                  />
+                </div>
+                <div className={styles.prefillFieldRow}>
+                  <span className={styles.fieldLabel}>Objeção principal</span>
+                  <input
+                    type="text"
+                    className={styles.prefillInput}
+                    value={feedbackEdit.objecao_principal}
+                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, objecao_principal: e.target.value })}
+                    placeholder="Ex: renda informal, restrição no CPF"
+                  />
+                </div>
+                <div className={styles.prefillFieldRow}>
+                  <span className={styles.fieldLabel}>Momento do cliente</span>
+                  <input
+                    type="text"
+                    className={styles.prefillInput}
+                    value={feedbackEdit.momento_do_cliente}
+                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, momento_do_cliente: e.target.value })}
+                    placeholder="Ex: aguardando aprovação, buscando entrada"
+                  />
+                </div>
+                <div className={styles.prefillFieldRow}>
+                  <span className={styles.fieldLabel}>Responsável</span>
+                  <input
+                    type="text"
+                    className={styles.prefillInput}
+                    value={feedbackEdit.responsavel}
+                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, responsavel: e.target.value })}
+                    placeholder="Nome do corretor responsável"
+                  />
+                </div>
+                <div className={styles.prefillFieldRowFull}>
+                  <span className={styles.fieldLabel}>
+                    Nota do corretor
+                    <span className={styles.feedbackFieldHint}> · leitura comercial livre</span>
+                  </span>
+                  <textarea
+                    className={styles.prefillTextarea}
+                    value={feedbackEdit.quick_note}
+                    onChange={(e) => setFeedbackEdit({ ...feedbackEdit, quick_note: e.target.value })}
+                    placeholder="Leitura do caso, observação operacional, próximo passo…"
+                  />
+                </div>
+              </div>
+              <div className={styles.profileSaveRow}>
+                <button
+                  type="button"
+                  className={styles.profileSaveBtn}
+                  disabled={feedbackBusy}
+                  onClick={() => void handleSaveFeedback()}
+                >
+                  {feedbackBusy ? "Salvando…" : "Salvar feedback"}
+                </button>
+                {feedbackFeedback && <span className={styles.profileFeedback}>{feedbackFeedback}</span>}
+                {feedbackError && <span className={styles.profileFeedbackError}>{feedbackError}</span>}
+              </div>
+            </div>
+          </div>
+
+          {/* ═══════════════════════════════════════
+             BLOCO 4 — PERFIL EDITÁVEL DO SOLICITANTE
              ═══════════════════════════════════════ */}
           <div className={`${styles.block} ${styles.blockFull}`}>
             <div className={styles.blockHeader}>

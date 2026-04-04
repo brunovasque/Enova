@@ -1,8 +1,15 @@
 "use server";
 
-import { listAttendanceLeads, getAttendanceLead, archiveAttendanceLead, unarchiveAttendanceLead } from "../api/atendimento/_shared";
+import { listAttendanceLeads, getAttendanceLead, archiveAttendanceLead, unarchiveAttendanceLead, patchAttendanceMeta, type AttendanceMetaHumanPayload } from "../api/atendimento/_shared";
 import { getPrefillMeta, upsertPrefillMeta, PrefillMetaRow, PrefillUpdatePayload } from "../api/prefill/_shared";
 import { getClientProfile, writeClientProfile, ClientProfileRow, ClientProfileUpdatePayload } from "../api/client-profile/_shared";
+
+// Shared env guard used by action functions in this file.
+function checkSupabaseEnvs(): { ok: true; url: string; key: string } | { ok: false; error: string } {
+  const missing = (["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const).filter((k) => !process.env[k]);
+  if (missing.length > 0) return { ok: false, error: `missing env: ${missing.join(", ")}` };
+  return { ok: true, url: process.env.SUPABASE_URL as string, key: process.env.SUPABASE_SERVICE_ROLE as string };
+}
 
 export async function fetchAttendanceDetailAction(
   wa_id: string,
@@ -190,3 +197,19 @@ export async function unarchiveLeadAction(
   }
 }
 
+
+// ── Campos humanos do corretor ─────────────────────────────────────────────
+
+export async function saveAttendanceMetaAction(
+  payload: AttendanceMetaHumanPayload,
+): Promise<{ ok: boolean; error?: string }> {
+  const envs = checkSupabaseEnvs();
+  if (!envs.ok) return { ok: false, error: envs.error };
+
+  try {
+    await patchAttendanceMeta(envs.url, envs.key, payload);
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "internal error" };
+  }
+}

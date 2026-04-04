@@ -17,6 +17,30 @@ async function readJsonResponse<T>(response: Response): Promise<T | null> {
   return JSON.parse(text) as T;
 }
 
+export async function getAttendanceLead(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  wa_id: string,
+): Promise<Record<string, unknown> | null> {
+  const endpoint = new URL("/rest/v1/enova_attendance_v1", supabaseUrl);
+  endpoint.searchParams.set("select", "*");
+  endpoint.searchParams.set("wa_id", `eq.${wa_id}`);
+  endpoint.searchParams.set("limit", "1");
+
+  const response = await fetch(endpoint.toString(), {
+    method: "GET",
+    headers: buildSupabaseHeaders(serviceRoleKey),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`FAILED_TO_GET_ATTENDANCE_LEAD:${response.status}`);
+  }
+
+  const rows = (await readJsonResponse<Record<string, unknown>[]>(response)) ?? [];
+  return rows[0] ?? null;
+}
+
 export async function listAttendanceLeads(
   supabaseUrl: string,
   serviceRoleKey: string,

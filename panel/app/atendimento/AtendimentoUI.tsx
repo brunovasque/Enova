@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import styles from "./atendimento.module.css";
 import { fetchAttendanceLeadsAction, fetchClientProfileAction, saveClientProfileAction } from "./actions";
 import type { ClientProfileRow, ProfileSource } from "../api/client-profile/_shared";
@@ -721,7 +722,14 @@ export function AtendimentoUI() {
                   onClick={() => openDetail(lead)}
                 >
                   <div className={styles.colNome}>
-                    <span className={styles.leadName}>{leadLabel(lead)}</span>
+                    <Link
+                      href={`/atendimento/${encodeURIComponent(lead.wa_id)}`}
+                      className={styles.leadName}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{ textDecoration: "none" }}
+                    >
+                      {leadLabel(lead)}
+                    </Link>
                     <span className={styles.leadPhone}>{lead.telefone ?? lead.wa_id}</span>
                   </div>
 

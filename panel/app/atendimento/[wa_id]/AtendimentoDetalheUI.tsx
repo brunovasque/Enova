@@ -325,6 +325,7 @@ const FASE_LABEL_MAP: Record<string, string> = {
   finalizacao_processo: "Finalização do pacote",
   finalizacao: "Finalização",
   aguardando_retorno_correspondente: "Aguardando correspondente",
+  // Both spellings exist in DB (Worker typo variants)
   fim_ineligivel: "Inelegível",
   fim_inelegivel: "Inelegível",
   dependente: "Dependentes",

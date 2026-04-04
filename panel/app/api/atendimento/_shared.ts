@@ -93,10 +93,13 @@ export async function archiveAttendanceLead(
   archive_reason_note: string | null,
 ): Promise<void> {
   const now = new Date().toISOString();
-  const endpoint = new URL("/rest/v1/enova_attendance_meta", supabaseUrl);
-  endpoint.searchParams.set("on_conflict", "wa_id");
 
-  const response = await fetch(endpoint.toString(), {
+  // 1) Fonte primária de atendimento: UPSERT em enova_attendance_meta.
+  //    archived_at aqui exclui o lead de enova_attendance_v1 (WHERE a.archived_at IS NULL).
+  const attendanceEndpoint = new URL("/rest/v1/enova_attendance_meta", supabaseUrl);
+  attendanceEndpoint.searchParams.set("on_conflict", "wa_id");
+
+  const attendanceResponse = await fetch(attendanceEndpoint.toString(), {
     method: "POST",
     headers: {
       ...buildSupabaseHeaders(serviceRoleKey),
@@ -112,8 +115,35 @@ export async function archiveAttendanceLead(
     cache: "no-store",
   });
 
-  if (!response.ok) {
-    throw new Error(`FAILED_TO_ARCHIVE_ATTENDANCE:${response.status}`);
+  if (!attendanceResponse.ok) {
+    throw new Error(`FAILED_TO_ARCHIVE_ATTENDANCE:${attendanceResponse.status}`);
+  }
+
+  // 2) Sincronização para Bases: PATCH em crm_lead_meta para que o lead apareça
+  //    em Bases > Arquivados (que lê is_archived de crm_lead_meta via bases_leads_v1).
+  //    PATCH em linha inexistente retorna 204 vazio (seguro — leads sem crm_lead_meta
+  //    não aparecem em Bases de forma alguma).
+  const crmEndpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
+  crmEndpoint.search = `?wa_id=eq.${encodeURIComponent(wa_id)}`;
+
+  const crmResponse = await fetch(crmEndpoint.toString(), {
+    method: "PATCH",
+    headers: {
+      ...buildSupabaseHeaders(serviceRoleKey),
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({
+      is_archived: true,
+      archived_at: now,
+      archive_reason_code,
+      archive_reason_note,
+      updated_at: now,
+    }),
+    cache: "no-store",
+  });
+
+  if (!crmResponse.ok) {
+    throw new Error(`FAILED_TO_SYNC_CRM_ARCHIVE:${crmResponse.status}`);
   }
 }
 
@@ -123,10 +153,12 @@ export async function unarchiveAttendanceLead(
   wa_id: string,
 ): Promise<void> {
   const now = new Date().toISOString();
-  const endpoint = new URL("/rest/v1/enova_attendance_meta", supabaseUrl);
-  endpoint.search = `?wa_id=eq.${encodeURIComponent(wa_id)}`;
 
-  const response = await fetch(endpoint.toString(), {
+  // 1) Limpa arquivo em enova_attendance_meta.
+  const attendanceEndpoint = new URL("/rest/v1/enova_attendance_meta", supabaseUrl);
+  attendanceEndpoint.search = `?wa_id=eq.${encodeURIComponent(wa_id)}`;
+
+  const attendanceResponse = await fetch(attendanceEndpoint.toString(), {
     method: "PATCH",
     headers: {
       ...buildSupabaseHeaders(serviceRoleKey),
@@ -141,7 +173,32 @@ export async function unarchiveAttendanceLead(
     cache: "no-store",
   });
 
-  if (!response.ok) {
-    throw new Error(`FAILED_TO_UNARCHIVE_ATTENDANCE:${response.status}`);
+  if (!attendanceResponse.ok) {
+    throw new Error(`FAILED_TO_UNARCHIVE_ATTENDANCE:${attendanceResponse.status}`);
+  }
+
+  // 2) Sincronização para Bases: limpa is_archived em crm_lead_meta.
+  //    PATCH em linha inexistente retorna 204 vazio (seguro).
+  const crmEndpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
+  crmEndpoint.search = `?wa_id=eq.${encodeURIComponent(wa_id)}`;
+
+  const crmResponse = await fetch(crmEndpoint.toString(), {
+    method: "PATCH",
+    headers: {
+      ...buildSupabaseHeaders(serviceRoleKey),
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({
+      is_archived: false,
+      archived_at: null,
+      archive_reason_code: null,
+      archive_reason_note: null,
+      updated_at: now,
+    }),
+    cache: "no-store",
+  });
+
+  if (!crmResponse.ok) {
+    throw new Error(`FAILED_TO_SYNC_CRM_UNARCHIVE:${crmResponse.status}`);
   }
 }

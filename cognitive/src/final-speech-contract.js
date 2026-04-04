@@ -83,6 +83,67 @@ const SAFE_REPLACEMENT_MAP = Object.freeze({
   prazo: "o prazo depende do andamento da análise"
 });
 
+// ── Stage Discipline: future-stage collection guard (ONE-STAGE-ONLY) ────────
+// Detects and strips questions/collection prompts about stages that come AFTER
+// the current stage in the canonical funnel order. This is a safety net for
+// LLM-generated replies that may leak downstream topics into the current turn.
+//
+// The guard uses a stage-group ordering: each group defines forbidden downstream
+// collection patterns. A reply in stage X must not contain collection questions
+// about any stage group that follows X in the funnel.
+const COLLECTION_PATTERNS = Object.freeze({
+  estado_civil: /\b(?:estado civil|solteiro|casad[oa]|divorci|separad[oa]|vi[uú]v[oa]|uni[aã]o est[aá]vel)\b.*?\?/gi,
+  regime_trabalho: /\b(?:regime de trabalho|CLT|aut[oô]nomo|servidor|aposentad[oa])\b.*?\?/gi,
+  renda: /\b(?:renda mensal|quanto (?:voc[eê] )?ganh|sal[aá]rio mensal|valor d[ae] renda)\b.*?\?/gi,
+  composicao: /\b(?:somar renda|sozinho ou com|vai (?:seguir|compor) (?:sozinho|com))\b.*?\?/gi,
+  ctps: /\b(?:CTPS|carteira de trabalho|36 meses)\b.*?\?/gi,
+  restricao: /\b(?:restri[cç][aã]o no (?:seu )?CPF|nome sujo|SPC|Serasa)\b.*?\?/gi,
+});
+
+// Maps each stage group to the collection patterns that are FORBIDDEN in replies
+// for that group. Stages earlier in the funnel forbid more downstream patterns.
+const STAGE_FORBIDDEN_PATTERNS = Object.freeze({
+  // Topo stages: cannot ask about anything downstream
+  topo: ["estado_civil", "composicao", "regime_trabalho", "renda", "ctps", "restricao"],
+  // Bloco 3 (estado_civil group): cannot ask renda/trabalho/gates
+  bloco_3: ["regime_trabalho", "renda", "ctps", "restricao"],
+  // Composição: cannot ask renda/gates (regime OK if asking partner)
+  composicao: ["renda", "ctps", "restricao"],
+  // Renda/trabalho: cannot ask gates
+  renda_trabalho: ["ctps", "restricao"],
+});
+
+const STAGE_TO_GROUP = Object.freeze({
+  inicio: "topo", inicio_decisao: "topo", inicio_programa: "topo",
+  inicio_nome: "topo", inicio_nacionalidade: "topo",
+  inicio_rnm: "topo", inicio_rnm_validade: "topo",
+  estado_civil: "bloco_3", confirmar_casamento: "bloco_3", financiamento_conjunto: "bloco_3",
+  somar_renda_solteiro: "composicao", somar_renda_familiar: "composicao",
+  quem_pode_somar: "composicao", interpretar_composicao: "composicao",
+  regime_trabalho: "renda_trabalho", autonomo_ir_pergunta: "renda_trabalho", renda: "renda_trabalho",
+});
+
+function stripFutureStageCollection(reply, currentStage) {
+  const stage = String(currentStage || "").toLowerCase().trim();
+  if (!stage || !reply) return reply;
+  const group = STAGE_TO_GROUP[stage];
+  if (!group) return reply; // operational/gate/etc stages — no restriction needed
+  const forbidden = STAGE_FORBIDDEN_PATTERNS[group];
+  if (!forbidden || !forbidden.length) return reply;
+
+  let result = reply;
+  for (const patternKey of forbidden) {
+    const regex = COLLECTION_PATTERNS[patternKey];
+    if (!regex) continue;
+    // Create fresh RegExp to avoid lastIndex mutation
+    const fresh = new RegExp(regex.source, regex.flags);
+    result = result.replace(fresh, "").trim();
+  }
+  // Clean up trailing orphan punctuation or whitespace from stripping
+  result = result.replace(/\s{2,}/g, " ").replace(/\s+([,.!?;:])/g, "$1").trim();
+  return result;
+}
+
 // ── Helpers internos ───────────────────────────────────────────────────────
 
 function detectEmotionalContext(messageText) {
@@ -183,6 +244,9 @@ export function applyFinalSpeechContract(reply, context = {}) {
   // 2. Bloquear/ajustar promessas proibidas
   result = replaceForbiddenPromises(result);
 
+  // 2.5 Stage discipline: strip future-stage collection questions (ONE-STAGE-ONLY)
+  result = stripFutureStageCollection(result, context.currentStage);
+
   // 3. Adicionar acolhimento quando contexto emocional detectado
   result = addEmpathyIfNeeded(result, {
     hasEmotionalContext,
@@ -245,6 +309,14 @@ export function exceedsMaxLength(text) {
  * @returns {boolean}
  */
 export { detectEmotionalContext };
+
+/**
+ * Strips future-stage collection questions from a reply (ONE-STAGE-ONLY guard).
+ * @param {string} reply
+ * @param {string} currentStage
+ * @returns {string}
+ */
+export { stripFutureStageCollection };
 
 // ── Constantes exportadas para testes ──────────────────────────────────────
 export const CONTRACT_CONFIG = Object.freeze({

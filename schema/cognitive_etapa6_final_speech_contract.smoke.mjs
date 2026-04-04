@@ -369,8 +369,9 @@ test("9.1 — contrato não remove informação de stage do texto", () => {
 });
 
 test("9.2 — contrato preserva termos-chave de cada stage", () => {
-  const result1 = applyFinalSpeechContract("Me confirma seu regime de trabalho?", { currentStage: "inicio" });
-  assert.ok(result1.includes("regime") || result1.includes("trabalho"), "Topo preservado");
+  // Topo: valid topo content (program explanation) is preserved
+  const result1 = applyFinalSpeechContract("Me confirma se já conhece o programa?", { currentStage: "inicio" });
+  assert.ok(result1.includes("programa"), "Topo preservado");
 
   const result2 = applyFinalSpeechContract("Envie sua identidade com foto.", { currentStage: "envio_docs" });
   assert.ok(result2.includes("identidade"), "Docs preservado");

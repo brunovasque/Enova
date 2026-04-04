@@ -3309,6 +3309,23 @@ function hasClearStageAnswer(stage, text) {
   if (stage === "dependente") return isYes(text) || isNo(text);
   if (stage === "restricao" || stage === "restricao_parceiro" || stage === "restricao_parceiro_p3") return isYes(text) || isNo(text);
   if (stage === "regularizacao_restricao" || stage === "regularizacao_restricao_parceiro" || stage === "regularizacao_restricao_p3") return isYes(text) || isNo(text);
+  // Bloco 2 topo — inicio_nome, inicio_nacionalidade, inicio_rnm, inicio_rnm_validade
+  if (stage === "inicio_nome") {
+    const raw = String(text || "").trim()
+      .replace(/^(meu nome e|meu nome é|me chamo|me chama|sou|sou o|sou a|aqui e|aqui é)\s*/i, "")
+      .replace(/^["'\-–—\s]+|["'\-–—\s]+$/g, "").trim();
+    const partes = raw.split(/\s+/).filter(p => p.length >= 2);
+    return raw.length >= 2 && partes.length >= 1 && partes.length <= 6;
+  }
+  if (stage === "inicio_nacionalidade") {
+    const nt = normalizeText(text);
+    return /^(brasileiro|brasileira|estrangeiro|estrangeira|sou brasileiro|sou brasileira|sou estrangeiro|sou estrangeira|daqui mesmo|sou daqui mesmo|daqui|gringo|nao sou brasileiro|não sou brasileiro|nascido no brasil|nascida no brasil|nasci no brasil|brasileiro mesmo|brasileira mesmo|sou daqui)$/i.test(nt);
+  }
+  if (stage === "inicio_rnm") return isYes(text) || isNo(text);
+  if (stage === "inicio_rnm_validade") {
+    const nt = normalizeText(text);
+    return /\b(indeterminado|valido|válido|com validade|definida)\b/i.test(nt);
+  }
   return false;
 }
 
@@ -3334,6 +3351,20 @@ function shouldTriggerCognitiveAssist(stage, text) {
   if (stage === "inicio_nome") {
     const nomeHints = /\b(depois eu mando|depois mando|mando depois|me chama de|pode ser so|só o primeiro|primeiro nome|apelido|pra que|para que|por que|porque)\b/i.test(nt);
     if (nomeHints) return true;
+  }
+  if (stage === "inicio_nacionalidade") {
+    const nacHints = /\b(o que e|o que é|rnm|registro|muda alguma|diferente|diferenca|diferença|por que|pra que|para que|porque|estrangeiro pode|estrangeira pode|ainda posso)\b/i.test(nt);
+    if (nacHints) return true;
+  }
+
+  // Bloco C topo — triggers específicos para inicio_rnm e inicio_rnm_validade
+  if (stage === "inicio_rnm") {
+    const rnmHints = /\b(o que e|o que é|rnm|registro|nao sei|não sei|nao tenho certeza|não tenho certeza|meu documento|conta|serve|funciona|vale|documento estrangeiro|doc estrangeiro|estrangeiro pode|estrangeira pode)\b/i.test(nt);
+    if (rnmHints) return true;
+  }
+  if (stage === "inicio_rnm_validade") {
+    const rnmValidadeHints = /\b(como sei|como saber|onde vejo|onde fica|onde esta|onde está|como descubro|nao entendi|não entendi|o que e|o que é|diferenca|diferença|explica|se tiver validade|validade definida|nao sei|não sei)\b/i.test(nt);
+    if (rnmValidadeHints) return true;
   }
 
   // Bloco composicao inicial — triggers específicos para somar_renda stages

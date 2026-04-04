@@ -22220,14 +22220,25 @@ case "inicio_programa": {
 
   // 🔁 Resposta ambígua → NÃO repetir igual (nova mensagem)
   if (!sim && !nao) {
+    // ── Pós-reset / reentrada: casca cognitiva assume superfície,
+    //    mecânico preserva stage. Evita reprompt seco após saudação curta.
+    const _isGreetingOrReentry =
+      /^(oi+|ola|olá|opa|eae|eai|fala|bom dia|boa tarde|boa noite|e ai|e aí)\b/i.test(nt) ||
+      /\b(quero comecar|quero começar|voltei|to de volta|tô de volta|vamos la|vamos lá)\b/i.test(nt);
+    if (_isGreetingOrReentry && st.__cognitive_reply_prefix) {
+      st.__cognitive_v2_takes_final = true;
+    }
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
       next_stage: "inicio_programa",
       severity: "info",
-      message: "Resposta ambígua em inicio_programa — permanecendo",
-      details: { userText }
+      message: _isGreetingOrReentry && st.__cognitive_v2_takes_final
+        ? "Saudação/reentrada em inicio_programa — cognitivo assume superfície"
+        : "Resposta ambígua em inicio_programa — permanecendo",
+      details: { userText, cognitive_takes_final: st.__cognitive_v2_takes_final || false }
     });
 
     return step(

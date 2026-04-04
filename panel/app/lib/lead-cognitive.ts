@@ -180,10 +180,10 @@ const FASES_ARQUIVAVEIS = new Set([
   "inativo",
 ]);
 
-/** Valores de interesse_atual que indicam alto interesse. */
-const INTERESSE_ALTO = new Set(["alto", "Alta", "high", "quente", "hot"]);
-/** Valores de interesse_atual que indicam baixo interesse. */
-const INTERESSE_BAIXO = new Set(["baixo", "Baixo", "low", "frio", "cold", "sem_interesse"]);
+/** Valores de interesse_atual que indicam alto interesse (comparar após .toLowerCase()). */
+const INTERESSE_ALTO = new Set(["alto", "high", "quente", "hot"]);
+/** Valores de interesse_atual que indicam baixo interesse (comparar após .toLowerCase()). */
+const INTERESSE_BAIXO = new Set(["baixo", "low", "frio", "cold", "sem_interesse"]);
 
 // ── Helpers internos ──────────────────────────────────────────────────────
 

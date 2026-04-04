@@ -30538,9 +30538,30 @@ case "visita_confirmada": {
   const pediuCancelamento = /\b(cancelar|desistir|desistencia|desistência|desmarcar)\b/.test(tNorm) || /\b(nao quero mais|não quero mais)\b/.test(tNorm);
   const pediuEndereco = /\b(endereco|endereco|localizacao|localizacao|onde fica|mapa|como chegar)\b/.test(tNorm);
   const pediuDetalhes = /\b(detalhe|detalhes|relembrar|relembrar|confirmada|qual dia|que dia|qual horario|que horario|quando)\b/.test(tNorm);
-  // ── BLOCO 13 — "já fui ao plantão" no pós-confirmação ──
-  const jaFoiPlantaoConf = /\b(ja fui|já fui|ja passei|já passei|ja visitei|já visitei|ja estive|já estive)\b/.test(tNorm) && /\b(plant[aã]o|l[aá]|visita)\b/.test(tNorm);
+  // ── BLOCO 13 — "já fui ao plantão" no pós-confirmação (DEVE vir antes de pediuResultadoRealizada) ──
+  const jaFoiPlantaoConf = /\b(ja fui|já fui|ja passei|já passei|ja visitei|já visitei|ja estive|já estive)\b/.test(tNorm) && /\b(plant[aã]o|l[aá])\b/.test(tNorm);
   const cogB13ConfCtx = { visitaOrigem: st.visita_origem || "aprovado", ENDERECO_PLANTAO, visitaResumo };
+
+  // "Já fui ao plantão" — persuasão máxima, NÃO aceitar como visita realizada
+  if (jaFoiPlantaoConf) {
+    const cogJaFoiC = buildCognitiveBloco13Reply({ ...cogB13ConfCtx, subAction: "ja_fui_plantao" });
+    if (cogJaFoiC) { st.__cognitive_reply_prefix = cogJaFoiC; st.__cognitive_v2_takes_final = true; }
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "visita_confirmada",
+      severity: "info",
+      message: "Cliente disse que já foi ao plantão — persuasão máxima"
+    });
+    return step(env, st,
+      [
+        `Sua visita continua confirmada pra *${visitaResumo}*. ✅`,
+        "Nem sempre são as mesmas opções. Tudo depende do corretor e do perfil atualizado."
+      ],
+      "visita_confirmada"
+    );
+  }
 
   if (pediuResultadoRealizada) {
     await upsertState(env, st.wa_id, {
@@ -30691,12 +30712,7 @@ case "visita_confirmada": {
     );
   }
 
-  // "Já fui ao plantão" — persuasão máxima
-  if (jaFoiPlantaoConf) {
-    const cogJaFoiC = buildCognitiveBloco13Reply({ ...cogB13ConfCtx, subAction: "ja_fui_plantao" });
-    if (cogJaFoiC) { st.__cognitive_reply_prefix = cogJaFoiC; st.__cognitive_v2_takes_final = true; }
-  }
-
+  // Fallback genérico
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
@@ -30706,10 +30722,8 @@ case "visita_confirmada": {
     message: "Cliente interagiu após visita confirmada"
   });
 
-  if (!jaFoiPlantaoConf) {
-    const cogFallback = buildCognitiveBloco13Reply({ ...cogB13ConfCtx, subAction: "visita_confirmada_fallback" });
-    if (cogFallback) { st.__cognitive_reply_prefix = cogFallback; st.__cognitive_v2_takes_final = true; }
-  }
+  const cogFallback = buildCognitiveBloco13Reply({ ...cogB13ConfCtx, subAction: "visita_confirmada_fallback" });
+  if (cogFallback) { st.__cognitive_reply_prefix = cogFallback; st.__cognitive_v2_takes_final = true; }
   return step(env, st,
     [
       `Sua visita já está confirmada para *${visitaResumo}*. ✅`,

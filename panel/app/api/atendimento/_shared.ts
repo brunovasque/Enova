@@ -1,6 +1,7 @@
 // ============================================================
 // Atendimento — Backend helper (panel/app/api/atendimento/_shared.ts)
 // Escopo: leitura da view enova_attendance_v1 (read-only)
+//         + arquivamento em enova_attendance_meta (write restrito)
 // ============================================================
 
 function buildSupabaseHeaders(serviceRoleKey: string) {
@@ -73,4 +74,164 @@ export async function listAttendanceLeads(
   }
 
   return (await readJsonResponse<Record<string, unknown>[]>(response)) ?? [];
+}
+
+// ── Arquivamento — escreve em enova_attendance_meta ─────────────────────────
+//
+// A view enova_attendance_v1 lê archived_at de enova_attendance_meta (LEFT JOIN).
+// O arquivamento de leads do painel de atendimento DEVE escrever nessa tabela,
+// não em crm_lead_meta (que é o domínio do painel de Bases).
+//
+// UPSERT garante que mesmo leads sem linha em enova_attendance_meta possam ser
+// arquivados (cria a linha com wa_id + campos de archive).
+
+export async function archiveAttendanceLead(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  wa_id: string,
+  archive_reason_code: string | null,
+  archive_reason_note: string | null,
+): Promise<void> {
+  const now = new Date().toISOString();
+
+  // 1) Fonte primária de atendimento: UPSERT em enova_attendance_meta.
+  //    archived_at aqui exclui o lead de enova_attendance_v1 (WHERE a.archived_at IS NULL).
+  const attendanceEndpoint = new URL("/rest/v1/enova_attendance_meta", supabaseUrl);
+  attendanceEndpoint.searchParams.set("on_conflict", "wa_id");
+
+  const attendanceResponse = await fetch(attendanceEndpoint.toString(), {
+    method: "POST",
+    headers: {
+      ...buildSupabaseHeaders(serviceRoleKey),
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify([{
+      wa_id,
+      archived_at: now,
+      archive_reason_code,
+      archive_reason_note,
+      updated_at: now,
+    }]),
+    cache: "no-store",
+  });
+
+  if (!attendanceResponse.ok) {
+    throw new Error(`FAILED_TO_ARCHIVE_ATTENDANCE:${attendanceResponse.status}`);
+  }
+
+  // 2) Sincronização para Bases: PATCH em crm_lead_meta para que o lead apareça
+  //    em Bases > Arquivados (que lê is_archived de crm_lead_meta via bases_leads_v1).
+  const crmPatchEndpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
+  crmPatchEndpoint.search = `?wa_id=eq.${encodeURIComponent(wa_id)}`;
+
+  const crmPatchResponse = await fetch(crmPatchEndpoint.toString(), {
+    method: "PATCH",
+    headers: {
+      ...buildSupabaseHeaders(serviceRoleKey),
+      Prefer: "return=representation",
+    },
+    body: JSON.stringify({
+      is_archived: true,
+      archived_at: now,
+      archive_reason_code,
+      archive_reason_note,
+      updated_at: now,
+    }),
+    cache: "no-store",
+  });
+
+  if (!crmPatchResponse.ok) {
+    throw new Error(`FAILED_TO_SYNC_CRM_ARCHIVE:${crmPatchResponse.status}`);
+  }
+
+  const patchedRows = (await readJsonResponse<Record<string, unknown>[]>(crmPatchResponse)) ?? [];
+
+  // Se nenhuma row foi atualizada, este lead não tem row em crm_lead_meta.
+  // Leads orgânicos podem chegar ao funil sem terem sido importados em Bases
+  // (registerOrganicLeadInCrmMeta no Worker é non-blocking e pode falhar silenciosamente).
+  // Inserimos uma row mínima para que o lead apareça em Bases > Arquivados e
+  // não entre em limbo operacional.
+  if (patchedRows.length === 0) {
+    const crmInsertEndpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
+
+    const crmInsertResponse = await fetch(crmInsertEndpoint.toString(), {
+      method: "POST",
+      headers: {
+        ...buildSupabaseHeaders(serviceRoleKey),
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({
+        wa_id,
+        lead_pool: "COLD_POOL",
+        lead_temp: "COLD",
+        lead_source: "organico",
+        is_archived: true,
+        archived_at: now,
+        archive_reason_code,
+        archive_reason_note,
+        updated_at: now,
+      }),
+      cache: "no-store",
+    });
+
+    if (!crmInsertResponse.ok) {
+      throw new Error(`FAILED_TO_INSERT_CRM_ARCHIVE:${crmInsertResponse.status}`);
+    }
+  }
+}
+
+export async function unarchiveAttendanceLead(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  wa_id: string,
+): Promise<void> {
+  const now = new Date().toISOString();
+
+  // 1) Limpa arquivo em enova_attendance_meta.
+  const attendanceEndpoint = new URL("/rest/v1/enova_attendance_meta", supabaseUrl);
+  attendanceEndpoint.search = `?wa_id=eq.${encodeURIComponent(wa_id)}`;
+
+  const attendanceResponse = await fetch(attendanceEndpoint.toString(), {
+    method: "PATCH",
+    headers: {
+      ...buildSupabaseHeaders(serviceRoleKey),
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({
+      archived_at: null,
+      archive_reason_code: null,
+      archive_reason_note: null,
+      updated_at: now,
+    }),
+    cache: "no-store",
+  });
+
+  if (!attendanceResponse.ok) {
+    throw new Error(`FAILED_TO_UNARCHIVE_ATTENDANCE:${attendanceResponse.status}`);
+  }
+
+  // 2) Sincronização para Bases: limpa is_archived em crm_lead_meta.
+  //    PATCH em linha inexistente retorna 204 vazio (seguro).
+  const crmEndpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
+  crmEndpoint.search = `?wa_id=eq.${encodeURIComponent(wa_id)}`;
+
+  const crmResponse = await fetch(crmEndpoint.toString(), {
+    method: "PATCH",
+    headers: {
+      ...buildSupabaseHeaders(serviceRoleKey),
+      Prefer: "return=minimal",
+    },
+    body: JSON.stringify({
+      is_archived: false,
+      archived_at: null,
+      archive_reason_code: null,
+      archive_reason_note: null,
+      updated_at: now,
+    }),
+    cache: "no-store",
+  });
+
+  if (!crmResponse.ok) {
+    throw new Error(`FAILED_TO_SYNC_CRM_UNARCHIVE:${crmResponse.status}`);
+  }
 }

@@ -560,6 +560,7 @@
   }
   .topBar {
     padding: 12px 16px;
+    flex-wrap: wrap;
   }
   .fichaBody {
     padding: 16px;
@@ -567,4 +568,360 @@
   .detailGrid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ── Top bar extended ── */
+.topBarInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.topBarMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.topBarMetaItem {
+  font-size: 0.75rem;
+  color: #71717a;
+}
+
+.topBarMetaItem + .topBarMetaItem::before {
+  content: "·";
+  margin-right: 8px;
+  color: #3f3f46;
+}
+
+.topBarBaseBadge {
+  font-size: 0.6875rem !important;
+  padding: 2px 7px !important;
+}
+
+.topBarArchivedBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  background: rgba(251, 191, 36, 0.12);
+  color: #fcd34d;
+  border: 1px solid rgba(251, 191, 36, 0.25);
+}
+
+.topBarActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Archive toggle button ── */
+.archiveToggleBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(251, 191, 36, 0.25);
+  border-radius: 6px;
+  background: rgba(251, 191, 36, 0.05);
+  color: #fcd34d;
+  padding: 7px 14px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.archiveToggleBtn:hover {
+  background: rgba(251, 191, 36, 0.1);
+  border-color: rgba(251, 191, 36, 0.4);
+}
+
+.archiveToggleBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.archiveToggleBtnUnarchive {
+  border-color: rgba(52, 211, 153, 0.25);
+  background: rgba(52, 211, 153, 0.05);
+  color: #6ee7b7;
+}
+
+.archiveToggleBtnUnarchive:hover {
+  background: rgba(52, 211, 153, 0.1);
+  border-color: rgba(52, 211, 153, 0.4);
+}
+
+/* ── Archive inline panel ── */
+.archivePanel {
+  border-bottom: 1px solid rgba(251, 191, 36, 0.15);
+  background: rgba(251, 191, 36, 0.03);
+  padding: 16px 32px;
+  flex-shrink: 0;
+}
+
+.archivePanelInner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 640px;
+}
+
+.archivePanelTitle {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #fcd34d;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.archivePanelRow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.archivePanelError {
+  font-size: 0.8125rem;
+  color: #fca5a5;
+  margin: 0;
+}
+
+.archivePanelFooter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.archiveNoteTextarea {
+  min-height: 48px !important;
+}
+
+/* ── Secondary / Confirm buttons ── */
+.secondaryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+  color: #9a9aa3;
+  padding: 7px 14px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.secondaryBtn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #e0e0e7;
+}
+
+.archiveConfirmBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 6px;
+  background: rgba(251, 191, 36, 0.1);
+  color: #fcd34d;
+  padding: 7px 16px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.archiveConfirmBtn:hover:not(:disabled) {
+  background: rgba(251, 191, 36, 0.18);
+  border-color: rgba(251, 191, 36, 0.45);
+}
+
+.archiveConfirmBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Global feedback banners ── */
+.globalFeedback {
+  padding: 10px 32px;
+  font-size: 0.8125rem;
+  color: #6ee7b7;
+  background: rgba(52, 211, 153, 0.06);
+  border-bottom: 1px solid rgba(52, 211, 153, 0.12);
+  flex-shrink: 0;
+}
+
+.globalFeedbackError {
+  padding: 10px 32px;
+  font-size: 0.8125rem;
+  color: #fca5a5;
+  background: rgba(248, 113, 113, 0.06);
+  border-bottom: 1px solid rgba(248, 113, 113, 0.12);
+  flex-shrink: 0;
+}
+
+/* ── Profile editing grid ── */
+.profileGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 20px;
+}
+
+/* ── Prefill form inputs (matches atendimento.module.css) ── */
+.prefillFieldRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.prefillFieldRowFull {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  grid-column: 1 / -1;
+}
+
+.prefillFieldHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.prefillInput {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #e4e4e7;
+  padding: 7px 10px;
+  font-size: 0.8125rem;
+  font-family: inherit;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color 0.15s ease;
+}
+
+.prefillInput:focus {
+  border-color: rgba(45, 165, 165, 0.4);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.prefillInput::placeholder {
+  color: #52525b;
+}
+
+.prefillSelect {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #e4e4e7;
+  padding: 7px 10px;
+  font-size: 0.8125rem;
+  font-family: inherit;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.prefillSelect:focus {
+  border-color: rgba(45, 165, 165, 0.4);
+}
+
+.prefillTextarea {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #e4e4e7;
+  padding: 7px 10px;
+  font-size: 0.8125rem;
+  font-family: inherit;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 64px;
+  transition: border-color 0.15s ease;
+}
+
+.prefillTextarea:focus {
+  border-color: rgba(45, 165, 165, 0.4);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* ── Profile source badges ── */
+.prefillStatusBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.prefillStatusConfirmed {
+  background: rgba(52, 211, 153, 0.1);
+  color: #6ee7b7;
+}
+
+.prefillStatusPending {
+  background: rgba(251, 191, 36, 0.1);
+  color: #fcd34d;
+}
+
+.prefillStatusEmpty {
+  background: rgba(255, 255, 255, 0.04);
+  color: #52525b;
+}
+
+/* ── Profile save row ── */
+.profileSaveRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.profileSaveBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(45, 165, 165, 0.3);
+  border-radius: 6px;
+  background: rgba(45, 165, 165, 0.08);
+  color: #7dd3d3;
+  padding: 7px 16px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-family: inherit;
+}
+
+.profileSaveBtn:hover:not(:disabled) {
+  background: rgba(45, 165, 165, 0.14);
+  border-color: rgba(45, 165, 165, 0.45);
+}
+
+.profileSaveBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.profileFeedback {
+  font-size: 0.8125rem;
+  color: #6ee7b7;
+}
+
+.profileFeedbackError {
+  font-size: 0.8125rem;
+  color: #fca5a5;
 }

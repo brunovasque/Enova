@@ -179,6 +179,8 @@ export function BasesUI() {
   const [callNowTarget, setCallNowTarget] = useState<CrmLeadMetaRow | null>(null);
   const [moveTarget, setMoveTarget] = useState<CrmLeadMetaRow | null>(null);
   const [archiveTarget, setArchiveTarget] = useState<CrmLeadMetaRow | null>(null);
+  const [archiveReasonCode, setArchiveReasonCode] = useState("");
+  const [archiveNote, setArchiveNote] = useState("");
   const [editingObsWaId, setEditingObsWaId] = useState<string | null>(null);
   const [editingObsText, setEditingObsText] = useState("");
   const [busyStatusWaId, setBusyStatusWaId] = useState<string | null>(null);
@@ -266,7 +268,7 @@ export function BasesUI() {
       if (showAddModal) { setShowAddModal(false); return; }
       if (showImportModal) { setShowImportModal(false); return; }
       if (showWarmupModal) { setShowWarmupModal(false); return; }
-      if (archiveTarget) { setArchiveTarget(null); return; }
+      if (archiveTarget) { closeArchiveModal(); return; }
       if (moveTarget) { setMoveTarget(null); return; }
       if (callNowTarget) { setCallNowTarget(null); return; }
     }
@@ -515,12 +517,19 @@ export function BasesUI() {
     setCallNowTarget(null);
   };
 
+  const closeArchiveModal = () => { setArchiveTarget(null); setArchiveReasonCode(""); setArchiveNote(""); };
+
   const handleArchiveLead = async (lead: CrmLeadMetaRow) => {
     await runAndRefresh(
-      async () => callAction({ action: "archive_lead", wa_id: lead.wa_id }),
+      async () => callAction({
+        action: "archive_lead",
+        wa_id: lead.wa_id,
+        archive_reason_code: archiveReasonCode || undefined,
+        archive_reason_note: archiveNote.trim() || undefined,
+      }),
       `Lead ${leadLabel(lead)} arquivado.`,
     );
-    setArchiveTarget(null);
+    closeArchiveModal();
   };
 
   const handleUnarchiveLead = async (lead: CrmLeadMetaRow) => {
@@ -1490,30 +1499,53 @@ export function BasesUI() {
         </div>
       )}
       {archiveTarget && (
-        <div className={styles.overlay} onClick={() => setArchiveTarget(null)}>
+        <div className={styles.overlay} onClick={closeArchiveModal}>
           <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
             <div className={styles.modalHeader}>
               <h2 className={styles.modalTitle}>Arquivar lead</h2>
-              <button type="button" className={styles.closeButton} onClick={() => setArchiveTarget(null)}>
+              <button type="button" className={styles.closeButton} onClick={closeArchiveModal}>
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                   <path d="M1 1L13 13M1 13L13 1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
                 </svg>
               </button>
             </div>
             <div className={styles.modalContent}>
-              <div className={styles.formHint}>
-                Arquivar <strong>{leadLabel(archiveTarget)}</strong>? O lead será ocultado das listas normais e
-                ficará disponível na aba Arquivados.
+              <div className={styles.formGroup}>
+                <label className={styles.label}>
+                  Motivo <span className={styles.required}>*</span>
+                </label>
+                <select
+                  className={styles.select}
+                  value={archiveReasonCode}
+                  onChange={(e) => setArchiveReasonCode(e.target.value)}
+                >
+                  <option value="">— Selecione o motivo —</option>
+                  <option value="ja_comprou">Já comprou</option>
+                  <option value="sem_interesse">Sem interesse</option>
+                  <option value="desistiu">Desistiu</option>
+                  <option value="nao_responde">Não responde</option>
+                  <option value="outro">Outro</option>
+                </select>
+              </div>
+              <div className={styles.formGroup}>
+                <label className={styles.label}>Observação complementar</label>
+                <textarea
+                  className={styles.textarea}
+                  placeholder="Observação complementar (opcional)"
+                  value={archiveNote}
+                  onChange={(e) => setArchiveNote(e.target.value)}
+                  rows={3}
+                />
               </div>
             </div>
             <div className={styles.modalFooter}>
-              <button type="button" className={styles.secondaryButton} onClick={() => setArchiveTarget(null)}>
+              <button type="button" className={styles.secondaryButton} onClick={closeArchiveModal}>
                 Cancelar
               </button>
               <button
                 type="button"
                 className={`${styles.primaryButton} ${styles.actionBtnArchive}`}
-                disabled={actionBusy}
+                disabled={actionBusy || !archiveReasonCode}
                 onClick={() => void handleArchiveLead(archiveTarget)}
               >
                 Confirmar arquivamento

@@ -14,7 +14,14 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useState, useCallback } from "react";
 import styles from "./detalhe.module.css";
+import type { ClientProfileRow } from "../../api/client-profile/_shared";
+import {
+  saveClientProfileAction,
+  archiveLeadAction,
+  unarchiveLeadAction,
+} from "../actions";
 
 /* ── Type — mirrors AttendanceRow in AtendimentoUI ── */
 export type AttendanceDetalheRow = {
@@ -219,13 +226,86 @@ function isPrazoVencido(prazo: string | null | undefined): boolean {
   return new Date(prazo) < new Date();
 }
 
+/* ── Profile editing types (mirrors AtendimentoUI) ── */
+
+type ProfileEditState = {
+  nome: string;
+  nacionalidade: string;
+  estado_civil: string;
+  regime_trabalho: string;
+  renda: string;
+  ctps_36: string;
+  dependentes_qtd: string;
+  entrada_valor: string;
+  restricao: string;
+  origem_lead: string;
+  observacoes_admin: string;
+};
+
+function profileToEditState(row: ClientProfileRow | null): ProfileEditState {
+  return {
+    nome: row?.nome ?? "",
+    nacionalidade: row?.nacionalidade ?? "",
+    estado_civil: row?.estado_civil ?? "",
+    regime_trabalho: row?.regime_trabalho ?? "",
+    renda: row?.renda != null ? String(row.renda) : "",
+    ctps_36: row?.ctps_36 != null ? String(row.ctps_36) : "",
+    dependentes_qtd: row?.dependentes_qtd != null ? String(row.dependentes_qtd) : "",
+    entrada_valor: row?.entrada_valor != null ? String(row.entrada_valor) : "",
+    restricao: row?.restricao != null ? String(row.restricao) : "",
+    origem_lead: row?.origem_lead ?? "",
+    observacoes_admin: row?.observacoes_admin ?? "",
+  };
+}
+
+function profileTextOrNull(v: string) { return v.trim() ? v.trim() : null; }
+function profileNumOrNull(v: string) { const n = parseFloat(v); return isNaN(n) ? null : n; }
+function profileBoolOrNull(v: string): boolean | null {
+  if (v === "true") return true;
+  if (v === "false") return false;
+  return null;
+}
+
+type ProfileSource = ClientProfileRow["nome_source"];
+
+function sourceLabel(source: ProfileSource): string {
+  switch (source) {
+    case "funil": return "funil";
+    case "admin":
+    case "admin_inicial": return "admin";
+    case "manual": return "manual";
+    default: return "—";
+  }
+}
+
+function sourceBadgeClass(source: ProfileSource): string {
+  switch (source) {
+    case "funil": return styles.prefillStatusConfirmed;
+    case "admin":
+    case "admin_inicial":
+    case "manual": return styles.prefillStatusPending;
+    default: return styles.prefillStatusEmpty;
+  }
+}
+
+/* ── Archive reason options ── */
+
+const ARCHIVE_REASON_OPTIONS = [
+  { value: "ja_comprou", label: "Já comprou" },
+  { value: "sem_interesse", label: "Sem interesse" },
+  { value: "desistiu", label: "Desistiu" },
+  { value: "nao_responde", label: "Não responde" },
+  { value: "outro", label: "Outro" },
+] as const;
+
 /* ── Component ── */
 
 interface AtendimentoDetalheUIProps {
   lead: AttendanceDetalheRow;
+  initialProfile: ClientProfileRow | null;
 }
 
-export function AtendimentoDetalheUI({ lead }: AtendimentoDetalheUIProps) {
+export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalheUIProps) {
   const router = useRouter();
 
   const faseGrupo = deriveFaseGrupo(lead.fase_atendimento, lead.fase_travamento);
@@ -234,6 +314,93 @@ export function AtendimentoDetalheUI({ lead }: AtendimentoDetalheUIProps) {
   const restricaoBool = boolLabel(lead.restricao);
   const somarRendaBool = boolLabel(lead.somar_renda);
   const prazoVencido = isPrazoVencido(lead.prazo_proxima_acao);
+
+  /* ── Profile editing state ── */
+  const [clientProfile, setClientProfile] = useState<ClientProfileRow | null>(initialProfile);
+  const [profileEdit, setProfileEdit] = useState<ProfileEditState>(profileToEditState(initialProfile));
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileFeedback, setProfileFeedback] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  /* ── Archive state ── */
+  const [isArchived, setIsArchived] = useState<boolean>(!!lead.arquivado_em);
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveReasonCode, setArchiveReasonCode] = useState("");
+  const [archiveNote, setArchiveNote] = useState("");
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [archiveFeedback, setArchiveFeedback] = useState<string | null>(null);
+
+  /* ── Profile save handler ── */
+  const handleSaveProfile = useCallback(async () => {
+    setProfileBusy(true);
+    setProfileFeedback(null);
+    setProfileError(null);
+
+    const payload = {
+      wa_id: lead.wa_id,
+      nome: profileTextOrNull(profileEdit.nome),
+      nacionalidade: profileTextOrNull(profileEdit.nacionalidade),
+      estado_civil: profileTextOrNull(profileEdit.estado_civil),
+      regime_trabalho: profileTextOrNull(profileEdit.regime_trabalho),
+      renda: profileNumOrNull(profileEdit.renda),
+      ctps_36: profileBoolOrNull(profileEdit.ctps_36),
+      dependentes_qtd: profileNumOrNull(profileEdit.dependentes_qtd),
+      entrada_valor: profileNumOrNull(profileEdit.entrada_valor),
+      restricao: profileBoolOrNull(profileEdit.restricao),
+      origem_lead: profileTextOrNull(profileEdit.origem_lead),
+      observacoes_admin: profileTextOrNull(profileEdit.observacoes_admin),
+      updated_by: "admin_panel",
+      source: "admin" as const,
+    };
+
+    const result = await saveClientProfileAction(payload);
+    if (result.ok) {
+      const saved = result.profile ?? null;
+      setClientProfile(saved);
+      setProfileEdit(profileToEditState(saved));
+      setProfileFeedback("Perfil salvo com sucesso.");
+    } else {
+      setProfileError(result.error ?? "Erro ao salvar");
+    }
+    setProfileBusy(false);
+  }, [lead.wa_id, profileEdit]);
+
+  /* ── Archive handlers ── */
+  const handleArchive = useCallback(async () => {
+    if (!archiveReasonCode) {
+      setArchiveError("Selecione um motivo de arquivamento.");
+      return;
+    }
+    setArchiveBusy(true);
+    setArchiveError(null);
+    const result = await archiveLeadAction(
+      lead.wa_id,
+      archiveReasonCode || null,
+      archiveNote.trim() || null,
+    );
+    setArchiveBusy(false);
+    if (result.ok) {
+      setIsArchived(true);
+      setArchiveOpen(false);
+      setArchiveFeedback("Lead arquivado com sucesso.");
+    } else {
+      setArchiveError(result.error ?? "Erro ao arquivar");
+    }
+  }, [lead.wa_id, archiveReasonCode, archiveNote]);
+
+  const handleUnarchive = useCallback(async () => {
+    setArchiveBusy(true);
+    setArchiveError(null);
+    const result = await unarchiveLeadAction(lead.wa_id);
+    setArchiveBusy(false);
+    if (result.ok) {
+      setIsArchived(false);
+      setArchiveFeedback("Lead desarquivado com sucesso.");
+    } else {
+      setArchiveError(result.error ?? "Erro ao desarquivar");
+    }
+  }, [lead.wa_id]);
 
   /* Build timeline */
   type TimelineEvent = { ts: number; order: number; label: string; detail: string };
@@ -262,13 +429,97 @@ export function AtendimentoDetalheUI({ lead }: AtendimentoDetalheUIProps) {
         <Link href="/atendimento" className={styles.backButton}>
           ← Voltar
         </Link>
-        <div>
+        <div className={styles.topBarInfo}>
           <h1 className={styles.topBarTitle}>{lead.nome ?? lead.telefone ?? lead.wa_id}</h1>
-          <p className={styles.topBarSubtitle}>
-            Atendimento · {lead.wa_id}
-          </p>
+          <div className={styles.topBarMeta}>
+            {lead.telefone && (
+              <span className={styles.topBarMetaItem}>{lead.telefone}</span>
+            )}
+            <span className={styles.topBarMetaItem}>{lead.wa_id}</span>
+            {lead.base_atual && (
+              <span className={`${styles.baseBadge} ${getBaseBadgeCls(lead.base_atual)} ${styles.topBarBaseBadge}`}>
+                {getBaseLabel(lead.base_atual)}
+              </span>
+            )}
+            {isArchived && (
+              <span className={styles.topBarArchivedBadge}>Arquivado</span>
+            )}
+          </div>
+        </div>
+        <div className={styles.topBarActions}>
+          {!isArchived ? (
+            <button
+              type="button"
+              className={styles.archiveToggleBtn}
+              onClick={() => { setArchiveOpen((v) => !v); setArchiveError(null); }}
+            >
+              📦 Arquivar lead
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={`${styles.archiveToggleBtn} ${styles.archiveToggleBtnUnarchive}`}
+              disabled={archiveBusy}
+              onClick={() => void handleUnarchive()}
+            >
+              {archiveBusy ? "Aguarde…" : "↩ Desarquivar"}
+            </button>
+          )}
         </div>
       </div>
+
+      {/* ── Inline archive panel ── */}
+      {archiveOpen && !isArchived && (
+        <div className={styles.archivePanel}>
+          <div className={styles.archivePanelInner}>
+            <span className={styles.archivePanelTitle}>Arquivar lead</span>
+            <div className={styles.archivePanelRow}>
+              <select
+                className={styles.prefillSelect}
+                value={archiveReasonCode}
+                onChange={(e) => setArchiveReasonCode(e.target.value)}
+              >
+                <option value="">— Selecione o motivo —</option>
+                {ARCHIVE_REASON_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+              <textarea
+                className={`${styles.prefillTextarea} ${styles.archiveNoteTextarea}`}
+                placeholder="Observação complementar (opcional)"
+                value={archiveNote}
+                onChange={(e) => setArchiveNote(e.target.value)}
+              />
+            </div>
+            {archiveError && <p className={styles.archivePanelError}>{archiveError}</p>}
+            <div className={styles.archivePanelFooter}>
+              <button
+                type="button"
+                className={styles.secondaryBtn}
+                onClick={() => { setArchiveOpen(false); setArchiveError(null); setArchiveReasonCode(""); setArchiveNote(""); }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className={styles.archiveConfirmBtn}
+                disabled={archiveBusy || !archiveReasonCode}
+                onClick={() => void handleArchive()}
+              >
+                {archiveBusy ? "Aguarde…" : "Confirmar arquivamento"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Feedback global (archive) ── */}
+      {archiveFeedback && (
+        <div className={styles.globalFeedback}>{archiveFeedback}</div>
+      )}
+      {archiveError && !archiveOpen && (
+        <div className={styles.globalFeedbackError}>{archiveError}</div>
+      )}
 
       {/* ── Scrollable body ── */}
       <div className={styles.fichaBody}>
@@ -344,72 +595,250 @@ export function AtendimentoDetalheUI({ lead }: AtendimentoDetalheUIProps) {
           )}
 
           {/* ═══════════════════════════════════════
-             BLOCO 2 — PERFIL DO SOLICITANTE
+             BLOCO 2 — PERFIL EDITÁVEL DO SOLICITANTE
              ═══════════════════════════════════════ */}
-          <div className={styles.block}>
+          <div className={`${styles.block} ${styles.blockFull}`}>
             <div className={styles.blockHeader}>
               <span className={styles.blockIcon}>👤</span>
               <h3 className={styles.blockTitle}>Perfil do Solicitante</h3>
             </div>
             <div className={styles.blockBody}>
-              <div className={styles.detailGrid}>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Nome</span>
-                  <span className={lead.nome ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.nome)}</span>
+              <div className={styles.profileGrid}>
+                {/* nome */}
+                <div className={styles.prefillFieldRow}>
+                  <div className={styles.prefillFieldHeader}>
+                    <span className={styles.fieldLabel}>Nome</span>
+                    {clientProfile?.nome_source && (
+                      <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.nome_source)}`}>
+                        {sourceLabel(clientProfile.nome_source)}
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    className={styles.prefillInput}
+                    value={profileEdit.nome}
+                    onChange={(e) => setProfileEdit({ ...profileEdit, nome: e.target.value })}
+                    placeholder="Nome do cliente"
+                  />
                 </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Telefone</span>
-                  <span className={lead.telefone ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.telefone)}</span>
+                {/* nacionalidade */}
+                <div className={styles.prefillFieldRow}>
+                  <div className={styles.prefillFieldHeader}>
+                    <span className={styles.fieldLabel}>Nacionalidade</span>
+                    {clientProfile?.nacionalidade_source && (
+                      <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.nacionalidade_source)}`}>
+                        {sourceLabel(clientProfile.nacionalidade_source)}
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="text"
+                    className={styles.prefillInput}
+                    value={profileEdit.nacionalidade}
+                    onChange={(e) => setProfileEdit({ ...profileEdit, nacionalidade: e.target.value })}
+                    placeholder="Ex: brasileira"
+                  />
                 </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Nacionalidade</span>
-                  <span className={lead.nacionalidade ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.nacionalidade)}</span>
+                {/* estado_civil */}
+                <div className={styles.prefillFieldRow}>
+                  <div className={styles.prefillFieldHeader}>
+                    <span className={styles.fieldLabel}>Estado Civil</span>
+                    {clientProfile?.estado_civil_source && (
+                      <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.estado_civil_source)}`}>
+                        {sourceLabel(clientProfile.estado_civil_source)}
+                      </span>
+                    )}
+                  </div>
+                  <select
+                    className={styles.prefillSelect}
+                    value={profileEdit.estado_civil}
+                    onChange={(e) => setProfileEdit({ ...profileEdit, estado_civil: e.target.value })}
+                  >
+                    <option value="">— não informado —</option>
+                    <option value="solteiro">Solteiro(a)</option>
+                    <option value="casado">Casado(a)</option>
+                    <option value="divorciado">Divorciado(a)</option>
+                    <option value="viuvo">Viúvo(a)</option>
+                    <option value="uniao_estavel">União Estável</option>
+                  </select>
                 </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Estado Civil</span>
-                  <span className={lead.estado_civil ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.estado_civil)}</span>
+                {/* regime_trabalho */}
+                <div className={styles.prefillFieldRow}>
+                  <div className={styles.prefillFieldHeader}>
+                    <span className={styles.fieldLabel}>Regime de Trabalho</span>
+                    {clientProfile?.regime_trabalho_source && (
+                      <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.regime_trabalho_source)}`}>
+                        {sourceLabel(clientProfile.regime_trabalho_source)}
+                      </span>
+                    )}
+                  </div>
+                  <select
+                    className={styles.prefillSelect}
+                    value={profileEdit.regime_trabalho}
+                    onChange={(e) => setProfileEdit({ ...profileEdit, regime_trabalho: e.target.value })}
+                  >
+                    <option value="">— não informado —</option>
+                    <option value="clt">CLT</option>
+                    <option value="autonomo">Autônomo</option>
+                    <option value="servidor_publico">Servidor Público</option>
+                    <option value="empresario">Empresário</option>
+                    <option value="aposentado">Aposentado / Pensionista</option>
+                    <option value="misto">Misto</option>
+                  </select>
                 </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Regime de Trabalho</span>
-                  <span className={lead.regime_trabalho ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.regime_trabalho)}</span>
+                {/* renda */}
+                <div className={styles.prefillFieldRow}>
+                  <div className={styles.prefillFieldHeader}>
+                    <span className={styles.fieldLabel}>Renda (R$)</span>
+                    {clientProfile?.renda_source && (
+                      <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.renda_source)}`}>
+                        {sourceLabel(clientProfile.renda_source)}
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="number"
+                    className={styles.prefillInput}
+                    value={profileEdit.renda}
+                    onChange={(e) => setProfileEdit({ ...profileEdit, renda: e.target.value })}
+                    placeholder="Ex: 2800"
+                    min="0"
+                  />
                 </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Composição</span>
-                  <span className={lead.composicao ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.composicao)}</span>
+                {/* ctps_36 */}
+                <div className={styles.prefillFieldRow}>
+                  <div className={styles.prefillFieldHeader}>
+                    <span className={styles.fieldLabel}>CTPS 36 meses</span>
+                    {clientProfile?.meses_36_source && (
+                      <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.meses_36_source)}`}>
+                        {sourceLabel(clientProfile.meses_36_source)}
+                      </span>
+                    )}
+                  </div>
+                  <select
+                    className={styles.prefillSelect}
+                    value={profileEdit.ctps_36}
+                    onChange={(e) => setProfileEdit({ ...profileEdit, ctps_36: e.target.value })}
+                  >
+                    <option value="">— não informado —</option>
+                    <option value="true">Sim (tem CTPS 36 meses)</option>
+                    <option value="false">Não</option>
+                  </select>
                 </div>
+                {/* dependentes_qtd */}
+                <div className={styles.prefillFieldRow}>
+                  <div className={styles.prefillFieldHeader}>
+                    <span className={styles.fieldLabel}>Dependentes</span>
+                    {clientProfile?.dependentes_source && (
+                      <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.dependentes_source)}`}>
+                        {sourceLabel(clientProfile.dependentes_source)}
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="number"
+                    className={styles.prefillInput}
+                    value={profileEdit.dependentes_qtd}
+                    onChange={(e) => setProfileEdit({ ...profileEdit, dependentes_qtd: e.target.value })}
+                    placeholder="Ex: 0"
+                    min="0"
+                  />
+                </div>
+                {/* entrada_valor */}
+                <div className={styles.prefillFieldRow}>
+                  <div className={styles.prefillFieldHeader}>
+                    <span className={styles.fieldLabel}>Valor Entrada (R$)</span>
+                    {clientProfile?.valor_entrada_source && (
+                      <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.valor_entrada_source)}`}>
+                        {sourceLabel(clientProfile.valor_entrada_source)}
+                      </span>
+                    )}
+                  </div>
+                  <input
+                    type="number"
+                    className={styles.prefillInput}
+                    value={profileEdit.entrada_valor}
+                    onChange={(e) => setProfileEdit({ ...profileEdit, entrada_valor: e.target.value })}
+                    placeholder="Ex: 10000"
+                    min="0"
+                  />
+                </div>
+                {/* restricao */}
+                <div className={styles.prefillFieldRow}>
+                  <div className={styles.prefillFieldHeader}>
+                    <span className={styles.fieldLabel}>Restrição</span>
+                    {clientProfile?.restricao_source && (
+                      <span className={`${styles.prefillStatusBadge} ${sourceBadgeClass(clientProfile.restricao_source)}`}>
+                        {sourceLabel(clientProfile.restricao_source)}
+                      </span>
+                    )}
+                  </div>
+                  <select
+                    className={styles.prefillSelect}
+                    value={profileEdit.restricao}
+                    onChange={(e) => setProfileEdit({ ...profileEdit, restricao: e.target.value })}
+                  >
+                    <option value="">— não informado —</option>
+                    <option value="true">Sim (tem restrição)</option>
+                    <option value="false">Não (sem restrição)</option>
+                  </select>
+                </div>
+                {/* origem_lead */}
+                <div className={styles.prefillFieldRow}>
+                  <div className={styles.prefillFieldHeader}>
+                    <span className={styles.fieldLabel}>Origem do Lead</span>
+                  </div>
+                  <input
+                    type="text"
+                    className={styles.prefillInput}
+                    value={profileEdit.origem_lead}
+                    onChange={(e) => setProfileEdit({ ...profileEdit, origem_lead: e.target.value })}
+                    placeholder="Ex: lyx, campanha-x"
+                  />
+                </div>
+                {/* observacoes_admin — full width */}
+                <div className={styles.prefillFieldRowFull}>
+                  <div className={styles.prefillFieldHeader}>
+                    <span className={styles.fieldLabel}>Observações Admin</span>
+                  </div>
+                  <textarea
+                    className={styles.prefillTextarea}
+                    value={profileEdit.observacoes_admin}
+                    onChange={(e) => setProfileEdit({ ...profileEdit, observacoes_admin: e.target.value })}
+                    placeholder="Observações internas (não visível ao cliente)"
+                  />
+                </div>
+              </div>
+              <div className={styles.profileSaveRow}>
+                <button
+                  type="button"
+                  className={styles.profileSaveBtn}
+                  disabled={profileBusy}
+                  onClick={() => void handleSaveProfile()}
+                >
+                  {profileBusy ? "Salvando…" : "Salvar perfil"}
+                </button>
+                {profileFeedback && <span className={styles.profileFeedback}>{profileFeedback}</span>}
+                {profileError && <span className={styles.profileFeedbackError}>{profileError}</span>}
+              </div>
+              {/* Read-only complementary fields */}
+              <div className={styles.detailGrid} style={{ marginTop: "20px", paddingTop: "16px", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
                 <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Renda</span>
-                  <span className={lead.renda ? styles.fieldValueHighlight : styles.fieldValueMuted}>{formatCurrency(lead.renda)}</span>
+                  <span className={styles.fieldLabel}>Somar renda</span>
+                  <span className={`${styles.boolBadge} ${somarRendaBool.cls}`}>{somarRendaBool.text}</span>
                 </div>
                 <div className={styles.fieldItem}>
                   <span className={styles.fieldLabel}>Renda Total</span>
                   <span className={lead.renda_total ? styles.fieldValueHighlight : styles.fieldValueMuted}>{formatCurrency(lead.renda_total)}</span>
                 </div>
                 <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Somar renda</span>
-                  <span className={`${styles.boolBadge} ${somarRendaBool.cls}`}>{somarRendaBool.text}</span>
-                </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Dependentes</span>
-                  <span className={lead.dependentes_qtd !== null ? styles.fieldValue : styles.fieldValueMuted}>
-                    {lead.dependentes_qtd !== null ? String(lead.dependentes_qtd) : DASH}
-                  </span>
-                </div>
-                <div className={styles.fieldItem}>
                   <span className={styles.fieldLabel}>IR declarado</span>
                   <span className={`${styles.boolBadge} ${irBool.cls}`}>{irBool.text}</span>
                 </div>
                 <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>CTPS 36 meses</span>
-                  <span className={`${styles.boolBadge} ${ctpsBool.cls}`}>{ctpsBool.text}</span>
-                </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Restrição</span>
-                  <span className={`${styles.boolBadge} ${restricaoBool.cls}`}>{restricaoBool.text}</span>
-                </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Entrada (valor)</span>
-                  <span className={lead.entrada_valor ? styles.fieldValueHighlight : styles.fieldValueMuted}>{formatCurrency(lead.entrada_valor)}</span>
+                  <span className={styles.fieldLabel}>Composição</span>
+                  <span className={lead.composicao ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.composicao)}</span>
                 </div>
                 {lead.resumo_curto && (
                   <div className={styles.fieldItemFull}>
@@ -447,6 +876,24 @@ export function AtendimentoDetalheUI({ lead }: AtendimentoDetalheUIProps) {
                   <span className={styles.fieldLabel}>Movido fase em</span>
                   <span className={lead.movido_fase_em ? styles.fieldValue : styles.fieldValueMuted}>{formatDateTime(lead.movido_fase_em)}</span>
                 </div>
+                {lead.pendencia_principal && (
+                  <div className={styles.fieldItemFull}>
+                    <span className={styles.fieldLabel}>Pendência principal</span>
+                    <span className={styles.fieldValueWarn}>{lead.pendencia_principal}</span>
+                  </div>
+                )}
+                {lead.dono_pendencia && (
+                  <div className={styles.fieldItem}>
+                    <span className={styles.fieldLabel}>Dono pendência</span>
+                    <span className={styles.fieldValue}>{lead.dono_pendencia}</span>
+                  </div>
+                )}
+                {lead.gatilho_proxima_acao && (
+                  <div className={styles.fieldItem}>
+                    <span className={styles.fieldLabel}>Gatilho próx. ação</span>
+                    <span className={styles.fieldValue}>{lead.gatilho_proxima_acao}</span>
+                  </div>
+                )}
                 {lead.fase_travamento && (
                   <>
                     <div className={styles.fieldItem}>
@@ -462,12 +909,6 @@ export function AtendimentoDetalheUI({ lead }: AtendimentoDetalheUIProps) {
                       <span className={styles.fieldValueDanger}>{txt(lead.motivo_travamento)}</span>
                     </div>
                   </>
-                )}
-                {lead.pendencia_principal && (
-                  <div className={styles.fieldItemFull}>
-                    <span className={styles.fieldLabel}>Pendência principal</span>
-                    <span className={styles.fieldValueWarn}>{lead.pendencia_principal}</span>
-                  </div>
                 )}
               </div>
             </div>
@@ -580,7 +1021,7 @@ export function AtendimentoDetalheUI({ lead }: AtendimentoDetalheUIProps) {
           {/* ═══════════════════════════════════════
              BLOCO 7 — ARQUIVO (se arquivado)
              ═══════════════════════════════════════ */}
-          {lead.arquivado_em && (
+          {(isArchived || lead.arquivado_em) && (
             <div className={`${styles.block} ${styles.blockFull} ${styles.blockArchived}`}>
               <div className={styles.blockHeader}>
                 <span className={styles.blockIcon}>📦</span>
@@ -588,14 +1029,18 @@ export function AtendimentoDetalheUI({ lead }: AtendimentoDetalheUIProps) {
               </div>
               <div className={styles.blockBody}>
                 <div className={styles.detailGrid}>
-                  <div className={styles.fieldItem}>
-                    <span className={styles.fieldLabel}>Arquivado em</span>
-                    <span className={styles.fieldValueWarn}>{formatDateTime(lead.arquivado_em)}</span>
-                  </div>
-                  <div className={styles.fieldItem}>
-                    <span className={styles.fieldLabel}>Código motivo</span>
-                    <span className={lead.codigo_motivo_arquivo ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.codigo_motivo_arquivo)}</span>
-                  </div>
+                  {lead.arquivado_em && (
+                    <div className={styles.fieldItem}>
+                      <span className={styles.fieldLabel}>Arquivado em</span>
+                      <span className={styles.fieldValueWarn}>{formatDateTime(lead.arquivado_em)}</span>
+                    </div>
+                  )}
+                  {lead.codigo_motivo_arquivo && (
+                    <div className={styles.fieldItem}>
+                      <span className={styles.fieldLabel}>Código motivo</span>
+                      <span className={lead.codigo_motivo_arquivo ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.codigo_motivo_arquivo)}</span>
+                    </div>
+                  )}
                   {lead.nota_arquivo && (
                     <div className={styles.fieldItemFull}>
                       <span className={styles.fieldLabel}>Nota</span>
@@ -612,3 +1057,4 @@ export function AtendimentoDetalheUI({ lead }: AtendimentoDetalheUIProps) {
     </div>
   );
 }
+

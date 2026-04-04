@@ -2254,7 +2254,7 @@ function buildPreDocsInformativoGuidance(request) {
     if (/\bnao\s*sei\b|\bnão\s*sei\b|\bdepende\b|\bpreciso\s*ver\b/.test(normalizedMessage)) {
       return "Sem problema — é só pra ter uma referência. Se tiver um valor aproximado de parcela que faria sentido nos seus gastos atuais, me conta. Se não souber agora, tudo bem, a gente segue.";
     }
-    return "Anotei! Agora, considerando seus gastos atuais, até qual valor mensal faria sentido pra você pagar de parcela? É só informativo — não é valor aprovado.";
+    return "Anotei! Agora, considerando seus gastos atuais, até qual valor mensal faria sentido pra você pagar de parcela? É só informativo — sem compromisso de valor final.";
   }
 
   // reserva — tem reserva para entrada

@@ -141,6 +141,7 @@ const COGNITIVE_SLOT_DEPENDENCIES = Object.freeze({
 });
 const TOPO_FUNIL_STAGES = new Set(["inicio", "inicio_decisao", "inicio_programa", "inicio_nome", "inicio_nacionalidade", "inicio_rnm", "inicio_rnm_validade"]);
 const COMPOSICAO_INICIAL_STAGES = new Set(["somar_renda_solteiro", "somar_renda_familiar", "quem_pode_somar", "interpretar_composicao"]);
+const BLOCO_3_STAGES = new Set(["estado_civil", "confirmar_casamento", "financiamento_conjunto"]);
 const RENDA_TRABALHO_STAGES = new Set(["regime_trabalho", "autonomo_ir_pergunta", "renda"]);
 const APROFUNDAMENTO_RENDA_STAGES = new Set(["possui_renda_extra", "inicio_multi_regime_pergunta", "inicio_multi_regime_coletar", "inicio_multi_renda_pergunta", "inicio_multi_renda_coletar"]);
 const PARCEIRO_RENDA_STAGES = new Set(["parceiro_tem_renda", "regime_trabalho_parceiro", "inicio_multi_regime_pergunta_parceiro", "inicio_multi_regime_coletar_parceiro", "renda_parceiro", "inicio_multi_renda_pergunta_parceiro", "inicio_multi_renda_coletar_parceiro"]);
@@ -669,6 +670,10 @@ function isTopoFunilContext(request) {
 
 function isComposicaoInicialContext(request) {
   return COMPOSICAO_INICIAL_STAGES.has(normalizeText(request?.current_stage));
+}
+
+function isBloco3Context(request) {
+  return BLOCO_3_STAGES.has(normalizeText(request?.current_stage));
 }
 
 function isRendaTrabalhoContext(request) {
@@ -2076,12 +2081,75 @@ function buildTopoFunilGuidance(request) {
   return null;
 }
 
+// ================================================================
+// BLOCO 3 — Guidance: estado_civil, confirmar_casamento, financiamento_conjunto
+// Regras duras:
+// - casado no civil = processo conjunto obrigatório
+// - "moro junto / moramos juntos" NÃO pode virar casamento ou conjunto automático
+// - união estável não reclassifica como casado civil
+// ================================================================
+function buildBloco3Guidance(request) {
+  const stage = normalizeText(request?.current_stage);
+  const normalizedMessage = normalizeText(request?.message_text);
+
+  if (stage === "estado_civil") {
+    if (/\bmoro junto\b|\bmoramos juntos\b|\bvivemos juntos\b/.test(normalizedMessage)) {
+      return "Entendi que vocês moram juntos. Pra seguir certinho, preciso saber: vocês têm *união estável registrada*, são *casados no civil*, ou é convivência sem registro? Isso faz diferença no financiamento.";
+    }
+    if (/\bnao sei\b|\bnao tenho certeza\b/.test(normalizedMessage)) {
+      return "Sem problema! Me diz como é hoje: solteiro(a), casado(a) no civil, união estável, separado(a), divorciado(a) ou viúvo(a)?";
+    }
+    if (/\bdiferenca\b|\bo que muda\b|\bcomo funciona\b/.test(normalizedMessage)) {
+      return "A diferença principal: casamento civil no papel torna o processo conjunto obrigatório. União estável e convivência permitem seguir sozinho ou junto, conforme seu cenário.";
+    }
+    return "Me confirma seu estado civil atual: solteiro(a), casado(a) no civil, união estável, separado(a), divorciado(a) ou viúvo(a)?";
+  }
+
+  if (stage === "confirmar_casamento") {
+    if (/\bmoro junto\b|\bmoramos juntos\b|\bvivemos juntos\b/.test(normalizedMessage)) {
+      return "Morar junto não é a mesma coisa que casamento civil no papel. Me confirma: vocês são *casados no civil* (com certidão) ou é *união estável*?";
+    }
+    if (/\breligioso\b/.test(normalizedMessage)) {
+      return "Casamento só religioso, sem registro civil, funciona como união estável no financiamento. Vocês têm o *registro civil* do casamento ou só o religioso?";
+    }
+    if (/\bnao sei\b|\bnao tenho certeza\b/.test(normalizedMessage)) {
+      return "Se vocês foram no cartório e assinaram a certidão de casamento, é civil no papel. Se não tem esse documento, funciona como união estável. Consegue confirmar?";
+    }
+    if (/\bdiferenca\b|\bo que muda\b/.test(normalizedMessage)) {
+      return "Casamento civil no papel obriga processo conjunto, mesmo que só um tenha renda. União estável permite seguir sozinho ou junto. Me confirma: é *civil no papel* ou *união estável*?";
+    }
+    return "Me confirma: é *casamento civil no papel* (com certidão do cartório) ou *união estável*?";
+  }
+
+  if (stage === "financiamento_conjunto") {
+    if (/\bobrigatorio\b|\bprecisa ser junto\b/.test(normalizedMessage)) {
+      return "No seu caso, comprar juntos não é obrigatório. Vocês podem seguir *juntos*, *só você*, ou *apenas se precisar* somar renda.";
+    }
+    if (/\bmelhora\b|\bmuda algo\b|\bfaz diferenca\b/.test(normalizedMessage)) {
+      return "Comprar juntos pode ajudar se precisar somar renda pra atingir o valor do imóvel. Mas não é obrigatório no seu caso. Vocês querem *comprar juntos*, *só você*, ou *apenas se precisar*?";
+    }
+    if (/\bnao sei\b/.test(normalizedMessage)) {
+      return "Se não tem certeza, uma boa opção é *apenas se precisar*: eu analiso sua renda primeiro e, se precisar somar, a gente inclui. O que prefere?";
+    }
+    if (/\bsozinho\b|\bsolo\b/.test(normalizedMessage)) {
+      return "Seguir sozinho é totalmente válido. Me confirma: vai ser *só você* mesmo?";
+    }
+    return "Vocês querem *comprar juntos*, *só você*, ou *apenas se precisar*?";
+  }
+
+  return null;
+}
+
 function buildPhaseGuidanceReply({ request, suggestedNextSlot, pendingSlots }) {
   // Prioridade intencional: temas operacionais específicos antes de temas amplos
   // (docs/correspondente/visita) para evitar resposta genérica quando há regra fechada.
   if (isTopoFunilContext(request)) {
     const topoReply = buildTopoFunilGuidance(request);
     if (topoReply) return topoReply;
+  }
+  if (isBloco3Context(request)) {
+    const bloco3Reply = buildBloco3Guidance(request);
+    if (bloco3Reply) return bloco3Reply;
   }
   if (isComposicaoInicialContext(request)) {
     const composicaoReply = buildComposicaoInicialGuidance(request);
@@ -2687,6 +2755,7 @@ function buildHeuristicResponse(request, analysis, conflictList) {
     ? CONFIDENCE_RULES.detectedBase + Math.min(slotsDetectedCount, 4) * CONFIDENCE_RULES.detectedIncrement
     : analysis.offtrack ? CONFIDENCE_RULES.offtrackBase
     : TOPO_FUNIL_STAGES.has(request.current_stage) ? 0.72 // topo: phase guidance is the signal; floor above COGNITIVE_V1_CONFIDENCE_MIN (0.66)
+    : BLOCO_3_STAGES.has(request.current_stage) ? 0.70 // bloco 3 (estado_civil/confirmar_casamento/financiamento_conjunto): guidance floor above min
     : COMPOSICAO_INICIAL_STAGES.has(request.current_stage) ? 0.70 // composicao inicial: guidance floor above min
     : RENDA_TRABALHO_STAGES.has(request.current_stage) ? 0.70 // renda/trabalho: guidance floor above min
     : APROFUNDAMENTO_RENDA_STAGES.has(request.current_stage) ? 0.70 // aprofundamento renda: guidance floor above min

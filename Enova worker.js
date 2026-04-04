@@ -3031,6 +3031,8 @@ const COGNITIVE_V1_ALLOWED_STAGES = new Set([
   "inicio_rnm",
   "inicio_rnm_validade",
   "estado_civil",
+  "confirmar_casamento",
+  "financiamento_conjunto",
   "somar_renda_solteiro",
   "somar_renda_familiar",
   "quem_pode_somar",
@@ -3108,6 +3110,8 @@ const COGNITIVE_PLAYBOOK_V1 = {
     inicio_rnm: ["duvida_o_que_e_rnm", "duvida_documento_estrangeiro", "duvida_se_conta", "duvida_estrangeiro_pode"],
     inicio_rnm_validade: ["duvida_indeterminado", "duvida_onde_ver", "duvida_se_tiver_validade", "duvida_diferenca_validade"],
     estado_civil: ["estado_civil_hibrido", "duvida_composicao", "duvida_imovel_pre_analise", "objecao"],
+    confirmar_casamento: ["civil_papel_confirmado", "uniao_estavel_sem_papel", "duvida_civil_vs_estavel", "moro_junto_ambiguo", "objecao"],
+    financiamento_conjunto: ["conjunto_sim", "conjunto_nao_solo", "conjunto_se_precisar", "duvida_precisa_juntos", "duvida_solo_vs_junto", "objecao"],
     somar_renda_solteiro: ["duvida_somar", "duvida_solo", "objecao_somar", "objecao"],
     somar_renda_familiar: ["composicao_familiar", "duvida_familiar", "objecao"],
     quem_pode_somar: ["composicao_familiar", "composicao_parceiro", "duvida_conjuge", "objecao"],
@@ -3223,6 +3227,23 @@ async function callOpenAIJson(env, { system, user, temperature = 0 }) {
 
 function hasClearStageAnswer(stage, text) {
   if (stage === "estado_civil") return Boolean(parseEstadoCivil(text));
+  if (stage === "confirmar_casamento") {
+    if (isYes(text) || isNo(text)) return true;
+    const nt = normalizeText(text);
+    if (!nt) return false;
+    if (/(civil|no papel|casamento civil)/.test(nt)) return true;
+    if (/(uniao estavel)/.test(nt)) return true;
+    return false;
+  }
+  if (stage === "financiamento_conjunto") {
+    if (isYes(text) || isNo(text)) return true;
+    const nt = normalizeText(text);
+    if (!nt) return false;
+    if (/(se precisar|so se precisar|apenas se precisar|se faltar)/.test(nt)) return true;
+    if (/(so eu|apenas eu|somente eu|sozinh)/.test(nt)) return true;
+    if (/(juntos|comprar juntos|vamos juntos)/.test(nt)) return true;
+    return false;
+  }
   if (stage === "renda") {
     const money = parseMoneyBR(text);
     return Number.isFinite(money) && money > 300;
@@ -3365,6 +3386,20 @@ function shouldTriggerCognitiveAssist(stage, text) {
   if (stage === "inicio_rnm_validade") {
     const rnmValidadeHints = /\b(como sei|como saber|onde vejo|onde fica|onde esta|onde está|como descubro|nao entendi|não entendi|o que e|o que é|diferenca|diferença|explica|se tiver validade|validade definida|nao sei|não sei)\b/i.test(nt);
     if (rnmValidadeHints) return true;
+  }
+
+  // Bloco 3 — triggers específicos para estado_civil, confirmar_casamento, financiamento_conjunto
+  if (stage === "estado_civil") {
+    const estadoCivilHints = /\b(moro junto|moramos juntos|vivemos juntos|nao sei|não sei|qual a diferenca|qual a diferença|o que muda|civil ou|uniao ou|como funciona|preciso ser|obrigatorio|obrigatório)\b/i.test(nt);
+    if (estadoCivilHints) return true;
+  }
+  if (stage === "confirmar_casamento") {
+    const confirmarCasamentoHints = /\b(moro junto|moramos juntos|vivemos juntos|nao sei|não sei|como funciona|civil ou|o que muda|diferenca|diferença|religioso|so religioso|só religioso|nao tenho papel|não tenho papel|nao registramos|não registramos)\b/i.test(nt);
+    if (confirmarCasamentoHints) return true;
+  }
+  if (stage === "financiamento_conjunto") {
+    const conjuntoHints = /\b(precisa ser junto|preciso compor|somar renda|sozinho|solo|melhora|muda algo|obrigatorio|obrigatório|quem pode|posso tentar|nao sei|não sei|como funciona)\b/i.test(nt);
+    if (conjuntoHints) return true;
   }
 
   // Bloco composicao inicial — triggers específicos para somar_renda stages
@@ -22426,7 +22461,7 @@ case "confirmar_casamento": {
   const uniao_estavel =
     respondeuNao ||
     estadoCivilDetectado === "uniao_estavel" ||
-    /(uni[aã]o est[áa]vel|estavel|vivemos juntos|moramos juntos|moro junto|junt[oa]s?)/i.test(t);
+    /(uni[aã]o est[áa]vel|estavel)/i.test(t);
 
   // ===== CASAMENTO CIVIL NO PAPEL =====
   if (civil) {

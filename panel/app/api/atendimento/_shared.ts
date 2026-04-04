@@ -121,16 +121,14 @@ export async function archiveAttendanceLead(
 
   // 2) Sincronização para Bases: PATCH em crm_lead_meta para que o lead apareça
   //    em Bases > Arquivados (que lê is_archived de crm_lead_meta via bases_leads_v1).
-  //    PATCH em linha inexistente retorna 204 vazio (seguro — leads sem crm_lead_meta
-  //    não aparecem em Bases de forma alguma).
-  const crmEndpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
-  crmEndpoint.search = `?wa_id=eq.${encodeURIComponent(wa_id)}`;
+  const crmPatchEndpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
+  crmPatchEndpoint.search = `?wa_id=eq.${encodeURIComponent(wa_id)}`;
 
-  const crmResponse = await fetch(crmEndpoint.toString(), {
+  const crmPatchResponse = await fetch(crmPatchEndpoint.toString(), {
     method: "PATCH",
     headers: {
       ...buildSupabaseHeaders(serviceRoleKey),
-      Prefer: "return=minimal",
+      Prefer: "return=representation",
     },
     body: JSON.stringify({
       is_archived: true,
@@ -142,8 +140,43 @@ export async function archiveAttendanceLead(
     cache: "no-store",
   });
 
-  if (!crmResponse.ok) {
-    throw new Error(`FAILED_TO_SYNC_CRM_ARCHIVE:${crmResponse.status}`);
+  if (!crmPatchResponse.ok) {
+    throw new Error(`FAILED_TO_SYNC_CRM_ARCHIVE:${crmPatchResponse.status}`);
+  }
+
+  const patchedRows = (await readJsonResponse<Record<string, unknown>[]>(crmPatchResponse)) ?? [];
+
+  // Se nenhuma row foi atualizada, este lead não tem row em crm_lead_meta.
+  // Leads orgânicos podem chegar ao funil sem terem sido importados em Bases
+  // (registerOrganicLeadInCrmMeta no Worker é non-blocking e pode falhar silenciosamente).
+  // Inserimos uma row mínima para que o lead apareça em Bases > Arquivados e
+  // não entre em limbo operacional.
+  if (patchedRows.length === 0) {
+    const crmInsertEndpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
+
+    const crmInsertResponse = await fetch(crmInsertEndpoint.toString(), {
+      method: "POST",
+      headers: {
+        ...buildSupabaseHeaders(serviceRoleKey),
+        Prefer: "return=minimal",
+      },
+      body: JSON.stringify({
+        wa_id,
+        lead_pool: "COLD_POOL",
+        lead_temp: "COLD",
+        lead_source: "organico",
+        is_archived: true,
+        archived_at: now,
+        archive_reason_code,
+        archive_reason_note,
+        updated_at: now,
+      }),
+      cache: "no-store",
+    });
+
+    if (!crmInsertResponse.ok) {
+      throw new Error(`FAILED_TO_INSERT_CRM_ARCHIVE:${crmInsertResponse.status}`);
+    }
   }
 }
 

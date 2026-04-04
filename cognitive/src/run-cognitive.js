@@ -2614,7 +2614,8 @@ function ensureReplyHasNextAction(replyText, context) {
 
   // Se a guidance já termina com pergunta induzida (parseável), não concatenar
   // ação extra — evita bloco longo de "explicação + pergunta + outra pergunta".
-  if (/\?\s*$/.test(safeReply.trim()) && safeReply.length > 40) return safeReply;
+  const MIN_GUIDED_REPLY_LENGTH = 40;
+  if (/\?\s*$/.test(safeReply.trim()) && safeReply.length > MIN_GUIDED_REPLY_LENGTH) return safeReply;
 
   return `${safeReply} ${actionPrompt}`.trim();
 }

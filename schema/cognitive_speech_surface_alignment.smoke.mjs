@@ -97,7 +97,7 @@ await asyncTest("6. renda default guidance suggests numeric format (2500 or R$)"
     heuristicOnlyRuntime
   );
   const reply = nf(result.response.reply_text);
-  assert.ok(reply.includes("2500") || reply.includes("r$") || reply.includes("valor"), `must suggest format, got: ${result.response.reply_text}`);
+  assert.ok(reply.includes("2500") || reply.includes("r$"), `must suggest numeric format, got: ${result.response.reply_text}`);
 });
 
 // ===== 7. ctps_36 induces sim/não/não sei =====
@@ -213,7 +213,7 @@ await asyncTest("16. ensureReplyHasNextAction skips when reply ends with ?", asy
   const reply = result.response.reply_text || "";
   // The reply should end with a question, not have a duplicate question appended
   assert.ok(reply.trim().endsWith("?"), `reply should end with ?: ${reply}`);
-  // Count question marks — should be at most 2 (original + possible sub-question)
+  // Count question marks — up to 3 because empathy prefix + context sentence + final question
   const questionMarks = (reply.match(/\?/g) || []).length;
   assert.ok(questionMarks <= 3, `too many question marks (${questionMarks}): ${reply}`);
 });

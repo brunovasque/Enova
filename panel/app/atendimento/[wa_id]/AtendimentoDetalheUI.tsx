@@ -14,7 +14,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import styles from "./detalhe.module.css";
 import type { ClientProfileRow } from "../../api/client-profile/_shared";
 import {
@@ -75,6 +75,8 @@ export type AttendanceDetalheRow = {
   human_next_action: string | null;
   // ── Temperatura do lead (crm_lead_meta) ──
   lead_temp: string | null;
+  // ── Pool canônico do lead (crm_lead_meta.lead_pool — enriquecimento panel-side) ──
+  crm_lead_pool: string | null;
   tem_incidente_aberto: boolean | null;
   tipo_incidente: string | null;
   severidade_incidente: string | null;
@@ -254,6 +256,165 @@ function getTempBadgeCls(temp: string | null | undefined): string {
   }
 }
 
+/* ── Slug humanisation ── */
+
+const FASE_LABEL_MAP: Record<string, string> = {
+  inicio: "Início",
+  inicio_decisao: "Tipo de imóvel",
+  inicio_programa: "Programa habitacional",
+  inicio_nome: "Coleta de nome",
+  inicio_nacionalidade: "Nacionalidade",
+  inicio_rnm: "RNM / documentação",
+  inicio_rnm_validade: "Validade do RNM",
+  estado_civil: "Estado civil",
+  confirmar_casamento: "Confirmação do estado civil",
+  financiamento_conjunto: "Financiamento conjunto",
+  somar_renda_solteiro: "Somar renda (solteiro)",
+  somar_renda_familiar: "Somar renda (familiar)",
+  quem_pode_somar: "Quem pode somar",
+  interpretar_composicao: "Composição de renda",
+  regime_trabalho: "Regime de trabalho",
+  clt_renda_perfil_informativo: "Perfil CLT",
+  autonomo_ir_pergunta: "IR / autônomo",
+  autonomo_sem_ir_ir_este_ano: "IR este ano (autônomo)",
+  autonomo_sem_ir_caminho: "Caminho autônomo sem IR",
+  autonomo_sem_ir_entrada: "Entrada autônomo sem IR",
+  autonomo_compor_renda: "Composição renda autônomo",
+  renda: "Renda",
+  renda_mista_detalhe: "Detalhes renda mista",
+  possui_renda_extra: "Renda extra",
+  multi_renda_detalhe: "Detalhes renda composta",
+  multi_renda_valor_clt: "Renda CLT (composição)",
+  multi_renda_valor_autonomo: "Renda autônomo (composição)",
+  multi_renda_valor_servidor: "Renda servidor (composição)",
+  multi_renda_valor_empresario: "Renda empresário (composição)",
+  multi_renda_valor_aposentado: "Renda aposentado (composição)",
+  ir_declarado: "IR declarado",
+  ctps_36: "CTPS 36 meses",
+  ctps_36_parceiro: "CTPS 36 meses (cônjuge)",
+  ctps_36_parceiro_p3: "CTPS 36 meses (comp. P3)",
+  restricao: "Restrição",
+  restricao_parceiro: "Restrição (cônjuge)",
+  restricao_parceiro_p3: "Restrição (comp. P3)",
+  regularizacao_restricao: "Regularização de restrição",
+  regularizacao_restricao_parceiro: "Regularização (cônjuge)",
+  regularizacao_restricao_p3: "Regularização (comp. P3)",
+  parceiro_tem_renda: "Renda do cônjuge",
+  regime_trabalho_parceiro: "Regime do cônjuge",
+  renda_parceiro: "Valor renda cônjuge",
+  parceiro_possui_renda_extra: "Renda extra cônjuge",
+  p3_tipo_pergunta: "Tipo de composição P3",
+  confirmar_avo_familiar: "Composição familiar",
+  informativo_moradia_atual: "Moradia atual",
+  informativo_trabalho: "Informações de trabalho",
+  informativo_moradia: "Informações de moradia",
+  informativo_parcela_mensal: "Parcela mensal estimada",
+  informativo_reserva: "Reserva financeira",
+  informativo_reserva_valor: "Valor da reserva",
+  informativo_fgts: "FGTS",
+  informativo_fgts_valor: "Valor do FGTS",
+  informativo_escolaridade: "Escolaridade",
+  informativo_profissao_atividade: "Profissão / atividade",
+  informativo_mei_pj_status: "MEI / PJ",
+  informativo_renda_estabilidade: "Estabilidade de renda",
+  informativo_decisor_visita: "Decisor para visita",
+  informativo_decisor_nome: "Nome do decisor",
+  visita: "Agendamento de visita",
+  visita_confirmada: "Visita confirmada",
+  envio_docs: "Envio de documentação",
+  finalizacao_processo: "Finalização do pacote",
+  finalizacao: "Finalização",
+  aguardando_retorno_correspondente: "Aguardando correspondente",
+  // Both spellings exist in DB (Worker typo variants)
+  fim_ineligivel: "Inelegível",
+  fim_inelegivel: "Inelegível",
+  dependente: "Dependentes",
+  verificar_composicao: "Verificar composição",
+};
+
+function humanizeSlug(s: string): string {
+  return s.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function getFaseLabel(fase: string | null | undefined): string {
+  if (!fase) return DASH;
+  return FASE_LABEL_MAP[fase] ?? humanizeSlug(fase);
+}
+
+const STATUS_FUNIL_LABELS: Record<string, string> = {
+  ATIVO: "Ativo",
+  TRAVADO: "Travado",
+  FINALIZADO: "Finalizado",
+  INELEGIVEL: "Inelegível",
+  ARQUIVADO: "Arquivado",
+  QUALIFICACAO: "Qualificação",
+  COLETA: "Coleta de dados",
+  ANALISE: "Em análise",
+  APROVADO: "Aprovado",
+  REPROVADO: "Reprovado",
+  AGUARDANDO: "Aguardando",
+  ENTRADA: "Início",
+};
+
+function getStatusFunilLabel(status: string | null | undefined): string {
+  if (!status) return DASH;
+  return STATUS_FUNIL_LABELS[status] ?? humanizeSlug(status);
+}
+
+const SEVERIDADE_LABELS: Record<string, string> = {
+  CRITICAL: "Crítico",
+  HIGH: "Alto",
+  MEDIUM: "Médio",
+  LOW: "Baixo",
+};
+
+function getSeveridadeLabel(sev: string | null | undefined): string {
+  if (!sev) return "Aberto";
+  return SEVERIDADE_LABELS[sev] ?? humanizeSlug(sev);
+}
+
+const MOTIVO_ARQUIVO_LABELS: Record<string, string> = {
+  ja_comprou: "Já comprou",
+  sem_interesse: "Sem interesse",
+  desistiu: "Desistiu",
+  nao_responde: "Não responde",
+  outro: "Outro",
+};
+
+function getMotivoArquivoLabel(code: string | null | undefined): string {
+  if (!code) return DASH;
+  return MOTIVO_ARQUIVO_LABELS[code] ?? humanizeSlug(code);
+}
+
+const GATILHO_LABELS: Record<string, string> = {
+  "New Lead Entry": "Novo lead recebido",
+  "new_lead_entry": "Novo lead recebido",
+  "nova_entrada": "Novo lead recebido",
+  "follow_up_1d": "Follow-up em 1 dia",
+  "follow_up_2d": "Follow-up em 2 dias",
+  "follow_up_3d": "Follow-up em 3 dias",
+  "follow_up_5d": "Follow-up em 5 dias",
+  "follow_up_7d": "Follow-up em 7 dias",
+  "follow_up_14d": "Follow-up em 14 dias",
+  "follow_up_24h": "Follow-up em 24h",
+  "follow_up_48h": "Follow-up em 48h",
+  "apos_visita": "Após visita",
+  "apos_docs": "Após envio de docs",
+  "apos_analise": "Após análise",
+  "retorno_correspondente": "Retorno do correspondente",
+  "sem_resposta": "Sem resposta",
+  "manual": "Manual",
+  "automatico": "Automático",
+  "sistema": "Sistema",
+  "cliente_respondeu": "Cliente respondeu",
+  "prazo_vencido": "Prazo vencido",
+};
+
+function getGatilhoLabel(gatilho: string | null | undefined): string {
+  if (!gatilho) return DASH;
+  return GATILHO_LABELS[gatilho] ?? humanizeSlug(gatilho);
+}
+
 function deriveUltimoFalante(
   ultimaCliente: string | null | undefined,
   ultimaEnova: string | null | undefined,
@@ -370,6 +531,221 @@ function sourceBadgeClass(source: ProfileSource): string {
   }
 }
 
+/* ── Conversa read-only ── */
+
+type ConversaMsg = {
+  id: string | null;
+  direction: "in" | "out";
+  text: string | null;
+  created_at: string | null;
+};
+
+function formatMsgTime(dateStr: string | null): string {
+  if (!dateStr) return "";
+  try {
+    return new Intl.DateTimeFormat("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "America/Sao_Paulo",
+    }).format(new Date(dateStr));
+  } catch {
+    return "";
+  }
+}
+
+function formatMsgDayLabel(dateStr: string | null): string {
+  if (!dateStr) return "Sem data";
+  try {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const dayFmt = new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      timeZone: "America/Sao_Paulo",
+    });
+    const dStr = dayFmt.format(d);
+    const todayStr = dayFmt.format(now);
+    const yDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const yStr = dayFmt.format(yDate);
+    if (dStr === todayStr) return "Hoje";
+    if (dStr === yStr) return "Ontem";
+    return dStr;
+  } catch {
+    return "Sem data";
+  }
+}
+
+function groupMsgsByDay(msgs: ConversaMsg[]): Array<{ label: string; msgs: ConversaMsg[] }> {
+  const groups: { key: string; label: string; msgs: ConversaMsg[] }[] = [];
+  const keyIdx = new Map<string, number>();
+  for (const msg of msgs) {
+    let key = "sem_data";
+    if (msg.created_at) {
+      try {
+        key = new Intl.DateTimeFormat("pt-BR", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          timeZone: "America/Sao_Paulo",
+        }).format(new Date(msg.created_at));
+      } catch {
+        key = "sem_data";
+      }
+    }
+    const idx = keyIdx.get(key);
+    if (idx !== undefined) {
+      groups[idx].msgs.push(msg);
+    } else {
+      keyIdx.set(key, groups.length);
+      groups.push({ key, label: formatMsgDayLabel(msg.created_at), msgs: [msg] });
+    }
+  }
+  return groups;
+}
+
+/* ── Sinais da Conversa — heurística leve, 100% client-side ── */
+
+type SinaisConversa = {
+  bolaComLabel: string;
+  ultimoTema: string;
+  pendenciaAberta: string;
+  riscoTravamento: "BAIXO" | "MEDIO" | "ALTO" | null;
+  ultimoSinalCliente: string;
+  proximaAbordagem: string;
+};
+
+const FASE_TEMA_MAP: Record<string, string> = {
+  inicio: "Qualificação inicial",
+  inicio_nome: "Nome",
+  inicio_nacionalidade: "Nacionalidade",
+  inicio_rnm: "RNM / documentação",
+  estado_civil: "Estado civil",
+  confirmar_casamento: "Estado civil",
+  financiamento_conjunto: "Composição",
+  somar_renda: "Composição de renda",
+  parceiro_tem_renda: "Composição de renda",
+  regime_trabalho: "Regime de trabalho",
+  renda: "Renda",
+  possui_renda_extra: "Renda complementar",
+  autonomo_ir_pergunta: "IR / autonomo",
+  ir_declarado: "IR declarado",
+  ctps_36: "Carteira de trabalho",
+  restricao: "Restrição",
+  regularizacao_restricao: "Regularização",
+  visita: "Visita",
+  visita_confirmada: "Visita confirmada",
+  envio_docs: "Documentação",
+  finalizacao_processo: "Finalização do pacote",
+  aguardando_retorno_correspondente: "Retorno do correspondente",
+};
+
+const FASE_ABORDAGEM_MAP: Record<string, string> = {
+  inicio: "Confirmar nome e dados iniciais",
+  renda: "Confirmar regime e valor de renda",
+  ir_declarado: "Perguntar sobre IR declarado",
+  ctps_36: "Verificar CTPS com 36 meses",
+  restricao: "Avaliar pendência de restrição",
+  visita: "Confirmar disponibilidade para visita",
+  envio_docs: "Orientar envio de documentação",
+  finalizacao_processo: "Confirmar envio do pacote ao correspondente",
+  aguardando_retorno_correspondente: "Acompanhar retorno do correspondente",
+};
+
+// Pre-sorted keys (longest first) for reliable prefix-match: "envio_docs" must not match before "envio_docs_complementar" etc.
+const FASE_TEMA_KEYS = Object.keys(FASE_TEMA_MAP).sort((a, b) => b.length - a.length);
+const FASE_ABORDAGEM_KEYS = Object.keys(FASE_ABORDAGEM_MAP).sort((a, b) => b.length - a.length);
+
+// Module-level compiled regexes — avoid recompilation on every deriveSinaisConversa call
+const RX_INTERESSADO = /\b(ótimo|perfeito|quero|excelente|concordo|bora|combinado|vamos|adorei|maravilhoso)\b/;
+const RX_OBJETIVO    = /\b(ok|certo|entendi|entendido|tá|ta|claro|deu|confirmo)\b/;
+const RX_CONFUSO     = /\b(não sei|nao sei|como assim|não entend|nao entend|confuso|qual)\b/;
+const RX_EVASIVO     = /\b(depois|amanhã|amanha|mais tarde|outra hora|não agora|nao agora|semana que vem)\b/;
+const RX_RESISTENTE  = /\b(não quero|nao quero|pare|para|não tenho interesse|nao tenho|chega|cancela)\b/;
+
+function deriveSinaisConversa(
+  msgs: ConversaMsg[],
+  lead: AttendanceDetalheRow,
+): SinaisConversa {
+  const DASH = "—";
+
+  // 1. Bola com — último remetente determina de quem é a vez
+  const lastMsg = msgs.length > 0 ? msgs[msgs.length - 1] : null;
+  const bolaComLabel = lastMsg
+    ? lastMsg.direction === "in"
+      ? "Enova"
+      : "Cliente"
+    : DASH;
+
+  // 2. Último tema tratado — do mapa de fases, com fallback prefix-match (longer keys first)
+  const fase = lead.fase_funil ?? "";
+  const temaKey = FASE_TEMA_KEYS.find((k) => fase === k || fase.startsWith(k + "_") || fase.startsWith(k));
+  const ultimoTema = FASE_TEMA_MAP[fase] ?? (temaKey ? FASE_TEMA_MAP[temaKey] : null) ?? getFaseLabel(fase || null);
+
+  // 3. Pendência aberta — campo operacional canônico já disponível no lead
+  const pendenciaAberta = lead.pendencia_principal ?? DASH;
+
+  // 4. Risco de travamento — travamento ativo = alto; gap de dias = médio/baixo
+  let riscoTravamento: SinaisConversa["riscoTravamento"] = null;
+  if (lead.fase_travamento) {
+    riscoTravamento = "ALTO";
+  } else {
+    // Use the most recent interaction timestamp available
+    const lastMsgAt = lastMsg?.created_at ?? null;
+    const lastInteraction = lead.ultima_interacao_cliente ?? lastMsgAt;
+    if (lastInteraction) {
+      const daysSince = (Date.now() - new Date(lastInteraction).getTime()) / (1000 * 60 * 60 * 24);
+      riscoTravamento = daysSince > 7 ? "MEDIO" : "BAIXO";
+    } else if (msgs.length > 0) {
+      riscoTravamento = "BAIXO";
+    }
+  }
+
+  // 5. Último sinal do cliente — keyword matching nos últimos 3 msgs do cliente
+  const recentClientMsgs = [...msgs]
+    .reverse()
+    .filter((m) => m.direction === "in")
+    .slice(0, 3);
+  const recentText = recentClientMsgs
+    .map((m) => (m.text ?? "").toLowerCase())
+    .join(" ");
+  let ultimoSinalCliente = DASH;
+  if (recentClientMsgs.length > 0) {
+    if (RX_INTERESSADO.test(recentText))     ultimoSinalCliente = "Interessado";
+    else if (RX_OBJETIVO.test(recentText))   ultimoSinalCliente = "Objetivo";
+    else if (RX_CONFUSO.test(recentText))    ultimoSinalCliente = "Confuso";
+    else if (RX_EVASIVO.test(recentText))    ultimoSinalCliente = "Evasivo";
+    else if (RX_RESISTENTE.test(recentText)) ultimoSinalCliente = "Resistente";
+    else                                      ultimoSinalCliente = "Neutro";
+  }
+
+  // 6. Próxima abordagem sugerida — do mapa de fases (longer keys first) ou resumo_curto
+  const abordagemKey = FASE_ABORDAGEM_KEYS.find((k) => fase === k || fase.startsWith(k + "_") || fase.startsWith(k));
+  const proximaAbordagem =
+    (abordagemKey ? FASE_ABORDAGEM_MAP[abordagemKey] : null) ??
+    (lead.resumo_curto ? lead.resumo_curto.slice(0, 80) : DASH);
+
+  return {
+    bolaComLabel,
+    ultimoTema,
+    pendenciaAberta,
+    riscoTravamento,
+    ultimoSinalCliente,
+    proximaAbordagem,
+  };
+}
+
+/* ── Chamar cliente — suggested message ── */
+
+function suggestCallMessage(lead: AttendanceDetalheRow): string {
+  const firstName = lead.nome?.trim().split(/\s+/)[0] ?? null;
+  const hi = firstName ? `Oi, ${firstName}!` : "Oi, tudo bem?";
+  const pool = lead.crm_lead_pool ?? lead.base_atual ?? "";
+  if (pool.startsWith("HOT")) return `${hi} Vamos avançar? Me confirma o interesse e a gente parte para os próximos passos.`;
+  if (pool.startsWith("WARM")) return `${hi} Queria dar continuidade à nossa conversa sobre o financiamento. Tem alguma dúvida ou posso ajudar com algo?`;
+  return `${hi} Passando para ver se ainda tem interesse no financiamento. Posso tirar alguma dúvida?`;
+}
+
 /* ── Archive reason options ── */
 
 const ARCHIVE_REASON_OPTIONS = [
@@ -418,6 +794,66 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [feedbackFeedback, setFeedbackFeedback] = useState<string | null>(null);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+
+  /* ── Chamar cliente state ── */
+  const [callOpen, setCallOpen] = useState(false);
+  const [callText, setCallText] = useState("");
+  const [callBusy, setCallBusy] = useState(false);
+  const [callFeedback, setCallFeedback] = useState<string | null>(null);
+  const [callError, setCallError] = useState<string | null>(null);
+
+  /* ── Conversa read-only state ── */
+  const [convMsgs, setConvMsgs] = useState<ConversaMsg[]>([]);
+  const [convLoading, setConvLoading] = useState(true);
+  const [convError, setConvError] = useState<string | null>(null);
+
+  /* ── Sinais da Conversa — derived client-side, never throws ── */
+  const sinais = useMemo(() => {
+    try {
+      return deriveSinaisConversa(convMsgs, lead);
+    } catch {
+      return {
+        bolaComLabel: "—",
+        ultimoTema: "—",
+        pendenciaAberta: "—",
+        riscoTravamento: null,
+        ultimoSinalCliente: "—",
+        proximaAbordagem: "—",
+      } satisfies SinaisConversa;
+    }
+  }, [convMsgs, lead]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadMsgs() {
+      setConvLoading(true);
+      setConvError(null);
+      try {
+        const resp = await fetch(
+          `/api/messages?wa_id=${encodeURIComponent(lead.wa_id)}&limit=200`,
+          { cache: "no-store" },
+        );
+        const data = (await resp.json()) as {
+          ok: boolean;
+          messages?: ConversaMsg[];
+          error?: string | null;
+        };
+        if (!cancelled) {
+          if (data.ok && Array.isArray(data.messages)) {
+            setConvMsgs(data.messages);
+          } else {
+            setConvError(data.error ?? "Erro ao carregar conversa");
+          }
+        }
+      } catch {
+        if (!cancelled) setConvError("Erro ao carregar conversa");
+      } finally {
+        if (!cancelled) setConvLoading(false);
+      }
+    }
+    void loadMsgs();
+    return () => { cancelled = true; };
+  }, [lead.wa_id]);
 
   /* ── Profile save handler ── */
   const handleSaveProfile = useCallback(async () => {
@@ -512,6 +948,32 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
     }
   }, [lead.wa_id]);
 
+  /* ── Chamar cliente handler ── */
+  const handleCallSubmit = useCallback(async () => {
+    if (!callText.trim()) return;
+    setCallBusy(true);
+    setCallError(null);
+    try {
+      const res = await fetch("/api/bases", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "call_now", wa_id: lead.wa_id, text: callText.trim() }),
+        cache: "no-store",
+      });
+      const data = (await res.json()) as { ok: boolean; error?: string };
+      if (data.ok) {
+        setCallOpen(false);
+        setCallFeedback("Mensagem enviada ao cliente.");
+      } else {
+        setCallError(data.error ?? "Erro ao enviar mensagem");
+      }
+    } catch {
+      setCallError("Erro de rede ao enviar mensagem");
+    } finally {
+      setCallBusy(false);
+    }
+  }, [lead.wa_id, callText]);
+
   /* Build timeline */
   type TimelineEvent = { ts: number; order: number; label: string; detail: string };
   const timelineEvents: TimelineEvent[] = [];
@@ -522,7 +984,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
     timelineEvents.push({ ts: new Date(lead.movido_base_em).getTime(), order: 2, label: `Base: ${getBaseLabel(lead.base_atual)}`, detail: formatDateTime(lead.movido_base_em) });
   }
   if (lead.movido_fase_em && lead.fase_atendimento) {
-    timelineEvents.push({ ts: new Date(lead.movido_fase_em).getTime(), order: 3, label: `Fase: ${lead.fase_atendimento}`, detail: formatDateTime(lead.movido_fase_em) });
+    timelineEvents.push({ ts: new Date(lead.movido_fase_em).getTime(), order: 3, label: `Fase: ${getFaseLabel(lead.fase_atendimento)}`, detail: formatDateTime(lead.movido_fase_em) });
   }
   if (lead.ultima_interacao_enova) {
     timelineEvents.push({ ts: new Date(lead.ultima_interacao_enova).getTime(), order: 4, label: "Última interação Enova", detail: formatDateTime(lead.ultima_interacao_enova) });
@@ -635,17 +1097,17 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
       <div className={styles.fichaBody}>
 
         {/* ═══════════════════════════════════════
-           CABEÇALHO — 4 células de resumo
+           CABEÇALHO — 4 células de resumo + Temperatura (quando disponível)
            ═══════════════════════════════════════ */}
         <div className={styles.headerCard}>
           <div className={styles.headerItem}>
             <span className={styles.headerItemLabel}>Fase</span>
             {faseGrupo ? (
               <span className={`${styles.faseBadge} ${getFaseBadgeCls(faseGrupo)}`}>
-                {lead.fase_atendimento ?? lead.fase_funil ?? faseGrupo}
+                {getFaseLabel(lead.fase_atendimento ?? lead.fase_funil)}
               </span>
             ) : (
-              <span className={styles.headerItemValueMuted}>{txt(lead.fase_funil)}</span>
+              <span className={styles.headerItemValueMuted}>{getFaseLabel(lead.fase_funil)}</span>
             )}
           </div>
           <div className={styles.headerItem}>
@@ -667,6 +1129,14 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
               {formatDate(lead.prazo_proxima_acao)}
             </span>
           </div>
+          {lead.lead_temp && (
+            <div className={styles.headerItem}>
+              <span className={styles.headerItemLabel}>Temperatura</span>
+              <span className={`${styles.tempBadge} ${getTempBadgeCls(lead.lead_temp)}`}>
+                {getTempLabel(lead.lead_temp)}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* ── Blocks grid ── */}
@@ -680,7 +1150,17 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
               <div className={styles.blockHeader}>
                 <span className={styles.blockIcon}>🎯</span>
                 <h3 className={styles.blockTitle}>Próxima Ação</h3>
+                {/* Chamar cliente — reutiliza /api/bases call_now (mesmo padrão de Bases) */}
+                <button
+                  type="button"
+                  className={styles.callHeaderBtn}
+                  onClick={() => { setCallText(suggestCallMessage(lead)); setCallOpen(true); setCallFeedback(null); setCallError(null); }}
+                >
+                  📞 Chamar cliente
+                </button>
               </div>
+              {callFeedback && <div className={styles.callBannerOk}>{callFeedback}</div>}
+              {callError && <div className={styles.callBannerErr}>{callError}</div>}
               <div className={styles.blockBody}>
                 <div className={styles.nextActionCard}>
                   <span className={styles.nextActionIcon}>→</span>
@@ -688,7 +1168,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                     <span className={styles.nextActionText}>{lead.proxima_acao}</span>
                     {(lead.gatilho_proxima_acao || lead.prazo_proxima_acao) && (
                       <span className={styles.nextActionMeta}>
-                        {lead.gatilho_proxima_acao && `Gatilho: ${lead.gatilho_proxima_acao}`}
+                        {lead.gatilho_proxima_acao && `Gatilho: ${getGatilhoLabel(lead.gatilho_proxima_acao)}`}
                         {lead.gatilho_proxima_acao && lead.prazo_proxima_acao && " · "}
                         {lead.prazo_proxima_acao && `Follow-up: ${formatDate(lead.prazo_proxima_acao)}`}
                       </span>
@@ -703,66 +1183,6 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
               </div>
             </div>
           )}
-
-          {/* ═══════════════════════════════════════
-             BLOCO 2 (full) — RESUMO COMERCIAL
-             Dados reais: lead_temp, responsavel, quem_falou_ultimo,
-             resumo_curto (se útil). Apenas campos com valor são exibidos.
-             interesse_atual/objecao/momento ficam no bloco editável abaixo.
-             ═══════════════════════════════════════ */}
-          {(() => {
-            const temTemp = !!lead.lead_temp;
-            const temResponsavel = !!lead.responsavel;
-            const temTimestamps = hasTimestamps(lead.ultima_interacao_cliente, lead.ultima_interacao_enova);
-            const temResumo = isResumoUtil(lead.resumo_curto);
-            const temAlgumCampo = temTemp || temResponsavel || temTimestamps || temResumo;
-            return (
-              <div className={`${styles.block} ${styles.blockFull} ${styles.blockComercial}`}>
-                <div className={styles.blockHeader}>
-                  <span className={styles.blockIcon}>📊</span>
-                  <h3 className={styles.blockTitle}>Resumo Comercial</h3>
-                </div>
-                <div className={styles.blockBody}>
-                  {!temAlgumCampo ? (
-                    <p className={styles.comercialEmpty}>
-                      Sem dados comerciais ainda — preencha o bloco abaixo.
-                    </p>
-                  ) : (
-                    <div className={styles.detailGrid}>
-                      {temTemp && (
-                        <div className={styles.fieldItem}>
-                          <span className={styles.fieldLabel}>Temperatura</span>
-                          <span className={`${styles.tempBadge} ${getTempBadgeCls(lead.lead_temp)}`}>
-                            {getTempLabel(lead.lead_temp)}
-                          </span>
-                        </div>
-                      )}
-                      {temResponsavel && (
-                        <div className={styles.fieldItem}>
-                          <span className={styles.fieldLabel}>Responsável</span>
-                          <span className={styles.fieldValue}>{lead.responsavel}</span>
-                        </div>
-                      )}
-                      {temTimestamps && (
-                        <div className={styles.fieldItem}>
-                          <span className={styles.fieldLabel}>Último contato</span>
-                          <span className={styles.fieldValue}>
-                            {deriveUltimoFalante(lead.ultima_interacao_cliente, lead.ultima_interacao_enova)}
-                          </span>
-                        </div>
-                      )}
-                      {temResumo && (
-                        <div className={styles.fieldItemFull}>
-                          <span className={styles.fieldLabel}>Resumo</span>
-                          <span className={styles.fieldValue}>{lead.resumo_curto}</span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
 
           {/* ═══════════════════════════════════════
              BLOCO 3 (full) — FEEDBACK HUMANO DO CORRETOR
@@ -842,6 +1262,150 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                 </button>
                 {feedbackFeedback && <span className={styles.profileFeedback}>{feedbackFeedback}</span>}
                 {feedbackError && <span className={styles.profileFeedbackError}>{feedbackError}</span>}
+              </div>
+            </div>
+          </div>
+
+          {/* ═══════════════════════════════════════
+             BLOCO CONVERSA — Interação AI (read-only)
+             + Sinais da Conversa (painel lateral)
+             Fonte: enova_log via /api/messages
+             Tags: meta_minimal (in) · DECISION_OUTPUT/SEND_OK (out)
+             100% read-only — sem input, sem botão, sem ação
+             ═══════════════════════════════════════ */}
+          <div className={`${styles.blockFull} ${styles.convSinaisWrapper}`}>
+            {/* ── Conversa: ~65% ── */}
+            <div className={`${styles.block} ${styles.blockConversa} ${styles.convMainPanel}`}>
+              <div className={styles.blockHeader}>
+                <span className={styles.blockIcon}>🗨️</span>
+                <h3 className={styles.blockTitle}>Interação AI</h3>
+              </div>
+              <div className={styles.blockBody}>
+                {convLoading ? (
+                  <p className={styles.convLoading}>Carregando conversa…</p>
+                ) : convError ? (
+                  <p className={styles.convEmpty}>{convError}</p>
+                ) : convMsgs.length === 0 ? (
+                  <p className={styles.convEmpty}>
+                    Sem mensagens registradas para este atendimento.
+                  </p>
+                ) : (
+                  <div className={styles.convScroll}>
+                    {groupMsgsByDay(convMsgs).map(({ label, msgs: dayMsgs }) => (
+                      <div key={label}>
+                        <div className={styles.convDateDivider}>
+                          <span className={styles.convDateLabel}>{label}</span>
+                        </div>
+                        {dayMsgs.map((msg, idx) => (
+                          <div
+                            key={msg.id ?? `${label}-${idx}`}
+                            className={`${styles.convBubbleRow} ${
+                              msg.direction === "in"
+                                ? styles.convBubbleRowIn
+                                : styles.convBubbleRowOut
+                            }`}
+                          >
+                            <div className={styles.convMeta}>
+                              <span
+                                className={`${styles.convSender} ${
+                                  msg.direction === "in"
+                                    ? styles.convSenderIn
+                                    : styles.convSenderOut
+                                }`}
+                              >
+                                {msg.direction === "in" ? "Cliente" : "Enova"}
+                              </span>
+                              {msg.created_at && (
+                                <span className={styles.convTime}>
+                                  {formatMsgTime(msg.created_at)}
+                                </span>
+                              )}
+                            </div>
+                            <div
+                              className={`${styles.convBubble} ${
+                                msg.direction === "in"
+                                  ? styles.convBubbleIn
+                                  : styles.convBubbleOut
+                              }`}
+                            >
+                              {msg.text}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* ── Sinais da Conversa: ~35% ── */}
+            <div className={`${styles.block} ${styles.blockSinais}`}>
+              <div className={styles.blockHeader}>
+                <span className={styles.blockIcon}>📡</span>
+                <h3 className={styles.blockTitle}>Sinais da Conversa</h3>
+              </div>
+              <div className={styles.blockBody}>
+                <div className={styles.sinaisList}>
+                  <div className={styles.sinaisItem}>
+                    <span className={styles.sinaisLabel}>Bola com</span>
+                    <span
+                      className={`${styles.sinaisValue} ${
+                        sinais.bolaComLabel === "Cliente"
+                          ? styles.sinaisBolaCliente
+                          : sinais.bolaComLabel === "Enova"
+                          ? styles.sinaisBolaEnova
+                          : ""
+                      }`}
+                    >
+                      {sinais.bolaComLabel === "Enova"
+                        ? "🤖 Enova"
+                        : sinais.bolaComLabel === "Cliente"
+                        ? "👤 Cliente"
+                        : "—"}
+                    </span>
+                  </div>
+                  <div className={styles.sinaisItem}>
+                    <span className={styles.sinaisLabel}>Último tema</span>
+                    <span className={styles.sinaisValue}>{sinais.ultimoTema}</span>
+                  </div>
+                  <div className={styles.sinaisItem}>
+                    <span className={styles.sinaisLabel}>Pendência aberta</span>
+                    <span className={styles.sinaisValue}>{sinais.pendenciaAberta}</span>
+                  </div>
+                  <div className={styles.sinaisItem}>
+                    <span className={styles.sinaisLabel}>Risco de travamento</span>
+                    {sinais.riscoTravamento ? (
+                      <span
+                        className={`${styles.sinaisBadge} ${
+                          sinais.riscoTravamento === "ALTO"
+                            ? styles.sinaisRiscoAlto
+                            : sinais.riscoTravamento === "MEDIO"
+                            ? styles.sinaisRiscoMedio
+                            : styles.sinaisRiscoBaixo
+                        }`}
+                      >
+                        {sinais.riscoTravamento === "ALTO"
+                          ? "Alto"
+                          : sinais.riscoTravamento === "MEDIO"
+                          ? "Médio"
+                          : "Baixo"}
+                      </span>
+                    ) : (
+                      <span className={styles.sinaisValue}>—</span>
+                    )}
+                  </div>
+                  <div className={styles.sinaisItem}>
+                    <span className={styles.sinaisLabel}>Sinal do cliente</span>
+                    <span className={styles.sinaisValue}>{sinais.ultimoSinalCliente}</span>
+                  </div>
+                  <div className={`${styles.sinaisItem} ${styles.sinaisItemFull}`}>
+                    <span className={styles.sinaisLabel}>Próxima abordagem</span>
+                    <span className={`${styles.sinaisValue} ${styles.sinaisAbordagem}`}>
+                      {sinais.proximaAbordagem}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1074,30 +1638,33 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                 {profileFeedback && <span className={styles.profileFeedback}>{profileFeedback}</span>}
                 {profileError && <span className={styles.profileFeedbackError}>{profileError}</span>}
               </div>
-              {/* Read-only complementary fields */}
-              <div className={styles.detailGrid} style={{ marginTop: "20px", paddingTop: "16px", borderTop: "1px solid rgba(255,255,255,0.04)" }}>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Somar renda</span>
-                  <span className={`${styles.boolBadge} ${somarRendaBool.cls}`}>{somarRendaBool.text}</span>
-                </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Renda Total</span>
-                  <span className={lead.renda_total ? styles.fieldValueHighlight : styles.fieldValueMuted}>{formatCurrency(lead.renda_total)}</span>
-                </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>IR declarado</span>
-                  <span className={`${styles.boolBadge} ${irBool.cls}`}>{irBool.text}</span>
-                </div>
-                <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Composição</span>
-                  <span className={lead.composicao ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.composicao)}</span>
-                </div>
-                {lead.resumo_curto && (
-                  <div className={styles.fieldItemFull}>
-                    <span className={styles.fieldLabel}>Resumo</span>
-                    <span className={styles.fieldValue}>{lead.resumo_curto}</span>
+              {/* Dados apurados pelo funil — read-only, dentro do Perfil */}
+              <div className={styles.perfilSubSection}>
+                <p className={styles.perfilSubTitle}>Dados Apurados</p>
+                <div className={styles.detailGrid}>
+                  <div className={styles.fieldItem}>
+                    <span className={styles.fieldLabel}>Somar renda</span>
+                    <span className={`${styles.boolBadge} ${somarRendaBool.cls}`}>{somarRendaBool.text}</span>
                   </div>
-                )}
+                  <div className={styles.fieldItem}>
+                    <span className={styles.fieldLabel}>Renda total</span>
+                    <span className={lead.renda_total ? styles.fieldValueHighlight : styles.fieldValueMuted}>{formatCurrency(lead.renda_total)}</span>
+                  </div>
+                  <div className={styles.fieldItem}>
+                    <span className={styles.fieldLabel}>IR declarado</span>
+                    <span className={`${styles.boolBadge} ${irBool.cls}`}>{irBool.text}</span>
+                  </div>
+                  <div className={styles.fieldItem}>
+                    <span className={styles.fieldLabel}>Composição</span>
+                    <span className={lead.composicao ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.composicao)}</span>
+                  </div>
+                  {isResumoUtil(lead.resumo_curto) && (
+                    <div className={styles.fieldItemFull}>
+                      <span className={styles.fieldLabel}>Resumo</span>
+                      <span className={styles.fieldValue}>{lead.resumo_curto}</span>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -1113,19 +1680,19 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
             <div className={styles.blockBody}>
               <div className={styles.detailGrid}>
                 <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Fase funil</span>
-                  <span className={lead.fase_funil ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.fase_funil)}</span>
+                  <span className={styles.fieldLabel}>Fase do funil</span>
+                  <span className={lead.fase_funil ? styles.fieldValue : styles.fieldValueMuted}>{getFaseLabel(lead.fase_funil)}</span>
                 </div>
                 <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Status funil</span>
-                  <span className={lead.status_funil ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.status_funil)}</span>
+                  <span className={styles.fieldLabel}>Status do funil</span>
+                  <span className={lead.status_funil ? styles.fieldValue : styles.fieldValueMuted}>{getStatusFunilLabel(lead.status_funil)}</span>
                 </div>
                 <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Fase atendimento</span>
-                  <span className={lead.fase_atendimento ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.fase_atendimento)}</span>
+                  <span className={styles.fieldLabel}>Etapa de atendimento</span>
+                  <span className={lead.fase_atendimento ? styles.fieldValue : styles.fieldValueMuted}>{getFaseLabel(lead.fase_atendimento)}</span>
                 </div>
                 <div className={styles.fieldItem}>
-                  <span className={styles.fieldLabel}>Movido fase em</span>
+                  <span className={styles.fieldLabel}>Atualizado em</span>
                   <span className={lead.movido_fase_em ? styles.fieldValue : styles.fieldValueMuted}>{formatDateTime(lead.movido_fase_em)}</span>
                 </div>
                 {lead.pendencia_principal && (
@@ -1136,21 +1703,21 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                 )}
                 {lead.dono_pendencia && (
                   <div className={styles.fieldItem}>
-                    <span className={styles.fieldLabel}>Dono pendência</span>
+                    <span className={styles.fieldLabel}>Responsável pela pendência</span>
                     <span className={styles.fieldValue}>{lead.dono_pendencia}</span>
                   </div>
                 )}
                 {lead.gatilho_proxima_acao && (
                   <div className={styles.fieldItem}>
-                    <span className={styles.fieldLabel}>Gatilho próx. ação</span>
-                    <span className={styles.fieldValue}>{lead.gatilho_proxima_acao}</span>
+                    <span className={styles.fieldLabel}>Gatilho da ação</span>
+                    <span className={styles.fieldValue}>{getGatilhoLabel(lead.gatilho_proxima_acao)}</span>
                   </div>
                 )}
                 {lead.fase_travamento && (
                   <>
                     <div className={styles.fieldItem}>
-                      <span className={styles.fieldLabel}>Fase travamento</span>
-                      <span className={styles.fieldValueDanger}>{lead.fase_travamento}</span>
+                      <span className={styles.fieldLabel}>Fase de travamento</span>
+                      <span className={styles.fieldValueDanger}>{getFaseLabel(lead.fase_travamento)}</span>
                     </div>
                     <div className={styles.fieldItem}>
                       <span className={styles.fieldLabel}>Travou em</span>
@@ -1178,14 +1745,16 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
               <div className={styles.detailGrid}>
                 <div className={styles.fieldItem}>
                   <span className={styles.fieldLabel}>Base origem</span>
+                  {/* base_origem vem de attendance_meta — único registro confiável de origem */}
                   <span className={`${styles.baseBadge} ${getBaseBadgeCls(lead.base_origem)}`}>
                     {getBaseLabel(lead.base_origem)}
                   </span>
                 </div>
                 <div className={styles.fieldItem}>
                   <span className={styles.fieldLabel}>Base atual</span>
-                  <span className={`${styles.baseBadge} ${getBaseBadgeCls(lead.base_atual)}`}>
-                    {getBaseLabel(lead.base_atual)}
+                  {/* crm_lead_pool é a fonte canônica — base_atual (attendance_meta) pode ser null */}
+                  <span className={`${styles.baseBadge} ${getBaseBadgeCls(lead.crm_lead_pool ?? lead.base_atual)}`}>
+                    {getBaseLabel(lead.crm_lead_pool ?? lead.base_atual)}
                   </span>
                 </div>
                 <div className={styles.fieldItem}>
@@ -1226,7 +1795,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                   <div className={styles.fieldItem}>
                     <span className={styles.fieldLabel}>Severidade</span>
                     <span className={`${styles.incidenteBadge} ${getIncidenteBadgeCls(lead.severidade_incidente)}`}>
-                      {lead.severidade_incidente ?? "Aberto"}
+                      {getSeveridadeLabel(lead.severidade_incidente)}
                     </span>
                   </div>
                 </div>
@@ -1290,7 +1859,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                   {lead.codigo_motivo_arquivo && (
                     <div className={styles.fieldItem}>
                       <span className={styles.fieldLabel}>Código motivo</span>
-                      <span className={lead.codigo_motivo_arquivo ? styles.fieldValue : styles.fieldValueMuted}>{txt(lead.codigo_motivo_arquivo)}</span>
+                      <span className={lead.codigo_motivo_arquivo ? styles.fieldValue : styles.fieldValueMuted}>{getMotivoArquivoLabel(lead.codigo_motivo_arquivo)}</span>
                     </div>
                   )}
                   {lead.nota_arquivo && (
@@ -1306,6 +1875,43 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
 
         </div>
       </div>
+
+      {/* ── Chamar cliente overlay modal ── */}
+      {callOpen && (
+        <div className={styles.callOverlay} onClick={() => setCallOpen(false)}>
+          <div className={styles.callModal} onClick={(e) => e.stopPropagation()}>
+            <div className={styles.callModalHeader}>
+              <span className={styles.callModalTitle}>📞 Chamar cliente</span>
+              <button type="button" className={styles.callModalClose} onClick={() => setCallOpen(false)}>✕</button>
+            </div>
+            <div className={styles.callModalBody}>
+              <p className={styles.callModalHint}>
+                Revise a mensagem antes de enviar para{" "}
+                <strong>{lead.nome ?? lead.telefone ?? lead.wa_id}</strong>.
+              </p>
+              <textarea
+                className={styles.callModalTextarea}
+                value={callText}
+                onChange={(e) => setCallText(e.target.value)}
+                disabled={callBusy}
+                rows={4}
+              />
+              {callError && <p className={styles.callModalError}>{callError}</p>}
+            </div>
+            <div className={styles.callModalFooter}>
+              <button type="button" className={styles.secondaryBtn} onClick={() => setCallOpen(false)}>Cancelar</button>
+              <button
+                type="button"
+                className={styles.callSendBtn}
+                disabled={callBusy || !callText.trim()}
+                onClick={() => void handleCallSubmit()}
+              >
+                {callBusy ? "Enviando…" : "Enviar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

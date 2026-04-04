@@ -1,6 +1,6 @@
 "use server";
 
-import { listAttendanceLeads, getAttendanceLead, archiveAttendanceLead, unarchiveAttendanceLead, patchAttendanceMeta, type AttendanceMetaHumanPayload } from "../api/atendimento/_shared";
+import { listAttendanceLeads, getAttendanceLead, getCrmLeadPool, archiveAttendanceLead, unarchiveAttendanceLead, patchAttendanceMeta, type AttendanceMetaHumanPayload } from "../api/atendimento/_shared";
 import { getPrefillMeta, upsertPrefillMeta, PrefillMetaRow, PrefillUpdatePayload } from "../api/prefill/_shared";
 import { getClientProfile, writeClientProfile, ClientProfileRow, ClientProfileUpdatePayload } from "../api/client-profile/_shared";
 
@@ -21,12 +21,23 @@ export async function fetchAttendanceDetailAction(
     return { ok: false, error: `missing env: ${missingEnvs.join(", ")}` };
   }
 
+  const url = process.env.SUPABASE_URL as string;
+  const key = process.env.SUPABASE_SERVICE_ROLE as string;
+
   try {
-    const lead = await getAttendanceLead(
-      process.env.SUPABASE_URL as string,
-      process.env.SUPABASE_SERVICE_ROLE as string,
-      wa_id,
-    );
+    // Parallel fetch: main lead + crm_lead_pool (canonical pool — not always in
+    // enova_attendance_meta since it's LEFT JOIN and may have no row for organic leads).
+    const [lead, crmLeadPool] = await Promise.all([
+      getAttendanceLead(url, key, wa_id),
+      getCrmLeadPool(url, key, wa_id),
+    ]);
+
+    // Enrich the lead object with crm_lead_pool for the Base e Origem block.
+    // This is a panel-side read-only merge — no write, no schema change.
+    if (lead != null) {
+      lead.crm_lead_pool = crmLeadPool;
+    }
+
     return { ok: true, lead };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "internal error" };

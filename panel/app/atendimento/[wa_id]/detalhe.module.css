@@ -80,7 +80,7 @@
 /* ── Header card ── */
 .headerCard {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 16px;
   padding: 20px 24px;
   border-radius: 10px;
@@ -926,6 +926,22 @@
   color: #fca5a5;
 }
 
+/* ── Perfil: subsection "Dados Apurados" ── */
+.perfilSubSection {
+  margin-top: 20px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.perfilSubTitle {
+  margin: 0 0 12px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #52525b;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
 /* ── Bloco Resumo Comercial (teal accent) ── */
 .blockComercial {
   border-left: 3px solid rgba(45, 165, 165, 0.35);
@@ -1006,3 +1022,412 @@
   letter-spacing: 0;
   font-style: italic;
 }
+
+/* ── Bloco Interação AI (indigo accent) ── */
+.blockConversa {
+  border-left: 3px solid rgba(129, 140, 248, 0.3);
+}
+
+.blockConversa .blockBody {
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
+/* ── Conversation scroll container ── */
+.convScroll {
+  max-height: 320px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: 6px;
+}
+
+.convScroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.convScroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 999px;
+}
+
+/* ── Date divider ── */
+.convDateDivider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 8px;
+}
+
+.convDateDivider::before,
+.convDateDivider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.convDateLabel {
+  font-size: 0.6875rem;
+  color: #52525b;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* ── Bubble rows — full-width so no lateral dead space ── */
+.convBubbleRow {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 3px;
+  margin-bottom: 6px;
+}
+
+.convBubbleRowIn {
+  align-items: flex-start;
+}
+
+.convBubbleRowOut {
+  align-items: flex-end;
+}
+
+/* ── Sender + time meta line ── */
+.convMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.convSender {
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.convSenderIn {
+  color: #71717a;
+}
+
+.convSenderOut {
+  color: #4d9f9f;
+}
+
+.convTime {
+  font-size: 0.625rem;
+  color: #3f3f46;
+}
+
+/* ── Bubbles ── */
+.convBubble {
+  max-width: 88%;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.convBubbleIn {
+  background: rgba(255, 255, 255, 0.05);
+  color: #d4d4d8;
+  border-bottom-left-radius: 3px;
+}
+
+.convBubbleOut {
+  background: rgba(45, 165, 165, 0.1);
+  color: #7dd3d3;
+  border: 1px solid rgba(45, 165, 165, 0.1);
+  border-bottom-right-radius: 3px;
+}
+
+/* ── Empty / loading / error states ── */
+.convEmpty {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #3f3f46;
+  font-style: italic;
+  padding: 20px 0;
+  text-align: center;
+}
+
+.convLoading {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #52525b;
+  padding: 20px 0;
+  text-align: center;
+}
+
+/* ── Conversa + Sinais split layout ── */
+.convSinaisWrapper {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 16px;
+  align-items: stretch;
+  width: 100%;
+}
+
+/* Main conversation panel: fills remaining space */
+.convMainPanel {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* Sinais panel: fixed width ~300px, ~35% of typical card width */
+.blockSinais {
+  flex: 0 0 290px;
+  min-width: 240px;
+  max-width: 320px;
+  min-height: 200px;
+  border-left: 3px solid rgba(99, 102, 241, 0.35);
+}
+
+/* ── Sinais da Conversa — list layout ── */
+.sinaisList {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.sinaisItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.sinaisItem:last-child {
+  border-bottom: none;
+}
+
+.sinaisItemFull {
+  padding-top: 12px;
+}
+
+.sinaisLabel {
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #52525b;
+}
+
+.sinaisValue {
+  font-size: 0.8125rem;
+  color: #d4d4d8;
+  line-height: 1.4;
+}
+
+.sinaisAbordagem {
+  font-size: 0.75rem;
+  color: #a1a1aa;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+/* ── Bola com badges ── */
+.sinaisBolaEnova {
+  color: #5eead4; /* teal — Enova */
+}
+
+.sinaisBolaCliente {
+  color: #a3a3a3; /* neutral — Cliente */
+}
+
+/* ── Risco de travamento badges ── */
+.sinaisBadge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.sinaisRiscoBaixo {
+  background: rgba(34, 197, 94, 0.1);
+  color: #4ade80;
+}
+
+.sinaisRiscoMedio {
+  background: rgba(234, 179, 8, 0.1);
+  color: #facc15;
+}
+
+.sinaisRiscoAlto {
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+}
+
+/* ── Chamar cliente — header button ── */
+.callHeaderBtn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(52, 211, 153, 0.28);
+  border-radius: 6px;
+  background: rgba(52, 211, 153, 0.07);
+  color: #6ee7b7;
+  padding: 5px 12px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.callHeaderBtn:hover {
+  background: rgba(52, 211, 153, 0.14);
+  border-color: rgba(52, 211, 153, 0.45);
+  color: #a7f3d0;
+}
+
+/* ── Chamar cliente — inline feedback banners ── */
+.callBannerOk {
+  padding: 7px 20px;
+  font-size: 0.8125rem;
+  color: #6ee7b7;
+  background: rgba(52, 211, 153, 0.06);
+  border-bottom: 1px solid rgba(52, 211, 153, 0.1);
+}
+
+.callBannerErr {
+  padding: 7px 20px;
+  font-size: 0.8125rem;
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.06);
+  border-bottom: 1px solid rgba(239, 68, 68, 0.1);
+}
+
+/* ── Chamar cliente — overlay modal ── */
+.callOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.callModal {
+  background: #18181b;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  width: 480px;
+  max-width: 95vw;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.callModalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.callModalTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #d4d4d8;
+}
+
+.callModalClose {
+  background: none;
+  border: none;
+  color: #71717a;
+  cursor: pointer;
+  font-size: 0.875rem;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+
+.callModalClose:hover {
+  color: #e4e4e7;
+}
+
+.callModalBody {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.callModalHint {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #71717a;
+}
+
+.callModalTextarea {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  color: #e4e4e7;
+  padding: 8px 10px;
+  font-size: 0.8125rem;
+  font-family: inherit;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  transition: border-color 0.15s ease;
+}
+
+.callModalTextarea:focus {
+  border-color: rgba(52, 211, 153, 0.35);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.callModalError {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #fca5a5;
+}
+
+.callModalFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.callSendBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  border-radius: 6px;
+  background: rgba(52, 211, 153, 0.1);
+  color: #6ee7b7;
+  padding: 7px 18px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.callSendBtn:hover:not(:disabled) {
+  background: rgba(52, 211, 153, 0.18);
+  border-color: rgba(52, 211, 153, 0.48);
+}
+
+.callSendBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+

@@ -1602,11 +1602,23 @@ function buildFamiliarRendaGuidance(request) {
   }
 
   if (stage === "confirmar_avo_familiar") {
+    // CONTRATO BLOCO 6: LOAS/BPC/pensão alimentícia NÃO são renda financiável
+    if (/\b(loas|bpc|pens[aã]o\s*aliment[ií]cia)\b/i.test(normalizedMessage)) {
+      return "Atenção: benefícios como LOAS, BPC ou pensão alimentícia não entram como renda comprovada para financiamento. Se o familiar tiver outra renda além do benefício, o sistema avalia. Confirma que o familiar é avô ou avó? Responda *sim* ou *não*.";
+    }
+    // CONTRATO BLOCO 6: idade acima de 68 inviabiliza composição normal
+    if (/\b(68|69|[7-9]\d|1\d{2})\s*(anos|a)\b/i.test(normalizedMessage) || /\bidade\b.*\b(68|69|[7-9]\d)\b/i.test(normalizedMessage)) {
+      return "Atenção: pessoas acima de 68 anos têm restrições importantes para composição de financiamento. O sistema vai verificar as condições antes de seguir. Confirma que o familiar é avô ou avó? Responda *sim* ou *não*.";
+    }
+    // CONTRATO BLOCO 6: benefício sozinho não soma renda financiável
+    if (/\b(s[oó]\s*(recebe|tem)\s*(benef[ií]cio|aposentadoria|pens[aã]o))\b/i.test(normalizedMessage) || /\b(benef[ií]cio\s*(sozinho|s[oó]))\b/i.test(normalizedMessage)) {
+      return "Benefício sozinho não é considerado renda financiável para composição. Se o familiar tiver outra renda além do benefício, o sistema avalia. Confirma que o familiar é avô ou avó? Responda *sim* ou *não*.";
+    }
     if (/\bav[oó]\b|\bavozinha\b|\bavozinho\b|\bagv[oó]\b/i.test(normalizedMessage)) {
-      return "Avô ou avó entendido. O sistema vai verificar as condições. Confirma que o familiar é avô ou avó? Responda *sim* ou *não*.";
+      return "Avô ou avó entendido. O sistema vai verificar as condições de idade e renda antes de seguir. Confirma que o familiar é avô ou avó? Responda *sim* ou *não*.";
     }
     if (/\baposentad[oa]\b.*\bbio\b|\bbio\b.*\baposentad[oa]\b|\baposentad[oa]\b.*\brural\b|\brural\b.*\baposentad[oa]\b/i.test(normalizedMessage)) {
-      return "A situação de aposentadoria do familiar tem verificação específica no sistema. Confirma que o familiar é avô ou avó? Responda *sim* ou *não*.";
+      return "A situação de aposentadoria do familiar tem verificação específica no sistema — incluindo tipo de renda e idade. Confirma que o familiar é avô ou avó? Responda *sim* ou *não*.";
     }
     if (/\b(nao sei|não sei|nao tenho certeza|não tenho certeza|nao sei informar|não sei informar)\b/i.test(normalizedMessage)) {
       return "Sem problema. O sistema precisa confirmar o vínculo para seguir no trilho correto. Confirma que o familiar é avô ou avó? Responda *sim* ou *não*.";
@@ -1635,6 +1647,14 @@ function buildFamiliarRendaGuidance(request) {
   }
 
   if (stage === "regime_trabalho_parceiro_familiar") {
+    // CONTRATO BLOCO 6: pensionista/LOAS/BPC isoladamente não são renda financiável
+    if (/\b(pensionista|pens[aã]o\s*aliment[ií]cia|loas|bpc)\b/i.test(normalizedMessage)) {
+      return "Atenção: pensão alimentícia, LOAS ou BPC isoladamente não contam como renda financiável para composição. Se o familiar tem outra atividade além disso, informe o regime principal. Qual é o regime de trabalho do familiar: *CLT*, *autônomo*, *servidor* ou *aposentado*?";
+    }
+    // CONTRATO BLOCO 6: "só benefício" não serve para composição
+    if (/\b(s[oó]\s*(recebe|tem)\s*(benef[ií]cio|aposentadoria|pens[aã]o))\b/i.test(normalizedMessage) || /\b(benef[ií]cio\s*(sozinho|s[oó]))\b/i.test(normalizedMessage)) {
+      return "Benefício sozinho não é considerado renda financiável para composição. Se o familiar exercer alguma atividade remunerada, informe o regime. Qual é o regime de trabalho do familiar: *CLT*, *autônomo*, *servidor* ou *aposentado*?";
+    }
     if (/\bregistrad[oa]\b|\bclt\b|\bcarteira\s*assinada\b/i.test(normalizedMessage)) {
       return "CLT entendido. O sistema vai registrar corretamente. Qual é o regime do familiar: *CLT*, *autônomo*, *servidor* ou *aposentado*?";
     }

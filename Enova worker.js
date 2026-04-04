@@ -3488,7 +3488,7 @@ function shouldTriggerCognitiveAssist(stage, text) {
     if (paisCasadosHints) return true;
   }
   if (stage === "confirmar_avo_familiar") {
-    const confirmarAvoHints = /\b(av[oó]|avozinha|avozinho|aposentad[oa]|rural|beneficio|benefício|nao sei|não sei|nao tenho certeza|não tenho certeza)\b/i.test(nt);
+    const confirmarAvoHints = /\b(av[oó]|avozinha|avozinho|aposentad[oa]|rural|beneficio|benefício|loas|bpc|pens[aã]o|aux[ií]lio|idade|68|69|[7-9]\d\s*anos|nao sei|não sei|nao tenho certeza|não tenho certeza|s[oó]\s*recebe|s[oó]\s*tem\s*benef)\b/i.test(nt);
     if (confirmarAvoHints) return true;
   }
   if (stage === "renda_familiar_valor") {
@@ -3496,7 +3496,7 @@ function shouldTriggerCognitiveAssist(stage, text) {
     if (rendaFamiliarHints) return true;
   }
   if (stage === "regime_trabalho_parceiro_familiar") {
-    const regimeFamiliarHints = /\b(mei|microempreendedor|nao sei qual|não sei qual|bico|freela|informal|aposentad|servidor|registrado|carteira|autonomo|autônomo|nao sei|não sei)\b/i.test(nt);
+    const regimeFamiliarHints = /\b(mei|microempreendedor|nao sei qual|não sei qual|bico|freela|informal|aposentad|servidor|registrado|carteira|autonomo|autônomo|nao sei|não sei|pensionista|pens[aã]o|loas|bpc|s[oó]\s*recebe|s[oó]\s*tem\s*benef)\b/i.test(nt);
     if (regimeFamiliarHints) return true;
   }
   if (stage === "renda_parceiro_familiar") {

@@ -18438,6 +18438,118 @@ const CORRESPONDENTE_RETURN_STATUS_CANONICAL = new Set([
 ]);
 const CORRESPONDENTE_RETURN_MIN_CONFIDENCE_AUTO = 0.75;
 
+// ========================================
+// BLOCO 12 — Casca Cognitiva: Retorno do Correspondente
+// Gera fala final cognitiva para cada status canônico.
+// Mecânico continua soberano em stage/gate/nextStage/persistência.
+// ========================================
+function buildCognitiveBloco12Reply(statusCanonico, motivo) {
+  const motivoSafe = String(motivo || "").replace(/[*_`~]/g, "").trim();
+
+  if (statusCanonico === "aprovado" || statusCanonico === "aprovado_condicionado") {
+    return [
+      "Que boa notícia — a pré-análise voltou positiva! 🎉",
+      "",
+      "O seu financiamento foi pré-aprovado pelo correspondente.",
+      "Agora o próximo passo é agendar sua visita ao plantão para as simulações e escolha do imóvel.",
+      "Já vou te conduzir nesse agendamento."
+    ].join("\n");
+  }
+
+  if (statusCanonico === "reprovado") {
+    const parts = [
+      "Recebi o retorno da pré-análise, e infelizmente o financiamento não foi aprovado nesta avaliação."
+    ];
+    if (motivoSafe) {
+      parts.push("", "Motivo apontado: *" + motivoSafe + "*.");
+    }
+    parts.push("", "Entendo que não é a resposta que você esperava. Se quiser, posso te orientar sobre os caminhos possíveis a partir daqui.");
+    return parts.join("\n");
+  }
+
+  if (statusCanonico === "pendencia_risco") {
+    const parts = [
+      "O correspondente retornou com uma pendência relacionada ao perfil financeiro."
+    ];
+    if (motivoSafe) {
+      parts.push("", "Foi apontado: *" + motivoSafe + "*.");
+    } else {
+      parts.push(" Foram identificadas restrições que precisam de atenção antes de a análise seguir.");
+    }
+    parts.push("", "Isso não é uma reprovação definitiva — é algo que pode ser regularizado. Posso te orientar nos próximos passos.");
+    return parts.join("\n");
+  }
+
+  if (statusCanonico === "pendencia_documental") {
+    const parts = [
+      "O correspondente retornou pedindo um complemento documental antes de concluir a análise."
+    ];
+    if (motivoSafe) {
+      parts.push("", "Documentação solicitada: *" + motivoSafe + "*.");
+    }
+    parts.push("", "Me envie por aqui o que foi pedido — sigo pelo fluxo oficial sem precisar refazer a coleta anterior.");
+    return parts.join("\n");
+  }
+
+  if (statusCanonico === "analise_ativa_existente") {
+    return [
+      "O correspondente informou que já existe uma análise ativa em nome do titular.",
+      "",
+      "Isso precisa ser verificado ou regularizado antes de seguir com uma nova submissão.",
+      "Vou acompanhar aqui e te orientar sobre os próximos passos."
+    ].join("\n");
+  }
+
+  if (statusCanonico === "aguardando_cartinha_cancelamento") {
+    return [
+      "O correspondente indicou que é necessária uma cartinha ou autorização formal para cancelar uma análise anterior.",
+      "",
+      "Preciso desse documento para seguir com o processo. Assim que tiver, me envia por aqui."
+    ].join("\n");
+  }
+
+  if (statusCanonico === "aguardando_autorizacao") {
+    return [
+      "O processo ainda depende de uma autorização formal para avançar.",
+      "",
+      "Não se preocupe — sigo acompanhando e te aviso assim que a situação se resolver."
+    ].join("\n");
+  }
+
+  if (statusCanonico === "em_analise_com_prazo") {
+    if (motivoSafe) {
+      return [
+        "O correspondente informou que a pré-análise segue em andamento, com prazo estimado de *" + motivoSafe + "*.",
+        "",
+        "Sigo acompanhando e te aviso assim que houver retorno. Não precisa fazer nada por enquanto."
+      ].join("\n");
+    }
+    return [
+      "O correspondente informou que a pré-análise segue em andamento e indicou um prazo para retorno.",
+      "",
+      "Sigo acompanhando e te aviso assim que houver novidade."
+    ].join("\n");
+  }
+
+  if (statusCanonico === "em_analise") {
+    return [
+      "O correspondente informou que a pré-análise segue em andamento.",
+      "",
+      "Não precisa fazer nada agora — sigo acompanhando e te aviso assim que houver novidade."
+    ].join("\n");
+  }
+
+  if (statusCanonico === "nao_identificado") {
+    return [
+      "Recebi uma mensagem sobre o seu processo, mas ainda preciso validar o conteúdo com mais clareza.",
+      "",
+      "Pode me encaminhar novamente o trecho onde aparece o resultado ou status da análise?"
+    ].join("\n");
+  }
+
+  return null;
+}
+
 function normalizeCorrespondenteReturnStatus(value) {
   const normalized = normalizeText(value || "");
   if (!normalized) return "nao_identificado";
@@ -30658,6 +30770,10 @@ case "aguardando_retorno_correspondente": {
       message: "Anti-loop: saudacao/reset em aguardando_retorno_correspondente → inicio_programa"
     });
 
+    // BLOCO 12 — limpa casca cognitiva antes de trocar stage
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+
     return step(
       env,
       st,
@@ -30718,14 +30834,28 @@ case "aguardando_retorno_correspondente": {
   ]);
   const aprovado = /\b(aprovado|aprovada|credito aprovado|liberado|liberada)\b/.test(ntMsg);
 
-  // Ordem obrigatória de decisão:
-  // reprovado > pendencia_risco > pendencia_documental > aprovado_condicionado > aprovado > nao_identificado
+  // BLOCO 12 — detecção de status operacionais e em_analise
+  const analiseAtiva = hasAny(["analise ativa", "ja existe analise", "analise ativa existente"]);
+  const aguardandoCartinha = hasAny(["cartinha de cancelamento", "carta de cancelamento", "cartinha cancelamento"]);
+  const aguardandoAutorizacao = hasAny(["aguardando autorizacao", "pendente de autorizacao", "falta autorizacao"]);
+  const emAnalise = /\b(em analise|em andamento|analise em andamento|analise em curso)\b/.test(ntMsg);
+  const prazoRetorno = ntMsg.match(/(\d+)\s*(hora|horas|h\b|dia|dias|util|uteis)/);
+
+  // Ordem obrigatória de decisão (BLOCO 12 completo):
+  // reprovado > pendencia_risco > pendencia_documental > aprovado_condicionado > aprovado
+  // > analise_ativa > aguardando_cartinha > aguardando_autorizacao
+  // > em_analise_com_prazo > em_analise > nao_identificado
   let statusCanonico = "nao_identificado";
   if (reprovado) statusCanonico = "reprovado";
   else if (pendenciaRisco) statusCanonico = "pendencia_risco";
   else if (pendenciaDocumental) statusCanonico = "pendencia_documental";
   else if (aprovadoCondicionado) statusCanonico = "aprovado_condicionado";
   else if (aprovado) statusCanonico = "aprovado";
+  else if (analiseAtiva) statusCanonico = "analise_ativa_existente";
+  else if (aguardandoCartinha) statusCanonico = "aguardando_cartinha_cancelamento";
+  else if (aguardandoAutorizacao) statusCanonico = "aguardando_autorizacao";
+  else if (emAnalise && prazoRetorno) statusCanonico = "em_analise_com_prazo";
+  else if (emAnalise) statusCanonico = "em_analise";
 
   let nomeExtraido = null;
 
@@ -30798,6 +30928,10 @@ case "aguardando_retorno_correspondente": {
       details: { nomeExtra }
     });
 
+    // BLOCO 12 — limpa casca cognitiva (mensagem mecânica é mais precisa para mismatch)
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+
     return step(env, st,
       [
         "Recebi uma análise aqui, mas não tenho certeza se é do seu processo 🤔",
@@ -30836,6 +30970,10 @@ case "aguardando_retorno_correspondente": {
 
     // 📋 CRM Stage History — APROVADO é acervo permanente (non-blocking)
     try { await upsertCrmStageHistory(env, st.wa_id, "APROVADO"); } catch (_) { /* non-blocking */ }
+
+    // BLOCO 12 — casca cognitiva: aprovado/aprovado_condicionado → mesma condução comercial
+    const cogBloco12Aprov = buildCognitiveBloco12Reply(statusCanonico, null);
+    if (cogBloco12Aprov) { st.__cognitive_reply_prefix = cogBloco12Aprov; st.__cognitive_v2_takes_final = true; }
 
     return step(env, st,
       [
@@ -30879,6 +31017,10 @@ case "aguardando_retorno_correspondente": {
     // 📋 CRM Stage History — REPROVADO é acervo permanente (non-blocking)
     try { await upsertCrmStageHistory(env, st.wa_id, "REPROVADO"); } catch (_) { /* non-blocking */ }
 
+    // BLOCO 12 — casca cognitiva: reprovado → explicar com respeito, sem valores
+    const cogBloco12Repr = buildCognitiveBloco12Reply("reprovado", motivo);
+    if (cogBloco12Repr) { st.__cognitive_reply_prefix = cogBloco12Repr; st.__cognitive_v2_takes_final = true; }
+
     // Contrato oficial atual (provisório): reprovado permanece em aguardando_retorno_correspondente
     // para orientação pós-retorno, sem criação de novo stage mecânico nesta task.
     return step(env, st,
@@ -30919,6 +31061,10 @@ case "aguardando_retorno_correspondente": {
       details: { motivo }
     });
 
+    // BLOCO 12 — casca cognitiva: pendencia_risco → explicar restrição, sem valores
+    const cogBloco12Risk = buildCognitiveBloco12Reply("pendencia_risco", motivo);
+    if (cogBloco12Risk) { st.__cognitive_reply_prefix = cogBloco12Risk; st.__cognitive_v2_takes_final = true; }
+
     return step(env, st,
       [
         "Recebi retorno do correspondente com **pendência de risco/restrição** no processo.",
@@ -30955,12 +31101,117 @@ case "aguardando_retorno_correspondente": {
       details: { motivo }
     });
 
+    // BLOCO 12 — casca cognitiva: pendencia_documental → complemento objetivo, sem misturar com risco
+    const cogBloco12Doc = buildCognitiveBloco12Reply("pendencia_documental", motivo);
+    if (cogBloco12Doc) { st.__cognitive_reply_prefix = cogBloco12Doc; st.__cognitive_v2_takes_final = true; }
+
     return step(env, st,
       [
         "Recebi retorno do correspondente com **pendência** no seu processo. 📝",
         motivoSafe ? `Complemento solicitado: *${motivoSafe}*.` : "Eles pediram um complemento documental antes da decisão final.",
         "Aqui seguimos no pós-retorno do correspondente: me envie por aqui apenas o complemento pedido e eu continuo o fluxo oficial sem reiniciar sua coleta."
       ],
+      "aguardando_retorno_correspondente"
+    );
+  }
+
+  // ======================================================
+  // BLOCO 12 — Status operacionais / em_analise
+  // ======================================================
+
+  if (statusCanonico === "analise_ativa_existente") {
+    await upsertState(env, st.wa_id, {
+      retorno_correspondente_bruto: txt,
+      retorno_correspondente_status: "analise_ativa_existente",
+      retorno_correspondente_motivo: null
+    });
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id, event: "exit_stage", stage,
+      next_stage: "aguardando_retorno_correspondente", severity: "info",
+      message: "Retorno analise_ativa_existente do correspondente"
+    });
+    const cogB12Ativa = buildCognitiveBloco12Reply("analise_ativa_existente", null);
+    if (cogB12Ativa) { st.__cognitive_reply_prefix = cogB12Ativa; st.__cognitive_v2_takes_final = true; }
+    return step(env, st,
+      ["O correspondente informou que já existe uma análise ativa. Precisamos verificar antes de prosseguir."],
+      "aguardando_retorno_correspondente"
+    );
+  }
+
+  if (statusCanonico === "aguardando_cartinha_cancelamento") {
+    await upsertState(env, st.wa_id, {
+      retorno_correspondente_bruto: txt,
+      retorno_correspondente_status: "aguardando_cartinha_cancelamento",
+      retorno_correspondente_motivo: null
+    });
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id, event: "exit_stage", stage,
+      next_stage: "aguardando_retorno_correspondente", severity: "info",
+      message: "Retorno aguardando_cartinha_cancelamento do correspondente"
+    });
+    const cogB12Cart = buildCognitiveBloco12Reply("aguardando_cartinha_cancelamento", null);
+    if (cogB12Cart) { st.__cognitive_reply_prefix = cogB12Cart; st.__cognitive_v2_takes_final = true; }
+    return step(env, st,
+      ["O correspondente informou que é necessária cartinha de cancelamento. Me envia quando tiver."],
+      "aguardando_retorno_correspondente"
+    );
+  }
+
+  if (statusCanonico === "aguardando_autorizacao") {
+    await upsertState(env, st.wa_id, {
+      retorno_correspondente_bruto: txt,
+      retorno_correspondente_status: "aguardando_autorizacao",
+      retorno_correspondente_motivo: null
+    });
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id, event: "exit_stage", stage,
+      next_stage: "aguardando_retorno_correspondente", severity: "info",
+      message: "Retorno aguardando_autorizacao do correspondente"
+    });
+    const cogB12Aut = buildCognitiveBloco12Reply("aguardando_autorizacao", null);
+    if (cogB12Aut) { st.__cognitive_reply_prefix = cogB12Aut; st.__cognitive_v2_takes_final = true; }
+    return step(env, st,
+      ["O processo depende de autorização formal. Sigo acompanhando."],
+      "aguardando_retorno_correspondente"
+    );
+  }
+
+  if (statusCanonico === "em_analise_com_prazo") {
+    const prazoTexto = prazoRetorno ? `${prazoRetorno[1]} ${prazoRetorno[2]}` : null;
+    await upsertState(env, st.wa_id, {
+      retorno_correspondente_bruto: txt,
+      retorno_correspondente_status: "em_analise_com_prazo",
+      retorno_correspondente_motivo: prazoTexto
+    });
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id, event: "exit_stage", stage,
+      next_stage: "aguardando_retorno_correspondente", severity: "info",
+      message: "Retorno em_analise_com_prazo do correspondente",
+      details: { prazo: prazoTexto }
+    });
+    const cogB12Prazo = buildCognitiveBloco12Reply("em_analise_com_prazo", prazoTexto);
+    if (cogB12Prazo) { st.__cognitive_reply_prefix = cogB12Prazo; st.__cognitive_v2_takes_final = true; }
+    return step(env, st,
+      [prazoTexto ? `Análise em andamento com prazo de ${prazoTexto}.` : "Análise em andamento com prazo informado."],
+      "aguardando_retorno_correspondente"
+    );
+  }
+
+  if (statusCanonico === "em_analise") {
+    await upsertState(env, st.wa_id, {
+      retorno_correspondente_bruto: txt,
+      retorno_correspondente_status: "em_analise",
+      retorno_correspondente_motivo: null
+    });
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id, event: "exit_stage", stage,
+      next_stage: "aguardando_retorno_correspondente", severity: "info",
+      message: "Retorno em_analise do correspondente"
+    });
+    const cogB12Analise = buildCognitiveBloco12Reply("em_analise", null);
+    if (cogB12Analise) { st.__cognitive_reply_prefix = cogB12Analise; st.__cognitive_v2_takes_final = true; }
+    return step(env, st,
+      ["Análise em andamento, aguardando retorno."],
       "aguardando_retorno_correspondente"
     );
   }
@@ -30976,6 +31227,10 @@ case "aguardando_retorno_correspondente": {
     severity: "info",
     message: "Fallback — status nao_identificado"
   });
+
+  // BLOCO 12 — casca cognitiva: nao_identificado → fala segura, sem chutar
+  const cogBloco12Fallback = buildCognitiveBloco12Reply("nao_identificado", null);
+  if (cogBloco12Fallback) { st.__cognitive_reply_prefix = cogBloco12Fallback; st.__cognitive_v2_takes_final = true; }
 
   return step(env, st,
     [

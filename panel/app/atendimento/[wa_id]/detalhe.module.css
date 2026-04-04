@@ -1431,3 +1431,196 @@
   cursor: not-allowed;
 }
 
+/* ══════════════════════════════════════════
+   BLOCO COGNITIVO — Estado Cognitivo do Lead
+   PR 3 — visual-only, read-only, sem automação
+   ══════════════════════════════════════════ */
+
+.blockCognitivo {
+  border-left: 3px solid rgba(251, 191, 36, 0.4);
+}
+
+/* 2-column grid for the cognitive fields */
+.cognitiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0;
+  margin-bottom: 12px;
+}
+
+.cognitiItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px 10px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.cognitiItem:last-child {
+  border-bottom: none;
+}
+
+.cognitiLabel {
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #52525b;
+}
+
+.cognitiValue {
+  font-size: 0.8125rem;
+  color: #d4d4d8;
+  line-height: 1.4;
+}
+
+/* Generic badge base */
+.cognitiBadge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  width: fit-content;
+}
+
+/* ── Estado do cliente ── */
+.cognitiEstado {
+  background: rgba(99, 102, 241, 0.12);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+/* ── Momento de compra ── */
+.cognitiMomentoAgora {
+  background: rgba(34, 197, 94, 0.12);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.2);
+}
+
+.cognitiMomentoCurto {
+  background: rgba(52, 211, 153, 0.1);
+  color: #6ee7b7;
+  border: 1px solid rgba(52, 211, 153, 0.2);
+}
+
+.cognitiMomentoMedio {
+  background: rgba(251, 191, 36, 0.1);
+  color: #fcd34d;
+  border: 1px solid rgba(251, 191, 36, 0.2);
+}
+
+.cognitiMomentoSem {
+  background: rgba(113, 113, 122, 0.12);
+  color: #a1a1aa;
+  border: 1px solid rgba(113, 113, 122, 0.2);
+}
+
+.cognitiMomentoCurioso {
+  background: rgba(139, 92, 246, 0.1);
+  color: #c4b5fd;
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+/* ── Nível de interesse ── */
+.cognitiInteresseAlto {
+  background: rgba(34, 197, 94, 0.1);
+  color: #4ade80;
+}
+
+.cognitiInteresseMedio {
+  background: rgba(234, 179, 8, 0.1);
+  color: #facc15;
+}
+
+.cognitiInteresseBaixo {
+  background: rgba(113, 113, 122, 0.12);
+  color: #a1a1aa;
+}
+
+/* ── Risco de travamento ── */
+.cognitiRiscoBaixo {
+  background: rgba(34, 197, 94, 0.1);
+  color: #4ade80;
+}
+
+.cognitiRiscoMedio {
+  background: rgba(234, 179, 8, 0.1);
+  color: #facc15;
+}
+
+.cognitiRiscoAlto {
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+}
+
+/* ── Bola com ── */
+.cognitiBolaEnova {
+  color: #5eead4;
+}
+
+.cognitiBolaLead {
+  color: #a3a3a3;
+}
+
+/* ── Próxima melhor ação ── */
+.cognitiAcaoPadrao {
+  background: rgba(99, 102, 241, 0.08);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.cognitiAcaoUrgente {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* ── Confiança badge (header) ── */
+.cognitiConfBadge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.cognitiConfAlta {
+  background: rgba(34, 197, 94, 0.08);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.15);
+}
+
+.cognitiConfMedia {
+  background: rgba(251, 191, 36, 0.08);
+  color: #fcd34d;
+  border: 1px solid rgba(251, 191, 36, 0.15);
+}
+
+.cognitiConfBaixa {
+  background: rgba(113, 113, 122, 0.1);
+  color: #71717a;
+  border: 1px solid rgba(113, 113, 122, 0.15);
+}
+
+/* ── Justificativa ── */
+.cognitiJustificativaRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.cognitiJustificativa {
+  font-size: 0.75rem;
+  color: #a1a1aa;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+

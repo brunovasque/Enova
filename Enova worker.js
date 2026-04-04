@@ -3407,6 +3407,10 @@ function shouldTriggerCognitiveAssist(stage, text) {
     const composicaoHints = /\b(posso tentar|precisa somar|preciso somar|minha mae|minha mãe|meu pai|meu irmao|meu irmão|minha irma|minha irmã|pode ser|quem pode|melhora|muda alguma|qualquer pessoa|namorad|sozinho|sem somar)\b/i.test(nt);
     if (composicaoHints) return true;
   }
+  if (stage === "quem_pode_somar" || stage === "interpretar_composicao") {
+    const composicaoChoiceHints = /\b(so eu|só eu|so minha|só minha|apenas eu|somente eu|sozinho|sozinha|sem ninguem|sem ninguém|ninguem|ninguém|parceiro|parceira|namorad|espos|marid|mulher|meu pai|minha mae|minha mãe|meu irmao|meu irmão|minha irma|minha irmã|avo|avó|tio|tia|primo|prima|familiar|familia|família|nao sei|não sei|talvez|como funciona|quem pode)\b/i.test(nt);
+    if (composicaoChoiceHints) return true;
+  }
 
   // Bloco renda/trabalho — triggers específicos
   if (stage === "regime_trabalho") {

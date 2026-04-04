@@ -21407,6 +21407,17 @@ async function runFunnel(env, st, userText) {
     novoSt.last_message_id = null;
     novoSt.last_message_id_prev = null;
 
+    // ── Cognitive surface for immediate reset response ──
+    // The mechanical block below serves as fallback inside step(); cognitive
+    // takes final so the user sees a natural reply instead of the dry
+    // "sim ou não" reprompt.  Mechanical engine stays sovereign (stage, gate,
+    // nextStage, persistence) — only the surface changes.
+    novoSt.__cognitive_reply_prefix =
+      "Perfeito, limpamos tudo aqui pra você 👌\n" +
+      "Eu sou a Enova, assistente do programa Minha Casa Minha Vida — um programa do governo com subsídio e condições especiais pra quem quer conquistar o primeiro imóvel 😊\n" +
+      "Você já sabe como funciona ou prefere que eu explique rapidinho?";
+    novoSt.__cognitive_v2_takes_final = true;
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "reset_global",

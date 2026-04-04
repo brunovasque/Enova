@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
-import { fetchAttendanceDetailAction } from "../actions";
+import { fetchAttendanceDetailAction, fetchClientProfileAction } from "../actions";
 import { AtendimentoDetalheUI, type AttendanceDetalheRow } from "./AtendimentoDetalheUI";
+import type { ClientProfileRow } from "../../api/client-profile/_shared";
 
 interface Props {
   params: Promise<{ wa_id: string }>;
@@ -19,5 +20,15 @@ export default async function AtendimentoDetalhePage({ params }: Props) {
     notFound();
   }
 
-  return <AtendimentoDetalheUI lead={result.lead as unknown as AttendanceDetalheRow} />;
+  // Fetch client profile server-side so the edit form is pre-populated on load.
+  // Non-critical: a null profile just means all fields start empty.
+  const profileResult = await fetchClientProfileAction(wa_id);
+  const initialProfile = (profileResult.ok ? (profileResult.profile ?? null) : null) as ClientProfileRow | null;
+
+  return (
+    <AtendimentoDetalheUI
+      lead={result.lead as unknown as AttendanceDetalheRow}
+      initialProfile={initialProfile}
+    />
+  );
 }

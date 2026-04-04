@@ -3,6 +3,7 @@
 import { listAttendanceLeads, getAttendanceLead } from "../api/atendimento/_shared";
 import { getPrefillMeta, upsertPrefillMeta, PrefillMetaRow, PrefillUpdatePayload } from "../api/prefill/_shared";
 import { getClientProfile, writeClientProfile, ClientProfileRow, ClientProfileUpdatePayload } from "../api/client-profile/_shared";
+import { runBasesAction } from "../api/bases/_shared";
 
 export async function fetchAttendanceDetailAction(
   wa_id: string,
@@ -133,6 +134,57 @@ export async function saveClientProfileAction(
       payload,
     );
     return { ok: true, profile: saved };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "internal error" };
+  }
+}
+
+// ── Arquivamento / Desarquivamento ─────────────────────────────────────────
+
+export async function archiveLeadAction(
+  wa_id: string,
+  archive_reason_code: string | null,
+  archive_reason_note: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  const missingEnvs = (["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const).filter(
+    (k) => !process.env[k],
+  );
+  if (missingEnvs.length > 0) {
+    return { ok: false, error: `missing env: ${missingEnvs.join(", ")}` };
+  }
+
+  try {
+    const result = await runBasesAction({
+      action: "archive_lead",
+      wa_id,
+      archive_reason_code: archive_reason_code ?? undefined,
+      archive_reason_note: archive_reason_note ?? undefined,
+    });
+    if (result.status !== 200) {
+      return { ok: false, error: (result.body as { error?: string }).error ?? "Erro ao arquivar" };
+    }
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : "internal error" };
+  }
+}
+
+export async function unarchiveLeadAction(
+  wa_id: string,
+): Promise<{ ok: boolean; error?: string }> {
+  const missingEnvs = (["SUPABASE_URL", "SUPABASE_SERVICE_ROLE"] as const).filter(
+    (k) => !process.env[k],
+  );
+  if (missingEnvs.length > 0) {
+    return { ok: false, error: `missing env: ${missingEnvs.join(", ")}` };
+  }
+
+  try {
+    const result = await runBasesAction({ action: "unarchive_lead", wa_id });
+    if (result.status !== 200) {
+      return { ok: false, error: (result.body as { error?: string }).error ?? "Erro ao desarquivar" };
+    }
+    return { ok: true };
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : "internal error" };
   }

@@ -25,7 +25,7 @@
  * 16. IMMEDIATE reset: response does NOT contain "Me responde com *sim*"
  * 17. IMMEDIATE reset: response contains natural reanchor question
  * 18. IMMEDIATE reset: stage stays inicio_programa
- * 19. IMMEDIATE reset: nextStage preserved
+ * 19. IMMEDIATE reset: cognitive flags cleared after step (no leak)
  * 20. Normal inicio (no reset) → no regression (no cognitive flags)
  * 21. IMMEDIATE reset: no impact on docs/correspondente/visita stages
  */

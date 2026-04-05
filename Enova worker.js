@@ -18536,7 +18536,14 @@ function resolveInicioProgramaStructured(rawText) {
     /\bja vi\b/.test(nt) ||
     /\bt[oô] por dentro\b/.test(nt) ||
     /\bsei tudo\b/.test(nt) ||
-    (/\bentendi\b/.test(nt) && !/nao\s+entendi/.test(nt));
+    (/\bentendi\b/.test(nt) && !/nao\s+entendi/.test(nt)) ||
+    // ── Confirmações curtas pós-explicação (stage-aware no case block,
+    //    aqui como fallback semântico para o resolver) ──
+    /^(certo|beleza|show|legal|massa|perfeito|bora|claro|certeza|combinado|valeu|fechou|tranquilo|suave|blz|top|uhum|aham)$/i.test(nt) ||
+    /^t[aá]\s*bom$/i.test(nt) ||
+    /^pode\s+(seguir|continuar)$/i.test(nt) ||
+    /^ficou\s+claro$/i.test(nt) ||
+    /^tenho\s+(isso|tudo)$/i.test(nt);
 
   if (ja_sabe) {
     return { ...base, detected_answer: "ja_sabe", confidence: 0.95, needs_confirmation: false,
@@ -22583,6 +22590,50 @@ case "inicio_programa": {
     nt.includes("me ajuda a entender") ||
     nt.includes("não entendi direito");
 
+  // ── Pós-explicação: verifica se o último bot message é o fechamento do
+  //    próprio stage (pergunta induzida após explicação do programa).
+  //    Isso permite tratar confirmações curtas como resolução do stage.
+  const _postExplicacao = /seguir com a an[aá]lise do seu perfil/i.test(st.last_bot_msg || "");
+
+  // ── Pós-explicação: confirmações curtas que não caem em sim/nao ──
+  //    "certo", "entendi", "beleza", "pode seguir", "tenho isso", etc.
+  //    são tratadas como resolução positiva do stage → avança para inicio_nome.
+  const _isPostExplConfirmation = _postExplicacao && !sim && !nao && (
+    /\b(certo|entendi|entendido|beleza|show|legal|massa|perfeito|bora|claro|certeza|combinado|valeu|fechou|tranquilo|suave|blz|top|uhum|aham)\b/i.test(nt) ||
+    /\btenho\s+(isso|tudo)\b/i.test(nt) ||
+    /\bpode\s+(seguir|continuar|come[cç]ar)\b/i.test(nt) ||
+    /\bt[aá]\s*bom\b/i.test(nt) ||
+    /\bvamos\b/i.test(nt) ||
+    /\bbora\b/i.test(nt) ||
+    /\bficou\s+claro\b/i.test(nt)
+  );
+
+  // ✅ Pós-explicação: confirmação curta → avança para inicio_nome
+  if (_isPostExplConfirmation) {
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "inicio_nome",
+      severity: "info",
+      message: "inicio_programa: confirmação curta pós-explicação → avançando para inicio_nome",
+      details: { userText, postExplicacao: true }
+    });
+
+    return step(
+      env,
+      st,
+      [
+        "Ótimo! Vou analisar sua situação pra ver quanto de subsídio você pode ter e como ficariam as condições.",
+        "Pra começar, qual o seu *nome completo*?"
+      ],
+      "inicio_nome"
+    );
+  }
+
   // 🔁 Resposta ambígua → NÃO repetir igual (nova mensagem)
   if (!sim && !nao) {
     // ── Pós-reset / reentrada: casca cognitiva assume superfície,
@@ -22628,15 +22679,20 @@ case "inicio_programa": {
     );
   }
 
-  // ❌ NÃO conhece → explica
+  // ❌ NÃO conhece → explica o programa e PERMANECE em inicio_programa
+  //    com pergunta induzida do PRÓPRIO stage (não pula para inicio_nome).
+  //    O mecânico só avança quando o cliente confirma entendimento.
   if (nao) {
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
-      next_stage: "inicio_nome",
+      next_stage: "inicio_programa",
       severity: "info",
-      message: "inicio_programa: cliente pediu explicação",
+      message: "inicio_programa: cliente pediu explicação — explica e permanece no stage",
       details: { userText }
     });
 
@@ -22647,22 +22703,39 @@ case "inicio_programa": {
         "Perfeito, te explico rapidinho 😊",
         "O Minha Casa Minha Vida é o programa do governo que ajuda na entrada e reduz a parcela do financiamento, conforme a renda e a faixa de cada família.",
         "Eu vou analisar seu perfil e te mostrar exatamente quanto de subsídio você pode ter e como ficam as condições.",
-        "Pra começarmos, qual o seu *nome completo*?"
+        "Tudo certo até aqui? Me diz *sim* pra gente seguir com a análise do seu perfil 😊"
       ],
-      "inicio_nome"
+      "inicio_programa"
     );
   }
 
-  // ✅ JÁ CONHECE
+  // ✅ JÁ CONHECE (direto ou pós-explicação com "sim"/"ok")
+  st.__cognitive_reply_prefix = null;
+  st.__cognitive_v2_takes_final = false;
+
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
     stage,
     next_stage: "inicio_nome",
     severity: "info",
-    message: "inicio_programa: cliente já conhece o programa",
-    details: { userText }
+    message: _postExplicacao
+      ? "inicio_programa: sim pós-explicação → avançando para inicio_nome"
+      : "inicio_programa: cliente já conhece o programa",
+    details: { userText, postExplicacao: _postExplicacao }
   });
+
+  if (_postExplicacao) {
+    return step(
+      env,
+      st,
+      [
+        "Ótimo! Vou analisar sua situação pra ver quanto de subsídio você pode ter e como ficariam as condições.",
+        "Pra começar, qual o seu *nome completo*?"
+      ],
+      "inicio_nome"
+    );
+  }
 
   return step(
     env,

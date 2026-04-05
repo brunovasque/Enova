@@ -284,17 +284,17 @@ await asyncTest("ambiguous reply_text menciona brasileiro/estrangeiro", async ()
 // ================================================================
 console.log("\n── Anchors cognitivos no worker.js ──");
 
-await asyncTest("inicio_nacionalidade brasileiro: prefix existe e inclui opções de estado_civil", async () => {
-  // Verifica que o prefix cognitivo no branch brasileiro contém as opções do estado_civil
-  const anchor = "__cognitive_reply_prefix = \"Perfeito! Agora me diz seu estado civil:";
+await asyncTest("inicio_nacionalidade brasileiro: cognitivo real via getTopoHappyPathSpeech", async () => {
+  // Verifica que o branch brasileiro agora usa getTopoHappyPathSpeech ao invés de prefix hardcoded
+  const anchor = "getTopoHappyPathSpeech(env, \"inicio_nacionalidade:brasileiro\"";
   assert.ok(workerSrc.includes(anchor),
-    "Cognitive prefix for estado_civil options must be present in inicio_nacionalidade brasileiro branch");
+    "inicio_nacionalidade brasileiro must call getTopoHappyPathSpeech for cognitive real speech");
 });
 
-await asyncTest("inicio_nacionalidade estrangeiro: prefix existe e menciona RNM", async () => {
-  const anchor = "__cognitive_reply_prefix = \"Tudo bem! Você possui *RNM*";
+await asyncTest("inicio_nacionalidade estrangeiro: cognitivo real via getTopoHappyPathSpeech", async () => {
+  const anchor = "getTopoHappyPathSpeech(env, \"inicio_nacionalidade:estrangeiro\"";
   assert.ok(workerSrc.includes(anchor),
-    "Cognitive prefix for RNM must be present in inicio_nacionalidade estrangeiro branch");
+    "inicio_nacionalidade estrangeiro must call getTopoHappyPathSpeech for cognitive real speech");
 });
 
 await asyncTest("inicio_nacionalidade fallback: resolve resolver e seta cognitive flags", async () => {
@@ -418,11 +418,11 @@ await asyncTest("resolveTopoStructured: ainda despacha para estado_civil", async
   assert.ok(r && r.stage === "estado_civil");
 });
 
-await asyncTest("inicio_nome: __cognitive_reply_prefix reset após persistência (ancora ainda presente)", async () => {
-  // Garante que o clear de cognitive flags no início_nome não foi removido
-  const anchor = "st.__cognitive_reply_prefix = null;\n  st.__cognitive_v2_takes_final = false;\n\n  return step(\n    env,\n    st,\n    [\n      `Ótimo,";
+await asyncTest("inicio_nome: cognitive real via getTopoHappyPathSpeech após persistência", async () => {
+  // Garante que inicio_nome usa cognitivo real para a transição (prefix será controlado por setTopoHappyPathFlags)
+  const anchor = "getTopoHappyPathSpeech(env, \"inicio_nome:nome_aceito\"";
   assert.ok(workerSrc.includes(anchor),
-    "inicio_nome deve limpar o prefix antes de chamar step para inicio_nacionalidade");
+    "inicio_nome deve usar getTopoHappyPathSpeech para transição para inicio_nacionalidade");
 });
 
 // ================================================================

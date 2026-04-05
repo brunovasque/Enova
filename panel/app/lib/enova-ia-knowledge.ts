@@ -73,7 +73,7 @@ const KNOWLEDGE_BASE: Record<KnowledgeIntent, KnowledgeEntry> = {
     intent: "kb_composicao_renda",
     titulo: "Composição de Renda",
     resumo:
-      "Somar renda de cônjuge ou familiar ampliam o poder de compra e podem mudar a faixa do programa.",
+      "Somar renda de cônjuge ou familiar amplia o poder de compra e pode mudar a faixa do programa.",
     bullets: [
       "Cônjuge ou companheiro(a) pode compor renda sem restrição.",
       "Familiar de 1º grau (pai, mãe, filho) pode somar quando reside no mesmo imóvel.",
@@ -96,7 +96,7 @@ const KNOWLEDGE_BASE: Record<KnowledgeIntent, KnowledgeEntry> = {
       "Lista básica: RG/CPF, comprovante de renda, comprovante de residência.",
       "Renda informal exige extrato bancário ou declaração própria.",
       "Pasta incompleta trava análise — não adianta enviar parcialmente.",
-      "Nunca prometar aprovação ao solicitar docs.",
+      "Nunca prometer aprovação ao solicitar docs.",
     ],
     sugestao: "Use a Máquina de Pastas no painel para acompanhar status de cada lead.",
   },

@@ -1,17 +1,7 @@
 "use client";
 
 import styles from "./enova-ia.module.css";
-
-// ---------------------------------------------------------------------------
-// Dados de casca — sem lógica real ainda. Encaixes para as próximas PRs.
-// ---------------------------------------------------------------------------
-
-const VISAO_GERAL = [
-  { label: "Leads Ativos", value: "—", hint: "leitura global pendente" },
-  { label: "Em Atendimento", value: "—", hint: "leitura global pendente" },
-  { label: "Fila de Retorno", value: "—", hint: "leitura global pendente" },
-  { label: "Docs Pendentes", value: "—", hint: "leitura global pendente" },
-];
+import type { LeituraGlobal, KPIBloco } from "../lib/enova-ia-leitura";
 
 const FILA_ITEMS = [
   { nome: "Fila inteligente", detalhe: "Será preenchida pela leitura global da operação", status: "aguardando" },
@@ -29,8 +19,66 @@ const GARGALOS = [
 ];
 
 // ---------------------------------------------------------------------------
+// Sub-componente: card individual de KPI
+// ---------------------------------------------------------------------------
 
-export function EnovaIaUI() {
+function KPICard({ bloco }: { bloco: KPIBloco }) {
+  return (
+    <div className={styles.statCard}>
+      <span className={styles.statLabel}>{bloco.label}</span>
+      <span className={styles.statValue}>{bloco.total}</span>
+      <span className={styles.statHint}>{bloco.hint}</span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Bloco "Leitura Global da Operação"
+// ---------------------------------------------------------------------------
+
+function LeituraGlobalSection({ leituraGlobal }: { leituraGlobal: LeituraGlobal | null }) {
+  if (!leituraGlobal) {
+    return (
+      <section className={styles.section}>
+        <h2 className={styles.sectionTitle}>Leitura Global da Operação</h2>
+        <p className={styles.sectionHint}>Carregando dados da operação…</p>
+        <div className={styles.statsGrid}>
+          {["Leads Ativos", "Em Atendimento", "Fila de Retorno", "Docs Pendentes"].map((label) => (
+            <div key={label} className={styles.statCard}>
+              <span className={styles.statLabel}>{label}</span>
+              <span className={styles.statValue}>—</span>
+              <span className={styles.statHint}>aguardando leitura</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className={styles.section}>
+      <h2 className={styles.sectionTitle}>Leitura Global da Operação</h2>
+      <p className={styles.sectionHint}>
+        Leitura real — fonte: enova_attendance_v1 ·{" "}
+        {new Date(leituraGlobal.agregado_em).toLocaleTimeString("pt-BR", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}
+      </p>
+      <div className={styles.statsGrid}>
+        <KPICard bloco={leituraGlobal.leads_ativos} />
+        <KPICard bloco={leituraGlobal.em_atendimento} />
+        <KPICard bloco={leituraGlobal.fila_de_retorno} />
+        <KPICard bloco={leituraGlobal.docs_pendentes} />
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+// null = dados não disponíveis (erro de fetch ou env ausente) → UI renderiza estado de espera.
+export function EnovaIaUI({ leituraGlobal = null }: { leituraGlobal?: LeituraGlobal | null }) {
   return (
     <main className={styles.pageMain}>
       <div className={styles.shell}>
@@ -50,22 +98,8 @@ export function EnovaIaUI() {
           </div>
         </header>
 
-        {/* ── VISÃO GERAL ─────────────────────────────────────────── */}
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>Leitura Global da Operação</h2>
-          <p className={styles.sectionHint}>
-            Números reais serão conectados na PR da leitura global.
-          </p>
-          <div className={styles.statsGrid}>
-            {VISAO_GERAL.map((item) => (
-              <div key={item.label} className={styles.statCard}>
-                <span className={styles.statLabel}>{item.label}</span>
-                <span className={styles.statValue}>{item.value}</span>
-                <span className={styles.statHint}>{item.hint}</span>
-              </div>
-            ))}
-          </div>
-        </section>
+        {/* ── LEITURA GLOBAL ──────────────────────────────────────── */}
+        <LeituraGlobalSection leituraGlobal={leituraGlobal} />
 
         {/* ── FILA INTELIGENTE ────────────────────────────────────── */}
         <section className={styles.section}>

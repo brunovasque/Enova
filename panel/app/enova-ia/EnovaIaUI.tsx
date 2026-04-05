@@ -13,6 +13,13 @@ import type { EnovaIaOpenAIResponse, EnovaIaMode } from "../lib/enova-ia-openai"
 import { buildEnovaIaActionDraft } from "../lib/enova-ia-action-builder";
 import { ACTION_TYPE_LABEL, RISK_LEVEL_LABEL } from "../lib/enova-ia-action-builder";
 import type { EnovaIaActionDraft } from "../lib/enova-ia-action-builder";
+import {
+  transitionPreparationStatus,
+  PREPARATION_STATUS_LABEL,
+  PREPARATION_STATUS_SUPPORT_TEXT,
+  PREPARATION_INITIAL_STATUS,
+} from "../lib/enova-ia-preparation";
+import type { ExecutorPreparationStatus } from "../lib/enova-ia-preparation";
 
 const GARGALOS = [
   { tipo: "Documentação", descricao: "Leitura de gargalos virá da análise cognitiva global" },
@@ -304,10 +311,8 @@ function ChatAIResponseRender({ r }: { r: EnovaIaOpenAIResponse }) {
 }
 
 // ---------------------------------------------------------------------------
-// G2.2 — Executor Assistido: status local
+// G2.3 — Executor Assistido: estado canônico de preparação
 // ---------------------------------------------------------------------------
-
-type ExecutorDraftStatus = "draft" | "reviewing" | "discarded" | "approved";
 
 const MAX_LEADS_VISIBLE = 5;
 
@@ -315,6 +320,13 @@ const EXECUTOR_RISK_BADGE_CLASS: Record<EnovaIaActionDraft["risk_level"], string
   low:    styles.executorBadgeRiskLow,
   medium: styles.executorBadgeRiskMedium,
   high:   styles.executorBadgeRiskHigh,
+};
+
+const PREPARATION_STATUS_BADGE_CLASS: Record<ExecutorPreparationStatus, string> = {
+  draft:                         styles.executorBadgeStatusDraft,
+  review_ready:                  styles.executorBadgeStatusReviewReady,
+  approved_for_manual_execution: styles.executorBadgeStatusApproved,
+  discarded:                     styles.executorBadgeStatusDiscarded,
 };
 
 function ExecutorAssistidoBloco({
@@ -325,7 +337,7 @@ function ExecutorAssistidoBloco({
   onAprovar,
 }: {
   draft: EnovaIaActionDraft;
-  status: ExecutorDraftStatus;
+  status: ExecutorPreparationStatus;
   onRevisar: () => void;
   onDescartar: () => void;
   onAprovar: () => void;
@@ -336,10 +348,22 @@ function ExecutorAssistidoBloco({
   const blocoClass = [
     styles.executorBloco,
     status === "discarded" ? styles.executorBlocoDiscarded : "",
-    status === "approved" ? styles.executorBlocoApproved : "",
+    status === "approved_for_manual_execution" ? styles.executorBlocoApproved : "",
+    status === "review_ready" ? styles.executorBlocoReviewReady : "",
   ]
     .filter(Boolean)
     .join(" ");
+
+  // Status row class driven by preparation state
+  const statusRowClass = [
+    styles.executorStatusRow,
+    status === "approved_for_manual_execution" ? styles.executorStatusRowApproved : "",
+    status === "review_ready" ? styles.executorStatusRowReviewReady : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const supportText = PREPARATION_STATUS_SUPPORT_TEXT[status];
 
   return (
     <div className={blocoClass} aria-label="Executor Assistido">
@@ -351,6 +375,10 @@ function ExecutorAssistidoBloco({
         </span>
         <span className={styles.executorBadgeType}>
           {ACTION_TYPE_LABEL[draft.action_type]}
+        </span>
+        {/* Estado de preparação canônico visível no header */}
+        <span className={PREPARATION_STATUS_BADGE_CLASS[status]}>
+          {PREPARATION_STATUS_LABEL[status]}
         </span>
       </div>
 
@@ -407,46 +435,61 @@ function ExecutorAssistidoBloco({
           </div>
         )}
 
-        {/* Status */}
+        {/* Status row — texto de apoio contextual por estado */}
         {status !== "discarded" && (
-          <div className={status === "approved" ? `${styles.executorStatusRow} ${styles.executorStatusRowApproved}` : styles.executorStatusRow}>
-            {status === "approved" ? (
+          <div className={statusRowClass}>
+            {status === "approved_for_manual_execution" ? (
               <>
                 <span className={styles.executorStatusApprovedDot} />
-                <span className={styles.executorStatusApprovedText}>
-                  Preparo aprovado — aguardando execução pela operação
-                </span>
+                <span className={styles.executorStatusApprovedText}>{supportText}</span>
+              </>
+            ) : status === "review_ready" ? (
+              <>
+                <span className={styles.executorStatusReviewReadyDot} />
+                <span className={styles.executorStatusReviewReadyText}>{supportText}</span>
               </>
             ) : (
               <>
                 <span className={styles.executorStatusDot} />
-                <span className={styles.executorStatusText}>
-                  {status === "reviewing"
-                    ? "Em revisão — aguardando gesto humano"
-                    : "Aguardando aprovação humana · Nenhuma ação foi executada"}
-                </span>
+                <span className={styles.executorStatusText}>{supportText}</span>
               </>
             )}
           </div>
         )}
 
-        {/* Botões */}
-        {status !== "discarded" && status !== "approved" && (
+        {/* Botões — coerentes com o estado atual
+            draft:        Revisar ação | Descartar
+            review_ready: Aprovar preparo | Descartar
+            approved_for_manual_execution: badge estático
+            discarded:    não renderizado (bloco ocultado no pai) */}
+        {status === "draft" && (
           <div className={styles.executorButtons}>
             <button
               type="button"
-              className={status === "reviewing" ? styles.executorBtnRevisarActive : styles.executorBtnRevisar}
+              className={styles.executorBtnRevisar}
               onClick={onRevisar}
-              disabled={status === "reviewing"}
               aria-label="Revisar ação"
             >
-              {status === "reviewing" ? "✏️ Em revisão" : "✏️ Revisar ação"}
+              ✏️ Revisar ação
             </button>
+            <button
+              type="button"
+              className={styles.executorBtnDescartar}
+              onClick={onDescartar}
+              aria-label="Descartar"
+            >
+              🗑️ Descartar
+            </button>
+          </div>
+        )}
+
+        {status === "review_ready" && (
+          <div className={styles.executorButtons}>
             <button
               type="button"
               className={styles.executorBtnAprovar}
               onClick={onAprovar}
-              aria-label="Aprovar preparo"
+              aria-label="Aprovar para execução manual"
             >
               ✅ Aprovar preparo
             </button>
@@ -461,9 +504,11 @@ function ExecutorAssistidoBloco({
           </div>
         )}
 
-        {status === "approved" && (
+        {status === "approved_for_manual_execution" && (
           <div className={styles.executorButtons}>
-            <span className={styles.executorBtnAprovarActive}>✅ Preparo aprovado</span>
+            <span className={styles.executorBtnAprovarActive}>
+              ✅ Aprovado para execução manual
+            </span>
           </div>
         )}
       </div>
@@ -549,7 +594,7 @@ function ChatOperacionalSection({
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const listaRef = useRef<HTMLDivElement>(null);
-  const [draftStatus, setDraftStatus] = useState<ExecutorDraftStatus>("draft");
+  const [prepStatus, setPrepStatus] = useState<ExecutorPreparationStatus>(PREPARATION_INITIAL_STATUS);
   const [trackedDraftId, setTrackedDraftId] = useState<string | null>(null);
 
   // Derive activeDraft from the most recent message that has an action_draft.
@@ -562,12 +607,12 @@ function ChatOperacionalSection({
     return null;
   }, [historico]);
 
-  // Reset draftStatus to "draft" whenever a new (different) draft is detected.
+  // Reset prepStatus to initial state whenever a new (different) draft is detected.
   useEffect(() => {
     const newId = activeDraft?.action_id ?? null;
     if (newId !== trackedDraftId) {
       setTrackedDraftId(newId);
-      setDraftStatus("draft");
+      setPrepStatus(PREPARATION_INITIAL_STATUS);
     }
   }, [activeDraft, trackedDraftId]);
 
@@ -727,15 +772,24 @@ function ChatOperacionalSection({
         </button>
       </div>
 
-      {/* G2.2 — Executor Assistido: bloco visual canônico */}
+      {/* G2.3 — Executor Assistido: estados canônicos de preparação */}
       <hr className={styles.executorSeparator} />
-      {activeDraft && draftStatus !== "discarded" ? (
+      {activeDraft && prepStatus !== "discarded" ? (
         <ExecutorAssistidoBloco
           draft={activeDraft}
-          status={draftStatus}
-          onRevisar={() => setDraftStatus("reviewing")}
-          onDescartar={() => setDraftStatus("discarded")}
-          onAprovar={() => setDraftStatus("approved")}
+          status={prepStatus}
+          onRevisar={() => {
+            const next = transitionPreparationStatus(prepStatus, "revisar");
+            if (next) setPrepStatus(next);
+          }}
+          onDescartar={() => {
+            const next = transitionPreparationStatus(prepStatus, "descartar");
+            if (next) setPrepStatus(next);
+          }}
+          onAprovar={() => {
+            const next = transitionPreparationStatus(prepStatus, "aprovar");
+            if (next) setPrepStatus(next);
+          }}
         />
       ) : (
         <div className={styles.executorVazio}>

@@ -1,11 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import styles from "./enova-ia.module.css";
 import type { LeituraGlobal, KPIBloco } from "../lib/enova-ia-leitura";
-
-const FILA_ITEMS = [
-  { nome: "Fila inteligente", detalhe: "Será preenchida pela leitura global da operação", status: "aguardando" },
-];
+import type { FilaItem, PrioridadeFila } from "../lib/enova-ia-fila";
+import { PRIORIDADE_FILA_LABEL } from "../lib/enova-ia-fila";
 
 const PROGRAMAS = [
   { titulo: "MCMV Faixa 1", desc: "Integração programada para próxima PR" },
@@ -19,8 +18,67 @@ const GARGALOS = [
 ];
 
 // ---------------------------------------------------------------------------
-// Sub-componente: card individual de KPI
+// Sub-componente: badge de prioridade da fila
 // ---------------------------------------------------------------------------
+
+const PRIORIDADE_BADGE_CLASS: Record<PrioridadeFila, string | undefined> = {
+  agir_agora:   styles.filaBadgeAgirAgora,
+  pedir_humano: styles.filaBadgePedirHumano,
+  agir_hoje:    styles.filaBadgeAgirHoje,
+  observar:     styles.filaBadgeObservar,
+  aguardar:     styles.filaBadgeAguardar,
+};
+
+function PrioridadeBadge({ prioridade }: { prioridade: PrioridadeFila }) {
+  const label = PRIORIDADE_FILA_LABEL[prioridade];
+  const cls = PRIORIDADE_BADGE_CLASS[prioridade] ?? styles.filaBadgeAguardar;
+  return <span className={cls}>{label}</span>;
+}
+
+// ---------------------------------------------------------------------------
+// Bloco "Fila Inteligente"
+// ---------------------------------------------------------------------------
+
+function FilaInteligenteSection({ fila }: { fila: FilaItem[] }) {
+  const vazia = fila.length === 0;
+
+  return (
+    <section className={styles.section}>
+      <h2 className={styles.sectionTitle}>Fila Inteligente</h2>
+      <p className={styles.sectionHint}>
+        {vazia
+          ? "Sem leads para priorizar no momento."
+          : `${fila.length} lead${fila.length > 1 ? "s" : ""} priorizados · fonte: enova_attendance_v1`}
+      </p>
+
+      {vazia ? (
+        <div className={styles.filaVazia}>Nenhum lead ativo encontrado.</div>
+      ) : (
+        <div className={styles.filaTable}>
+          <div className={styles.filaHeader}>
+            <span>Lead</span>
+            <span>Contexto · justificativa</span>
+            <span>Prioridade</span>
+            <span></span>
+          </div>
+          {fila.map((item) => (
+            <div key={item.wa_id} className={styles.filaRow}>
+              <span className={styles.filaName}>{item.nome_display}</span>
+              <span className={styles.filaDetalhe}>
+                <span className={styles.filaContexto}>{item.contexto}</span>
+                <span className={styles.filaJustificativa}>{item.justificativa}</span>
+              </span>
+              <PrioridadeBadge prioridade={item.prioridade} />
+              <Link href={item.href_ficha} className={styles.filaLink}>
+                Ver ficha →
+              </Link>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
 
 function KPICard({ bloco }: { bloco: KPIBloco }) {
   return (
@@ -77,8 +135,14 @@ function LeituraGlobalSection({ leituraGlobal }: { leituraGlobal: LeituraGlobal 
 
 // ---------------------------------------------------------------------------
 
-// null = dados não disponíveis (erro de fetch ou env ausente) → UI renderiza estado de espera.
-export function EnovaIaUI({ leituraGlobal = null }: { leituraGlobal?: LeituraGlobal | null }) {
+// null/[] = dados não disponíveis (erro de fetch ou env ausente) → UI renderiza estado de espera.
+export function EnovaIaUI({
+  leituraGlobal = null,
+  filaInteligente = [],
+}: {
+  leituraGlobal?: LeituraGlobal | null;
+  filaInteligente?: FilaItem[];
+}) {
   return (
     <main className={styles.pageMain}>
       <div className={styles.shell}>
@@ -102,26 +166,7 @@ export function EnovaIaUI({ leituraGlobal = null }: { leituraGlobal?: LeituraGlo
         <LeituraGlobalSection leituraGlobal={leituraGlobal} />
 
         {/* ── FILA INTELIGENTE ────────────────────────────────────── */}
-        <section className={styles.section}>
-          <h2 className={styles.sectionTitle}>Fila Inteligente</h2>
-          <p className={styles.sectionHint}>
-            Leads priorizados por urgência e maturidade comercial — lógica conectada na próxima PR.
-          </p>
-          <div className={styles.filaTable}>
-            <div className={styles.filaHeader}>
-              <span>Lead</span>
-              <span>Contexto</span>
-              <span>Status</span>
-            </div>
-            {FILA_ITEMS.map((item, i) => (
-              <div key={i} className={styles.filaRow}>
-                <span className={styles.filaName}>{item.nome}</span>
-                <span className={styles.filaDetalhe}>{item.detalhe}</span>
-                <span className={styles.filaBadgePending}>{item.status}</span>
-              </div>
-            ))}
-          </div>
-        </section>
+        <FilaInteligenteSection fila={filaInteligente} />
 
         {/* ── GRID INFERIOR: Programas + Gargalos + Chat ──────────── */}
         <div className={styles.bottomGrid}>

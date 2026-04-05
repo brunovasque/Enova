@@ -3928,6 +3928,7 @@ function adaptCognitiveV2Output(stage, v2Result) {
   const hasPendingSlots = Array.isArray(resp.pending_slots) && resp.pending_slots.length > 0;
 
   const engineUsedLlm = v2Result.engine && v2Result.engine.llm_used === true;
+  const speechOrigin = (v2Result.engine && v2Result.engine.speech_origin) || (engineUsedLlm ? "llm_real" : "heuristic_guidance");
   const intent = hasSlots
     ? "cognitive_v2_slot_detected"
     : (resp.conflicts && resp.conflicts.length > 0)
@@ -3940,6 +3941,7 @@ function adaptCognitiveV2Output(stage, v2Result) {
 
   return {
     reply_text: replyText,
+    speech_origin: speechOrigin,
     intent,
     entities,
     stage_signals: stageSignals,
@@ -18721,6 +18723,8 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
 
     const replyText = sanitizeCognitiveReply(cogResult?.reply_text);
     const confidence = Number(cogResult?.confidence || 0);
+    // Origem real da fala: propagada do cognitive engine via adapter
+    const rawOrigin = cogResult?.speech_origin || "fallback_mechanical";
 
     // Valida reply: confiança mínima + validação contextual
     if (
@@ -18728,9 +18732,16 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
       confidence >= COGNITIVE_V1_CONFIDENCE_MIN &&
       config.validate(replyText)
     ) {
+      // Rotular a origem de forma honesta:
+      // - "llm_real" do engine → "cognitive_real" (LLM real dominante)
+      // - "heuristic_guidance" do engine → "heuristic_guidance" (heurística como fallback)
+      // - qualquer outro → "fallback_mechanical"
+      const source = rawOrigin === "llm_real" ? "cognitive_real"
+        : rawOrigin === "heuristic_guidance" ? "heuristic_guidance"
+        : "fallback_mechanical";
       return {
         speech: [replyText],
-        source: "cognitive_real"
+        source
       };
     }
 
@@ -18748,7 +18759,7 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
  * Worker permanece soberano em stage/gate/nextStage.
  */
 function setTopoHappyPathFlags(st, happyResult) {
-  if (happyResult.source === "cognitive_real") {
+  if (happyResult.source === "cognitive_real" || happyResult.source === "heuristic_guidance") {
     st.__cognitive_reply_prefix = happyResult.speech[0];
     st.__cognitive_v2_takes_final = true;
   } else {

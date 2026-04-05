@@ -110,9 +110,13 @@ export const ENOVA_IA_JSON_SCHEMA: {
       risks: { type: "array", items: { type: "string" } },
       should_escalate_human: { type: "boolean" },
       should_request_system_improvement: { type: "boolean" },
-      system_improvement_suggestion: { type: ["string", "null"] },
+      system_improvement_suggestion: {
+        anyOf: [{ type: "string" }, { type: "null" }],
+      },
       confidence: { type: "string", enum: ["alta", "media", "baixa"] },
-      notes: { type: ["string", "null"] },
+      notes: {
+        anyOf: [{ type: "string" }, { type: "null" }],
+      },
     },
     required: [
       "mode",

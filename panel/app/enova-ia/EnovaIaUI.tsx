@@ -6,14 +6,9 @@ import styles from "./enova-ia.module.css";
 import type { LeituraGlobal, KPIBloco } from "../lib/enova-ia-leitura";
 import type { FilaItem, PrioridadeFila } from "../lib/enova-ia-fila";
 import { PRIORIDADE_FILA_LABEL } from "../lib/enova-ia-fila";
+import type { ProgramaSugerido, PrioridadePrograma } from "../lib/enova-ia-programas";
 import { routeChat, genMsgId } from "../lib/enova-ia-chat";
 import type { ChatMsg } from "../lib/enova-ia-chat";
-
-const PROGRAMAS = [
-  { titulo: "MCMV Faixa 1", desc: "Integração programada para próxima PR" },
-  { titulo: "MCMV Faixa 2", desc: "Integração programada para próxima PR" },
-  { titulo: "MCMV Faixa 3", desc: "Integração programada para próxima PR" },
-];
 
 const GARGALOS = [
   { tipo: "Documentação", descricao: "Leitura de gargalos virá da análise cognitiva global" },
@@ -324,14 +319,82 @@ function ChatOperacionalSection({
 }
 
 // ---------------------------------------------------------------------------
+// Bloco "Programas Sugeridos"
+// ---------------------------------------------------------------------------
+
+const PRIORIDADE_PROGRAMA_BADGE_CLASS: Record<PrioridadePrograma, string> = {
+  alta: styles.programaBadgeAlta,
+  media: styles.programaBadgeMedia,
+  baixa: styles.programaBadgeBaixa,
+};
+
+const PRIORIDADE_PROGRAMA_LABEL: Record<PrioridadePrograma, string> = {
+  alta: "Alta",
+  media: "Média",
+  baixa: "Baixa",
+};
+
+function ProgramaCard({ programa }: { programa: ProgramaSugerido }) {
+  const badgeCls = PRIORIDADE_PROGRAMA_BADGE_CLASS[programa.prioridade];
+  const badgeLabel = PRIORIDADE_PROGRAMA_LABEL[programa.prioridade];
+  return (
+    <div className={styles.programaCard}>
+      <div className={styles.programaCardHeader}>
+        <span className={styles.programaCardTitulo}>{programa.titulo}</span>
+        <span className={badgeCls}>{badgeLabel}</span>
+      </div>
+      <span className={styles.programaCardResumo}>{programa.resumo}</span>
+      <span className={styles.programaCardMotivo}>{programa.motivo}</span>
+      <div className={styles.programaCardFooter}>
+        <span className={styles.programaCardOportunidade}>
+          {programa.oportunidade_label}
+        </span>
+        <span className={styles.programaCardAcao}>{programa.acao_sugerida}</span>
+      </div>
+    </div>
+  );
+}
+
+function ProgramasSugeridosSection({
+  programas,
+}: {
+  programas: ProgramaSugerido[];
+}) {
+  const vazio = programas.length === 0;
+  return (
+    <section className={styles.card}>
+      <h2 className={styles.cardTitle}>Programas Sugeridos</h2>
+      <p className={styles.cardHint}>
+        {vazio
+          ? "Sem oportunidades táticas detectadas no momento."
+          : `${programas.length} programa${programas.length > 1 ? "s" : ""} sugerido${programas.length > 1 ? "s" : ""} · baseado em dados reais da operação`}
+      </p>
+      {vazio ? (
+        <div className={styles.programaVazio}>
+          Operação sem sinais de oportunidade tática no momento.
+        </div>
+      ) : (
+        <div className={styles.programaList}>
+          {programas.map((p) => (
+            <ProgramaCard key={p.id} programa={p} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 
 
 export function EnovaIaUI({
   leituraGlobal = null,
   filaInteligente = [],
+  programasSugeridos = [],
 }: {
   leituraGlobal?: LeituraGlobal | null;
   filaInteligente?: FilaItem[];
+  programasSugeridos?: ProgramaSugerido[];
 }) {
   return (
     <main className={styles.pageMain}>
@@ -362,20 +425,7 @@ export function EnovaIaUI({
         <div className={styles.bottomGrid}>
 
           {/* Programas Sugeridos */}
-          <section className={styles.card}>
-            <h2 className={styles.cardTitle}>Programas Sugeridos</h2>
-            <p className={styles.cardHint}>
-              Elegibilidade calculada na PR dos programas.
-            </p>
-            <div className={styles.programaList}>
-              {PROGRAMAS.map((p) => (
-                <div key={p.titulo} className={styles.programaItem}>
-                  <span className={styles.programaTitulo}>{p.titulo}</span>
-                  <span className={styles.programaDesc}>{p.desc}</span>
-                </div>
-              ))}
-            </div>
-          </section>
+          <ProgramasSugeridosSection programas={programasSugeridos} />
 
           {/* Gargalos e Oportunidades */}
           <section className={styles.card}>

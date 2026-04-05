@@ -377,8 +377,127 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  overflow-y: auto;
 }
 
+.programaVazio {
+  padding: 12px 0;
+  font-size: 0.8125rem;
+  color: #52525b;
+}
+
+/* Programa card — exibição completa */
+.programaCard {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 11px 12px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.programaCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.programaCardTitulo {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #d4d4d8;
+}
+
+.programaCardResumo {
+  font-size: 0.75rem;
+  color: #71717a;
+  line-height: 1.4;
+}
+
+.programaCardMotivo {
+  font-size: 0.6875rem;
+  color: #52525b;
+  font-style: italic;
+  line-height: 1.35;
+}
+
+.programaCardFooter {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 3px;
+  flex-wrap: wrap;
+}
+
+.programaCardOportunidade {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #71717a;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.programaCardAcao {
+  font-size: 0.6875rem;
+  color: #5eaead;
+  text-align: right;
+  line-height: 1.35;
+  flex: 1;
+}
+
+/* Prioridade badges — programas */
+.programaBadgeAlta {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.programaBadgeMedia {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(251, 191, 36, 0.1);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.2);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.programaBadgeBaixa {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: rgba(113, 113, 122, 0.08);
+  color: #71717a;
+  border: 1px solid rgba(113, 113, 122, 0.15);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Legacy programa classes kept for compatibility */
 .programaItem {
   display: flex;
   flex-direction: column;

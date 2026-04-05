@@ -226,10 +226,11 @@ function ChatOperacionalSection({
     setHistorico((prev) => [...prev, msgUsuario, msgEnova]);
     setInput("");
 
-    // Scroll to bottom on next tick
+    // Wait for the DOM to update before scrolling so the new messages are in the layout
+    const SCROLL_DELAY_MS = 50;
     setTimeout(() => {
       listaRef.current?.scrollTo({ top: listaRef.current.scrollHeight, behavior: "smooth" });
-    }, 50);
+    }, SCROLL_DELAY_MS);
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {

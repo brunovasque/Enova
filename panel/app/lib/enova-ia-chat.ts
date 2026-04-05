@@ -182,7 +182,7 @@ const MAX_LINHAS = 8;
 function toLeadLine(item: FilaItem): ChatLeadLine {
   return {
     nome:    item.nome_display,
-    detalhe: `${item.contexto} · ${item.justificativa}`,
+    detalhe: `${item.contexto}\u00A0·\u00A0${item.justificativa}`,
     href:    item.href_ficha,
   };
 }

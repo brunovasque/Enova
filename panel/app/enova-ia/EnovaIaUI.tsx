@@ -342,8 +342,13 @@ function ExecutorAssistidoBloco({
   onDescartar: () => void;
   onAprovar: () => void;
 }) {
-  const visibleLeads = draft.target_leads.slice(0, MAX_LEADS_VISIBLE);
-  const extraLeads = draft.target_leads.length - MAX_LEADS_VISIBLE;
+  // [G2.4] Use target_leads_detail when available, fall back to plain target_leads
+  const hasDetail = draft.target_leads_detail && draft.target_leads_detail.length > 0;
+  const visibleDetail = hasDetail
+    ? draft.target_leads_detail.slice(0, MAX_LEADS_VISIBLE)
+    : draft.target_leads.slice(0, MAX_LEADS_VISIBLE).map((name, i) => ({ name, reason: "", priority_order: i + 1 }));
+  const totalLeads = hasDetail ? draft.target_leads_detail.length : draft.target_leads.length;
+  const extraLeads = totalLeads - MAX_LEADS_VISIBLE;
 
   const blocoClass = [
     styles.executorBloco,
@@ -395,20 +400,34 @@ function ExecutorAssistidoBloco({
           </div>
         )}
 
-        {/* Leads impactados */}
-        {draft.target_count > 0 && (
+        {/* [G2.4] Leads por prioridade — com motivo individual quando disponível */}
+        {totalLeads > 0 && (
           <div className={styles.executorSection}>
             <span className={styles.executorSectionLabel}>
-              Leads impactados ({draft.target_count})
+              Com quem agir ({totalLeads}) — por prioridade
             </span>
-            <ul className={styles.executorLeadsList}>
-              {visibleLeads.map((lead, i) => (
-                <li key={i} className={styles.executorLeadItem}>{lead}</li>
+            <ol className={styles.executorLeadsDetailList}>
+              {visibleDetail.map((lead) => (
+                <li key={lead.priority_order} className={styles.executorLeadsDetailItem}>
+                  <span className={styles.executorLeadsDetailOrder}>{lead.priority_order}.</span>
+                  <span className={styles.executorLeadsDetailName}>{lead.name}</span>
+                  {lead.reason && (
+                    <span className={styles.executorLeadsDetailReason}>{lead.reason}</span>
+                  )}
+                </li>
               ))}
               {extraLeads > 0 && (
                 <li className={styles.executorLeadsMore}>+{extraLeads} mais</li>
               )}
-            </ul>
+            </ol>
+          </div>
+        )}
+
+        {/* [G2.4] Abordagem sugerida */}
+        {draft.suggested_approach && (
+          <div className={styles.executorSection}>
+            <span className={styles.executorSectionLabel}>Abordagem sugerida</span>
+            <span className={styles.executorApproachValue}>{draft.suggested_approach}</span>
           </div>
         )}
 
@@ -423,7 +442,7 @@ function ExecutorAssistidoBloco({
         {/* Passos sugeridos */}
         {draft.suggested_steps.length > 0 && (
           <div className={styles.executorSection}>
-            <span className={styles.executorSectionLabel}>Passos sugeridos</span>
+            <span className={styles.executorSectionLabel}>Sequência de execução</span>
             <ol className={styles.executorStepsList}>
               {draft.suggested_steps.map((step, i) => (
                 <li key={i} className={styles.executorStepItem}>
@@ -432,6 +451,16 @@ function ExecutorAssistidoBloco({
                 </li>
               ))}
             </ol>
+          </div>
+        )}
+
+        {/* [G2.4] Texto sugerido — apenas quando há base suficiente */}
+        {draft.suggested_message && (
+          <div className={styles.executorSection}>
+            <span className={styles.executorSectionLabel}>Texto sugerido</span>
+            <div className={styles.executorMessageBox}>
+              <span className={styles.executorMessageText}>{draft.suggested_message}</span>
+            </div>
           </div>
         )}
 

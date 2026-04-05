@@ -344,9 +344,14 @@ test("8.6 — source_mode preserva o modo da resposta", () => {
   assert.equal(draft.source_mode, "campanha");
 });
 
-test("8.7 — suggested_message é string vazia (sem mensagem inventada)", () => {
-  const r = makeResponse();
+test("8.7 — suggested_message é string (string vazia quando sem base para contato direto)", () => {
+  // campanha_sugerida type → não gera mensagem sugerida (MESSAGING_ACTION_TYPES não inclui campanha)
+  const r = makeResponse({
+    mode: "campanha",
+    recommended_actions: ["Criar campanha para leads frios", "Disparar comunicação em lote"],
+  });
   const draft = buildEnovaIaActionDraft(r, "teste");
+  assert.equal(typeof draft.suggested_message, "string");
   assert.equal(draft.suggested_message, "");
 });
 

@@ -339,8 +339,7 @@
   grid-template-columns: 1fr 1fr 1fr;
   gap: 16px;
   padding: 24px 32px;
-  flex: 1;
-  min-height: 0;
+  flex-shrink: 0;
 }
 
 /* ===========================================
@@ -1145,6 +1144,30 @@
   color: #f59e0b;
   font-size: 0.78rem;
   font-weight: 500;
+}
+
+/* ── G2.2 — Executor Assistido: estado vazio ─────────────────────────────── */
+
+.executorVazio {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.015);
+  border: 1px dashed rgba(255, 255, 255, 0.07);
+}
+
+.executorVazioIcone {
+  font-size: 1rem;
+  opacity: 0.3;
+  flex-shrink: 0;
+}
+
+.executorVazioTexto {
+  font-size: 0.76rem;
+  color: #52525b;
+  line-height: 1.45;
 }
 
 /* ── G2.2 — Executor Assistido (bloco visual canônico) ───────────────────── */

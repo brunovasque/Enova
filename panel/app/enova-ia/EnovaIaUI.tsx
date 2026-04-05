@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useRef, useState, useMemo, useEffect } from "react";
 import styles from "./enova-ia.module.css";
 import type { LeituraGlobal, KPIBloco } from "../lib/enova-ia-leitura";
 import type { FilaItem, PrioridadeFila } from "../lib/enova-ia-fila";
@@ -477,22 +477,6 @@ function ChatResponseRender({ msg }: { msg: ChatMsg }) {
     return (
       <>
         <ChatAIResponseRender r={msg.openai_response} />
-        {/* G2.1 — Indicador mínimo de draft de ação assistida */}
-        {msg.action_draft && (
-          <div className={styles.chatActionDraftIndicator}>
-            <span className={styles.chatActionDraftBadge}>📋 Draft</span>
-            <span className={styles.chatActionDraftLabel}>
-              {ACTION_TYPE_LABEL[msg.action_draft.action_type]}
-              {" · "}
-              Risco {RISK_LEVEL_LABEL[msg.action_draft.risk_level]}
-              {msg.action_draft.target_count > 0 &&
-                ` · ${msg.action_draft.target_count} lead${msg.action_draft.target_count > 1 ? "s" : ""}`}
-            </span>
-            <span className={styles.chatActionDraftStatus}>
-              Aguardando aprovação humana
-            </span>
-          </div>
-        )}
       </>
     );
   }
@@ -565,8 +549,27 @@ function ChatOperacionalSection({
   const [input, setInput] = useState("");
   const [isThinking, setIsThinking] = useState(false);
   const listaRef = useRef<HTMLDivElement>(null);
-  const [activeDraft, setActiveDraft] = useState<EnovaIaActionDraft | null>(null);
   const [draftStatus, setDraftStatus] = useState<ExecutorDraftStatus>("draft");
+  const [trackedDraftId, setTrackedDraftId] = useState<string | null>(null);
+
+  // Derive activeDraft from the most recent message that has an action_draft.
+  // This ensures the executor block always reflects the latest conversation state,
+  // regardless of whether enviar() produced an actionable response.
+  const activeDraft = useMemo(() => {
+    for (let i = historico.length - 1; i >= 0; i--) {
+      if (historico[i].action_draft) return historico[i].action_draft;
+    }
+    return null;
+  }, [historico]);
+
+  // Reset draftStatus to "draft" whenever a new (different) draft is detected.
+  useEffect(() => {
+    const newId = activeDraft?.action_id ?? null;
+    if (newId !== trackedDraftId) {
+      setTrackedDraftId(newId);
+      setDraftStatus("draft");
+    }
+  }, [activeDraft, trackedDraftId]);
 
   async function enviar(texto: string) {
     const t = texto.trim();
@@ -614,12 +617,6 @@ function ChatOperacionalSection({
       if (data.ok && data.response) {
         // G2.1 — Tentar montar draft de ação assistida a partir da resposta
         const actionDraft = buildEnovaIaActionDraft(data.response, t);
-
-        // G2.2 — Atualizar executor assistido com o novo draft
-        if (actionDraft) {
-          setActiveDraft(actionDraft);
-          setDraftStatus("draft");
-        }
 
         msgEnova = {
           id:              genMsgId(),
@@ -731,17 +728,23 @@ function ChatOperacionalSection({
       </div>
 
       {/* G2.2 — Executor Assistido: bloco visual canônico */}
-      {activeDraft && draftStatus !== "discarded" && (
-        <>
-          <hr className={styles.executorSeparator} />
-          <ExecutorAssistidoBloco
-            draft={activeDraft}
-            status={draftStatus}
-            onRevisar={() => setDraftStatus("reviewing")}
-            onDescartar={() => setDraftStatus("discarded")}
-            onAprovar={() => setDraftStatus("approved")}
-          />
-        </>
+      <hr className={styles.executorSeparator} />
+      {activeDraft && draftStatus !== "discarded" ? (
+        <ExecutorAssistidoBloco
+          draft={activeDraft}
+          status={draftStatus}
+          onRevisar={() => setDraftStatus("reviewing")}
+          onDescartar={() => setDraftStatus("discarded")}
+          onAprovar={() => setDraftStatus("approved")}
+        />
+      ) : (
+        <div className={styles.executorVazio}>
+          <span className={styles.executorVazioIcone}>⚡</span>
+          <span className={styles.executorVazioTexto}>
+            Nenhuma ação assistida preparada.{" "}
+            Envie um comando acionável ao chat para gerar um plano de execução.
+          </span>
+        </div>
       )}
     </section>
   );

@@ -23065,6 +23065,19 @@ case "inicio_programa": {
       }
     }
 
+    // ── Pós-reset: fallback cognitivo dedicado — se LLM real não dominou ──
+    // Quando _isFirstAfterReset é true e nenhuma camada cognitiva assumiu takes_final
+    // (LLM falhou e heuristic_guidance foi bloqueado), usa o fallback dedicado de
+    // first-turn como fala final. A pergunta mecânica crua nunca domina esse turno.
+    if (_isFirstAfterReset && !st.__cognitive_v2_takes_final) {
+      const _firstResetCfg = TOPO_HAPPY_PATH_SPEECH["inicio_programa:first_after_reset"];
+      const _firstResetFallback = _firstResetCfg?.fallback;
+      if (_firstResetFallback && _firstResetFallback.length > 0) {
+        st.__cognitive_reply_prefix = _firstResetFallback.join("\n");
+        st.__cognitive_v2_takes_final = true;
+      }
+    }
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",

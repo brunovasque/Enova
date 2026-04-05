@@ -10,6 +10,7 @@ const NAV_LINKS = [
   { label: "CRM", href: "/crm" },
   { label: "Dashboard", href: "/dashboard" },
   { label: "Incidentes", href: "/incidentes" },
+  { label: "ENOVA IA", href: "/enova-ia" },
 ] as const;
 
 export function PanelNav() {

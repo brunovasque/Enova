@@ -134,7 +134,7 @@ export type LeadReclassificationReading = {
 /** Fases arquiváveis — lead fora do fluxo ativo. */
 const FASES_ARQUIVAVEIS = new Set([
   "fim_inelegivel",
-  "fim_ineligivel",
+  "fim_ineligivel", // variante alternativa de grafia existente no DB — ambas intencionais
   "arquivado",
   "cancelado",
   "inativo",

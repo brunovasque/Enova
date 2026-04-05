@@ -476,10 +476,26 @@ function applyResolveTopoStructuredIfAllowed(st, isFirstAfterReset, resolvedRepl
   }
 }
 
+// ── Mirrors the new dedicated fallback guard (worker: after resolveTopoStructured block) ──
+function applyFirstResetDedicatedFallback(st, isFirstAfterReset, dedicatedFallback) {
+  if (isFirstAfterReset && !st.__cognitive_v2_takes_final) {
+    if (dedicatedFallback && dedicatedFallback.length > 0) {
+      st.__cognitive_reply_prefix = dedicatedFallback.join("\n");
+      st.__cognitive_v2_takes_final = true;
+    }
+  }
+}
+
 const HEURISTIC_TEMPLATE = "Oi! Fico feliz em te ajudar 😊 Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique rapidinho? Responda *sim* (já sei) ou *não* (explica).";
 const RESOLVE_TOPO_REPLY = "Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho? Me diz *sim* (já sei) ou *não* (me explica).";
 const MECHANICAL_REPROMPT = [
   "Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho?",
+  "Me diz *sim* (já sei) ou *não* (me explica)."
+];
+// ── Mirrors TOPO_HAPPY_PATH_SPEECH["inicio_programa:first_after_reset"].fallback ──
+const FIRST_RESET_DEDICATED_FALLBACK = [
+  "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida.",
+  "Você já sabe como funciona ou prefere que eu explique rapidinho?",
   "Me diz *sim* (já sei) ou *não* (me explica)."
 ];
 
@@ -524,27 +540,30 @@ await asyncTest('33. resolveTopoStructured allowed on normal ambiguous (no reset
   assert.strictEqual(st.__cognitive_v2_takes_final, true, "takes_final set in normal flow");
 });
 
-// ===== 34. reset + "Oi Enova" → heuristic rejected → step uses mechanical (no greeting prefix) =====
-await asyncTest('34. reset + "Oi Enova": heuristic rejected → step() returns clean mechanical, no greeting', () => {
+// ===== 34. reset + "Oi Enova" → heuristic rejected + dedicated fallback takes final =====
+await asyncTest('34. reset + "Oi Enova": heuristic rejected → dedicated fallback takes_final, not mechanical', () => {
   const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
-  // Simulate: heuristic returned, post-reset guard kicks in → flags revoked
+  // Simulate full first-after-reset path: heuristic revoked, resolveTopoStructured blocked, dedicated fallback kicks in
   applyFlagsWithPatch(st, { source: "heuristic_guidance", speech: [HEURISTIC_TEMPLATE] }, true);
-  // resolveTopoStructured also blocked
   applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
-  // step() path: no prefix, no takes_final → raw mechanical messages
+  applyFirstResetDedicatedFallback(st, true, FIRST_RESET_DEDICATED_FALLBACK);
   const result = assembleMessages(st, MECHANICAL_REPROMPT);
-  assert.ok(!result.some(m => m.includes("Fico feliz") || m.includes("Eu sou a Enova")), "no greeting template in output");
-  assert.ok(result.some(m => m.includes("programa")), "functional topo question present");
-  assert.strictEqual(result.length, MECHANICAL_REPROMPT.length, "only mechanical messages, no prefix");
+  // Must use dedicated fallback — takes_final = true, single reply
+  assert.strictEqual(result.length, 1, "dedicated fallback takes_final: only one reply message");
+  assert.ok(result[0].includes("Enova"), "reply must contain Enova intro");
+  assert.ok(!result[0].includes("entendeu errado") && !result[0].includes("Fico feliz"), "no heuristic template");
+  assert.ok(!result.some(m => m === MECHANICAL_REPROMPT[0]), "raw mechanical reprompt must NOT dominate");
 });
 
-// ===== 35. reset + "Oi" → same — no greeting prefix, clean mechanical =====
-await asyncTest('35. reset + "Oi": heuristic rejected → clean mechanical step, no recycled opening', () => {
+// ===== 35. reset + "Oi" → dedicated fallback, not mechanical =====
+await asyncTest('35. reset + "Oi": heuristic rejected → dedicated fallback takes_final (not mechanical)', () => {
   const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
   applyFlagsWithPatch(st, { source: "heuristic_guidance", speech: [HEURISTIC_TEMPLATE] }, true);
   applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
+  applyFirstResetDedicatedFallback(st, true, FIRST_RESET_DEDICATED_FALLBACK);
   const result = assembleMessages(st, MECHANICAL_REPROMPT);
-  assert.ok(!result.some(m => m.includes("Bem-vindo") || m.includes("Para começarmos")), "no recycled opening");
+  assert.strictEqual(result.length, 1, "dedicated fallback takes_final: single message");
+  assert.ok(result[0].includes("Enova"), "Enova intro present in dedicated fallback");
   assert.strictEqual(st.__cognitive_reply_prefix, null, "flags cleared after step");
   assert.strictEqual(st.__cognitive_v2_takes_final, false, "flags cleared after step");
 });
@@ -566,13 +585,88 @@ await asyncTest('37. Gate/nextStage zero change: step() nextStage param is inici
   const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
   applyFlagsWithPatch(st, { source: "heuristic_guidance", speech: [HEURISTIC_TEMPLATE] }, true);
   applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
+  applyFirstResetDedicatedFallback(st, true, FIRST_RESET_DEDICATED_FALLBACK);
   assembleMessages(st, MECHANICAL_REPROMPT); // mirrors step() — does NOT change fase_conversa
   assert.strictEqual(st.fase_conversa, "inicio_programa", "stage stays inicio_programa — gate/nextStage untouched");
 });
 
+// =======================================================================
+// DEDICATED FALLBACK — Tests 38–42
+// Validates the new dedicated first-reset fallback guard:
+//   - _isFirstAfterReset + LLM fails → dedicated fallback takes_final
+//   - dedicated fallback contains Enova intro (acolhedor, apresenta)
+//   - dedicated fallback never exposes raw mechanical reprompt as dominant speech
+//   - reset + "Me explica" → dedicated fallback
+//   - reset + nome direto ("Bruno Vasques") → dedicated fallback
+// =======================================================================
+
+// ===== 38. Dedicated fallback: _isFirstAfterReset + fallback_mechanical source → dedicated takes_final =====
+await asyncTest('38. Dedicated fallback: _isFirstAfterReset + fallback_mechanical → dedicated fallback takes_final', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+  // LLM returned fallback_mechanical (failed validation) — setTopoHappyPathFlags left flags false
+  applyFlagsWithPatch(st, { source: "fallback_mechanical", speech: MECHANICAL_REPROMPT }, true);
+  // resolveTopoStructured blocked
+  applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
+  // New dedicated fallback guard fires
+  applyFirstResetDedicatedFallback(st, true, FIRST_RESET_DEDICATED_FALLBACK);
+  assert.strictEqual(st.__cognitive_v2_takes_final, true, "takes_final must be true after dedicated fallback");
+  assert.ok(st.__cognitive_reply_prefix && st.__cognitive_reply_prefix.includes("Enova"), "prefix must contain Enova intro");
+});
+
+// ===== 39. Dedicated fallback speech contains Enova intro (acolhedor, apresenta) =====
+await asyncTest('39. Dedicated fallback speech: contains Enova intro, acolhe, puxa para programa', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+  applyFlagsWithPatch(st, { source: "fallback_mechanical", speech: MECHANICAL_REPROMPT }, true);
+  applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
+  applyFirstResetDedicatedFallback(st, true, FIRST_RESET_DEDICATED_FALLBACK);
+  const result = assembleMessages(st, MECHANICAL_REPROMPT);
+  assert.strictEqual(result.length, 1, "dedicated fallback: single reply");
+  const reply = result[0];
+  assert.ok(reply.includes("Enova"), "reply presents Enova");
+  assert.ok(reply.includes("Minha Casa Minha Vida"), "reply references the program");
+  assert.ok(reply.includes("?"), "reply contains a question (conduz)");
+  assert.ok(!reply.includes("Você já conhece como o programa"), "raw mechanical reprompt NOT dominant");
+});
+
+// ===== 40. reset + "Me explica" → dedicated fallback, not mechanical =====
+await asyncTest('40. reset + "Me explica": LLM fallback → dedicated fallback takes_final, not raw mechanical', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+  applyFlagsWithPatch(st, { source: "fallback_mechanical", speech: MECHANICAL_REPROMPT }, true);
+  applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
+  applyFirstResetDedicatedFallback(st, true, FIRST_RESET_DEDICATED_FALLBACK);
+  const result = assembleMessages(st, MECHANICAL_REPROMPT);
+  assert.strictEqual(result.length, 1, "single dedicated fallback reply");
+  assert.ok(result[0].includes("Enova"), "Enova intro present");
+  assert.ok(result[0] !== MECHANICAL_REPROMPT[0], "NOT the raw mechanical reprompt first line");
+});
+
+// ===== 41. reset + nome direto → dedicated fallback, not raw mechanical =====
+await asyncTest('41. reset + "Bruno Vasques" (no LLM reply): dedicated fallback, not raw mechanical', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+  applyFlagsWithPatch(st, { source: "fallback_mechanical", speech: MECHANICAL_REPROMPT }, true);
+  applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
+  applyFirstResetDedicatedFallback(st, true, FIRST_RESET_DEDICATED_FALLBACK);
+  const result = assembleMessages(st, MECHANICAL_REPROMPT);
+  assert.strictEqual(result.length, 1, "only dedicated fallback");
+  assert.ok(result[0].includes("Enova"), "Enova intro in reply");
+  assert.ok(!result.some(m => m === "Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho?"), "raw mechanical reprompt absent");
+});
+
+// ===== 42. Normal ambiguous (no reset): dedicated fallback guard does NOT fire =====
+await asyncTest('42. Normal ambiguous (no reset): dedicated fallback guard does NOT fire — normal flow unchanged', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+  // isFirstAfterReset = FALSE → dedicated fallback guard must NOT fire
+  applyFlagsWithPatch(st, { source: "fallback_mechanical", speech: MECHANICAL_REPROMPT }, false);
+  applyResolveTopoStructuredIfAllowed(st, false, RESOLVE_TOPO_REPLY);
+  applyFirstResetDedicatedFallback(st, false, FIRST_RESET_DEDICATED_FALLBACK);
+  // resolveTopoStructured was allowed (isFirstAfterReset=false), so takes_final=true via resolver
+  assert.strictEqual(st.__cognitive_v2_takes_final, true, "resolveTopoStructured took over in normal flow");
+  assert.strictEqual(st.__cognitive_reply_prefix, RESOLVE_TOPO_REPLY, "resolver reply used, not dedicated fallback");
+});
+
 // ===== Summary =====
 console.log(`\n📊 Results: ${passed} passed, ${failed} failed (total: ${passed + failed})`);
-assert.strictEqual(passed + failed, 37, "expected exactly 37 tests");
+assert.strictEqual(passed + failed, 42, "expected exactly 42 tests");
 if (failed > 0) {
   console.error(`\n❌ ${failed} test(s) FAILED`);
   process.exit(1);

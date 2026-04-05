@@ -35,6 +35,15 @@ import {
   getProximaMelhorAcaoLabel,
   getConfiancaLabel,
 } from "../../lib/lead-cognitive-labels";
+import { organizeLeadFollowup } from "../../lib/lead-followup";
+import type { LeadFollowupOrganizer } from "../../lib/lead-followup";
+import {
+  getStatusFollowupLabel,
+  getJanelaIdealLabel,
+  getTipoFollowupLabel,
+  getUrgenciaFollowupLabel,
+  getAcaoFollowupLabel,
+} from "../../lib/lead-followup-labels";
 
 /* ── Type — mirrors AttendanceRow in AtendimentoUI ── */
 export type AttendanceDetalheRow = {
@@ -845,6 +854,17 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
     }
   }, [lead, convMsgs, clientProfile]);
 
+  /* ── Organização de Follow-up (PR4) — leitura read-only, never throws ── */
+  const followupState = useMemo((): LeadFollowupOrganizer | null => {
+    if (!cognitiveState) return null;
+    try {
+      const signals = buildLeadSignals(lead, convMsgs, clientProfile);
+      return organizeLeadFollowup(signals, cognitiveState);
+    } catch {
+      return null;
+    }
+  }, [lead, convMsgs, clientProfile, cognitiveState]);
+
   useEffect(() => {
     let cancelled = false;
     async function loadMsgs() {
@@ -1297,6 +1317,97 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                     {cognitiveState.justificativa}
                   </span>
                 </div>
+
+                {/* ── Organização de Follow-up (PR4) — sub-bloco read-only ── */}
+                {followupState && (
+                  <div className={styles.followupSubBloco}>
+                    <div className={styles.followupSubHeader}>
+                      <span className={styles.followupSubIcon}>📋</span>
+                      <span className={styles.followupSubTitle}>Organização de Follow-up</span>
+                      <span
+                        className={`${styles.followupUrgBadge} ${
+                          followupState.urgencia_followup === "alta"
+                            ? styles.followupUrgAlta
+                            : followupState.urgencia_followup === "media"
+                            ? styles.followupUrgMedia
+                            : styles.followupUrgBaixa
+                        }`}
+                      >
+                        {getUrgenciaFollowupLabel(followupState.urgencia_followup)}
+                      </span>
+                    </div>
+
+                    <div className={styles.followupGrid}>
+                      {/* Status */}
+                      <div className={styles.followupItem}>
+                        <span className={styles.followupLabel}>Status</span>
+                        <span
+                          className={`${styles.followupBadge} ${
+                            followupState.status_followup === "followup_vencido"
+                              ? styles.followupStatusVencido
+                              : followupState.status_followup === "followup_ativo"
+                              ? styles.followupStatusAtivo
+                              : followupState.status_followup === "aguardando_janela"
+                              ? styles.followupStatusAguardando
+                              : followupState.status_followup === "nao_necessario"
+                              ? styles.followupStatusNulo
+                              : styles.followupStatusSem
+                          }`}
+                        >
+                          {getStatusFollowupLabel(followupState.status_followup)}
+                        </span>
+                      </div>
+
+                      {/* Janela ideal */}
+                      <div className={styles.followupItem}>
+                        <span className={styles.followupLabel}>Janela ideal</span>
+                        <span
+                          className={`${styles.followupBadge} ${
+                            followupState.janela_ideal_followup === "agora"
+                              ? styles.followupJanelaAgora
+                              : followupState.janela_ideal_followup === "observar"
+                              ? styles.followupJanelaObservar
+                              : styles.followupJanelaBreve
+                          }`}
+                        >
+                          {getJanelaIdealLabel(followupState.janela_ideal_followup)}
+                        </span>
+                      </div>
+
+                      {/* Tipo sugerido */}
+                      <div className={styles.followupItem}>
+                        <span className={styles.followupLabel}>Tipo</span>
+                        <span className={styles.followupValue}>
+                          {getTipoFollowupLabel(followupState.tipo_followup_sugerido)}
+                        </span>
+                      </div>
+
+                      {/* Ação sugerida */}
+                      <div className={styles.followupItem}>
+                        <span className={styles.followupLabel}>Ação sugerida</span>
+                        <span
+                          className={`${styles.followupBadge} ${
+                            followupState.acao_followup_sugerida === "chamar_agora" ||
+                            followupState.acao_followup_sugerida === "pedir_humano"
+                              ? styles.followupAcaoUrgente
+                              : followupState.acao_followup_sugerida === "sem_acao"
+                              ? styles.followupAcaoNula
+                              : styles.followupAcaoPadrao
+                          }`}
+                        >
+                          {getAcaoFollowupLabel(followupState.acao_followup_sugerida)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Justificativa do follow-up */}
+                    <div className={styles.followupJustificativaRow}>
+                      <span className={styles.followupJustificativa}>
+                        {followupState.justificativa_followup}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

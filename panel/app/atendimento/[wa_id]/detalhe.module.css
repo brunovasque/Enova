@@ -1624,3 +1624,179 @@
 }
 
 
+
+/* ══════════════════════════════════════════════════════
+   PR 4 — Organizador de Follow-up (sub-bloco dentro de Estado Cognitivo)
+   ══════════════════════════════════════════════════════ */
+
+.followupSubBloco {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.followupSubHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.followupSubIcon {
+  font-size: 0.875rem;
+}
+
+.followupSubTitle {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #a1a1aa;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* 2x2 grid for the follow-up fields */
+.followupGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px 16px;
+  margin-bottom: 8px;
+}
+
+.followupItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.followupLabel {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.followupValue {
+  font-size: 0.8125rem;
+  color: #d4d4d8;
+}
+
+.followupBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  width: fit-content;
+}
+
+/* ── Status do follow-up ── */
+.followupStatusVencido {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.followupStatusAtivo {
+  background: rgba(34, 197, 94, 0.1);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.15);
+}
+
+.followupStatusAguardando {
+  background: rgba(234, 179, 8, 0.1);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.15);
+}
+
+.followupStatusSem {
+  background: rgba(113, 113, 122, 0.1);
+  color: #71717a;
+  border: 1px solid rgba(113, 113, 122, 0.12);
+}
+
+.followupStatusNulo {
+  background: rgba(113, 113, 122, 0.08);
+  color: #52525b;
+  border: 1px solid rgba(113, 113, 122, 0.1);
+}
+
+/* ── Janela ideal ── */
+.followupJanelaAgora {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.18);
+}
+
+.followupJanelaBreve {
+  background: rgba(99, 102, 241, 0.08);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.followupJanelaObservar {
+  background: rgba(113, 113, 122, 0.1);
+  color: #71717a;
+  border: 1px solid rgba(113, 113, 122, 0.12);
+}
+
+/* ── Urgência badge (header da sub-seção) ── */
+.followupUrgBadge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.followupUrgAlta {
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.18);
+}
+
+.followupUrgMedia {
+  background: rgba(234, 179, 8, 0.1);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.15);
+}
+
+.followupUrgBaixa {
+  background: rgba(113, 113, 122, 0.1);
+  color: #71717a;
+  border: 1px solid rgba(113, 113, 122, 0.12);
+}
+
+/* ── Ação sugerida ── */
+.followupAcaoUrgente {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.followupAcaoPadrao {
+  background: rgba(99, 102, 241, 0.08);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.followupAcaoNula {
+  background: rgba(113, 113, 122, 0.08);
+  color: #52525b;
+  border: 1px solid rgba(113, 113, 122, 0.1);
+}
+
+/* ── Justificativa do follow-up ── */
+.followupJustificativaRow {
+  padding-top: 6px;
+}
+
+.followupJustificativa {
+  font-size: 0.75rem;
+  color: #71717a;
+  line-height: 1.5;
+  font-style: italic;
+}

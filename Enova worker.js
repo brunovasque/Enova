@@ -22920,7 +22920,10 @@ case "inicio_programa": {
 
   // ── Pós-reset: tentar capturar nome plausível como candidato transitório ──
   // Se o cliente já mandou um nome antes de inicio_nome, guarda sinal.
-  if (_isFirstAfterReset && !st.name_candidate) {
+  // Não captura saudações curtas ("Oi", "Olá", etc.) como nome.
+  const _ntGreetingGuard = /^(oi+|ola|olá|opa|eae|eai|fala|bom dia|boa tarde|boa noite|e ai|e aí)\b/i.test(nt) ||
+    /\b(quero comecar|quero começar|voltei|to de volta|tô de volta|vamos la|vamos lá)\b/i.test(nt);
+  if (_isFirstAfterReset && !st.name_candidate && !_ntGreetingGuard) {
     const _nameProbe = resolveInicioNomeStructured(userText);
     if (_nameProbe && _nameProbe.detected_answer === "name_candidate" && _nameProbe.payload?.extracted_name) {
       st.name_candidate = _nameProbe.payload.extracted_name;
@@ -23018,7 +23021,8 @@ case "inicio_programa": {
       /\b(quero comecar|quero começar|voltei|to de volta|tô de volta|vamos la|vamos lá)\b/i.test(nt);
 
     // ── Pós-reset: capturar nome plausível mesmo no bloco ambíguo ──
-    if (!st.name_candidate) {
+    // Não captura saudações curtas ("Oi", "Olá", "Bom dia") como nome.
+    if (!st.name_candidate && !_isGreetingOrReentry) {
       const _nameProbe = resolveInicioNomeStructured(userText);
       if (_nameProbe && _nameProbe.detected_answer === "name_candidate" && _nameProbe.payload?.extracted_name) {
         st.name_candidate = _nameProbe.payload.extracted_name;

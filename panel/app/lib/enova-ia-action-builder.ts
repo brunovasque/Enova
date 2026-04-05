@@ -168,8 +168,12 @@ const ACTION_KEYWORD_MAP: ReadonlyArray<{
 
 // ── Funções internas de derivação ──────────────────────────────────────────
 
-/** Gera UUID v4 simples (sem dependência externa). */
+/** Gera UUID v4 usando crypto.randomUUID quando disponível, fallback manual. */
 function generateActionId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  // Fallback para ambientes sem crypto.randomUUID
   const hex = "0123456789abcdef";
   const segments = [8, 4, 4, 4, 12] as const;
   return segments

@@ -633,6 +633,50 @@
   cursor: not-allowed;
 }
 
+/* ── Resposta de conhecimento ── */
+.chatRespKbBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #5eaead;
+  background: rgba(94, 174, 173, 0.08);
+  border: 1px solid rgba(94, 174, 173, 0.15);
+  border-radius: 4px;
+  padding: 1px 6px;
+  margin-right: 6px;
+  vertical-align: middle;
+  line-height: 1.6;
+}
+
+.chatRespBullets {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.chatRespBullet {
+  font-size: 0.7875rem;
+  color: #a1a1aa;
+  line-height: 1.45;
+  padding-left: 14px;
+  position: relative;
+}
+
+.chatRespBullet::before {
+  content: "·";
+  position: absolute;
+  left: 4px;
+  color: #5eaead;
+  font-weight: 700;
+}
+
 /* Legacy placeholder classes kept for compatibility */
 .chatShell,
 .chatEmpty,

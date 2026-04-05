@@ -22327,20 +22327,26 @@ async function runFunnel(env, st, userText) {
         // Assunção da fala final: cognitivo substitui o mecânico quando a resposta é útil
         // e suficiente para a rodada. Mecânico permanece soberano em stage/gate/nextStage/persistência.
         // Sempre definir explicitamente para evitar vazamento de estado anterior.
-        // Condições de assunção:
-        //   1. V2 "on" com LLM real (cognitive_v2) → takes_final=true
-        //   2. V2 "on" com heurística útil (>30 chars) → takes_final=true
+        //
+        // Guarda universal: se o motor sinalizou que o stage ainda precisa da resposta
+        // original (still_needs_original_answer === true), takes_final nunca fecha,
+        // independente do modo (off/shadow/on) ou do caminho (LLM/heuristic/fallback).
+        // Cobre: buildCognitiveFallback (no_llm_or_parse) que retorna still_needs=true.
+        const _stillNeedsOriginal = cognitive.still_needs_original_answer === true;
+        // Condições de assunção da fala final (todas respeitam _stillNeedsOriginal):
+        //   1. V2 "on" com LLM real (cognitive_v2) → takes_final=true (se stage não precisa de resposta original)
+        //   2. V2 "on" com heurística útil (>30 chars) → takes_final=true (idem)
         //   3. Qualquer modo: cognitivo respondeu explicitamente a pergunta do cliente
-        //      (answered_customer_question=true) com reply substancial (>30 chars)
-        //      E o motor não sinalizou que o stage ainda precisa da resposta original
-        //      (still_needs_original_answer !== true).
-        //      NÃO assume quando: still_needs_original_answer=true, reply curto,
-        //      fluxo que exige confirmação mecânica indispensável naquela rodada.
+        //      (answered=true + still_needs=false + reply>30) → takes_final=true
         const _answeredSufficiently =
           cognitive.answered_customer_question === true &&
-          cognitive.still_needs_original_answer !== true &&
+          !_stillNeedsOriginal &&
           cognitiveReply.length > 30;
-        st.__cognitive_v2_takes_final = (v2OnWithLlm || (v2OnWithHeuristic && cognitiveReply.length > 30) || _answeredSufficiently) ? true : false;
+        st.__cognitive_v2_takes_final = (
+          (v2OnWithLlm && !_stillNeedsOriginal) ||
+          (v2OnWithHeuristic && cognitiveReply.length > 30 && !_stillNeedsOriginal) ||
+          _answeredSufficiently
+        ) ? true : false;
       } else {
         st.__cognitive_reply_prefix = null;
         st.__cognitive_v2_takes_final = false;

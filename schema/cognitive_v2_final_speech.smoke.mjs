@@ -67,7 +67,7 @@ function assembleMessages(st, rawMessages) {
   return arr;
 }
 
-// mirrors runFunnel cognitive block (Enova worker.js:22325-22344 — patch tighter takes_final)
+// mirrors runFunnel cognitive block (Enova worker.js:22325-22349 — contrato seguro universal)
 function applyHasUsefulCognitiveReplyLogic(st, cognitive, v2Mode) {
   const COGNITIVE_V1_CONFIDENCE_MIN = 0.66;
   const lowConfidence = Number(cognitive.confidence || 0) < COGNITIVE_V1_CONFIDENCE_MIN;
@@ -90,21 +90,24 @@ function applyHasUsefulCognitiveReplyLogic(st, cognitive, v2Mode) {
 
   if (hasUsefulCognitiveReply) {
     st.__cognitive_reply_prefix = cognitiveReply;
-    // Contrato seguro de assunção da fala final:
-    // 3ª condição (qualquer modo): answered=true E still_needs_original=false E reply>30
-    // Preserva casos em que o stage ainda precisa da resposta original.
+    // Guarda universal: still_needs_original_answer=true bloqueia takes_final em TODOS os caminhos.
+    const _stillNeedsOriginal = cognitive.still_needs_original_answer === true;
     const _answeredSufficiently =
       cognitive.answered_customer_question === true &&
-      cognitive.still_needs_original_answer !== true &&
+      !_stillNeedsOriginal &&
       cognitiveReply.length > 30;
-    st.__cognitive_v2_takes_final = (v2OnWithLlm || (v2OnWithHeuristic && cognitiveReply.length > 30) || _answeredSufficiently) ? true : false;
+    st.__cognitive_v2_takes_final = (
+      (v2OnWithLlm && !_stillNeedsOriginal) ||
+      (v2OnWithHeuristic && cognitiveReply.length > 30 && !_stillNeedsOriginal) ||
+      _answeredSufficiently
+    ) ? true : false;
   } else {
     st.__cognitive_reply_prefix = null;
     st.__cognitive_v2_takes_final = false;
   }
 }
 
-// mirrors offtrack guard (Enova worker.js:22378-22381 — Fix 2 revertido ao contrato estrito)
+// mirrors offtrack guard (Enova worker.js:22385-22388 — check estrito takes_final === true)
 function offtrackGuardDecision(st) {
   // Reanchor mecânico só é suprimido quando takes_final=true foi explicitamente fechado.
   // Prefix substancial sem takes_final=true não silencia o reanchor.
@@ -355,27 +358,25 @@ test("T15: V2 on+heuristic reply <=30 chars → takes_final=false (fallback mec�
   assert.equal(st.__cognitive_v2_takes_final, false, "takes_final deve ser false (reply curto)");
 });
 
-// Test 16: no_llm_or_parse (buildCognitiveFallback) tem still_needs_original_answer=true → takes_final=false
-test("T16: no_llm_or_parse (fallback real) + still_needs=true → takes_final=false (mecânico preservado)", () => {
+// Test 16: no_llm_or_parse (buildCognitiveFallback real) + still_needs=true → takes_final=false
+// Guarda universal: still_needs=true bloqueia takes_final em TODOS os caminhos (LLM, heuristic, off).
+test("T16: no_llm_or_parse + still_needs=true → takes_final=false em qualquer modo (guarda universal)", () => {
   const st = {};
-  // buildCognitiveFallback retorna still_needs_original_answer: true — "preciso fechar etapa primeiro"
-  // Esse reply é genérico e o stage ainda precisa da resposta original → mecânico deve aparecer.
+  // buildCognitiveFallback sempre retorna still_needs_original_answer: true.
+  // Com guarda universal: v2OnWithHeuristic && !_stillNeedsOriginal = v2OnWithHeuristic && false = false
+  // → takes_final=false. Mecânico deve aparecer — o reply é só "Entendo sua dúvida, mas preciso fechar."
   const cognitive = {
     reply_text: "Entendo sua dúvida. Pra te orientar com segurança, eu preciso fechar esta etapa primeiro e aí te explico o próximo passo com base no seu perfil.",
     confidence: 0.68,
     reason: "no_llm_or_parse",
     answered_customer_question: true,
-    still_needs_original_answer: true, // buildCognitiveFallback sempre retorna true
+    still_needs_original_answer: true, // buildCognitiveFallback: stage AINDA precisa da resposta original
     intent: "fallback_contextual",
     safe_stage_signal: null
   };
   applyHasUsefulCognitiveReplyLogic(st, cognitive, "on");
-  // still_needs=true → _answeredSufficiently=false; no_llm_or_parse + v2Mode=on = v2OnWithHeuristic
-  // v2OnWithHeuristic + reply>30 → takes_final=true (caminho original do V2 "on" heuristic)
-  // Nota: no V2 "on", o caminho v2OnWithHeuristic ainda funciona independente de still_needs.
-  // O guarda still_needs afeta APENAS a condição _answeredSufficiently (qualquer modo).
-  assert.ok(Boolean(st.__cognitive_reply_prefix), "prefix deve estar definido (reply útil)");
-  assert.equal(st.__cognitive_v2_takes_final, true, "takes_final=true via v2OnWithHeuristic (V2 on pathway preservado)");
+  assert.ok(Boolean(st.__cognitive_reply_prefix), "prefix setado — reply cognitivo como prefixo");
+  assert.equal(st.__cognitive_v2_takes_final, false, "takes_final=false — still_needs=true bloqueia assunção em TODOS os caminhos, incluindo v2OnWithHeuristic");
 });
 
 // Test 17: no_llm_or_parse with forced confidence=0 → reply dies → mechanical fallback
@@ -392,6 +393,25 @@ test("T17: no_llm_or_parse + confidence=0 forçado → reply morre → fallback 
   applyHasUsefulCognitiveReplyLogic(st, cognitive, "on");
   assert.equal(st.__cognitive_reply_prefix, null, "prefix deve ser null (confidence=0 mata reply)");
   assert.equal(st.__cognitive_v2_takes_final, false, "takes_final deve ser false (reply morto)");
+});
+
+// Test 17b: V2 "on" + LLM (cognitive_v2) + still_needs=true → takes_final=false (guarda universal)
+test("T17b: V2 on+LLM (cognitive_v2) + still_needs=true → takes_final=false (guarda universal)", () => {
+  const st = {};
+  // Cenário hipotético: LLM gerou reply mas disse que ainda precisa da resposta original.
+  // Com guarda universal: v2OnWithLlm && !_stillNeedsOriginal = v2OnWithLlm && false = false.
+  const cognitive = {
+    reply_text: "Entendo bem. Vou precisar que você confirme seu estado civil pra eu poder calcular o subsídio corretamente.",
+    confidence: 0.72,
+    reason: "cognitive_v2",
+    answered_customer_question: true,
+    still_needs_original_answer: true, // LLM disse: "ainda preciso da resposta do stage"
+    intent: "needs_confirmation",
+    safe_stage_signal: null
+  };
+  applyHasUsefulCognitiveReplyLogic(st, cognitive, "on");
+  assert.ok(Boolean(st.__cognitive_reply_prefix), "prefix setado — reply como prefixo");
+  assert.equal(st.__cognitive_v2_takes_final, false, "takes_final=false — guarda universal: still_needs=true bloqueia até v2OnWithLlm");
 });
 
 // Test 18: real topo scenario — "me tira uma dúvida?" + heuristic useful → V2 takes final

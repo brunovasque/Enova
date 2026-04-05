@@ -1,0 +1,421 @@
+/* ===========================================
+   ENOVA IA PAGE — Central Cognitiva
+   Identidade visual do Enova Panel (dark)
+   =========================================== */
+
+.pageMain {
+  height: 100vh;
+  min-height: 100vh;
+  padding: 0;
+  display: block;
+  overflow: hidden;
+}
+
+.shell {
+  height: 100vh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: #09090b;
+  overflow: hidden;
+}
+
+/* ===========================================
+   HEADER
+   =========================================== */
+
+.header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(180deg, #0f0f11 0%, #0a0a0c 100%);
+  padding: 24px 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-shrink: 0;
+}
+
+.headerContent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.headerBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #5eaead;
+  background: rgba(94, 174, 173, 0.1);
+  border: 1px solid rgba(94, 174, 173, 0.2);
+  width: fit-content;
+  margin-bottom: 6px;
+}
+
+.headerTitle {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.025em;
+}
+
+.headerSubtitle {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #7a7a84;
+  font-weight: 400;
+  max-width: 520px;
+}
+
+.headerStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fbbf24;
+  box-shadow: 0 0 6px rgba(251, 191, 36, 0.5);
+  flex-shrink: 0;
+}
+
+.statusLabel {
+  font-size: 0.75rem;
+  color: #7a7a84;
+  font-weight: 500;
+}
+
+/* ===========================================
+   SCROLLABLE CONTENT
+   =========================================== */
+
+.shell > .section,
+.shell > .bottomGrid {
+  overflow-y: auto;
+}
+
+.shell {
+  overflow-y: auto;
+}
+
+/* ===========================================
+   SECTIONS
+   =========================================== */
+
+.section {
+  padding: 24px 32px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  flex-shrink: 0;
+}
+
+.sectionTitle {
+  margin: 0 0 4px;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #e4e4e7;
+  letter-spacing: -0.01em;
+}
+
+.sectionHint {
+  margin: 0 0 16px;
+  font-size: 0.8125rem;
+  color: #52525b;
+}
+
+/* ===========================================
+   STATS GRID — Visão Geral
+   =========================================== */
+
+.statsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.statCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.statLabel {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #52525b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.statValue {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #71717a;
+  letter-spacing: -0.02em;
+}
+
+.statHint {
+  font-size: 0.6875rem;
+  color: #3f3f46;
+}
+
+/* ===========================================
+   FILA INTELIGENTE
+   =========================================== */
+
+.filaTable {
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.filaHeader {
+  display: grid;
+  grid-template-columns: 1.5fr 2fr 1fr;
+  gap: 16px;
+  padding: 10px 16px;
+  background: rgba(255, 255, 255, 0.025);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #52525b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.filaRow {
+  display: grid;
+  grid-template-columns: 1.5fr 2fr 1fr;
+  gap: 16px;
+  padding: 14px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.03);
+  align-items: center;
+}
+
+.filaName {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: #71717a;
+}
+
+.filaDetalhe {
+  font-size: 0.8125rem;
+  color: #52525b;
+}
+
+.filaBadgePending {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 5px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  background: rgba(251, 191, 36, 0.08);
+  color: #78716c;
+  border: 1px solid rgba(251, 191, 36, 0.12);
+  width: fit-content;
+}
+
+/* ===========================================
+   BOTTOM GRID — 3 colunas
+   =========================================== */
+
+.bottomGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+  padding: 24px 32px;
+  flex: 1;
+  min-height: 0;
+}
+
+/* ===========================================
+   CARDS
+   =========================================== */
+
+.card {
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.012);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+}
+
+.cardTitle {
+  margin: 0 0 4px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #d4d4d8;
+  letter-spacing: -0.01em;
+}
+
+.cardHint {
+  margin: 0 0 16px;
+  font-size: 0.75rem;
+  color: #52525b;
+}
+
+/* Programas */
+.programaList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.programaItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.programaTitulo {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #a1a1aa;
+}
+
+.programaDesc {
+  font-size: 0.75rem;
+  color: #52525b;
+}
+
+/* Gargalos */
+.gargaloList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gargaloItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.01);
+}
+
+.gargaloTipo {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #a1a1aa;
+}
+
+.gargaloDesc {
+  font-size: 0.75rem;
+  color: #52525b;
+}
+
+/* Chat */
+.cardChat {
+  border-color: rgba(94, 174, 173, 0.08);
+  background: rgba(94, 174, 173, 0.02);
+}
+
+.chatShell {
+  flex: 1;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100px;
+}
+
+.chatEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+  padding: 20px;
+}
+
+.chatEmptyIcon {
+  font-size: 1.75rem;
+  color: #3f3f46;
+}
+
+.chatEmptyText {
+  font-size: 0.8125rem;
+  color: #52525b;
+  max-width: 200px;
+  line-height: 1.4;
+}
+
+/* ===========================================
+   RESPONSIVE
+   =========================================== */
+
+@media (max-width: 1100px) {
+  .statsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .bottomGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .cardChat {
+    grid-column: span 2;
+  }
+}
+
+@media (max-width: 720px) {
+  .header {
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px;
+  }
+
+  .section {
+    padding: 20px;
+  }
+
+  .statsGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .filaHeader,
+  .filaRow {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .filaDetalhe {
+    display: none;
+  }
+
+  .bottomGrid {
+    grid-template-columns: 1fr;
+    padding: 20px;
+  }
+
+  .cardChat {
+    grid-column: span 1;
+  }
+}

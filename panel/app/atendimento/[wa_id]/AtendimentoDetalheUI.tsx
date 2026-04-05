@@ -75,6 +75,16 @@ import {
   getEstrategiaPlantaoLabel,
   getAcaoPlantaoLabel,
 } from "../../lib/lead-visit-readiness-labels";
+import { readLeadMetaOps } from "../../lib/lead-meta-ops";
+import type { LeadMetaOpsReading } from "../../lib/lead-meta-ops";
+import {
+  getGargaloPrincipalLabel,
+  getTipoMelhoriaSugeridaLabel,
+  getSugestaoOperacionalLabel,
+  getProgramaSugeridoLabel,
+  getPrioridadeMelhoriaLabel,
+  getPrecisaEvolucaoEstruturaLabel,
+} from "../../lib/lead-meta-ops-labels";
 
 /* ── Type — mirrors AttendanceRow in AtendimentoUI ── */
 export type AttendanceDetalheRow = {
@@ -929,7 +939,18 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
     }
   }, [lead, convMsgs, clientProfile, cognitiveState, followupState, docsState, reclassState]);
 
-  useEffect(() => {
+  /* ── Meta-operação Cognitiva (PR8) — leitura read-only, never throws ── */
+  const metaOpsState = useMemo((): LeadMetaOpsReading | null => {
+    if (!cognitiveState) return null;
+    try {
+      const signals = buildLeadSignals(lead, convMsgs, clientProfile);
+      return readLeadMetaOps(signals, cognitiveState, followupState, docsState, reclassState, visitReadinessState);
+    } catch {
+      return null;
+    }
+  }, [lead, convMsgs, clientProfile, cognitiveState, followupState, docsState, reclassState, visitReadinessState]);
+
+
     let cancelled = false;
     async function loadMsgs() {
       setConvLoading(true);
@@ -1383,7 +1404,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                 </div>
 
                 {/* ── Sub-blocos cognitivos em linha (PR4 + PR5 + PR6 + PR7) ── */}
-                {(followupState || docsState || reclassState || visitReadinessState) && (
+                {(followupState || docsState || reclassState || visitReadinessState || metaOpsState) && (
                 <div className={styles.subBlocosRow}>
 
                 {/* ── Organização de Follow-up (PR4) ── */}
@@ -1810,8 +1831,115 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                   </div>
                 )}
 
+                {/* ── Meta-operação Cognitiva (PR8) ── */}
+                {metaOpsState && (
+                  <div className={styles.metaOpsSubBloco}>
+                    <div className={styles.metaOpsSubHeader}>
+                      <span className={styles.metaOpsSubIcon}>🔍</span>
+                      <span className={styles.metaOpsSubTitle}>Meta-operação Cognitiva</span>
+                      <span
+                        className={`${styles.metaOpsPrioridadeBadge} ${
+                          metaOpsState.prioridade_melhoria === "alta"
+                            ? styles.metaOpsPrioridadeAlta
+                            : metaOpsState.prioridade_melhoria === "media"
+                            ? styles.metaOpsPrioridadeMedia
+                            : styles.metaOpsPrioridadeBaixa
+                        }`}
+                      >
+                        {getPrioridadeMelhoriaLabel(metaOpsState.prioridade_melhoria)}
+                      </span>
+                    </div>
+
+                    <div className={styles.metaOpsGrid}>
+                      {/* Gargalo principal */}
+                      <div className={styles.metaOpsItem}>
+                        <span className={styles.metaOpsLabel}>Gargalo</span>
+                        <span
+                          className={`${styles.metaOpsBadge} ${
+                            metaOpsState.gargalo_principal === "sem_gargalo_claro"
+                              ? styles.metaOpsGargaloNenhum
+                              : metaOpsState.gargalo_principal === "travamento_humano"
+                              ? styles.metaOpsGargaloUrgente
+                              : styles.metaOpsGargaloPadrao
+                          }`}
+                        >
+                          {getGargaloPrincipalLabel(metaOpsState.gargalo_principal)}
+                        </span>
+                      </div>
+
+                      {/* Tipo de melhoria */}
+                      <div className={styles.metaOpsItem}>
+                        <span className={styles.metaOpsLabel}>Melhoria</span>
+                        <span
+                          className={`${styles.metaOpsBadge} ${
+                            metaOpsState.tipo_melhoria_sugerida === "nenhuma"
+                              ? styles.metaOpsMelhoriaNenhuma
+                              : metaOpsState.tipo_melhoria_sugerida === "pedir_humano"
+                              ? styles.metaOpsMelhoriaUrgente
+                              : styles.metaOpsMelhoriaPadrao
+                          }`}
+                        >
+                          {getTipoMelhoriaSugeridaLabel(metaOpsState.tipo_melhoria_sugerida)}
+                        </span>
+                      </div>
+
+                      {/* Sugestão operacional */}
+                      <div className={styles.metaOpsItem}>
+                        <span className={styles.metaOpsLabel}>Sugestão</span>
+                        <span
+                          className={`${styles.metaOpsBadge} ${
+                            metaOpsState.sugestao_operacional === "sem_sugestao"
+                              ? styles.metaOpsSugestaoNenhuma
+                              : metaOpsState.sugestao_operacional === "escalar_para_humano"
+                              ? styles.metaOpsSugestaoUrgente
+                              : styles.metaOpsSugestaoPadrao
+                          }`}
+                        >
+                          {getSugestaoOperacionalLabel(metaOpsState.sugestao_operacional)}
+                        </span>
+                      </div>
+
+                      {/* Programa sugerido */}
+                      <div className={styles.metaOpsItem}>
+                        <span className={styles.metaOpsLabel}>Programa</span>
+                        <span
+                          className={`${styles.metaOpsBadge} ${
+                            metaOpsState.programa_sugerido === "nenhum"
+                              ? styles.metaOpsProgramaNenhum
+                              : styles.metaOpsProgramaPadrao
+                          }`}
+                        >
+                          {getProgramaSugeridoLabel(metaOpsState.programa_sugerido)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Precisa evolução + justificativa */}
+                    <div className={styles.metaOpsEvolucaoRow}>
+                      <span className={styles.metaOpsEvolucaoLabel}>Evolução estrutural:</span>
+                      <span
+                        className={`${styles.metaOpsEvolucaoBadge} ${
+                          metaOpsState.precisa_evolucao_estrutura === "sim"
+                            ? styles.metaOpsEvolucaoSim
+                            : metaOpsState.precisa_evolucao_estrutura === "incerto"
+                            ? styles.metaOpsEvolucaoIncerto
+                            : styles.metaOpsEvolucaoNao
+                        }`}
+                      >
+                        {getPrecisaEvolucaoEstruturaLabel(metaOpsState.precisa_evolucao_estrutura)}
+                      </span>
+                    </div>
+                    <div className={styles.metaOpsJustificativaRow}>
+                      <span className={styles.metaOpsJustificativa}>
+                        {metaOpsState.justificativa_meta_operacao}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 </div>
                 )}
+
 
               </div>
             </div>

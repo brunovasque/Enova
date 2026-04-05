@@ -1,6 +1,9 @@
 // ============================================================
 // Smoke tests — enova-ia-action-builder (G2.1)
 //
+// Executa o builder REAL de panel/app/lib/enova-ia-action-builder.ts.
+// Requer: node --experimental-strip-types (Node v22.6+)
+//
 // Valida a estrutura canônica da ação assistida:
 //   1. Resposta com ação clara gera draft
 //   2. Resposta vaga/não acionável retorna null
@@ -11,11 +14,26 @@
 // ============================================================
 
 import assert from "node:assert/strict";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 
-// ── Importação direta via fs para evitar dependência de bundler TS ───────
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const builderPath = resolve(__dirname, "../panel/app/lib/enova-ia-action-builder.ts");
 
-// Como o projeto panel usa TypeScript com Next.js, mas os smoke tests
-// rodam direto em Node, fazemos a validação lógica inline.
+// ── Importar o builder REAL ──────────────────────────────────────────────
+
+const {
+  buildEnovaIaActionDraft,
+  ACTION_TYPE_LABEL,
+  RISK_LEVEL_LABEL,
+  _hasActionableBasis,
+  _classifyRisk,
+  _detectActionType,
+} = await import(builderPath);
+
+// Derive valid sets from the real module (not reimplemented here)
+const VALID_ACTION_TYPES = new Set(Object.keys(ACTION_TYPE_LABEL));
+const VALID_RISK_LEVELS  = new Set(Object.keys(RISK_LEVEL_LABEL));
 
 // ── Helpers de teste ────────────────────────────────────────────────────
 
@@ -39,96 +57,6 @@ function makeResponse(overrides = {}) {
     confidence: "alta",
     notes: null,
     ...overrides,
-  };
-}
-
-// ── Constantes replicadas do builder (para validação sem TS import) ─────
-
-const ACTIONABLE_MODES = new Set([
-  "plano_de_acao",
-  "segmentacao",
-  "campanha",
-  "risco",
-]);
-
-const MODE_TO_DEFAULT_ACTION_TYPE = {
-  plano_de_acao: "followup_lote",
-  segmentacao:   "reativacao_lote",
-  campanha:      "campanha_sugerida",
-  risco:         "intervencao_humana",
-};
-
-const ACTION_KEYWORD_MAP = [
-  { keywords: ["follow-up", "followup", "retomar", "recontatar"],       type: "followup_lote" },
-  { keywords: ["document", "pasta", "docs", "checklist", "mutir"],      type: "mutirao_docs" },
-  { keywords: ["plant", "visita", "empreendimento"],                    type: "pre_plantao" },
-  { keywords: ["campanha", "disparar", "comunica"],                     type: "campanha_sugerida" },
-  { keywords: ["interven", "humano", "manual", "corretor", "escalar"],  type: "intervencao_humana" },
-  { keywords: ["reativ", "reengaj", "recuper", "frio", "lote"],         type: "reativacao_lote" },
-];
-
-const VALID_ACTION_TYPES = new Set([
-  "followup_lote",
-  "reativacao_lote",
-  "mutirao_docs",
-  "pre_plantao",
-  "intervencao_humana",
-  "campanha_sugerida",
-]);
-
-const VALID_RISK_LEVELS = new Set(["low", "medium", "high"]);
-
-// ── Reimplementação mínima do builder para smoke test ───────────────────
-
-function detectActionType(actions, mode) {
-  const joined = actions.join(" ").toLowerCase();
-  for (const entry of ACTION_KEYWORD_MAP) {
-    if (entry.keywords.some((kw) => joined.includes(kw))) {
-      return entry.type;
-    }
-  }
-  return MODE_TO_DEFAULT_ACTION_TYPE[mode] ?? "intervencao_humana";
-}
-
-function classifyRisk(response) {
-  if (response.should_escalate_human || response.confidence === "baixa") {
-    return "high";
-  }
-  if (response.risks.length >= 2 || response.confidence === "media") {
-    return "medium";
-  }
-  return "low";
-}
-
-function hasActionableBasis(response) {
-  if (!ACTIONABLE_MODES.has(response.mode)) return false;
-  if (response.recommended_actions.filter((a) => a.trim().length > 0).length < 1) return false;
-  if (response.analysis_points.filter((a) => a.trim().length > 0).length < 1) return false;
-  if (!response.answer_summary || response.answer_summary.trim().length === 0) return false;
-  return true;
-}
-
-function buildEnovaIaActionDraft(response, prompt) {
-  if (!hasActionableBasis(response)) return null;
-
-  const actionType = detectActionType(response.recommended_actions, response.mode);
-  const targetLeads = response.relevant_leads.map((l) => l.name);
-
-  return {
-    action_id:              `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    action_type:            actionType,
-    action_title:           response.answer_title,
-    action_summary:         response.answer_summary,
-    target_count:           targetLeads.length,
-    target_leads:           targetLeads,
-    suggested_message:      "",
-    suggested_steps:        response.recommended_actions.filter((a) => a.trim().length > 0),
-    risk_level:             classifyRisk(response),
-    requires_human_approval: true,
-    reason:                 response.analysis_points.filter((a) => a.trim().length > 0).join("; "),
-    source_mode:            response.mode,
-    created_from_prompt:    prompt,
-    status:                 "draft",
   };
 }
 
@@ -174,7 +102,7 @@ test("1.2 — Resposta segmentacao com ações claras gera draft", () => {
 test("1.3 — Resposta campanha com ações claras gera draft", () => {
   const r = makeResponse({
     mode: "campanha",
-    recommended_actions: ["Disparar campanha de reativação para 15 leads"],
+    recommended_actions: ["Disparar campanha de WhatsApp"],
     analysis_points: ["Oportunidade de reativação sazonal"],
   });
   const draft = buildEnovaIaActionDraft(r, "campanha de reativação");
@@ -258,7 +186,7 @@ test("3.1 — status é sempre 'draft'", () => {
 });
 
 test("3.2 — status é 'draft' para todos os modos acionáveis", () => {
-  for (const mode of ACTIONABLE_MODES) {
+  for (const mode of ["plano_de_acao", "segmentacao", "campanha", "risco"]) {
     const r = makeResponse({ mode });
     const draft = buildEnovaIaActionDraft(r, `teste ${mode}`);
     assert.ok(draft !== null, `draft null para mode ${mode}`);
@@ -275,7 +203,7 @@ test("4.1 — requires_human_approval é sempre true", () => {
 });
 
 test("4.2 — requires_human_approval true para todos os modos acionáveis", () => {
-  for (const mode of ACTIONABLE_MODES) {
+  for (const mode of ["plano_de_acao", "segmentacao", "campanha", "risco"]) {
     const r = makeResponse({ mode });
     const draft = buildEnovaIaActionDraft(r, `teste ${mode}`);
     assert.ok(draft !== null);
@@ -307,89 +235,73 @@ test("5.3 — nenhuma variável global foi alterada", () => {
   assert.equal(globalKeysBefore, globalKeysAfter, "globals mudaram!");
 });
 
-// ── 6. Detecção de tipo de ação ─────────────────────────────────────────
+// ── 6. Detecção de tipo de ação (via _detectActionType real) ────────────
 
 test("6.1 — detecta followup_lote por keyword 'follow-up'", () => {
-  const r = makeResponse({ recommended_actions: ["Enviar follow-up leve"] });
-  const draft = buildEnovaIaActionDraft(r, "teste");
-  assert.equal(draft.action_type, "followup_lote");
+  const t = _detectActionType(["Enviar follow-up leve"], "plano_de_acao");
+  assert.equal(t, "followup_lote");
 });
 
 test("6.2 — detecta reativacao_lote por keyword 'reativ'", () => {
-  const r = makeResponse({ recommended_actions: ["Reativar leads frios"] });
-  const draft = buildEnovaIaActionDraft(r, "teste");
-  assert.equal(draft.action_type, "reativacao_lote");
+  const t = _detectActionType(["Reativar leads frios"], "plano_de_acao");
+  assert.equal(t, "reativacao_lote");
 });
 
 test("6.3 — detecta mutirao_docs por keyword 'document'", () => {
-  const r = makeResponse({ recommended_actions: ["Solicitar documentação pendente"] });
-  const draft = buildEnovaIaActionDraft(r, "teste");
-  assert.equal(draft.action_type, "mutirao_docs");
+  const t = _detectActionType(["Solicitar documentação pendente"], "plano_de_acao");
+  assert.equal(t, "mutirao_docs");
 });
 
 test("6.4 — detecta pre_plantao por keyword 'visita'", () => {
-  const r = makeResponse({ recommended_actions: ["Agendar visita ao empreendimento"] });
-  const draft = buildEnovaIaActionDraft(r, "teste");
-  assert.equal(draft.action_type, "pre_plantao");
+  const t = _detectActionType(["Agendar visita ao empreendimento"], "plano_de_acao");
+  assert.equal(t, "pre_plantao");
 });
 
 test("6.5 — detecta intervencao_humana por keyword 'escalar'", () => {
-  const r = makeResponse({ recommended_actions: ["Escalar para corretor sênior"] });
-  const draft = buildEnovaIaActionDraft(r, "teste");
-  assert.equal(draft.action_type, "intervencao_humana");
+  const t = _detectActionType(["Escalar para corretor sênior"], "plano_de_acao");
+  assert.equal(t, "intervencao_humana");
 });
 
 test("6.6 — detecta campanha_sugerida por keyword 'campanha'", () => {
-  const r = makeResponse({ recommended_actions: ["Lançar campanha de WhatsApp"] });
-  const draft = buildEnovaIaActionDraft(r, "teste");
-  assert.equal(draft.action_type, "campanha_sugerida");
+  const t = _detectActionType(["Lançar campanha de WhatsApp"], "plano_de_acao");
+  assert.equal(t, "campanha_sugerida");
 });
 
 test("6.7 — fallback para mode default quando sem keyword", () => {
-  const r = makeResponse({
-    mode: "segmentacao",
-    recommended_actions: ["Ação genérica sem palavra-chave"],
-  });
-  const draft = buildEnovaIaActionDraft(r, "teste");
-  assert.equal(draft.action_type, "reativacao_lote"); // default de segmentacao
+  const t = _detectActionType(["Ação genérica sem palavra-chave"], "segmentacao");
+  assert.equal(t, "reativacao_lote"); // default de segmentacao
 });
 
-// ── 7. Classificação de risco ───────────────────────────────────────────
+// ── 7. Classificação de risco (via _classifyRisk real) ─────────────────
 
 test("7.1 — risco high quando should_escalate_human=true", () => {
-  const r = makeResponse({ should_escalate_human: true });
-  const draft = buildEnovaIaActionDraft(r, "teste");
-  assert.equal(draft.risk_level, "high");
+  const risk = _classifyRisk(makeResponse({ should_escalate_human: true }));
+  assert.equal(risk, "high");
 });
 
 test("7.2 — risco high quando confidence=baixa", () => {
-  const r = makeResponse({ confidence: "baixa" });
-  const draft = buildEnovaIaActionDraft(r, "teste");
-  assert.equal(draft.risk_level, "high");
+  const risk = _classifyRisk(makeResponse({ confidence: "baixa" }));
+  assert.equal(risk, "high");
 });
 
 test("7.3 — risco medium quando risks >= 2", () => {
-  const r = makeResponse({ risks: ["risco 1", "risco 2"], confidence: "alta" });
-  const draft = buildEnovaIaActionDraft(r, "teste");
-  assert.equal(draft.risk_level, "medium");
+  const risk = _classifyRisk(makeResponse({ risks: ["risco 1", "risco 2"], confidence: "alta" }));
+  assert.equal(risk, "medium");
 });
 
 test("7.4 — risco medium quando confidence=media", () => {
-  const r = makeResponse({ confidence: "media", risks: [] });
-  const draft = buildEnovaIaActionDraft(r, "teste");
-  assert.equal(draft.risk_level, "medium");
+  const risk = _classifyRisk(makeResponse({ confidence: "media", risks: [] }));
+  assert.equal(risk, "medium");
 });
 
 test("7.5 — risco low quando confidence=alta e poucos riscos", () => {
-  const r = makeResponse({ confidence: "alta", risks: ["risco leve"] });
-  const draft = buildEnovaIaActionDraft(r, "teste");
-  assert.equal(draft.risk_level, "low");
+  const risk = _classifyRisk(makeResponse({ confidence: "alta", risks: ["risco leve"] }));
+  assert.equal(risk, "low");
 });
 
 test("7.6 — risco low quando sem riscos e confidence alta", () => {
-  const r = makeResponse({ confidence: "alta", risks: [] });
-  const draft = buildEnovaIaActionDraft(r, "teste");
-  assert.equal(draft.risk_level, "low");
+  const risk = _classifyRisk(makeResponse({ confidence: "alta", risks: [] }));
+  assert.equal(risk, "low");
 });
 
 // ── 8. Campos do draft estão corretos ───────────────────────────────────
@@ -450,17 +362,17 @@ test("8.9 — action_summary vem do answer_summary", () => {
   assert.equal(draft.action_summary, "Resumo operacional.");
 });
 
-// ── 9. Validação de tipos canônicos ─────────────────────────────────────
+// ── 9. Validação de tipos canônicos (derivados do módulo real) ───────────
 
-test("9.1 — action_type é sempre um tipo válido da taxonomia", () => {
-  for (const mode of ACTIONABLE_MODES) {
+test("9.1 — action_type é sempre um tipo válido da taxonomia do builder", () => {
+  for (const mode of ["plano_de_acao", "segmentacao", "campanha", "risco"]) {
     const r = makeResponse({ mode });
     const draft = buildEnovaIaActionDraft(r, "teste");
     assert.ok(VALID_ACTION_TYPES.has(draft.action_type), `tipo inválido: ${draft.action_type}`);
   }
 });
 
-test("9.2 — risk_level é sempre um nível válido", () => {
+test("9.2 — risk_level é sempre um nível válido do builder", () => {
   for (const conf of ["alta", "media", "baixa"]) {
     const r = makeResponse({ confidence: conf });
     const draft = buildEnovaIaActionDraft(r, "teste");
@@ -474,3 +386,4 @@ console.log(`\n📊 Resultado: ${passed} passed, ${failed} failed, ${passed + fa
 if (failed > 0) {
   process.exit(1);
 }
+

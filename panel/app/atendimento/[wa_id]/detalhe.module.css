@@ -2299,3 +2299,234 @@
   line-height: 1.5;
   font-style: italic;
 }
+
+/* ═══════════════════════════════════════════════════════
+   PR7 — Prontidão para Plantão / Maturidade Comercial
+   Prefixo: visit*
+   ═══════════════════════════════════════════════════════ */
+
+.visitSubBloco {
+  background: rgba(15, 15, 20, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 10px 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+}
+
+/* ── Header ── */
+.visitSubHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.visitSubIcon {
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.visitSubTitle {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #a1a1aa;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex: 1;
+}
+
+/* ── Badge "Pronto para visita?" ── */
+.visitProntoBadge {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.visitProntoSim {
+  background: rgba(16, 185, 129, 0.12);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.22);
+}
+
+.visitProntoIncerto {
+  background: rgba(234, 179, 8, 0.1);
+  color: #fde68a;
+  border: 1px solid rgba(234, 179, 8, 0.18);
+}
+
+.visitProntoNao {
+  background: rgba(113, 113, 122, 0.1);
+  color: #71717a;
+  border: 1px solid rgba(113, 113, 122, 0.14);
+}
+
+/* ── Grid de campos ── */
+.visitGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px 8px;
+}
+
+.visitItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.visitLabel {
+  font-size: 0.625rem;
+  color: #52525b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+}
+
+.visitBadge {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  width: fit-content;
+}
+
+/* ── Maturidade ── */
+.visitMaturidadeAlta {
+  background: rgba(16, 185, 129, 0.1);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.18);
+}
+
+.visitMaturidadeMedia {
+  background: rgba(234, 179, 8, 0.08);
+  color: #fde68a;
+  border: 1px solid rgba(234, 179, 8, 0.14);
+}
+
+.visitMaturidadeBaixa {
+  background: rgba(113, 113, 122, 0.1);
+  color: #71717a;
+  border: 1px solid rgba(113, 113, 122, 0.14);
+}
+
+/* ── Status plantão ── */
+.visitStatusPronto {
+  background: rgba(16, 185, 129, 0.1);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.18);
+}
+
+.visitStatusQuase {
+  background: rgba(234, 179, 8, 0.08);
+  color: #fde68a;
+  border: 1px solid rgba(234, 179, 8, 0.14);
+}
+
+.visitStatusPos {
+  background: rgba(99, 102, 241, 0.1);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.18);
+}
+
+.visitStatusSemSinal {
+  background: rgba(63, 63, 70, 0.15);
+  color: #52525b;
+  border: 1px solid rgba(63, 63, 70, 0.12);
+}
+
+.visitStatusLonge {
+  background: rgba(113, 113, 122, 0.08);
+  color: #52525b;
+  border: 1px solid rgba(113, 113, 122, 0.1);
+}
+
+/* ── Bloqueio ── */
+.visitBloqueioNenhum {
+  background: rgba(16, 185, 129, 0.08);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.14);
+}
+
+.visitBloqueioUrgente {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.visitBloqueioPadrao {
+  background: rgba(234, 179, 8, 0.08);
+  color: #fde68a;
+  border: 1px solid rgba(234, 179, 8, 0.12);
+}
+
+/* ── Ação ── */
+.visitAcaoConvidar {
+  background: rgba(16, 185, 129, 0.1);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.18);
+}
+
+.visitAcaoChamar {
+  background: rgba(99, 102, 241, 0.08);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.visitAcaoUrgente {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.visitAcaoNula {
+  background: rgba(113, 113, 122, 0.08);
+  color: #52525b;
+  border: 1px solid rgba(113, 113, 122, 0.1);
+}
+
+.visitAcaoPadrao {
+  background: rgba(63, 63, 70, 0.18);
+  color: #a1a1aa;
+  border: 1px solid rgba(63, 63, 70, 0.15);
+}
+
+/* ── Estratégia ── */
+.visitEstrategiaRow {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding-top: 4px;
+  padding-bottom: 2px;
+}
+
+.visitEstrategiaLabel {
+  font-size: 0.6875rem;
+  color: #71717a;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+.visitEstrategiaValue {
+  font-size: 0.75rem;
+  color: #a1a1aa;
+}
+
+/* ── Justificativa ── */
+.visitJustificativaRow {
+  padding-top: 4px;
+}
+
+.visitJustificativa {
+  font-size: 0.75rem;
+  color: #71717a;
+  line-height: 1.5;
+  font-style: italic;
+}

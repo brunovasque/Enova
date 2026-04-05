@@ -553,7 +553,6 @@ await asyncTest("'texto aleatório xyz' → ambiguous (não inventa categoria)",
   const r = resolveEstadoCivilStructured("texto aleatório xyz");
   validateContract(r, "estado_civil");
   assert.strictEqual(r.detected_answer, "ambiguous");
-  assert.ok(!["solteiro", "casado_civil", "uniao_estavel", "separado", "divorciado", "viuvo"].includes(r.detected_answer) || r.detected_answer === "ambiguous");
 });
 
 // ================================================================
@@ -678,7 +677,7 @@ await asyncTest("'se precisar' → se_precisar", async () => {
   assert.strictEqual(r.safe_stage_signal, "financiamento_conjunto:se_precisar");
 });
 
-await asyncTest("'só se faltar renda' → se_precisar", async () => {
+await asyncTest("'só se faltar' → se_precisar", async () => {
   const r = resolveFinanciamentoConjuntoStructured("só se faltar");
   validateContract(r, "financiamento_conjunto");
   assert.strictEqual(r.detected_answer, "se_precisar");

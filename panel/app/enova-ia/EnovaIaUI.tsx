@@ -148,6 +148,13 @@ const CHAT_EXEMPLOS = [
   "quantos leads estão em atendimento?",
   "quem está perto de plantão?",
   "resumo geral",
+  "como funciona composição de renda?",
+  "quando vale pedir docs?",
+  "qual a lógica do follow-up?",
+  "o que é lead frio recuperável?",
+  "quando oferecer plantão?",
+  "como a Enova trata reprovados?",
+  "quando precisa humano?",
 ];
 
 function ChatResponseRender({ msg }: { msg: ChatMsg }) {
@@ -171,8 +178,22 @@ function ChatResponseRender({ msg }: { msg: ChatMsg }) {
 
   return (
     <div className={styles.chatMsgEnova}>
-      <div className={styles.chatRespTitulo}>{r.titulo}</div>
+      <div className={styles.chatRespTitulo}>
+        {r.tipo === "conhecimento" && (
+          <span className={styles.chatRespKbBadge}>📚 Conhecimento</span>
+        )}
+        {r.titulo}
+      </div>
       <div className={styles.chatRespResumo}>{r.resumo}</div>
+      {r.bullets && r.bullets.length > 0 && (
+        <ul className={styles.chatRespBullets}>
+          {r.bullets.map((b, i) => (
+            <li key={i} className={styles.chatRespBullet}>
+              {b}
+            </li>
+          ))}
+        </ul>
+      )}
       {r.linhas && r.linhas.length > 0 && (
         <ul className={styles.chatRespLinhas}>
           {r.linhas.map((linha, i) => (

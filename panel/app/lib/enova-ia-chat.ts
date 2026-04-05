@@ -33,6 +33,8 @@
 import type { LeituraGlobal } from "./enova-ia-leitura";
 import type { FilaItem, PrioridadeFila } from "./enova-ia-fila";
 import { PRIORIDADE_FILA_LABEL } from "./enova-ia-fila";
+import type { KnowledgeIntent } from "./enova-ia-knowledge";
+import { KNOWLEDGE_PATTERNS, getKnowledgeEntry } from "./enova-ia-knowledge";
 
 // ── Tipos canônicos ────────────────────────────────────────────────────────
 
@@ -45,6 +47,7 @@ export type IntentChat =
   | "em_atendimento"
   | "perto_plantao"
   | "resumo_geral"
+  | KnowledgeIntent
   | "desconhecido";
 
 /** Linha de um item da resposta — listagem de leads. */
@@ -60,6 +63,10 @@ export type ChatResponse = {
   titulo: string;
   resumo: string;
   linhas?: ChatLeadLine[];
+  /** Bullets curtos — usados para respostas de conhecimento */
+  bullets?: string[];
+  /** Tipo de resposta: dados vivos ou conhecimento operacional */
+  tipo?: "operacional" | "conhecimento";
   sugestao?: string;
   sem_dados?: boolean;
 };
@@ -167,6 +174,13 @@ const INTENT_PATTERNS: IntentPattern[] = [
 
 export function detectIntent(texto: string): IntentChat {
   const t = texto.trim();
+  // Knowledge intents checked first (more specific queries)
+  for (const { intent, patterns } of KNOWLEDGE_PATTERNS) {
+    if (patterns.some((rx) => rx.test(t))) {
+      return intent;
+    }
+  }
+  // Operational intents (live data queries)
   for (const { intent, patterns } of INTENT_PATTERNS) {
     if (patterns.some((rx) => rx.test(t))) {
       return intent;
@@ -412,6 +426,20 @@ function buildResumoGeral(
   };
 }
 
+// ── Knowledge builder ──────────────────────────────────────────────────────
+
+function buildKnowledgeResponse(intent: KnowledgeIntent): ChatResponse {
+  const entry = getKnowledgeEntry(intent);
+  return {
+    intent,
+    titulo: entry.titulo,
+    resumo: entry.resumo,
+    bullets: entry.bullets,
+    sugestao: entry.sugestao,
+    tipo: "conhecimento",
+  };
+}
+
 // ── Main router ────────────────────────────────────────────────────────────
 
 /**
@@ -436,6 +464,17 @@ export function routeChat(
     case "perto_plantao":      return buildPertoPlantao(fila);
     case "resumo_geral":       return buildResumoGeral(fila, leitura);
 
+    // Knowledge base intents
+    case "kb_mcmv_basico":
+    case "kb_composicao_renda":
+    case "kb_docs":
+    case "kb_followup":
+    case "kb_lead_frio":
+    case "kb_plantao":
+    case "kb_humano":
+    case "kb_reprovados":
+      return buildKnowledgeResponse(intent);
+
     case "desconhecido":
     default:
       return {
@@ -444,7 +483,7 @@ export function routeChat(
         resumo:
           "Não entendi o pedido. Tente um dos comandos abaixo.",
         sugestao:
-          "quais leads precisam ação agora · docs pendentes · precisa humano · fila de retorno · em atendimento · perto de plantão · resumo geral",
+          "dados vivos: ação agora · docs pendentes · precisa humano · fila de retorno · em atendimento · perto de plantão · resumo geral\u00A0·\u00A0\u00A0conhecimento: composição de renda · docs no processo · follow-up · lead frio · plantão · precisa humano · reprovados · MCMV",
         sem_dados: true,
       };
   }

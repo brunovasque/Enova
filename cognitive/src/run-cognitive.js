@@ -3083,6 +3083,7 @@ function buildHeuristicResponse(request, analysis, conflictList) {
       conflicts: conflictList,
       offtrack: analysis.offtrack
     }),
+    speech_origin: "heuristic_guidance",
     slots_detected: analysis.slots_detected,
     pending_slots: pendingSlots,
     conflicts: conflictList,
@@ -3137,29 +3138,12 @@ function normalizeModelResponse({
     suggestedNextSlot,
     pendingSlots
   });
-  if (phaseGuidanceReply) {
-    return {
-      reply_text: ensureReplyHasNextAction(phaseGuidanceReply, {
-        request,
-        pendingSlots,
-        suggestedNextSlot
-      }),
-      slots_detected: slotsDetected,
-      pending_slots: pendingSlots,
-      conflicts,
-      suggested_next_slot: suggestedNextSlot,
-      consultive_notes: consultiveNotes,
-      should_request_confirmation:
-        typeof modelResponse.should_request_confirmation === "boolean"
-          ? modelResponse.should_request_confirmation || conflicts.length > 0
-          : heuristicResponse.should_request_confirmation || conflicts.length > 0,
-      should_advance_stage: false,
-      confidence: clampConfidence(
-        modelResponse.confidence,
-        heuristicResponse.confidence
-      )
-    };
-  }
+
+  // ── LLM-first: quando o LLM retornou reply válido E foi realmente usado,
+  // o LLM domina — phase guidance serve apenas como fallback controlado.
+  // Isso garante que, com OpenAI disponível, o topo prefira LLM real.
+  const llmDominates = llmUsed && hasParsedReplyText;
+
   const preferHeuristicReply =
     analysis.offtrack ||
     conflicts.length > 0 ||
@@ -3167,11 +3151,27 @@ function normalizeModelResponse({
     DEFER_ACTION_PATTERN.test(normalizedMessage) ||
     NO_TIME_PATTERN.test(normalizedMessage) ||
     REMOTE_REFUSAL_PATTERN.test(normalizedMessage);
-  const replyText = hasParsedReplyText
-    ? parsedReplyText
-    : preferHeuristicReply
-      ? heuristicResponse.reply_text
-      : existingReplyFallback;
+
+  // Decisão de reply_text com speech_origin rastreável:
+  // 1. LLM real domina quando disponível e válido
+  // 2. Phase guidance (heuristic) como fallback controlado
+  // 3. Heuristic reply ou fallback mecânico como último recurso
+  let replyText;
+  let speechOrigin;
+  if (llmDominates) {
+    replyText = parsedReplyText;
+    speechOrigin = "llm_real";
+  } else if (phaseGuidanceReply) {
+    replyText = phaseGuidanceReply;
+    speechOrigin = "heuristic_guidance";
+  } else if (preferHeuristicReply) {
+    replyText = heuristicResponse.reply_text;
+    speechOrigin = "heuristic_guidance";
+  } else {
+    replyText = existingReplyFallback;
+    speechOrigin = "fallback_mechanical";
+  }
+
   const shouldRequestConfirmation =
     typeof modelResponse.should_request_confirmation === "boolean"
       ? modelResponse.should_request_confirmation || conflicts.length > 0
@@ -3183,6 +3183,7 @@ function normalizeModelResponse({
       pendingSlots,
       suggestedNextSlot
     }),
+    speech_origin: speechOrigin,
     slots_detected: slotsDetected,
     pending_slots: pendingSlots,
     conflicts,
@@ -3294,7 +3295,8 @@ export async function runReadOnlyCognitiveEngine(rawInput = {}, options = {}) {
       fallback_used: fallbackUsed,
       provider: llmResult.ok ? "openai" : "heuristic_fallback",
       model: runtimeConfig.openaiApiKey ? runtimeConfig.model : null,
-      fallback_reason: llmResult.ok ? null : llmResult.reason
+      fallback_reason: llmResult.ok ? null : llmResult.reason,
+      speech_origin: response.speech_origin || "fallback_mechanical"
     }
   };
 }

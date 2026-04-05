@@ -2530,3 +2530,221 @@
   line-height: 1.5;
   font-style: italic;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Meta-operação Cognitiva (PR8) — metaOps* CSS classes
+   ───────────────────────────────────────────────────────────────────────── */
+
+/* ── Sub-bloco container ── */
+.metaOpsSubBloco {
+  border-top: 1px solid rgba(63, 63, 70, 0.25);
+  padding-top: 12px;
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* ── Header do sub-bloco ── */
+.metaOpsSubHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.metaOpsSubIcon {
+  font-size: 0.875rem;
+  flex-shrink: 0;
+}
+
+.metaOpsSubTitle {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #a1a1aa;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex: 1;
+}
+
+/* ── Badge de prioridade ── */
+.metaOpsPrioridadeBadge {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.metaOpsPrioridadeAlta {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.metaOpsPrioridadeMedia {
+  background: rgba(234, 179, 8, 0.1);
+  color: #fde68a;
+  border: 1px solid rgba(234, 179, 8, 0.18);
+}
+
+.metaOpsPrioridadeBaixa {
+  background: rgba(113, 113, 122, 0.1);
+  color: #71717a;
+  border: 1px solid rgba(113, 113, 122, 0.14);
+}
+
+/* ── Grid de campos ── */
+.metaOpsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px 8px;
+}
+
+.metaOpsItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metaOpsLabel {
+  font-size: 0.625rem;
+  color: #52525b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+}
+
+.metaOpsBadge {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  width: fit-content;
+}
+
+/* ── Gargalo ── */
+.metaOpsGargaloNenhum {
+  background: rgba(16, 185, 129, 0.08);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.14);
+}
+
+.metaOpsGargaloUrgente {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.metaOpsGargaloPadrao {
+  background: rgba(234, 179, 8, 0.08);
+  color: #fde68a;
+  border: 1px solid rgba(234, 179, 8, 0.12);
+}
+
+/* ── Melhoria ── */
+.metaOpsMelhoriaNenhuma {
+  background: rgba(113, 113, 122, 0.08);
+  color: #52525b;
+  border: 1px solid rgba(113, 113, 122, 0.1);
+}
+
+.metaOpsMelhoriaUrgente {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.metaOpsMelhoriaPadrao {
+  background: rgba(99, 102, 241, 0.08);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.14);
+}
+
+/* ── Sugestão operacional ── */
+.metaOpsSugestaoNenhuma {
+  background: rgba(113, 113, 122, 0.08);
+  color: #52525b;
+  border: 1px solid rgba(113, 113, 122, 0.1);
+}
+
+.metaOpsSugestaoUrgente {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.metaOpsSugestaoPadrao {
+  background: rgba(63, 63, 70, 0.18);
+  color: #a1a1aa;
+  border: 1px solid rgba(63, 63, 70, 0.15);
+}
+
+/* ── Programa sugerido ── */
+.metaOpsProgramaNenhum {
+  background: rgba(113, 113, 122, 0.08);
+  color: #52525b;
+  border: 1px solid rgba(113, 113, 122, 0.1);
+}
+
+.metaOpsProgramaPadrao {
+  background: rgba(99, 102, 241, 0.1);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.18);
+}
+
+/* ── Evolução estrutural ── */
+.metaOpsEvolucaoRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-top: 4px;
+  padding-bottom: 2px;
+}
+
+.metaOpsEvolucaoLabel {
+  font-size: 0.6875rem;
+  color: #71717a;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+.metaOpsEvolucaoBadge {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.metaOpsEvolucaoSim {
+  background: rgba(234, 179, 8, 0.1);
+  color: #fde68a;
+  border: 1px solid rgba(234, 179, 8, 0.18);
+}
+
+.metaOpsEvolucaoIncerto {
+  background: rgba(63, 63, 70, 0.18);
+  color: #a1a1aa;
+  border: 1px solid rgba(63, 63, 70, 0.15);
+}
+
+.metaOpsEvolucaoNao {
+  background: rgba(113, 113, 122, 0.08);
+  color: #52525b;
+  border: 1px solid rgba(113, 113, 122, 0.1);
+}
+
+/* ── Justificativa ── */
+.metaOpsJustificativaRow {
+  padding-top: 2px;
+}
+
+.metaOpsJustificativa {
+  font-size: 0.75rem;
+  color: #71717a;
+  line-height: 1.5;
+  font-style: italic;
+}

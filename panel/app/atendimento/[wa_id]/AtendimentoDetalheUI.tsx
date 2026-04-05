@@ -950,7 +950,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
     }
   }, [lead, convMsgs, clientProfile, cognitiveState, followupState, docsState, reclassState, visitReadinessState]);
 
-
+  useEffect(() => {
     let cancelled = false;
     async function loadMsgs() {
       setConvLoading(true);

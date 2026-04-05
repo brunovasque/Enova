@@ -1361,7 +1361,11 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                   </span>
                 </div>
 
-                {/* ── Organização de Follow-up (PR4) — sub-bloco read-only ── */}
+                {/* ── Sub-blocos cognitivos em linha (PR4 + PR5 + PR6) ── */}
+                {(followupState || docsState || reclassState) && (
+                <div className={styles.subBlocosRow}>
+
+                {/* ── Organização de Follow-up (PR4) ── */}
                 {followupState && (
                   <div className={styles.followupSubBloco}>
                     <div className={styles.followupSubHeader}>
@@ -1452,7 +1456,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                   </div>
                 )}
 
-                {/* ── Máquina de Pastas (PR5) — sub-bloco read-only ── */}
+                {/* ── Máquina de Pastas (PR5) ── */}
                 {docsState && (
                   <div className={styles.docsSubBloco}>
                     <div className={styles.docsSubHeader}>
@@ -1553,7 +1557,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                   </div>
                 )}
 
-                {/* ── Reclassificação Assistida (PR6) — sub-bloco read-only ── */}
+                {/* ── Reclassificação Assistida (PR6) ── */}
                 {reclassState && (
                   <div className={styles.reclassSubBloco}>
                     <div className={styles.reclassSubHeader}>
@@ -1671,6 +1675,9 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                       </span>
                     </div>
                   </div>
+                )}
+
+                </div>
                 )}
 
               </div>

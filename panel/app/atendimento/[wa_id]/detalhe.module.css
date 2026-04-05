@@ -1625,14 +1625,40 @@
 
 
 
+/* ──────────────────────────────────────────────────────────────────────────
+   Sub-blocos cognitivos em linha — PR4 + PR5 + PR6
+   Wrapper de 3 colunas (follow-up / pastas / reclassificação) em desktop.
+   Em telas menores cai para 1 coluna de forma limpa.
+   ────────────────────────────────────────────────────────────────────────── */
+.subBlocosRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+}
+
+@media (max-width: 900px) {
+  .subBlocosRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1200px) {
+  .subBlocosRow {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 /* ══════════════════════════════════════════════════════
    PR 4 — Organizador de Follow-up (sub-bloco dentro de Estado Cognitivo)
    ══════════════════════════════════════════════════════ */
 
 .followupSubBloco {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  min-width: 0;
+  padding: 10px 12px;
+  background: rgba(30, 30, 35, 0.4);
+  border: 1px solid rgba(63, 63, 70, 0.35);
+  border-radius: 6px;
 }
 
 .followupSubHeader {
@@ -1808,7 +1834,7 @@
 
 /* Sub-bloco container */
 .docsSubBloco {
-  margin-top: 12px;
+  min-width: 0;
   padding: 10px 12px;
   background: rgba(16, 185, 129, 0.04);
   border: 1px solid rgba(16, 185, 129, 0.12);
@@ -2026,7 +2052,7 @@
 
 /* Sub-bloco container */
 .reclassSubBloco {
-  margin-top: 12px;
+  min-width: 0;
   padding: 10px 12px;
   background: rgba(30, 30, 35, 0.4);
   border: 1px solid rgba(63, 63, 70, 0.35);

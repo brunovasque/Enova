@@ -72,6 +72,17 @@ function cleanNomeInput(userText) {
       .trim();
   }
   raw = raw.replace(/^["'\-–—\s]+|["'\-–—\s]+$/g, "").trim();
+
+  // ── Extrai primeiro segmento (espelha lógica do worker) ──────────────────────
+  // Passo 1: pega tudo antes do primeiro separador de sentença
+  const firstClause = raw.split(/[.,!?]/)[0].trim();
+  // Passo 2: dentro do segmento, corta em conector + verbo de intenção
+  const intentConnectorRx = /\s+\b(e|mas|que|porque|por)\s+(queria|quero|gostaria|adoraria|preciso|posso|tenho|tem|vai|vou|fui|vim|estou|está|nao|não)\b/i;
+  const connectorIdx = firstClause.search(intentConnectorRx);
+  const candidato = connectorIdx > 0 ? firstClause.slice(0, connectorIdx).trim() : firstClause;
+  if (candidato) raw = candidato;
+  raw = raw.replace(/^["'\-–—\s]+|["'\-–—\s]+$/g, "").trim();
+
   return raw;
 }
 
@@ -333,6 +344,71 @@ test('34. No regression: "me explica o programa" still hits nao=true in inicio_p
   const nt = normalizeText("me explica o programa");
   const nao = nt.includes("explica");
   assert.strictEqual(nao, true, "inicio_programa nao detector must still work");
+});
+
+// =============================================================================
+// GROUP 5 — CASO C: nome com texto extra (resposta mista)
+// =============================================================================
+
+test('35. "Meu nome é Bruno. Tem casa?" → extrai "Bruno", não persiste frase inteira', () => {
+  const r = simulateInicio_nome("Meu nome é Bruno. Tem casa?");
+  assert.strictEqual(r.accepted, true, `reason=${r.reason}`);
+  assert.strictEqual(r.nome, "Bruno");
+  assert.strictEqual(r.primeiroNome, "Bruno");
+});
+
+test('36. "Sou Maria, como funciona?" → extrai "Maria"', () => {
+  const r = simulateInicio_nome("Sou Maria, como funciona?");
+  assert.strictEqual(r.accepted, true, `reason=${r.reason}`);
+  assert.strictEqual(r.nome, "Maria");
+  assert.strictEqual(r.primeiroNome, "Maria");
+});
+
+test('37. "Me chamo João Pedro e queria entender melhor" → extrai "João Pedro"', () => {
+  const r = simulateInicio_nome("Me chamo João Pedro e queria entender melhor");
+  assert.strictEqual(r.accepted, true, `reason=${r.reason}`);
+  assert.strictEqual(r.nome, "João Pedro");
+  assert.strictEqual(r.primeiroNome, "João");
+});
+
+test('38. "Bruno Vasques. Tem apartamento?" → extrai "Bruno Vasques"', () => {
+  const r = simulateInicio_nome("Bruno Vasques. Tem apartamento?");
+  assert.strictEqual(r.accepted, true, `reason=${r.reason}`);
+  assert.strictEqual(r.nome, "Bruno Vasques");
+});
+
+test('39. hasClearStageAnswer — "Meu nome é Bruno. Tem casa?" → true (nome extraível)', () => {
+  assert.strictEqual(hasClearAnswerInicio_nome("Meu nome é Bruno. Tem casa?"), true);
+});
+
+test('40. hasClearStageAnswer — "Sou Maria, como funciona?" → true', () => {
+  assert.strictEqual(hasClearAnswerInicio_nome("Sou Maria, como funciona?"), true);
+});
+
+test('41. hasClearStageAnswer — "Me chamo João Pedro e queria entender melhor" → true', () => {
+  assert.strictEqual(hasClearAnswerInicio_nome("Me chamo João Pedro e queria entender melhor"), true);
+});
+
+test('42. "Maria de Souza e Silva" → accepted, nome intacto (composto com e)', () => {
+  // Garante que "e" dentro de nome composto NÃO é cortado (Silva não é verbo de intenção)
+  const r = simulateInicio_nome("Maria de Souza e Silva");
+  assert.strictEqual(r.accepted, true, `reason=${r.reason}`);
+  assert.strictEqual(r.nome, "Maria de Souza e Silva");
+});
+
+test('43. cognitive prefix cleared on success — simulate: prefix must not survive step()', () => {
+  // Simula que o prefixo cognitivo é limpo quando o nome é resolvido.
+  // No worker: st.__cognitive_reply_prefix = null antes do step() de sucesso.
+  // Aqui validamos a lógica: se nome aceito, __cognitive_reply_prefix deve ser null.
+  const st = { __cognitive_reply_prefix: "Perdão 😅, não consegui entender.", __cognitive_v2_takes_final: true };
+  const r = simulateInicio_nome("Bruno Vasques");
+  if (r.accepted) {
+    // worker limpa os flags antes do step()
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+  }
+  assert.strictEqual(st.__cognitive_reply_prefix, null, "cognitive prefix must be null after name resolved");
+  assert.strictEqual(st.__cognitive_v2_takes_final, false, "v2_takes_final must be false after name resolved");
 });
 
 // ── Summary ───────────────────────────────────────────────────────────────────

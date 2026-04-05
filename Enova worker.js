@@ -3435,9 +3435,16 @@ function hasClearStageAnswer(stage, text) {
   }
   // Bloco 2 topo — inicio_nome, inicio_nacionalidade, inicio_rnm, inicio_rnm_validade
   if (stage === "inicio_nome") {
-    const raw = String(text || "").trim()
+    let raw = String(text || "").trim()
       .replace(/^(meu nome e|meu nome é|me chamo|me chama|sou|sou o|sou a|aqui e|aqui é)\s*/i, "")
       .replace(/^["'\-–—\s]+|["'\-–—\s]+$/g, "").trim();
+    // extrai primeiro segmento (espelha a lógica de case "inicio_nome")
+    const _fc = raw.split(/[.,!?]/)[0].trim();
+    const _icRx = /\s+\b(e|mas|que|porque|por)\s+(queria|quero|gostaria|adoraria|preciso|posso|tenho|tem|vai|vou|fui|vim|estou|está|nao|não)\b/i;
+    const _ci = _fc.search(_icRx);
+    const _cand = _ci > 0 ? _fc.slice(0, _ci).trim() : _fc;
+    if (_cand) raw = _cand;
+    raw = raw.replace(/^["'\-–—\s]+|["'\-–—\s]+$/g, "").trim();
     // semantic guard — mirrors the guard in case "inicio_nome"
     const _ntg = normalizeText(raw);
     if (
@@ -22355,6 +22362,21 @@ case "inicio_nome": {
   // Limpa aspas e pontuação forte nas pontas
   rawNome = rawNome.replace(/^[\"'\-–—\s]+|[\"'\-–—\s]+$/g, "").trim();
 
+  // ── Extrai primeiro segmento da resposta mista (ex: "Bruno. Tem casa?" → "Bruno").
+  // Passo 1: pega tudo antes do primeiro separador de sentença ('.', ',', '!', '?').
+  // Passo 2: dentro desse segmento, se ainda houver conector + verbo de intenção,
+  //          corta ali (ex: "João Pedro e queria entender" → "João Pedro").
+  // Protege nomes compostos reais ("Maria de Souza e Silva") porque o verbo de intenção
+  // não combina com "e <sobrenome>".
+  {
+    const _firstClause = rawNome.split(/[.,!?]/)[0].trim();
+    const _intentConnectorRx = /\s+\b(e|mas|que|porque|por)\s+(queria|quero|gostaria|adoraria|preciso|posso|tenho|tem|vai|vou|fui|vim|estou|está|nao|não)\b/i;
+    const _connectorIdx = _firstClause.search(_intentConnectorRx);
+    const _candidato = _connectorIdx > 0 ? _firstClause.slice(0, _connectorIdx).trim() : _firstClause;
+    if (_candidato) rawNome = _candidato;
+    rawNome = rawNome.replace(/^[\"'\-–—\s]+|[\"'\-–—\s]+$/g, "").trim();
+  }
+
   // ── Guarda semântico: rejeita frases de intenção/explicação/pedido que não são nome.
   // Atua sobre rawNome já limpo (sem prefixo, sem pontuação nas pontas).
   // Padrões cobertos: explicação ("explica*", "explique*"), dúvida ("não sei"),
@@ -22462,6 +22484,10 @@ case "inicio_nome": {
       primeiro_nome: primeiroNome
     }
   });
+
+  // Nome resolvido: limpa prefixo cognitivo residual para evitar reprompt fantasma.
+  st.__cognitive_reply_prefix = null;
+  st.__cognitive_v2_takes_final = false;
 
   return step(
     env,

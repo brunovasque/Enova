@@ -1464,7 +1464,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                               : docsState.status_pasta === "travado_docs"
                               ? styles.docsStatusTravado
                               : docsState.status_pasta === "nao_pronto"
-                              ? styles.docsStatusNaoProto
+                              ? styles.docsStatusNaoPronto
                               : styles.docsStatusSemSinal
                           }`}
                         >

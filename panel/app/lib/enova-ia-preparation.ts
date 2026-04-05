@@ -1,8 +1,9 @@
 // ============================================================
-// Enova IA — Preparation State Machine (G2.3)
+// Enova IA — Preparation State Machine (G2.3 + G2.5)
 // panel/app/lib/enova-ia-preparation.ts
 //
 // PR G2.3 — Aprovação Humana + Estado de Preparação (ENOVA IA)
+// PR G2.5 — Pré-execução Assistida (ENOVA IA)
 // Escopo: PANEL-ONLY, estado local, sem side effect, sem persistência.
 //
 // Propósito:
@@ -11,7 +12,7 @@
 //   transições permitidas entre estados.
 //
 // O que esta camada FAZ:
-//   - Tipar os 4 estados canônicos de preparação
+//   - Tipar os 5 estados canônicos de preparação
 //   - Expor labels e textos de apoio para cada estado
 //   - Declarar quais ações de botão são válidas em cada estado
 //   - Calcular transição de estado (função pura, sem side effect)
@@ -23,8 +24,9 @@
 //   - Mover lead/base/status
 //   - Chamar backend ou IA externa
 //
-// Fluxo canônico de preparação:
+// Fluxo canônico de preparação (G2.3 + G2.5):
 //   draft → (revisar) → review_ready → (aprovar) → approved_for_manual_execution
+//   approved_for_manual_execution → (marcar_pre_execucao) → pre_execution_ready
 //   draft | review_ready → (descartar) → discarded
 // ============================================================
 
@@ -34,16 +36,18 @@
  * - draft                        : rascunho inicial; ação ainda não revisada pelo operador
  * - review_ready                 : operador marcou como pronto para revisão; aguarda aprovação
  * - approved_for_manual_execution: aprovado para execução manual futura; NADA foi executado
+ * - pre_execution_ready          : [G2.5] pacote de pré-execução armado; aguarda gesto final
  * - discarded                    : descartado localmente; sem qualquer efeito externo
  */
 export type ExecutorPreparationStatus =
   | "draft"
   | "review_ready"
   | "approved_for_manual_execution"
+  | "pre_execution_ready"
   | "discarded";
 
 /** Ações de transição disponíveis no fluxo de preparação. */
-export type PreparationAction = "revisar" | "aprovar" | "descartar";
+export type PreparationAction = "revisar" | "aprovar" | "descartar" | "marcar_pre_execucao";
 
 // ── Labels operacionais ────────────────────────────────────────────────────
 
@@ -52,6 +56,7 @@ export const PREPARATION_STATUS_LABEL: Record<ExecutorPreparationStatus, string>
   draft:                         "Rascunho",
   review_ready:                  "Pronto para revisão",
   approved_for_manual_execution: "Aprovado para execução manual",
+  pre_execution_ready:           "Pronta para pré-execução",
   discarded:                     "Descartado",
 };
 
@@ -71,6 +76,8 @@ export const PREPARATION_STATUS_SUPPORT_TEXT: Record<ExecutorPreparationStatus, 
     "Pronto para aprovação — revise os passos e aprove para execução manual",
   approved_for_manual_execution:
     "Aprovado para execução manual — nenhuma ação foi executada automaticamente",
+  pre_execution_ready:
+    "Pacote armado · aguardando gesto final da próxima camada — nenhuma execução ocorreu",
   discarded:
     "Ação descartada localmente — sem nenhum efeito externo",
 };
@@ -83,7 +90,8 @@ export const PREPARATION_STATUS_SUPPORT_TEXT: Record<ExecutorPreparationStatus, 
  * Garante o fluxo canônico:
  * - draft: pode revisar ou descartar (não pode aprovar sem revisar antes)
  * - review_ready: pode aprovar ou descartar
- * - approved_for_manual_execution: nenhuma ação disponível
+ * - approved_for_manual_execution: pode armar para pré-execução [G2.5]
+ * - pre_execution_ready: estado final armado — nenhuma ação disponível [G2.5]
  * - discarded: nenhuma ação disponível
  */
 export const PREPARATION_VALID_ACTIONS: Record<
@@ -92,7 +100,8 @@ export const PREPARATION_VALID_ACTIONS: Record<
 > = {
   draft:                         ["revisar", "descartar"],
   review_ready:                  ["aprovar", "descartar"],
-  approved_for_manual_execution: [],
+  approved_for_manual_execution: ["marcar_pre_execucao"],
+  pre_execution_ready:           [],
   discarded:                     [],
 };
 
@@ -118,9 +127,10 @@ export function transitionPreparationStatus(
     return null;
   }
   switch (action) {
-    case "revisar":   return "review_ready";
-    case "aprovar":   return "approved_for_manual_execution";
-    case "descartar": return "discarded";
+    case "revisar":            return "review_ready";
+    case "aprovar":            return "approved_for_manual_execution";
+    case "descartar":          return "discarded";
+    case "marcar_pre_execucao": return "pre_execution_ready";
   }
 }
 

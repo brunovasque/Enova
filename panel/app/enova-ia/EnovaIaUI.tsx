@@ -20,6 +20,11 @@ import {
   PREPARATION_INITIAL_STATUS,
 } from "../lib/enova-ia-preparation";
 import type { ExecutorPreparationStatus } from "../lib/enova-ia-preparation";
+import {
+  buildPreExecutionPackage,
+  PRE_EXECUTION_NOT_YET_EXECUTED_NOTICE,
+} from "../lib/enova-ia-pre-execution";
+import type { PreExecutionPackage } from "../lib/enova-ia-pre-execution";
 
 const GARGALOS = [
   { tipo: "Documentação", descricao: "Leitura de gargalos virá da análise cognitiva global" },
@@ -326,6 +331,7 @@ const PREPARATION_STATUS_BADGE_CLASS: Record<ExecutorPreparationStatus, string> 
   draft:                         styles.executorBadgeStatusDraft,
   review_ready:                  styles.executorBadgeStatusReviewReady,
   approved_for_manual_execution: styles.executorBadgeStatusApproved,
+  pre_execution_ready:           styles.executorBadgeStatusPreExecutionReady,
   discarded:                     styles.executorBadgeStatusDiscarded,
 };
 
@@ -335,12 +341,14 @@ function ExecutorAssistidoBloco({
   onRevisar,
   onDescartar,
   onAprovar,
+  onMarcarPreExecucao,
 }: {
   draft: EnovaIaActionDraft;
   status: ExecutorPreparationStatus;
   onRevisar: () => void;
   onDescartar: () => void;
   onAprovar: () => void;
+  onMarcarPreExecucao: () => void;
 }) {
   // [G2.4] Use target_leads_detail when available, fall back to plain target_leads
   const hasDetail = draft.target_leads_detail && draft.target_leads_detail.length > 0;
@@ -355,6 +363,7 @@ function ExecutorAssistidoBloco({
     status === "discarded" ? styles.executorBlocoDiscarded : "",
     status === "approved_for_manual_execution" ? styles.executorBlocoApproved : "",
     status === "review_ready" ? styles.executorBlocoReviewReady : "",
+    status === "pre_execution_ready" ? styles.executorBlocoPreExecutionReady : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -364,9 +373,14 @@ function ExecutorAssistidoBloco({
     styles.executorStatusRow,
     status === "approved_for_manual_execution" ? styles.executorStatusRowApproved : "",
     status === "review_ready" ? styles.executorStatusRowReviewReady : "",
+    status === "pre_execution_ready" ? styles.executorStatusRowPreExecution : "",
   ]
     .filter(Boolean)
     .join(" ");
+
+  // [G2.5] Pre-execution package — built only when armed
+  const preExecPackage: PreExecutionPackage | null =
+    status === "pre_execution_ready" ? buildPreExecutionPackage(draft) : null;
 
   const supportText = PREPARATION_STATUS_SUPPORT_TEXT[status];
 
@@ -464,10 +478,35 @@ function ExecutorAssistidoBloco({
           </div>
         )}
 
+        {/* [G2.5] Pacote de pré-execução — visível apenas quando armado */}
+        {preExecPackage && (
+          <div className={styles.executorPreExecPackage}>
+            <span className={styles.executorPreExecPackageLabel}>
+              🎯 Pacote de pré-execução
+            </span>
+            <ul className={styles.executorPreExecChecklist}>
+              {preExecPackage.execution_checklist.map((item) => (
+                <li key={item} className={styles.executorPreExecCheckItem}>
+                  <span className={styles.executorPreExecCheckIcon}>✓</span>
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+            <p className={styles.executorPreExecNotice}>
+              🔒 {PRE_EXECUTION_NOT_YET_EXECUTED_NOTICE}
+            </p>
+          </div>
+        )}
+
         {/* Status row — texto de apoio contextual por estado */}
         {status !== "discarded" && (
           <div className={statusRowClass}>
-            {status === "approved_for_manual_execution" ? (
+            {status === "pre_execution_ready" ? (
+              <>
+                <span className={styles.executorStatusPreExecutionDot} />
+                <span className={styles.executorStatusPreExecutionText}>{supportText}</span>
+              </>
+            ) : status === "approved_for_manual_execution" ? (
               <>
                 <span className={styles.executorStatusApprovedDot} />
                 <span className={styles.executorStatusApprovedText}>{supportText}</span>
@@ -487,10 +526,11 @@ function ExecutorAssistidoBloco({
         )}
 
         {/* Botões — coerentes com o estado atual
-            draft:        Revisar ação | Descartar
-            review_ready: Aprovar preparo | Descartar
-            approved_for_manual_execution: badge estático
-            discarded:    não renderizado (bloco ocultado no pai) */}
+            draft:                        Revisar ação | Descartar
+            review_ready:                 Aprovar preparo | Descartar
+            approved_for_manual_execution: Armar para pré-execução [G2.5]
+            pre_execution_ready:          badge estático armado [G2.5]
+            discarded:                    não renderizado (bloco ocultado no pai) */}
         {status === "draft" && (
           <div className={styles.executorButtons}>
             <button
@@ -535,8 +575,21 @@ function ExecutorAssistidoBloco({
 
         {status === "approved_for_manual_execution" && (
           <div className={styles.executorButtons}>
-            <span className={styles.executorBtnAprovarActive}>
-              ✅ Aprovado para execução manual
+            <button
+              type="button"
+              className={styles.executorBtnMarcarPreExecucao}
+              onClick={onMarcarPreExecucao}
+              aria-label="Armar para pré-execução assistida"
+            >
+              🎯 Armar para pré-execução
+            </button>
+          </div>
+        )}
+
+        {status === "pre_execution_ready" && (
+          <div className={styles.executorButtons}>
+            <span className={styles.executorBtnPreExecucaoActive}>
+              🎯 Pronta para pré-execução assistida
             </span>
           </div>
         )}
@@ -817,6 +870,10 @@ function ChatOperacionalSection({
           }}
           onAprovar={() => {
             const next = transitionPreparationStatus(prepStatus, "aprovar");
+            if (next) setPrepStatus(next);
+          }}
+          onMarcarPreExecucao={() => {
+            const next = transitionPreparationStatus(prepStatus, "marcar_pre_execucao");
             if (next) setPrepStatus(next);
           }}
         />

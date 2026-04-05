@@ -432,38 +432,213 @@
 .cardChat {
   border-color: rgba(94, 174, 173, 0.08);
   background: rgba(94, 174, 173, 0.02);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-.chatShell {
+/* ── Histórico ── */
+.chatHistorico {
   flex: 1;
+  overflow-y: auto;
+  min-height: 160px;
+  max-height: 340px;
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 8px;
   background: rgba(0, 0, 0, 0.2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 100px;
-}
-
-.chatEmpty {
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  text-align: center;
-  padding: 20px;
+  gap: 10px;
+  scroll-behavior: smooth;
 }
 
-.chatEmptyIcon {
-  font-size: 1.75rem;
+/* ── Estado vazio ── */
+.chatVazio {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.chatVazioTitulo {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #a1a1aa;
+}
+
+.chatVazioHint {
+  font-size: 0.75rem;
+  color: #52525b;
+}
+
+.chatExemplos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.chatExemplo {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: #71717a;
+  font-size: 0.75rem;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  line-height: 1.4;
+}
+
+.chatExemplo:hover {
+  background: rgba(94, 174, 173, 0.1);
+  border-color: rgba(94, 174, 173, 0.3);
+  color: #5eaead;
+}
+
+/* ── Mensagens ── */
+.chatMsgUsuario {
+  align-self: flex-end;
+  background: rgba(94, 174, 173, 0.12);
+  border: 1px solid rgba(94, 174, 173, 0.2);
+  border-radius: 8px 8px 2px 8px;
+  padding: 7px 12px;
+  max-width: 85%;
+}
+
+.chatMsgEnova {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 2px 8px 8px 8px;
+  padding: 10px 12px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chatMsgTexto {
+  font-size: 0.8125rem;
+  color: #d4d4d8;
+  line-height: 1.45;
+}
+
+/* ── Resposta estruturada ── */
+.chatRespTitulo {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #e4e4e7;
+  line-height: 1.3;
+}
+
+.chatRespResumo {
+  font-size: 0.8rem;
+  color: #a1a1aa;
+  line-height: 1.4;
+}
+
+.chatRespLinhas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.chatRespLinha {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 5px;
+  border-left: 2px solid rgba(94, 174, 173, 0.3);
+}
+
+.chatRespNome {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #5eaead;
+  text-decoration: none;
+}
+
+.chatRespNome:hover {
+  text-decoration: underline;
+}
+
+.chatRespDetalhe {
+  font-size: 0.75rem;
+  color: #71717a;
+  line-height: 1.35;
+}
+
+.chatRespSugestao {
+  font-size: 0.75rem;
+  color: #71717a;
+  margin-top: 4px;
+  font-style: italic;
+}
+
+/* ── Input row ── */
+.chatInputRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.chatInput {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  color: #e4e4e7;
+  font-size: 0.8125rem;
+  padding: 8px 12px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.chatInput::placeholder {
   color: #3f3f46;
 }
 
-.chatEmptyText {
+.chatInput:focus {
+  border-color: rgba(94, 174, 173, 0.4);
+}
+
+.chatBotaoEnviar {
+  background: rgba(94, 174, 173, 0.15);
+  border: 1px solid rgba(94, 174, 173, 0.25);
+  border-radius: 7px;
+  color: #5eaead;
   font-size: 0.8125rem;
-  color: #52525b;
-  max-width: 200px;
-  line-height: 1.4;
+  font-weight: 500;
+  padding: 8px 16px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.chatBotaoEnviar:hover:not(:disabled) {
+  background: rgba(94, 174, 173, 0.25);
+  border-color: rgba(94, 174, 173, 0.4);
+}
+
+.chatBotaoEnviar:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Legacy placeholder classes kept for compatibility */
+.chatShell,
+.chatEmpty,
+.chatEmptyIcon,
+.chatEmptyText {
+  display: none;
 }
 
 /* ===========================================

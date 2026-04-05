@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useRef, useState } from "react";
 import styles from "./enova-ia.module.css";
 import type { LeituraGlobal, KPIBloco } from "../lib/enova-ia-leitura";
 import type { FilaItem, PrioridadeFila } from "../lib/enova-ia-fila";
 import { PRIORIDADE_FILA_LABEL } from "../lib/enova-ia-fila";
+import { routeChat, genMsgId } from "../lib/enova-ia-chat";
+import type { ChatMsg } from "../lib/enova-ia-chat";
 
 const PROGRAMAS = [
   { titulo: "MCMV Faixa 1", desc: "Integração programada para próxima PR" },
@@ -134,8 +137,174 @@ function LeituraGlobalSection({ leituraGlobal }: { leituraGlobal: LeituraGlobal 
 }
 
 // ---------------------------------------------------------------------------
+// Bloco "Chat Operacional"
+// ---------------------------------------------------------------------------
 
-// null/[] = dados não disponíveis (erro de fetch ou env ausente) → UI renderiza estado de espera.
+const CHAT_EXEMPLOS = [
+  "quais leads precisam ação agora?",
+  "quem está com docs pendentes?",
+  "quem precisa de humano?",
+  "quais estão na fila de retorno?",
+  "quantos leads estão em atendimento?",
+  "quem está perto de plantão?",
+  "resumo geral",
+];
+
+function ChatResponseRender({ msg }: { msg: ChatMsg }) {
+  const r = msg.resposta;
+
+  if (msg.origem === "usuario") {
+    return (
+      <div className={styles.chatMsgUsuario}>
+        <span className={styles.chatMsgTexto}>{msg.texto}</span>
+      </div>
+    );
+  }
+
+  if (!r) {
+    return (
+      <div className={styles.chatMsgEnova}>
+        <span className={styles.chatMsgTexto}>{msg.texto}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.chatMsgEnova}>
+      <div className={styles.chatRespTitulo}>{r.titulo}</div>
+      <div className={styles.chatRespResumo}>{r.resumo}</div>
+      {r.linhas && r.linhas.length > 0 && (
+        <ul className={styles.chatRespLinhas}>
+          {r.linhas.map((linha, i) => (
+            <li key={i} className={styles.chatRespLinha}>
+              <Link href={linha.href} className={styles.chatRespNome}>
+                {linha.nome}
+              </Link>
+              <span className={styles.chatRespDetalhe}>{linha.detalhe}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {r.sugestao && (
+        <div className={styles.chatRespSugestao}>💡 {r.sugestao}</div>
+      )}
+    </div>
+  );
+}
+
+function ChatOperacionalSection({
+  fila,
+  leituraGlobal,
+}: {
+  fila: FilaItem[];
+  leituraGlobal: LeituraGlobal | null;
+}) {
+  const [historico, setHistorico] = useState<ChatMsg[]>([]);
+  const [input, setInput] = useState("");
+  const listaRef = useRef<HTMLDivElement>(null);
+
+  function enviar(texto: string) {
+    const t = texto.trim();
+    if (!t) return;
+
+    const msgUsuario: ChatMsg = {
+      id:      genMsgId(),
+      origem:  "usuario",
+      texto:   t,
+      ts:      Date.now(),
+    };
+
+    const resposta = routeChat(t, fila, leituraGlobal);
+    const msgEnova: ChatMsg = {
+      id:      genMsgId(),
+      origem:  "enova",
+      texto:   resposta.titulo,
+      resposta,
+      ts:      Date.now(),
+    };
+
+    setHistorico((prev) => [...prev, msgUsuario, msgEnova]);
+    setInput("");
+
+    // Wait for the DOM to update before scrolling so the new messages are in the layout
+    const SCROLL_DELAY_MS = 50;
+    setTimeout(() => {
+      listaRef.current?.scrollTo({ top: listaRef.current.scrollHeight, behavior: "smooth" });
+    }, SCROLL_DELAY_MS);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      enviar(input);
+    }
+  }
+
+  function onExemplo(ex: string) {
+    enviar(ex);
+  }
+
+  const vazio = historico.length === 0;
+
+  return (
+    <section className={`${styles.card} ${styles.cardChat}`}>
+      <h2 className={styles.cardTitle}>Chat Operacional</h2>
+      <p className={styles.cardHint}>
+        Comando direto com a Enova — leitura baseada nos dados reais do painel.
+      </p>
+
+      {/* Histórico */}
+      <div ref={listaRef} className={styles.chatHistorico}>
+        {vazio ? (
+          <div className={styles.chatVazio}>
+            <span className={styles.chatVazioTitulo}>Como posso ajudar?</span>
+            <span className={styles.chatVazioHint}>Exemplos de comandos:</span>
+            <div className={styles.chatExemplos}>
+              {CHAT_EXEMPLOS.map((ex) => (
+                <button
+                  key={ex}
+                  className={styles.chatExemplo}
+                  onClick={() => onExemplo(ex)}
+                  type="button"
+                >
+                  {ex}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          historico.map((msg) => <ChatResponseRender key={msg.id} msg={msg} />)
+        )}
+      </div>
+
+      {/* Input */}
+      <div className={styles.chatInputRow}>
+        <input
+          className={styles.chatInput}
+          type="text"
+          placeholder="Ex: quais leads precisam ação agora?"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={onKeyDown}
+          aria-label="Comando para a Enova"
+        />
+        <button
+          className={styles.chatBotaoEnviar}
+          onClick={() => enviar(input)}
+          type="button"
+          disabled={!input.trim()}
+          aria-label="Enviar"
+        >
+          Enviar
+        </button>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+
 export function EnovaIaUI({
   leituraGlobal = null,
   filaInteligente = [],
@@ -204,20 +373,10 @@ export function EnovaIaUI({
           </section>
 
           {/* Chat Operacional */}
-          <section className={`${styles.card} ${styles.cardChat}`}>
-            <h2 className={styles.cardTitle}>Chat Operacional</h2>
-            <p className={styles.cardHint}>
-              Interface de comando direto com a Enova — conectada na PR do chat.
-            </p>
-            <div className={styles.chatShell}>
-              <div className={styles.chatEmpty}>
-                <span className={styles.chatEmptyIcon}>⬡</span>
-                <span className={styles.chatEmptyText}>
-                  Chat operacional disponível na próxima frente
-                </span>
-              </div>
-            </div>
-          </section>
+          <ChatOperacionalSection
+            fila={filaInteligente}
+            leituraGlobal={leituraGlobal}
+          />
 
         </div>
       </div>

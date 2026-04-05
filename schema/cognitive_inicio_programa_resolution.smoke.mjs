@@ -328,7 +328,7 @@ test('30. All expected confirmations detected by post-explanation handler', () =
     "massa", "perfeito", "bora", "claro", "certeza", "combinado",
     "valeu", "fechou", "tranquilo", "suave", "blz", "top",
     "tenho isso", "tenho tudo", "pode seguir", "pode continuar",
-    "tá bom", "ta bom", "vamos", "bora", "ficou claro", "uhum", "aham"
+    "tá bom", "ta bom", "vamos", "ficou claro", "uhum", "aham"
   ];
   const missed = confirmations.filter(c => !isPostExplConfirmation(c, POST_EXPL_BOT_MSG));
   assert.strictEqual(missed.length, 0,

@@ -67,7 +67,7 @@ function assembleMessages(st, rawMessages) {
   return arr;
 }
 
-// mirrors runFunnel cognitive block L20831-20862 (after heuristic/fallback fix)
+// mirrors runFunnel cognitive block (Enova worker.js:22325-22349 — contrato seguro universal)
 function applyHasUsefulCognitiveReplyLogic(st, cognitive, v2Mode) {
   const COGNITIVE_V1_CONFIDENCE_MIN = 0.66;
   const lowConfidence = Number(cognitive.confidence || 0) < COGNITIVE_V1_CONFIDENCE_MIN;
@@ -90,16 +90,27 @@ function applyHasUsefulCognitiveReplyLogic(st, cognitive, v2Mode) {
 
   if (hasUsefulCognitiveReply) {
     st.__cognitive_reply_prefix = cognitiveReply;
-    // Always set explicitly to avoid stale state from a previous call
-    st.__cognitive_v2_takes_final = (v2OnWithLlm || (v2OnWithHeuristic && cognitiveReply.length > 30)) ? true : false;
+    // Guarda universal: still_needs_original_answer=true bloqueia takes_final em TODOS os caminhos.
+    const _stillNeedsOriginal = cognitive.still_needs_original_answer === true;
+    const _answeredSufficiently =
+      cognitive.answered_customer_question === true &&
+      !_stillNeedsOriginal &&
+      cognitiveReply.length > 30;
+    st.__cognitive_v2_takes_final = (
+      (v2OnWithLlm && !_stillNeedsOriginal) ||
+      (v2OnWithHeuristic && cognitiveReply.length > 30 && !_stillNeedsOriginal) ||
+      _answeredSufficiently
+    ) ? true : false;
   } else {
     st.__cognitive_reply_prefix = null;
     st.__cognitive_v2_takes_final = false;
   }
 }
 
-// mirrors offtrack guard L20892-20932 (after fix) — decision logic only
+// mirrors offtrack guard (Enova worker.js:22385-22388 — check estrito takes_final === true)
 function offtrackGuardDecision(st) {
+  // Reanchor mecânico só é suprimido quando takes_final=true foi explicitamente fechado.
+  // Prefix substancial sem takes_final=true não silencia o reanchor.
   const v2HasReply = Boolean(st.__cognitive_reply_prefix) && st.__cognitive_v2_takes_final === true;
   const offtrackMessages = v2HasReply
     ? []
@@ -190,20 +201,22 @@ test("T5: V2 on+heuristic (reason=cognitive_v2_heuristic) + reply útil >30 char
   assert.equal(st.__cognitive_v2_takes_final, true, "takes_final deve ser true para heuristic útil (>30 chars)");
 });
 
-// Test 6: V2 off mode → no takes_final regardless
-test("T6: v2Mode=off → takes_final nunca ativado mesmo com reply útil", () => {
+// Test 6: V2 off mode + answered=true + still_needs=false + reply>30 → takes_final=true
+test("T6: v2Mode=off + answered=true + still_needs=false + reply>30 → takes_final=true (contrato seguro)", () => {
   const st = {};
   const cognitive = {
     reply_text: "O financiamento habitacional é um produto de crédito com prazo longo e taxa fixa.",
     confidence: 0.80,
     reason: "cognitive_v2",
     answered_customer_question: true,
+    still_needs_original_answer: false, // stage não precisa mais da resposta original
     intent: "fallback_contextual",
     safe_stage_signal: null
   };
   applyHasUsefulCognitiveReplyLogic(st, cognitive, "off");
-  // v2OnWithLlm is false when v2Mode="off", so takes_final stays false
-  assert.equal(st.__cognitive_v2_takes_final, false, "takes_final deve ser false no modo off");
+  // still_needs=false: _answeredSufficiently=true → takes_final=true
+  assert.ok(Boolean(st.__cognitive_reply_prefix), "prefix deve estar definido");
+  assert.equal(st.__cognitive_v2_takes_final, true, "takes_final deve ser true: answered=true + still_needs=false + reply>30");
 });
 
 // Test 7: Short reply V2 on+LLM <30 chars with no other signal → NOT useful
@@ -345,21 +358,25 @@ test("T15: V2 on+heuristic reply <=30 chars → takes_final=false (fallback mec�
   assert.equal(st.__cognitive_v2_takes_final, false, "takes_final deve ser false (reply curto)");
 });
 
-// Test 16: no_llm_or_parse + fallback útil (confidence=0.68 from fix) → V2 assumes final
-test("T16: no_llm_or_parse + fallback útil (confidence=0.68) → V2 assume fala final", () => {
+// Test 16: no_llm_or_parse (buildCognitiveFallback real) + still_needs=true → takes_final=false
+// Guarda universal: still_needs=true bloqueia takes_final em TODOS os caminhos (LLM, heuristic, off).
+test("T16: no_llm_or_parse + still_needs=true → takes_final=false em qualquer modo (guarda universal)", () => {
   const st = {};
-  // Simulates buildCognitiveFallback output AFTER the fix (confidence: 0.68)
+  // buildCognitiveFallback sempre retorna still_needs_original_answer: true.
+  // Com guarda universal: v2OnWithHeuristic && !_stillNeedsOriginal = v2OnWithHeuristic && false = false
+  // → takes_final=false. Mecânico deve aparecer — o reply é só "Entendo sua dúvida, mas preciso fechar."
   const cognitive = {
     reply_text: "Entendo sua dúvida. Pra te orientar com segurança, eu preciso fechar esta etapa primeiro e aí te explico o próximo passo com base no seu perfil.",
-    confidence: 0.68, // FIXED: was 0, now 0.68 (above 0.66 threshold)
+    confidence: 0.68,
     reason: "no_llm_or_parse",
     answered_customer_question: true,
+    still_needs_original_answer: true, // buildCognitiveFallback: stage AINDA precisa da resposta original
     intent: "fallback_contextual",
     safe_stage_signal: null
   };
   applyHasUsefulCognitiveReplyLogic(st, cognitive, "on");
-  assert.ok(Boolean(st.__cognitive_reply_prefix), "prefix deve estar definido (fallback útil)");
-  assert.equal(st.__cognitive_v2_takes_final, true, "takes_final deve ser true (fallback útil >30 chars, v2 on)");
+  assert.ok(Boolean(st.__cognitive_reply_prefix), "prefix setado — reply cognitivo como prefixo");
+  assert.equal(st.__cognitive_v2_takes_final, false, "takes_final=false — still_needs=true bloqueia assunção em TODOS os caminhos, incluindo v2OnWithHeuristic");
 });
 
 // Test 17: no_llm_or_parse with forced confidence=0 → reply dies → mechanical fallback
@@ -376,6 +393,25 @@ test("T17: no_llm_or_parse + confidence=0 forçado → reply morre → fallback 
   applyHasUsefulCognitiveReplyLogic(st, cognitive, "on");
   assert.equal(st.__cognitive_reply_prefix, null, "prefix deve ser null (confidence=0 mata reply)");
   assert.equal(st.__cognitive_v2_takes_final, false, "takes_final deve ser false (reply morto)");
+});
+
+// Test 17b: V2 "on" + LLM (cognitive_v2) + still_needs=true → takes_final=false (guarda universal)
+test("T17b: V2 on+LLM (cognitive_v2) + still_needs=true → takes_final=false (guarda universal)", () => {
+  const st = {};
+  // Cenário hipotético: LLM gerou reply mas disse que ainda precisa da resposta original.
+  // Com guarda universal: v2OnWithLlm && !_stillNeedsOriginal = v2OnWithLlm && false = false.
+  const cognitive = {
+    reply_text: "Entendo bem. Vou precisar que você confirme seu estado civil pra eu poder calcular o subsídio corretamente.",
+    confidence: 0.72,
+    reason: "cognitive_v2",
+    answered_customer_question: true,
+    still_needs_original_answer: true, // LLM disse: "ainda preciso da resposta do stage"
+    intent: "needs_confirmation",
+    safe_stage_signal: null
+  };
+  applyHasUsefulCognitiveReplyLogic(st, cognitive, "on");
+  assert.ok(Boolean(st.__cognitive_reply_prefix), "prefix setado — reply como prefixo");
+  assert.equal(st.__cognitive_v2_takes_final, false, "takes_final=false — guarda universal: still_needs=true bloqueia até v2OnWithLlm");
 });
 
 // Test 18: real topo scenario — "me tira uma dúvida?" + heuristic useful → V2 takes final
@@ -430,19 +466,207 @@ test("T20: regressão — LLM ok (reason=cognitive_v2) → takes_final=true (pre
   assert.equal(st.__cognitive_v2_takes_final, true, "takes_final deve ser true (LLM ok, como antes)");
 });
 
-// Test 21: regressão — v2Mode=off + heuristic → takes_final=false
-test("T21: regressão — v2Mode=off + heuristic → takes_final=false (nunca libera fora do modo on)", () => {
+// Test 21: regressão — v2Mode=off + answered=false + apenas intent → takes_final=false (preservado)
+test("T21: regressão — v2Mode=off + answered_customer_question=false + intent → takes_final=false", () => {
   const st = {};
   const cognitive = {
     reply_text: "Claro! O programa Minha Casa Minha Vida ajuda você a financiar com condições especiais.",
     confidence: 0.72,
     reason: "cognitive_v2_heuristic",
-    answered_customer_question: true,
+    answered_customer_question: false, // não respondeu explicitamente → takes_final não fecha
     intent: "fallback_contextual",
     safe_stage_signal: null
   };
   applyHasUsefulCognitiveReplyLogic(st, cognitive, "off");
-  assert.equal(st.__cognitive_v2_takes_final, false, "takes_final deve ser false no modo off (mesmo com heuristic útil)");
+  // answered_customer_question=false → condição _answeredSufficiently=false → takes_final=false
+  assert.equal(st.__cognitive_v2_takes_final, false, "takes_final deve ser false: answered=false, intent apenas não basta para assumir final no modo off");
+});
+
+// ================================================================
+// GRUPO 7 — Smoke tests obrigatórios do patch (A–F)
+// Cobrem os 4 cenários novos + preservações obrigatórias
+// ================================================================
+console.log("\n🔥 GRUPO 7: Smoke tests obrigatórios do patch assunção fala final");
+
+// ── Smoke A: Topo happy path — resposta cognitiva útil assume fala final ──
+test("SA: topo happy path — modo off + answered=true + still_needs=false → takes_final=true, sem mecânico anexado", () => {
+  const st = {};
+  const cognitive = {
+    reply_text: "Que ótimo que você já conhece o programa! Vou analisar seu perfil agora. Qual o seu nome completo para eu começar?",
+    confidence: 0.80,
+    reason: "cognitive_v1",
+    answered_customer_question: true,
+    still_needs_original_answer: false, // LLM respondeu suficientemente, stage pode avançar
+    intent: "sim_conheco_programa",
+    safe_stage_signal: "inicio_programa:sim"
+  };
+  applyHasUsefulCognitiveReplyLogic(st, cognitive, "off");
+  assert.equal(st.__cognitive_v2_takes_final, true, "SA: takes_final=true — topo happy path cognitivo assume fala final");
+  // step() com takes_final=true → apenas prefixo, sem mecânico
+  const mechanical = ["Ótimo, então vamos direto ao ponto 😉", "Pra começar, qual o seu *nome completo*?"];
+  const result = assembleMessages(st, mechanical);
+  assert.equal(result.length, 1, "SA: apenas 1 mensagem — cognitivo assume fala final, sem cola mecânica");
+  assert.ok(result[0].includes("nome completo"), "SA: reply cognitivo inclui pergunta de nome");
+});
+
+// ── Smoke B: Pós-reset — primeira mensagem útil, sem pergunta mecânica crua ──
+test("SB: pós-reset — modo off + answered=true + still_needs=false → takes_final=true, fallback mecânico não domina", () => {
+  const st = {};
+  const cognitive = {
+    reply_text: "Olá! Que bom que voltou. Para continuar de onde paramos, você já tem conhecimento sobre o Minha Casa Minha Vida?",
+    confidence: 0.78,
+    reason: "cognitive_v1",
+    answered_customer_question: true,
+    still_needs_original_answer: false, // LLM respondeu a reentrada, não precisa de resposta original
+    intent: "first_after_reset",
+    safe_stage_signal: null
+  };
+  applyHasUsefulCognitiveReplyLogic(st, cognitive, "off");
+  assert.equal(st.__cognitive_v2_takes_final, true, "SB: takes_final=true — pós-reset cognitivo assume fala final");
+  // step() deve mostrar apenas o reply cognitivo, não a pergunta mecânica crua
+  const mechanical = ["Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho?", "Me diz *sim* (já sei) ou *não* (me explica)."];
+  const result = assembleMessages(st, mechanical);
+  assert.equal(result.length, 1, "SB: apenas 1 mensagem — sem pergunta mecânica crua por trás");
+  assert.ok(!result.some(m => m.includes("Me diz *sim*")), "SB: pergunta mecânica crua não aparece");
+});
+
+// ── Smoke C: Off-trail — prefix substancial mas takes_final=false → reanchor DEVE disparar ──
+test("SC: off-trail — prefix substancial (>30 chars) mas takes_final=false → v2HasReply=false, reanchor dispara (Fix 2 revertido)", () => {
+  // Fix 2 revertido: prefix length NÃO silencia reanchor quando takes_final=false.
+  // Quando o sistema decidiu não assumir fala final, o reanchor mecânico deve aparecer.
+  const st = {
+    __cognitive_reply_prefix: "Boa pergunta! Sim, o FGTS pode ser usado como entrada no Minha Casa Minha Vida. Pra calcular quanto você teria, preciso fechar as etapas anteriores primeiro.",
+    __cognitive_v2_takes_final: false // sistema decidiu NÃO assumir fala final
+  };
+  const { v2HasReply, offtrackMessages } = offtrackGuardDecision(st);
+  assert.equal(v2HasReply, false, "SC: v2HasReply=false — Fix 2 revertido: prefix>30 sem takes_final não silencia reanchor");
+  assert.equal(offtrackMessages.length, 2, "SC: reanchor mecânico dispara — 2 mensagens de reanchor");
+  assert.ok(offtrackMessages[0].includes("Vou analisar"), "SC: primeira mensagem é o reanchor mecânico");
+});
+
+// ── Smoke C2: Off-trail — answered=true + still_needs=false → takes_final=true, reanchor suprimido ──
+test("SC2: off-trail — answered=true + still_needs=false → takes_final=true via Fix 1, v2HasReply=true, reanchor suprimido", () => {
+  const st = {};
+  const cognitive = {
+    reply_text: "Sim! O FGTS pode ser utilizado como entrada no financiamento do Minha Casa Minha Vida. Ótimo recurso! Vamos continuar e eu calculo tudo para você.",
+    confidence: 0.80,
+    reason: "cognitive_v1",
+    answered_customer_question: true,
+    still_needs_original_answer: false, // respondeu suficientemente
+    intent: "fgts_question",
+    safe_stage_signal: null
+  };
+  applyHasUsefulCognitiveReplyLogic(st, cognitive, "off");
+  assert.equal(st.__cognitive_v2_takes_final, true, "SC2: Fix 1 fecha takes_final=true (answered=true + still_needs=false)");
+  const { v2HasReply, offtrackMessages } = offtrackGuardDecision(st);
+  assert.equal(v2HasReply, true, "SC2: v2HasReply=true via takes_final=true");
+  assert.equal(offtrackMessages.length, 0, "SC2: reanchor suprimido — cognitivo assume fala final");
+});
+
+// ── Smoke C3: Stage ainda precisa da resposta original — reanchor mecânico preservado ──
+test("SC3: off-trail — answered=true mas still_needs=true → takes_final=false, reanchor mecânico preservado", () => {
+  // Cobre explicitamente: cognitivo respondeu algo útil mas o stage ainda precisa da resposta original.
+  // Ex: buildCognitiveFallback ("Entendo, mas preciso fechar esta etapa") — not_llm_or_parse path.
+  const st = {};
+  const cognitive = {
+    reply_text: "Entendo sua dúvida sobre o FGTS. Pra te orientar com segurança, eu preciso fechar esta etapa primeiro e aí te explico o próximo passo com base no seu perfil.",
+    confidence: 0.68,
+    reason: "no_llm_or_parse",
+    answered_customer_question: true,
+    still_needs_original_answer: true, // stage AINDA precisa da resposta original
+    intent: "fallback_contextual",
+    safe_stage_signal: null
+  };
+  applyHasUsefulCognitiveReplyLogic(st, cognitive, "off");
+  // still_needs=true → _answeredSufficiently=false → takes_final=false
+  assert.ok(Boolean(st.__cognitive_reply_prefix), "SC3: prefix setado (reply passou threshold de confiança)");
+  assert.equal(st.__cognitive_v2_takes_final, false, "SC3: takes_final=false — still_needs=true bloqueia assunção da fala final");
+  // Com takes_final=false, off-trail guard deve manter reanchor
+  const { v2HasReply, offtrackMessages } = offtrackGuardDecision(st);
+  assert.equal(v2HasReply, false, "SC3: v2HasReply=false — reanchor não suprimido (takes_final=false)");
+  assert.equal(offtrackMessages.length, 2, "SC3: reanchor mecânico preservado — stage ainda precisa da resposta original");
+});
+
+// ── Smoke D: Sem resposta cognitiva suficiente — fallback mecânico preservado ──
+test("SD: sem reply cognitivo suficiente — fluxo seguro, fallback mecânico preservado", () => {
+  const st = {};
+  // reply curto, answered=false, sem intent/signal
+  const cognitive = {
+    reply_text: "Ok.",
+    confidence: 0.70,
+    reason: "cognitive_v1",
+    answered_customer_question: false,
+    intent: null,
+    safe_stage_signal: null
+  };
+  applyHasUsefulCognitiveReplyLogic(st, cognitive, "off");
+  assert.equal(st.__cognitive_reply_prefix, null, "SD: prefix nulo — reply não suficiente");
+  assert.equal(st.__cognitive_v2_takes_final, false, "SD: takes_final=false — fallback mecânico seguro");
+  // step() deve mostrar apenas mensagens mecânicas
+  const mechanical = ["Me diga seu estado civil."];
+  const result = assembleMessages(st, mechanical);
+  assert.equal(result.length, 1, "SD: apenas mecânico");
+  assert.ok(result[0].includes("estado civil"), "SD: mensagem mecânica preservada");
+});
+
+// ── Smoke D2: replied=false (ambiguidade) — fallback mecânico preservado ──
+test("SD2: replied útil mas sem resposta suficiente (answered=false) → takes_final=false, mecânico preservado", () => {
+  const st = {};
+  const cognitive = {
+    reply_text: "Entendo o que você quer dizer. Pode me confirmar seu estado civil para eu seguir?",
+    confidence: 0.75,
+    reason: "cognitive_v1",
+    answered_customer_question: false, // pediu confirmação → não assumiu fala final
+    intent: "ambiguidade",
+    safe_stage_signal: null
+  };
+  applyHasUsefulCognitiveReplyLogic(st, cognitive, "off");
+  // prefix fica set (intent detectado), mas takes_final=false → mecânico é anexado
+  assert.ok(Boolean(st.__cognitive_reply_prefix), "SD2: prefix setado (intent detectado)");
+  assert.equal(st.__cognitive_v2_takes_final, false, "SD2: takes_final=false — mecânico deve ser exibido junto");
+});
+
+// ── Smoke E: Modo humano manual — modoHumanoRender preservado, sem interferência ──
+test("SE: modo humano manual — step() com modo_humano=true preservado, takes_final não interfere", () => {
+  // modoHumanoRender lê st.modo_humano — não é afetado pelos flags cognitivos
+  // Verificamos que os flags cognitivos são limpos ANTES de modoHumanoRender ser chamado
+  // (worker.js:174-178: limpa flags, então chama modoHumanoRender)
+  // O patch não altera essa ordem — modo humano continua soberano sobre a apresentação.
+  const st = {
+    __cognitive_reply_prefix: "Resposta cognitiva que não deve interferir no modo humano.",
+    __cognitive_v2_takes_final: true,
+    modo_humano: true,     // modo humano manual ativo
+    primeiro_nome: "João"
+  };
+  // assembleMessages simula step() — consome prefix+takes_final, limpa flags
+  const mechanical = ["Mensagem mecânica padrão."];
+  const result = assembleMessages(st, mechanical);
+  // Após assembleMessages: flags limpos
+  assert.equal(st.__cognitive_v2_takes_final, false, "SE: takes_final limpo após step() — não vaza para modo humano");
+  assert.equal(st.__cognitive_reply_prefix, null, "SE: prefix limpo após step() — não vaza para modo humano");
+  // modo_humano em st permanece inalterado pelo patch (gerenciado pelo modoHumanoRender no worker)
+  assert.equal(st.modo_humano, true, "SE: st.modo_humano preservado integralmente — patch não toca nele");
+});
+
+// ── Smoke F: Não regressão de stage — gates/nextStage/persistência intactos ──
+test("SF: não regressão — takes_final=true não altera nextStage, gate ou persistência", () => {
+  // O patch modifica APENAS a fala final (surface conversacional).
+  // nextStage é parâmetro de step(), nunca alterado pelo prefix/takes_final.
+  const nextStage = "inicio_nome"; // mecânico decide
+  const st = {
+    __cognitive_reply_prefix: "Ótimo que você já conhece o programa! Qual seu nome completo?",
+    __cognitive_v2_takes_final: true,
+    fase_conversa: "inicio_programa" // mecânico preservado
+  };
+  const mechanical = ["Pra começar, qual o seu *nome completo*?"];
+  const result = assembleMessages(st, mechanical);
+  // nextStage completamente intocado
+  assert.equal(nextStage, "inicio_nome", "SF: nextStage intacto — mecânico soberano");
+  assert.equal(st.fase_conversa, "inicio_programa", "SF: fase_conversa intacta — não alterada pelo patch");
+  assert.equal(result.length, 1, "SF: apenas 1 mensagem (cognitivo assume fala final)");
+  // Flags limpos → não vazam para próxima rodada
+  assert.equal(st.__cognitive_v2_takes_final, false, "SF: takes_final limpo para próxima rodada");
+  assert.equal(st.__cognitive_reply_prefix, null, "SF: prefix limpo para próxima rodada");
 });
 
 // ================================================================

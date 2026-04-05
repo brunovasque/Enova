@@ -1800,3 +1800,221 @@
   line-height: 1.5;
   font-style: italic;
 }
+
+/* ════════════════════════════════════════════════════════════
+   Máquina de Pastas (PR 5) — sub-bloco dentro de Estado Cognitivo
+   Prefixo: docs*
+   ════════════════════════════════════════════════════════════ */
+
+/* Sub-bloco container */
+.docsSubBloco {
+  margin-top: 12px;
+  padding: 10px 12px;
+  background: rgba(16, 185, 129, 0.04);
+  border: 1px solid rgba(16, 185, 129, 0.12);
+  border-radius: 6px;
+}
+
+/* Header da sub-seção */
+.docsSubHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.docsSubIcon {
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+.docsSubTitle {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #d1d5db;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* Probabilidade badge (header) */
+.docsProbBadge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.docsProbAlta {
+  background: rgba(16, 185, 129, 0.12);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.docsProbMedia {
+  background: rgba(234, 179, 8, 0.1);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.15);
+}
+
+.docsProbBaixa {
+  background: rgba(113, 113, 122, 0.1);
+  color: #71717a;
+  border: 1px solid rgba(113, 113, 122, 0.12);
+}
+
+/* Grid de campos */
+.docsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 12px;
+  margin-bottom: 8px;
+}
+
+.docsItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.docsLabel {
+  font-size: 0.6875rem;
+  color: #71717a;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.docsValue {
+  font-size: 0.75rem;
+  color: #e4e4e7;
+}
+
+/* Badge base */
+.docsBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  width: fit-content;
+}
+
+/* ── Status pasta ── */
+.docsStatusEmDocs {
+  background: rgba(16, 185, 129, 0.12);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.docsStatusPronto {
+  background: rgba(34, 197, 94, 0.1);
+  color: #86efac;
+  border: 1px solid rgba(34, 197, 94, 0.18);
+}
+
+.docsStatusQuase {
+  background: rgba(99, 102, 241, 0.08);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.docsStatusTravado {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.18);
+}
+
+.docsStatusNaoProto {
+  background: rgba(113, 113, 122, 0.1);
+  color: #71717a;
+  border: 1px solid rgba(113, 113, 122, 0.12);
+}
+
+.docsStatusSemSinal {
+  background: rgba(63, 63, 70, 0.3);
+  color: #52525b;
+  border: 1px solid rgba(63, 63, 70, 0.2);
+}
+
+/* ── Maturidade ── */
+.docsMaturidadeAlta {
+  background: rgba(16, 185, 129, 0.1);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.18);
+}
+
+.docsMaturidadeMedia {
+  background: rgba(234, 179, 8, 0.08);
+  color: #fde68a;
+  border: 1px solid rgba(234, 179, 8, 0.14);
+}
+
+.docsMaturidadeBaixa {
+  background: rgba(113, 113, 122, 0.1);
+  color: #71717a;
+  border: 1px solid rgba(113, 113, 122, 0.12);
+}
+
+/* ── Ação sugerida ── */
+.docsAcaoAtiva {
+  background: rgba(16, 185, 129, 0.1);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.18);
+}
+
+.docsAcaoUrgente {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.docsAcaoPadrao {
+  background: rgba(99, 102, 241, 0.08);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.docsAcaoNula {
+  background: rgba(113, 113, 122, 0.08);
+  color: #52525b;
+  border: 1px solid rgba(113, 113, 122, 0.1);
+}
+
+/* ── Estratégia ── */
+.docsEstrategiaRow {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.docsEstrategiaLabel {
+  font-size: 0.6875rem;
+  color: #71717a;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+.docsEstrategiaValue {
+  font-size: 0.75rem;
+  color: #a1a1aa;
+}
+
+/* ── Justificativa ── */
+.docsJustificativaRow {
+  padding-top: 2px;
+}
+
+.docsJustificativa {
+  font-size: 0.75rem;
+  color: #71717a;
+  line-height: 1.5;
+  font-style: italic;
+}

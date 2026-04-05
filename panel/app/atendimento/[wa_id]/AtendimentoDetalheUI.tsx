@@ -44,6 +44,16 @@ import {
   getUrgenciaFollowupLabel,
   getAcaoFollowupLabel,
 } from "../../lib/lead-followup-labels";
+import { readLeadDocs } from "../../lib/lead-docs";
+import type { LeadDocsReading } from "../../lib/lead-docs";
+import {
+  getStatusPastaLabel,
+  getMaturidadeDocsLabel,
+  getBloqueioDocsPrincipalLabel,
+  getEstrategiaDocsSugeridaLabel,
+  getProbabilidadePastaLabel,
+  getAcaoDocsSugeridaLabel,
+} from "../../lib/lead-docs-labels";
 
 /* ── Type — mirrors AttendanceRow in AtendimentoUI ── */
 export type AttendanceDetalheRow = {
@@ -865,6 +875,17 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
     }
   }, [lead, convMsgs, clientProfile, cognitiveState]);
 
+  /* ── Máquina de Pastas (PR5) — leitura read-only, never throws ── */
+  const docsState = useMemo((): LeadDocsReading | null => {
+    if (!cognitiveState) return null;
+    try {
+      const signals = buildLeadSignals(lead, convMsgs, clientProfile);
+      return readLeadDocs(signals, cognitiveState);
+    } catch {
+      return null;
+    }
+  }, [lead, convMsgs, clientProfile, cognitiveState]);
+
   useEffect(() => {
     let cancelled = false;
     async function loadMsgs() {
@@ -1404,6 +1425,107 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                     <div className={styles.followupJustificativaRow}>
                       <span className={styles.followupJustificativa}>
                         {followupState.justificativa_followup}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Máquina de Pastas (PR5) — sub-bloco read-only ── */}
+                {docsState && (
+                  <div className={styles.docsSubBloco}>
+                    <div className={styles.docsSubHeader}>
+                      <span className={styles.docsSubIcon}>📁</span>
+                      <span className={styles.docsSubTitle}>Máquina de Pastas</span>
+                      <span
+                        className={`${styles.docsProbBadge} ${
+                          docsState.probabilidade_pasta === "alta"
+                            ? styles.docsProbAlta
+                            : docsState.probabilidade_pasta === "media"
+                            ? styles.docsProbMedia
+                            : styles.docsProbBaixa
+                        }`}
+                      >
+                        {getProbabilidadePastaLabel(docsState.probabilidade_pasta)}
+                      </span>
+                    </div>
+
+                    <div className={styles.docsGrid}>
+                      {/* Status pasta */}
+                      <div className={styles.docsItem}>
+                        <span className={styles.docsLabel}>Status pasta</span>
+                        <span
+                          className={`${styles.docsBadge} ${
+                            docsState.status_pasta === "em_docs"
+                              ? styles.docsStatusEmDocs
+                              : docsState.status_pasta === "pronto_para_docs"
+                              ? styles.docsStatusPronto
+                              : docsState.status_pasta === "quase_pronto"
+                              ? styles.docsStatusQuase
+                              : docsState.status_pasta === "travado_docs"
+                              ? styles.docsStatusTravado
+                              : docsState.status_pasta === "nao_pronto"
+                              ? styles.docsStatusNaoProto
+                              : styles.docsStatusSemSinal
+                          }`}
+                        >
+                          {getStatusPastaLabel(docsState.status_pasta)}
+                        </span>
+                      </div>
+
+                      {/* Maturidade */}
+                      <div className={styles.docsItem}>
+                        <span className={styles.docsLabel}>Maturidade</span>
+                        <span
+                          className={`${styles.docsBadge} ${
+                            docsState.maturidade_docs === "alta"
+                              ? styles.docsMaturidadeAlta
+                              : docsState.maturidade_docs === "media"
+                              ? styles.docsMaturidadeMedia
+                              : styles.docsMaturidadeBaixa
+                          }`}
+                        >
+                          {getMaturidadeDocsLabel(docsState.maturidade_docs)}
+                        </span>
+                      </div>
+
+                      {/* Bloqueio */}
+                      <div className={styles.docsItem}>
+                        <span className={styles.docsLabel}>Bloqueio</span>
+                        <span className={styles.docsValue}>
+                          {getBloqueioDocsPrincipalLabel(docsState.bloqueio_docs_principal)}
+                        </span>
+                      </div>
+
+                      {/* Ação sugerida */}
+                      <div className={styles.docsItem}>
+                        <span className={styles.docsLabel}>Ação sugerida</span>
+                        <span
+                          className={`${styles.docsBadge} ${
+                            docsState.acao_docs_sugerida === "estimular_docs" ||
+                            docsState.acao_docs_sugerida === "chamar_cliente"
+                              ? styles.docsAcaoAtiva
+                              : docsState.acao_docs_sugerida === "pedir_humano"
+                              ? styles.docsAcaoUrgente
+                              : docsState.acao_docs_sugerida === "sem_acao"
+                              ? styles.docsAcaoNula
+                              : styles.docsAcaoPadrao
+                          }`}
+                        >
+                          {getAcaoDocsSugeridaLabel(docsState.acao_docs_sugerida)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Estratégia e justificativa */}
+                    <div className={styles.docsEstrategiaRow}>
+                      <span className={styles.docsEstrategiaLabel}>Estratégia:</span>
+                      <span className={styles.docsEstrategiaValue}>
+                        {getEstrategiaDocsSugeridaLabel(docsState.estrategia_docs_sugerida)}
+                      </span>
+                    </div>
+                    <div className={styles.docsJustificativaRow}>
+                      <span className={styles.docsJustificativa}>
+                        {docsState.justificativa_docs}
                       </span>
                     </div>
                   </div>

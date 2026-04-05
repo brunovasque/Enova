@@ -245,7 +245,7 @@ function deriveGargaloPrincipal(
   if (
     reclassState &&
     reclassState.lead_frio_recuperavel === "sim" &&
-    reclassState.calor_real === "frio"
+    reclassState.calor_real_lead === "frio"
   ) {
     return "travamento_reativacao";
   }
@@ -254,7 +254,7 @@ function deriveGargaloPrincipal(
   if (
     cognitiveState.nivel_interesse === "baixo" ||
     cognitiveState.momento_compra === "curioso" ||
-    (reclassState && reclassState.calor_real === "frio" && reclassState.lead_frio_recuperavel === "nao")
+    (reclassState && reclassState.calor_real_lead === "frio" && reclassState.lead_frio_recuperavel === "nao")
   ) {
     return "lead_sem_interesse_claro";
   }

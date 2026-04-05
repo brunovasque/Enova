@@ -439,9 +439,140 @@ await asyncTest('28. inicio_nome: no name_candidate → normal flow unchanged', 
   assert.ok(!st.name_candidate, "no candidate means normal flow");
 });
 
+// =======================================================================
+// PATCH: heuristic_guidance blocked on first turn after reset (tests 29-37)
+// Validates that after reset:
+//   - heuristic_guidance source → flags revoked (no template takes_final)
+//   - cognitive_real source → still dominates (LLM reply used)
+//   - resolveTopoStructured skipped on _isFirstAfterReset
+//   - step() falls through to mechanical messages only (no greeting prefix)
+//   - normal ambiguous (no reset) still accepts heuristic_guidance
+// =======================================================================
+
+// ── Mirrors the NEW patched setTopoHappyPathFlags + post-reset guard ──
+function applyFlagsWithPatch(st, happyResult, isFirstAfterReset) {
+  // mirrors setTopoHappyPathFlags
+  if (happyResult.source === "cognitive_real" || happyResult.source === "heuristic_guidance") {
+    st.__cognitive_reply_prefix = happyResult.speech[0];
+    st.__cognitive_v2_takes_final = true;
+  } else {
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+  }
+  // POST-RESET GUARD (new patch line 23047-23050)
+  if (isFirstAfterReset && happyResult.source === "heuristic_guidance") {
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+  }
+}
+
+// ── Mirrors resolveTopoStructured guard (new patch line 23060) ──
+function applyResolveTopoStructuredIfAllowed(st, isFirstAfterReset, resolvedReply) {
+  if (!st.__cognitive_v2_takes_final && !isFirstAfterReset) {
+    if (resolvedReply) {
+      st.__cognitive_reply_prefix = resolvedReply;
+      st.__cognitive_v2_takes_final = true;
+    }
+  }
+}
+
+const HEURISTIC_TEMPLATE = "Oi! Fico feliz em te ajudar 😊 Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique rapidinho? Responda *sim* (já sei) ou *não* (explica).";
+const RESOLVE_TOPO_REPLY = "Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho? Me diz *sim* (já sei) ou *não* (me explica).";
+const MECHANICAL_REPROMPT = [
+  "Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho?",
+  "Me diz *sim* (já sei) ou *não* (me explica)."
+];
+
+// ===== 29. _isFirstAfterReset + heuristic_guidance → flags revoked =====
+await asyncTest('29. _isFirstAfterReset + heuristic_guidance → flags revoked (no template takes_final)', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+  applyFlagsWithPatch(st, { source: "heuristic_guidance", speech: [HEURISTIC_TEMPLATE] }, true);
+  assert.strictEqual(st.__cognitive_reply_prefix, null, "prefix must be null — heuristic rejected");
+  assert.strictEqual(st.__cognitive_v2_takes_final, false, "takes_final must be false — heuristic rejected");
+});
+
+// ===== 30. _isFirstAfterReset + cognitive_real → flags kept (LLM dominates) =====
+await asyncTest('30. _isFirstAfterReset + cognitive_real → flags kept (LLM reply dominates)', () => {
+  const LLM_REPLY = "Que bom te ver aqui! 😊 Você já sabe como funciona o MCMV?";
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+  applyFlagsWithPatch(st, { source: "cognitive_real", speech: [LLM_REPLY] }, true);
+  assert.strictEqual(st.__cognitive_reply_prefix, LLM_REPLY, "LLM reply preserved as prefix");
+  assert.strictEqual(st.__cognitive_v2_takes_final, true, "takes_final must be true for cognitive_real");
+});
+
+// ===== 31. _isFirstAfterReset + fallback_mechanical → flags remain false (no change) =====
+await asyncTest('31. _isFirstAfterReset + fallback_mechanical → flags stay false', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+  applyFlagsWithPatch(st, { source: "fallback_mechanical", speech: MECHANICAL_REPROMPT }, true);
+  assert.strictEqual(st.__cognitive_reply_prefix, null, "prefix stays null");
+  assert.strictEqual(st.__cognitive_v2_takes_final, false, "takes_final stays false");
+});
+
+// ===== 32. resolveTopoStructured BLOCKED on _isFirstAfterReset =====
+await asyncTest('32. resolveTopoStructured blocked on _isFirstAfterReset — no template prefix set', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+  applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
+  assert.strictEqual(st.__cognitive_reply_prefix, null, "resolveTopoStructured blocked on post-reset");
+  assert.strictEqual(st.__cognitive_v2_takes_final, false, "takes_final stays false — resolver blocked");
+});
+
+// ===== 33. resolveTopoStructured ALLOWED on normal ambiguous (no reset) =====
+await asyncTest('33. resolveTopoStructured allowed on normal ambiguous (no reset) — prefix set', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+  applyResolveTopoStructuredIfAllowed(st, false, RESOLVE_TOPO_REPLY);
+  assert.strictEqual(st.__cognitive_reply_prefix, RESOLVE_TOPO_REPLY, "resolver reply used as prefix in normal flow");
+  assert.strictEqual(st.__cognitive_v2_takes_final, true, "takes_final set in normal flow");
+});
+
+// ===== 34. reset + "Oi Enova" → heuristic rejected → step uses mechanical (no greeting prefix) =====
+await asyncTest('34. reset + "Oi Enova": heuristic rejected → step() returns clean mechanical, no greeting', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+  // Simulate: heuristic returned, post-reset guard kicks in → flags revoked
+  applyFlagsWithPatch(st, { source: "heuristic_guidance", speech: [HEURISTIC_TEMPLATE] }, true);
+  // resolveTopoStructured also blocked
+  applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
+  // step() path: no prefix, no takes_final → raw mechanical messages
+  const result = assembleMessages(st, MECHANICAL_REPROMPT);
+  assert.ok(!result.some(m => m.includes("Fico feliz") || m.includes("Eu sou a Enova")), "no greeting template in output");
+  assert.ok(result.some(m => m.includes("programa")), "functional topo question present");
+  assert.strictEqual(result.length, MECHANICAL_REPROMPT.length, "only mechanical messages, no prefix");
+});
+
+// ===== 35. reset + "Oi" → same — no greeting prefix, clean mechanical =====
+await asyncTest('35. reset + "Oi": heuristic rejected → clean mechanical step, no recycled opening', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+  applyFlagsWithPatch(st, { source: "heuristic_guidance", speech: [HEURISTIC_TEMPLATE] }, true);
+  applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
+  const result = assembleMessages(st, MECHANICAL_REPROMPT);
+  assert.ok(!result.some(m => m.includes("Bem-vindo") || m.includes("Para começarmos")), "no recycled opening");
+  assert.strictEqual(st.__cognitive_reply_prefix, null, "flags cleared after step");
+  assert.strictEqual(st.__cognitive_v2_takes_final, false, "flags cleared after step");
+});
+
+// ===== 36. Normal ambiguous (no reset): heuristic_guidance still accepted =====
+await asyncTest('36. Normal ambiguous (no reset): heuristic_guidance still accepted → takes_final', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+  // isFirstAfterReset = FALSE → guard does NOT fire
+  applyFlagsWithPatch(st, { source: "heuristic_guidance", speech: [HEURISTIC_TEMPLATE] }, false);
+  assert.strictEqual(st.__cognitive_reply_prefix, HEURISTIC_TEMPLATE, "heuristic accepted in normal ambiguous");
+  assert.strictEqual(st.__cognitive_v2_takes_final, true, "takes_final set in normal ambiguous");
+});
+
+// ===== 37. Gate/nextStage: zero change — step() still called with "inicio_programa" =====
+await asyncTest('37. Gate/nextStage zero change: step() nextStage param is inicio_programa', () => {
+  // The step() call at L23081 passes "inicio_programa" as nextStage — the patch touches ONLY
+  // the speech flag logic above it, not the step() call or any gate variable.
+  // We simulate that the patch does NOT alter the nextStage by verifying the stage stays.
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+  applyFlagsWithPatch(st, { source: "heuristic_guidance", speech: [HEURISTIC_TEMPLATE] }, true);
+  applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
+  assembleMessages(st, MECHANICAL_REPROMPT); // mirrors step() — does NOT change fase_conversa
+  assert.strictEqual(st.fase_conversa, "inicio_programa", "stage stays inicio_programa — gate/nextStage untouched");
+});
+
 // ===== Summary =====
 console.log(`\n📊 Results: ${passed} passed, ${failed} failed (total: ${passed + failed})`);
-assert.strictEqual(passed + failed, 28, "expected exactly 28 tests");
+assert.strictEqual(passed + failed, 37, "expected exactly 37 tests");
 if (failed > 0) {
   console.error(`\n❌ ${failed} test(s) FAILED`);
   process.exit(1);

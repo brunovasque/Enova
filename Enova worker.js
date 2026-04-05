@@ -18531,7 +18531,7 @@ function resolveInicioProgramaStructured(rawText) {
     /\bsei sim\b/.test(nt) ||
     /\bt[oô] ligado\b/.test(nt) ||
     /\bconhe[cç]o\b/.test(nt) ||
-    /\bsei como\b/.test(nt) ||
+    (/\bsei como\b/.test(nt) && !/nao sei/.test(nt)) ||
     /\bpode pular\b/.test(nt) ||
     /\bja vi\b/.test(nt) ||
     /\bt[oô] por dentro\b/.test(nt) ||
@@ -18585,25 +18585,7 @@ function resolveInicioNomeStructured(rawText) {
       payload: null };
   }
 
-  // ── NOT_NAME: intenção / pedido de explicação ──
-  const isIntent =
-    /\bexplica|\bexplique/.test(nt) ||
-    /\bcomo funciona\b/.test(nt) ||
-    /\bquero (entender|saber)\b/.test(nt) ||
-    /\bpode explicar\b/.test(nt) ||
-    /\bnao sei\b/.test(nt) ||
-    /\bprefiro que\b/.test(nt) ||
-    /\bme ajuda\b/.test(nt) ||
-    /\bo que e isso\b/.test(nt);
-
-  if (isIntent) {
-    return { ...base, detected_answer: "not_name", confidence: 0.90, needs_confirmation: false,
-      safe_stage_signal: "inicio_nome:intent",
-      reply_text: "Entendi sua dúvida! Mas antes, me confirma só seu *nome completo*, por favor 😊",
-      payload: null };
-  }
-
-  // ── Tentar extrair nome (mesma lógica do mecânico) ──
+  // ── Tentar extrair nome PRIMEIRO (mesma lógica do mecânico) ──
   let candidate = raw;
   if (/^(meu nome e|meu nome é|me chamo|me chama|sou|sou o|sou a|aqui e|aqui é)/i.test(candidate)) {
     candidate = candidate.replace(/^(meu nome e|meu nome é|me chamo|me chama|sou|sou o|sou a|aqui e|aqui é)\s*/i, "").trim();
@@ -18620,7 +18602,7 @@ function resolveInicioNomeStructured(rawText) {
     candidate = candidate.replace(/^[\"'\-–—\s]+|[\"'\-–—\s]+$/g, "").trim();
   }
 
-  // Rejeitar se parece intenção
+  // ── Guarda semântico: rejeita se candidato parece intenção/pedido ──
   const ntCand = normalizeText(candidate);
   const intentInCandidate =
     /\bexplica|\bexplique/.test(ntCand) ||
@@ -18628,12 +18610,21 @@ function resolveInicioNomeStructured(rawText) {
     /\bquero (entender|saber)\b/.test(ntCand) ||
     /\bpode explicar\b/.test(ntCand) ||
     /\bnao sei\b/.test(ntCand) ||
-    /\bprefiro que\b/.test(ntCand);
+    /\bprefiro que\b/.test(ntCand) ||
+    /\bme ajuda\b/.test(ntCand) ||
+    /\bo que e isso\b/.test(ntCand);
 
-  if (intentInCandidate || !candidate || candidate.length < 2) {
-    return { ...base, detected_answer: "not_name", confidence: 0.70, needs_confirmation: false,
+  if (intentInCandidate) {
+    return { ...base, detected_answer: "not_name", confidence: 0.90, needs_confirmation: false,
       safe_stage_signal: "inicio_nome:intent",
-      reply_text: "Me confirma só seu *nome completo*, por favor 😊 Pode mandar tipo: *Ana Silva*.",
+      reply_text: "Entendi sua dúvida! Mas antes, me confirma só seu *nome completo*, por favor 😊",
+      payload: null };
+  }
+
+  if (!candidate || candidate.length < 2) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0.30, needs_confirmation: true,
+      safe_stage_signal: null,
+      reply_text: "Me diz seu nome completo, por favor 😊 Pode mandar tipo: *Ana Silva*.",
       payload: null };
   }
 
@@ -18784,6 +18775,14 @@ function resolveFinanciamentoConjuntoStructured(rawText) {
       reply_text: REPLY_OPCOES };
   }
 
+  // ── Guard: "não sei" é ambíguo, não solo ──
+  const ambiguoExplicito = /\bnao sei\b|\bn\s*sei\b|\btalvez\b|\bdepende\b/.test(nt);
+  if (ambiguoExplicito) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0.25, needs_confirmation: true,
+      safe_stage_signal: null,
+      reply_text: "Se não tem certeza, pode ir com *apenas se precisar* — eu analiso sua renda primeiro. O que prefere: *juntos*, *só você* ou *se precisar*?" };
+  }
+
   // Ordem de prioridade: se_precisar > nao/solo > sim/juntos (mesma do mecânico)
   const sePrecisar = /(se precisar|s[oó] se precisar|apenas se precisar|se faltar a gente soma|s[oó] se faltar)/i.test(rawText || "");
   const solo = !sePrecisar && (isNo(nt) || /(n[aã]o|s[oó] eu|apenas eu|somente eu|sozinh[oa])/i.test(rawText || ""));
@@ -18812,11 +18811,6 @@ function resolveFinanciamentoConjuntoStructured(rawText) {
     return { ...base, detected_answer: "ambiguous", confidence: 0.35, needs_confirmation: true,
       safe_stage_signal: null,
       reply_text: "Comprar juntos pode ajudar se precisar somar renda. " + REPLY_OPCOES };
-  }
-  if (/\bnao sei\b/.test(nt)) {
-    return { ...base, detected_answer: "ambiguous", confidence: 0.25, needs_confirmation: true,
-      safe_stage_signal: null,
-      reply_text: "Se não tem certeza, pode ir com *apenas se precisar* — eu analiso sua renda primeiro. O que prefere: *juntos*, *só você* ou *se precisar*?" };
   }
 
   return { ...base, detected_answer: "ambiguous", confidence: 0.20, needs_confirmation: true, safe_stage_signal: null,

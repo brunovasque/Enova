@@ -18567,6 +18567,19 @@ const TOPO_HAPPY_PATH_SPEECH = {
     validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
   },
 
+  // ── inicio_programa: saudação/reentrada (greeting puro, não pós-reset) ──
+  "inicio_programa:greeting_reentrada": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "oi",
+    fallback: [
+      "Oi! Tudo bem? 😊",
+      "Eu sou a Enova, assistente do programa Minha Casa Minha Vida.",
+      "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
+      "Me responde com *sim* (já sei) ou *não* (quero que explique)."
+    ],
+    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
+  },
+
   // ── inicio_nome: nome reaproveitado de sinal anterior (confiança alta) ──
   "inicio_nome:nome_reaproveitado": {
     cognitiveStage: "inicio_nacionalidade",
@@ -23057,7 +23070,9 @@ case "inicio_programa": {
     // Caso normal: usa speech key de ambiguous/greeting.
     const _ambSpeechKey = _isFirstAfterReset
       ? "inicio_programa:first_after_reset"
-      : "inicio_programa:ambiguous";
+      : _isGreetingOrReentry
+        ? "inicio_programa:greeting_reentrada"
+        : "inicio_programa:ambiguous";
 
     if (!st.__cognitive_v2_takes_final) {
       const _ambSpeech = await getTopoHappyPathSpeech(env, _ambSpeechKey, st, {
@@ -23096,6 +23111,19 @@ case "inicio_programa": {
       const _firstResetFallback = _firstResetCfg?.fallback;
       if (_firstResetFallback && _firstResetFallback.length > 0) {
         st.__cognitive_reply_prefix = _firstResetFallback.join("\n");
+        st.__cognitive_v2_takes_final = true;
+      }
+    }
+
+    // ── Greeting/reentrada: fallback cognitivo dedicado — se LLM real não dominou ──
+    // Quando _isGreetingOrReentry é true (não pós-reset) e nenhuma camada cognitiva
+    // assumiu takes_final, usa o fallback dedicado de greeting_reentrada como fala final.
+    // A pergunta mecânica crua nunca domina saudações iniciais puras.
+    if (_isGreetingOrReentry && !_isFirstAfterReset && !st.__cognitive_v2_takes_final) {
+      const _greetingCfg = TOPO_HAPPY_PATH_SPEECH["inicio_programa:greeting_reentrada"];
+      const _greetingFallback = _greetingCfg?.fallback;
+      if (_greetingFallback && _greetingFallback.length > 0) {
+        st.__cognitive_reply_prefix = _greetingFallback.join("\n");
         st.__cognitive_v2_takes_final = true;
       }
     }

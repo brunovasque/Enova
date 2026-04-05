@@ -1346,6 +1346,11 @@
   border: 1px solid rgba(245, 158, 11, 0.2);
 }
 
+.executorStatusRowApproved {
+  background: rgba(34, 197, 94, 0.06);
+  border-color: rgba(34, 197, 94, 0.22);
+}
+
 .executorStatusDot {
   width: 7px;
   height: 7px;

@@ -409,7 +409,7 @@ function ExecutorAssistidoBloco({
 
         {/* Status */}
         {status !== "discarded" && (
-          <div className={status === "approved" ? styles.executorStatusRow : styles.executorStatusRow}>
+          <div className={status === "approved" ? `${styles.executorStatusRow} ${styles.executorStatusRowApproved}` : styles.executorStatusRow}>
             {status === "approved" ? (
               <>
                 <span className={styles.executorStatusApprovedDot} />
@@ -436,7 +436,7 @@ function ExecutorAssistidoBloco({
             <button
               type="button"
               className={status === "reviewing" ? styles.executorBtnRevisarActive : styles.executorBtnRevisar}
-              onClick={status === "reviewing" ? undefined : onRevisar}
+              onClick={onRevisar}
               disabled={status === "reviewing"}
               aria-label="Revisar ação"
             >

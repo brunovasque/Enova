@@ -137,11 +137,21 @@ test("11. step() ainda limpa __cognitive_v2_takes_final após render", () => {
 });
 
 test("12. step() NÃO usa rawArr diretamente como arr (filtro obrigatório)", () => {
-  // Verifica que a lógica antiga (rawArr.filter(Boolean) direto em arr=) foi removida
-  const oldPattern = /const arr\s*=.*rawArr\.filter\(Boolean\)(?!\))/;
+  // Verifica que renderCognitiveSpeech está sendo chamado na construção de arr
+  const stepStart = workerSrc.indexOf("async function step(");
+  const modoHumanoStart = workerSrc.indexOf("modoHumanoRender(st, arr)");
+  assert.ok(stepStart > 0, "async function step( deve existir");
+  assert.ok(modoHumanoStart > stepStart, "modoHumanoRender deve aparecer após step()");
+  const stepBody = workerSrc.substring(stepStart, modoHumanoStart);
+  // Garante que arr é atribuído via renderCognitiveSpeech (não rawArr direto)
   assert.ok(
-    !oldPattern.test(workerSrc.substring(workerSrc.indexOf("async function step("), workerSrc.indexOf("modoHumanoRender"))),
-    "step() não deve mais usar rawArr diretamente como arr sem passar por renderCognitiveSpeech"
+    stepBody.includes("renderCognitiveSpeech(st, currentStage, rawArr.filter(Boolean))"),
+    "arr deve ser atribuído via renderCognitiveSpeech"
+  );
+  // Garante que o padrão antigo "arr = ... rawArr.filter(Boolean);" (ternário) não está mais presente
+  assert.ok(
+    !stepBody.includes("? [cognitivePrefix]") || !stepBody.includes(": rawArr.filter(Boolean)"),
+    "step() não deve mais usar o ternário rawArr direto antigo"
   );
 });
 
@@ -376,7 +386,8 @@ test("43. buildCognitiveFallback ainda existe (fallback base preservado)", () =>
 test("44. renderCognitiveSpeech NÃO chama upsertState (sem persistência)", () => {
   const idx = workerSrc.indexOf("function renderCognitiveSpeech(st, stage, rawArr)");
   const end = workerSrc.indexOf("\nfunction ", idx + 1);
-  const fnBody = workerSrc.substring(idx, end > 0 ? end : idx + 600);
+  assert.ok(idx > 0, "renderCognitiveSpeech deve existir");
+  const fnBody = workerSrc.substring(idx, end > 0 ? end : idx + 2000);
   assert.ok(
     !fnBody.includes("upsertState"),
     "renderCognitiveSpeech não pode chamar upsertState"
@@ -386,7 +397,8 @@ test("44. renderCognitiveSpeech NÃO chama upsertState (sem persistência)", () 
 test("45. buildMinimalCognitiveFallback NÃO chama upsertState (sem persistência)", () => {
   const idx = workerSrc.indexOf("function buildMinimalCognitiveFallback(stage, rawArr, roundIntent)");
   const end = workerSrc.indexOf("\nfunction ", idx + 1);
-  const fnBody = workerSrc.substring(idx, end > 0 ? end : idx + 600);
+  assert.ok(idx > 0, "buildMinimalCognitiveFallback deve existir");
+  const fnBody = workerSrc.substring(idx, end > 0 ? end : idx + 2000);
   assert.ok(
     !fnBody.includes("upsertState"),
     "buildMinimalCognitiveFallback não pode chamar upsertState"
@@ -396,7 +408,8 @@ test("45. buildMinimalCognitiveFallback NÃO chama upsertState (sem persistênci
 test("46. renderCognitiveSpeech NÃO chama runCognitiveV2WithAdapter (sem LLM em step())", () => {
   const idx = workerSrc.indexOf("function renderCognitiveSpeech(st, stage, rawArr)");
   const end = workerSrc.indexOf("\nfunction ", idx + 1);
-  const fnBody = workerSrc.substring(idx, end > 0 ? end : idx + 600);
+  assert.ok(idx > 0, "renderCognitiveSpeech deve existir");
+  const fnBody = workerSrc.substring(idx, end > 0 ? end : idx + 2000);
   assert.ok(
     !fnBody.includes("runCognitiveV2WithAdapter"),
     "renderCognitiveSpeech não pode chamar LLM diretamente"

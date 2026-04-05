@@ -358,6 +358,17 @@ const MESSAGING_ACTION_TYPES: ReadonlySet<EnovaIaActionType> = new Set<EnovaIaAc
 const MIN_LEADS_WITH_REASON_FOR_MESSAGE = 1;
 
 /**
+ * [G2.4] Textos canônicos de mensagem sugerida por tipo de ação de contato direto.
+ *
+ * Apenas tipos incluídos em MESSAGING_ACTION_TYPES. Nunca inventam informação
+ * não presente — são textos de abertura genéricos e seguros para recontato.
+ */
+const SUGGESTED_MESSAGE_BY_TYPE: Partial<Record<EnovaIaActionType, string>> = {
+  followup_lote:   "Oi, tudo bem? Passando para dar continuidade à nossa conversa sobre o financiamento. Você conseguiu pensar melhor? Estou à disposição para tirar qualquer dúvida 😊",
+  reativacao_lote: "Olá! Vi que ainda não tivemos chance de avançar juntos. Quero compartilhar uma atualização que pode fazer diferença para o seu caso — posso te contar em 2 minutos?",
+};
+
+/**
  * [G2.4] deriveSuggestedMessage — gera mensagem sugerida quando há base suficiente.
  *
  * Critérios obrigatórios (todos devem ser verdadeiros):
@@ -384,11 +395,8 @@ function deriveSuggestedMessage(
   const leadsWithReason = leadsDetail.filter((l) => l.reason.length > 0);
   if (leadsWithReason.length < MIN_LEADS_WITH_REASON_FOR_MESSAGE) return "";
 
-  if (actionType === "followup_lote") {
-    return "Oi, tudo bem? Passando para dar continuidade à nossa conversa sobre o financiamento. Você conseguiu pensar melhor? Estou à disposição para tirar qualquer dúvida 😊";
-  }
-  if (actionType === "reativacao_lote") {
-    return "Olá! Vi que ainda não tivemos chance de avançar juntos. Quero compartilhar uma atualização que pode fazer diferença para o seu caso — posso te contar em 2 minutos?";
+  if (actionType === "followup_lote" || actionType === "reativacao_lote") {
+    return SUGGESTED_MESSAGE_BY_TYPE[actionType] ?? "";
   }
   return "";
 }

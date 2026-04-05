@@ -7,8 +7,9 @@ import type { LeituraGlobal, KPIBloco } from "../lib/enova-ia-leitura";
 import type { FilaItem, PrioridadeFila } from "../lib/enova-ia-fila";
 import { PRIORIDADE_FILA_LABEL } from "../lib/enova-ia-fila";
 import type { ProgramaSugerido, PrioridadePrograma } from "../lib/enova-ia-programas";
-import { routeChat, genMsgId } from "../lib/enova-ia-chat";
+import { routeChat, genMsgId, buildChatHistoryForApi } from "../lib/enova-ia-chat";
 import type { ChatMsg } from "../lib/enova-ia-chat";
+import type { EnovaIaOpenAIResponse, EnovaIaMode } from "../lib/enova-ia-openai";
 
 const GARGALOS = [
   { tipo: "Documentação", descricao: "Leitura de gargalos virá da análise cognitiva global" },
@@ -136,23 +137,175 @@ function LeituraGlobalSection({ leituraGlobal }: { leituraGlobal: LeituraGlobal 
 // ---------------------------------------------------------------------------
 
 const CHAT_EXEMPLOS = [
+  "monte um plano para reprovados nos últimos 6 meses",
+  "o que a operação está errando no follow-up?",
+  "há oportunidade de feirão agora?",
+  "como você atacaria essa fila hoje?",
+  "o que falta no CRM para melhorar essa operação?",
+  "quais leads estão mais perto de virar pasta?",
+  "onde estamos perdendo dinheiro ou tempo?",
   "quais leads precisam ação agora?",
   "quem está com docs pendentes?",
+  "resumo geral da operação",
   "quem precisa de humano?",
-  "quais estão na fila de retorno?",
-  "quantos leads estão em atendimento?",
   "quem está perto de plantão?",
-  "resumo geral",
-  "como funciona composição de renda?",
-  "quando vale pedir docs?",
-  "qual a lógica do follow-up?",
-  "o que é lead frio recuperável?",
-  "quando oferecer plantão?",
-  "como a Enova trata reprovados?",
-  "quando precisa humano?",
+  "o que você criaria no CRM para vender mais?",
+  "identifique os principais gargalos da operação",
 ];
 
+// ── Mode labels and colors ────────────────────────────────────────────────
+
+const ENOVA_IA_MODE_LABEL: Record<EnovaIaMode, string> = {
+  analise_operacional: "Análise Operacional",
+  plano_de_acao:       "Plano de Ação",
+  segmentacao:         "Segmentação",
+  campanha:            "Campanha",
+  melhoria_crm:        "Melhoria do CRM",
+  conhecimento:        "Conhecimento",
+  risco:               "Risco / Cautela",
+  precisa_humano:      "Precisa Humano",
+};
+
+const ENOVA_IA_MODE_COLOR: Record<EnovaIaMode, string> = {
+  analise_operacional: "#5eaead",
+  plano_de_acao:       "#3b82f6",
+  segmentacao:         "#8b5cf6",
+  campanha:            "#f59e0b",
+  melhoria_crm:        "#10b981",
+  conhecimento:        "#5eaead",
+  risco:               "#ef4444",
+  precisa_humano:      "#f97316",
+};
+
+const ENOVA_IA_CONFIDENCE_LABEL: Record<"alta" | "media" | "baixa", string> = {
+  alta:  "Confiança alta",
+  media: "Confiança média",
+  baixa: "Confiança baixa",
+};
+
+// ── OpenAI structured response renderer ──────────────────────────────────
+
+function ChatAIResponseRender({ r }: { r: EnovaIaOpenAIResponse }) {
+  const modeLabel = ENOVA_IA_MODE_LABEL[r.mode];
+  const modeColor = ENOVA_IA_MODE_COLOR[r.mode];
+
+  return (
+    <div className={styles.chatMsgEnova}>
+      {/* Mode badge + title */}
+      <div className={styles.chatAIHeader}>
+        <span
+          className={styles.chatAIModeBadge}
+          style={{ color: modeColor, borderColor: `${modeColor}33`, background: `${modeColor}12` }}
+        >
+          {modeLabel}
+        </span>
+        <span className={styles.chatAITitle}>{r.answer_title}</span>
+      </div>
+
+      {/* Summary */}
+      <p className={styles.chatAISummary}>{r.answer_summary}</p>
+
+      {/* Analysis points */}
+      {r.analysis_points.length > 0 && (
+        <div className={styles.chatAISection}>
+          <span className={styles.chatAISectionLabel}>Análise</span>
+          <ul className={styles.chatAIList}>
+            {r.analysis_points.map((pt, i) => (
+              <li key={i} className={styles.chatAIListItem}>{pt}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Recommended actions */}
+      {r.recommended_actions.length > 0 && (
+        <div className={styles.chatAISection}>
+          <span className={styles.chatAISectionLabel}>Ações sugeridas</span>
+          <ul className={styles.chatAIList}>
+            {r.recommended_actions.map((ac, i) => (
+              <li key={i} className={`${styles.chatAIListItem} ${styles.chatAIListItemAction}`}>{ac}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Risks */}
+      {r.risks.length > 0 && (
+        <div className={styles.chatAISection}>
+          <span className={styles.chatAISectionLabel}>Riscos</span>
+          <ul className={styles.chatAIList}>
+            {r.risks.map((risk, i) => (
+              <li key={i} className={`${styles.chatAIListItem} ${styles.chatAIListItemRisk}`}>{risk}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Relevant leads */}
+      {r.relevant_leads.length > 0 && (
+        <div className={styles.chatAISection}>
+          <span className={styles.chatAISectionLabel}>Leads relevantes</span>
+          <div className={styles.chatAILeadsGrid}>
+            {r.relevant_leads.map((lead, i) => (
+              <div key={i} className={styles.chatAILeadItem}>
+                <span className={styles.chatAILeadName}>{lead.name}</span>
+                <span className={styles.chatAILeadReason}>{lead.reason}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Suggested programs */}
+      {r.suggested_programs.length > 0 && (
+        <div className={styles.chatAISection}>
+          <span className={styles.chatAISectionLabel}>Programas sugeridos</span>
+          <div className={styles.chatAITagRow}>
+            {r.suggested_programs.map((prog, i) => (
+              <span key={i} className={styles.chatAITag}>{prog}</span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* System improvement suggestion */}
+      {r.should_request_system_improvement && r.system_improvement_suggestion && (
+        <div className={styles.chatAISystemImprove}>
+          <span className={styles.chatAISystemImproveIcon}>⚙️</span>
+          <div className={styles.chatAISystemImproveContent}>
+            <span className={styles.chatAISystemImproveLabel}>Sugestão de melhoria do CRM</span>
+            <span className={styles.chatAISystemImproveText}>{r.system_improvement_suggestion}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Human escalation */}
+      {r.should_escalate_human && (
+        <div className={styles.chatAIEscalate}>
+          <span>🧑‍💼</span>
+          <span>Esta situação requer intervenção humana direta.</span>
+        </div>
+      )}
+
+      {/* Footer: confidence + notes */}
+      <div className={styles.chatAIFooter}>
+        <span className={styles.chatAIConfidence}>
+          {ENOVA_IA_CONFIDENCE_LABEL[r.confidence]}
+        </span>
+        {r.notes && (
+          <span className={styles.chatAINotes}>{r.notes}</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ChatResponseRender({ msg }: { msg: ChatMsg }) {
+  // OpenAI structured response takes priority
+  if (msg.openai_response) {
+    return <ChatAIResponseRender r={msg.openai_response} />;
+  }
+
   const r = msg.resposta;
 
   if (msg.origem === "usuario") {
@@ -211,39 +364,88 @@ function ChatResponseRender({ msg }: { msg: ChatMsg }) {
 function ChatOperacionalSection({
   fila,
   leituraGlobal,
+  programas,
 }: {
   fila: FilaItem[];
   leituraGlobal: LeituraGlobal | null;
+  programas: ProgramaSugerido[];
 }) {
   const [historico, setHistorico] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState("");
+  const [isThinking, setIsThinking] = useState(false);
   const listaRef = useRef<HTMLDivElement>(null);
 
-  function enviar(texto: string) {
+  async function enviar(texto: string) {
     const t = texto.trim();
-    if (!t) return;
+    if (!t || isThinking) return;
 
     const msgUsuario: ChatMsg = {
-      id:      genMsgId(),
-      origem:  "usuario",
-      texto:   t,
-      ts:      Date.now(),
+      id:     genMsgId(),
+      origem: "usuario",
+      texto:  t,
+      ts:     Date.now(),
     };
 
-    const resposta = routeChat(t, fila, leituraGlobal);
-    const msgEnova: ChatMsg = {
-      id:      genMsgId(),
-      origem:  "enova",
-      texto:   resposta.titulo,
-      resposta,
-      ts:      Date.now(),
-    };
+    // Snapshot do histórico antes de adicionar a mensagem atual
+    const historicoAtual = historico;
 
-    setHistorico((prev) => [...prev, msgUsuario, msgEnova]);
+    setHistorico((prev) => [...prev, msgUsuario]);
     setInput("");
+    setIsThinking(true);
 
-    // Wait for the DOM to update before scrolling so the new messages are in the layout
     const SCROLL_DELAY_MS = 50;
+    setTimeout(() => {
+      listaRef.current?.scrollTo({ top: listaRef.current.scrollHeight, behavior: "smooth" });
+    }, SCROLL_DELAY_MS);
+
+    let msgEnova: ChatMsg;
+
+    try {
+      // Tenta chamar a OpenAI via API route server-side
+      const res = await fetch("/api/enova-ia-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: t,
+          history: buildChatHistoryForApi(historicoAtual),
+          context: {
+            leituraGlobal,
+            filaInteligente: fila,
+            programasSugeridos: programas,
+          },
+        }),
+      });
+
+      const data = await res.json();
+
+      if (data.ok && data.response) {
+        msgEnova = {
+          id:             genMsgId(),
+          origem:         "enova",
+          texto:          data.response.answer_title,
+          openai_response: data.response,
+          ts:             Date.now(),
+        };
+      } else {
+        // API respondeu mas sem ok — fallback local
+        throw new Error(data.error ?? "Resposta inválida");
+      }
+    } catch {
+      // Fallback para o router local se OpenAI falhar ou não estiver configurada
+      const resposta = routeChat(t, fila, leituraGlobal);
+      msgEnova = {
+        id:      genMsgId(),
+        origem:  "enova",
+        texto:   resposta.titulo,
+        resposta,
+        ts:      Date.now(),
+      };
+    } finally {
+      setIsThinking(false);
+    }
+
+    setHistorico((prev) => [...prev, msgEnova]);
+
     setTimeout(() => {
       listaRef.current?.scrollTo({ top: listaRef.current.scrollHeight, behavior: "smooth" });
     }, SCROLL_DELAY_MS);
@@ -260,13 +462,13 @@ function ChatOperacionalSection({
     enviar(ex);
   }
 
-  const vazio = historico.length === 0;
+  const vazio = historico.length === 0 && !isThinking;
 
   return (
     <section className={`${styles.card} ${styles.cardChat}`}>
       <h2 className={styles.cardTitle}>Chat Operacional</h2>
       <p className={styles.cardHint}>
-        Comando direto com a Enova — leitura baseada nos dados reais do painel.
+        Análise cognitiva assistida pela OpenAI — baseada nos dados reais do painel.
       </p>
 
       {/* Histórico */}
@@ -289,7 +491,16 @@ function ChatOperacionalSection({
             </div>
           </div>
         ) : (
-          historico.map((msg) => <ChatResponseRender key={msg.id} msg={msg} />)
+          <>
+            {historico.map((msg) => <ChatResponseRender key={msg.id} msg={msg} />)}
+            {isThinking && (
+              <div className={styles.chatThinking}>
+                <span className={styles.chatThinkingDot} />
+                <span className={styles.chatThinkingDot} />
+                <span className={styles.chatThinkingDot} />
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -298,20 +509,21 @@ function ChatOperacionalSection({
         <input
           className={styles.chatInput}
           type="text"
-          placeholder="Ex: quais leads precisam ação agora?"
+          placeholder="Ex: monte um plano para os reprovados dos últimos 6 meses"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={onKeyDown}
+          disabled={isThinking}
           aria-label="Comando para a Enova"
         />
         <button
           className={styles.chatBotaoEnviar}
           onClick={() => enviar(input)}
           type="button"
-          disabled={!input.trim()}
+          disabled={!input.trim() || isThinking}
           aria-label="Enviar"
         >
-          Enviar
+          {isThinking ? "…" : "Enviar"}
         </button>
       </div>
     </section>
@@ -447,6 +659,7 @@ export function EnovaIaUI({
           <ChatOperacionalSection
             fila={filaInteligente}
             leituraGlobal={leituraGlobal}
+            programas={programasSugeridos}
           />
 
         </div>

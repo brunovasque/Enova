@@ -323,13 +323,13 @@ function ChatOperacionalSection({
 // ---------------------------------------------------------------------------
 
 const PRIORIDADE_PROGRAMA_BADGE_CLASS: Record<PrioridadePrograma, string> = {
-  alta:  styles.programaBadgeAlta,
+  alta: styles.programaBadgeAlta,
   media: styles.programaBadgeMedia,
   baixa: styles.programaBadgeBaixa,
 };
 
 const PRIORIDADE_PROGRAMA_LABEL: Record<PrioridadePrograma, string> = {
-  alta:  "Alta",
+  alta: "Alta",
   media: "Média",
   baixa: "Baixa",
 };

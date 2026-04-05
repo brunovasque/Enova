@@ -35,6 +35,9 @@ import type { FilaItem, PrioridadeFila } from "./enova-ia-fila";
 import { PRIORIDADE_FILA_LABEL } from "./enova-ia-fila";
 import type { KnowledgeIntent } from "./enova-ia-knowledge";
 import { KNOWLEDGE_PATTERNS, getKnowledgeEntry } from "./enova-ia-knowledge";
+import type { EnovaIaOpenAIResponse } from "./enova-ia-openai";
+
+export type { EnovaIaOpenAIResponse } from "./enova-ia-openai";
 
 // ── Tipos canônicos ────────────────────────────────────────────────────────
 
@@ -76,9 +79,37 @@ export type ChatMsg = {
   id: string;
   origem: "usuario" | "enova";
   texto: string;
+  /** Resposta via router local (fallback). */
   resposta?: ChatResponse;
+  /** Resposta via OpenAI Structured Outputs (prioritária quando disponível). */
+  openai_response?: EnovaIaOpenAIResponse;
   ts: number;
 };
+
+/** Item de histórico para envio ao API route OpenAI. */
+export type ChatHistoryItem = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+/**
+ * buildChatHistoryForApi — converte o histórico local em formato para o API route.
+ * Exclui a mensagem atual (ainda não adicionada).
+ */
+export function buildChatHistoryForApi(historico: ChatMsg[]): ChatHistoryItem[] {
+  return historico.map((msg): ChatHistoryItem => {
+    if (msg.origem === "usuario") {
+      return { role: "user", content: msg.texto };
+    }
+    // Sintetiza o conteúdo da resposta anterior como contexto para o modelo
+    const content = msg.openai_response
+      ? `${msg.openai_response.answer_title}: ${msg.openai_response.answer_summary}`
+      : msg.resposta
+        ? `${msg.resposta.titulo}: ${msg.resposta.resumo}`
+        : msg.texto;
+    return { role: "assistant", content };
+  });
+}
 
 // ── Intent detection ──────────────────────────────────────────────────────
 

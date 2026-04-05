@@ -188,7 +188,7 @@ function deriveStatusPlantao(
   // Arquivável — sem caminho para plantão
   if (isFaseArquivavel(fase) || signals.timing.arquivado_em) return "longe_de_plantao";
 
-  // Necessita humano urgente — não avantar para plantão ainda
+  // Necessita humano urgente — não avançar para plantão ainda
   if (cognitiveState.necessita_humano) return "longe_de_plantao";
 
   // Restrição ativa — bloqueia prontidão

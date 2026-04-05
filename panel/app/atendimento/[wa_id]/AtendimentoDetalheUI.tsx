@@ -65,6 +65,16 @@ import {
   getEstrategiaReativacaoLabel,
   getAcaoReativacaoLabel,
 } from "../../lib/lead-reclassification-labels";
+import { readLeadVisitReadiness } from "../../lib/lead-visit-readiness";
+import type { LeadVisitReadiness } from "../../lib/lead-visit-readiness";
+import {
+  getMaturidadeComercialLabel,
+  getStatusPlantaoLabel,
+  getLeadProntoParaVisitaLabel,
+  getBloqueioPlantaoPrincipalLabel,
+  getEstrategiaPlantaoLabel,
+  getAcaoPlantaoLabel,
+} from "../../lib/lead-visit-readiness-labels";
 
 /* ── Type — mirrors AttendanceRow in AtendimentoUI ── */
 export type AttendanceDetalheRow = {
@@ -908,6 +918,17 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
     }
   }, [lead, convMsgs, clientProfile, cognitiveState, followupState, docsState]);
 
+  /* ── Prontidão para Plantão (PR7) — leitura read-only, never throws ── */
+  const visitReadinessState = useMemo((): LeadVisitReadiness | null => {
+    if (!cognitiveState) return null;
+    try {
+      const signals = buildLeadSignals(lead, convMsgs, clientProfile);
+      return readLeadVisitReadiness(signals, cognitiveState, followupState, docsState, reclassState);
+    } catch {
+      return null;
+    }
+  }, [lead, convMsgs, clientProfile, cognitiveState, followupState, docsState, reclassState]);
+
   useEffect(() => {
     let cancelled = false;
     async function loadMsgs() {
@@ -1361,8 +1382,8 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                   </span>
                 </div>
 
-                {/* ── Sub-blocos cognitivos em linha (PR4 + PR5 + PR6) ── */}
-                {(followupState || docsState || reclassState) && (
+                {/* ── Sub-blocos cognitivos em linha (PR4 + PR5 + PR6 + PR7) ── */}
+                {(followupState || docsState || reclassState || visitReadinessState) && (
                 <div className={styles.subBlocosRow}>
 
                 {/* ── Organização de Follow-up (PR4) ── */}
@@ -1672,6 +1693,118 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                     <div className={styles.reclassJustificativaRow}>
                       <span className={styles.reclassJustificativa}>
                         {reclassState.justificativa_reclassificacao}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Prontidão para Plantão (PR7) ── */}
+                {visitReadinessState && (
+                  <div className={styles.visitSubBloco}>
+                    <div className={styles.visitSubHeader}>
+                      <span className={styles.visitSubIcon}>🏠</span>
+                      <span className={styles.visitSubTitle}>Prontidão para Plantão</span>
+                      <span
+                        className={`${styles.visitProntoBadge} ${
+                          visitReadinessState.lead_pronto_para_visita === "sim"
+                            ? styles.visitProntoSim
+                            : visitReadinessState.lead_pronto_para_visita === "incerto"
+                            ? styles.visitProntoIncerto
+                            : styles.visitProntoNao
+                        }`}
+                      >
+                        {getLeadProntoParaVisitaLabel(visitReadinessState.lead_pronto_para_visita)}
+                      </span>
+                    </div>
+
+                    <div className={styles.visitGrid}>
+                      {/* Maturidade comercial */}
+                      <div className={styles.visitItem}>
+                        <span className={styles.visitLabel}>Maturidade</span>
+                        <span
+                          className={`${styles.visitBadge} ${
+                            visitReadinessState.maturidade_comercial === "alta"
+                              ? styles.visitMaturidadeAlta
+                              : visitReadinessState.maturidade_comercial === "media"
+                              ? styles.visitMaturidadeMedia
+                              : styles.visitMaturidadeBaixa
+                          }`}
+                        >
+                          {getMaturidadeComercialLabel(visitReadinessState.maturidade_comercial)}
+                        </span>
+                      </div>
+
+                      {/* Status plantão */}
+                      <div className={styles.visitItem}>
+                        <span className={styles.visitLabel}>Status</span>
+                        <span
+                          className={`${styles.visitBadge} ${
+                            visitReadinessState.status_plantao === "pronto_para_visita" ||
+                            visitReadinessState.status_plantao === "em_visita"
+                              ? styles.visitStatusPronto
+                              : visitReadinessState.status_plantao === "quase_pronto"
+                              ? styles.visitStatusQuase
+                              : visitReadinessState.status_plantao === "pos_visita"
+                              ? styles.visitStatusPos
+                              : visitReadinessState.status_plantao === "sem_sinal"
+                              ? styles.visitStatusSemSinal
+                              : styles.visitStatusLonge
+                          }`}
+                        >
+                          {getStatusPlantaoLabel(visitReadinessState.status_plantao)}
+                        </span>
+                      </div>
+
+                      {/* Bloqueio */}
+                      <div className={styles.visitItem}>
+                        <span className={styles.visitLabel}>Bloqueio</span>
+                        <span
+                          className={`${styles.visitBadge} ${
+                            visitReadinessState.bloqueio_plantao_principal === "sem_bloqueio_claro"
+                              ? styles.visitBloqueioNenhum
+                              : visitReadinessState.bloqueio_plantao_principal === "precisa_humano" ||
+                                visitReadinessState.bloqueio_plantao_principal === "restricao"
+                              ? styles.visitBloqueioUrgente
+                              : styles.visitBloqueioPadrao
+                          }`}
+                        >
+                          {getBloqueioPlantaoPrincipalLabel(
+                            visitReadinessState.bloqueio_plantao_principal,
+                          )}
+                        </span>
+                      </div>
+
+                      {/* Ação */}
+                      <div className={styles.visitItem}>
+                        <span className={styles.visitLabel}>Ação</span>
+                        <span
+                          className={`${styles.visitBadge} ${
+                            visitReadinessState.acao_plantao_sugerida === "convidar_para_plantao"
+                              ? styles.visitAcaoConvidar
+                              : visitReadinessState.acao_plantao_sugerida === "chamar_cliente"
+                              ? styles.visitAcaoChamar
+                              : visitReadinessState.acao_plantao_sugerida === "pedir_humano"
+                              ? styles.visitAcaoUrgente
+                              : visitReadinessState.acao_plantao_sugerida === "sem_acao"
+                              ? styles.visitAcaoNula
+                              : styles.visitAcaoPadrao
+                          }`}
+                        >
+                          {getAcaoPlantaoLabel(visitReadinessState.acao_plantao_sugerida)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Estratégia + justificativa */}
+                    <div className={styles.visitEstrategiaRow}>
+                      <span className={styles.visitEstrategiaLabel}>Estratégia:</span>
+                      <span className={styles.visitEstrategiaValue}>
+                        {getEstrategiaPlantaoLabel(visitReadinessState.estrategia_plantao_sugerida)}
+                      </span>
+                    </div>
+                    <div className={styles.visitJustificativaRow}>
+                      <span className={styles.visitJustificativa}>
+                        {visitReadinessState.justificativa_plantao}
                       </span>
                     </div>
                   </div>

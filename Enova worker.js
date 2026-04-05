@@ -158,21 +158,23 @@ async function step(env, st, messages, nextStage, options = {}) {
   const currentStage = st?.fase_conversa || "inicio";
 
   // Converte sempre para array
-    const rawArr = Array.isArray(messages) ? messages : [messages];
-  const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
-  const v2TakesFinal = st?.__cognitive_v2_takes_final === true;
+  const rawArr = Array.isArray(messages) ? messages : [messages];
 
-  // Se V2 assumiu a fala final, ele substitui as mensagens mecânicas (não prefixa).
-  // Mecânico continua soberano no stage/gate/nextStage/persistência — só a fala muda.
-  const arr = v2TakesFinal && cognitivePrefix
-    ? [cognitivePrefix]
-    : cognitivePrefix
-      ? [cognitivePrefix, ...rawArr].filter(Boolean)
-      : rawArr.filter(Boolean);
+  // Reconciliar input do cliente para detectar overlap/múltiplas intenções.
+  // Ephemeral — descartado logo abaixo após renderizar.
+  if (!st.__round_intent && (st.last_user_text || "").trim()) {
+    st.__round_intent = buildRoundIntent(st, st.last_user_text);
+  }
+
+  // Camada canônica de fala cognitiva soberana.
+  // Toda fala visível ao cliente passa por renderCognitiveSpeech().
+  // O mecânico permanece soberano em stage/gate/nextStage/persistência.
+  const arr = renderCognitiveSpeech(st, currentStage, rawArr.filter(Boolean));
 
   // limpa flags transitórias para não vazar para próximas respostas
   st.__cognitive_reply_prefix = null;
   st.__cognitive_v2_takes_final = false;
+  st.__round_intent = null;
 
   // 🔥 AQUI: aplica modo humano (somente se ativo)
   const msgs = modoHumanoRender(st, arr);
@@ -3869,6 +3871,170 @@ function buildCognitiveFallback(stage) {
     confidence: 0.68,
     reason: "no_llm_or_parse"
   };
+}
+
+// ================================================================
+// CAMADA CANÔNICA DE FALA COGNITIVA SOBERANA
+// ================================================================
+// Garante que toda fala visível ao cliente é filtrada cognitivamente.
+// O mecânico continua soberano em stage/gate/nextStage/persistência.
+// Sem chamadas a LLM. Sem persistência. Sem mudança de gates.
+// Ref: schema/COGNITIVE_MIGRATION_CONTRACT.md — seção 3.2
+// ================================================================
+
+/**
+ * reconcileClientInput — Bloco 5: Leitura reconciliada do input do cliente.
+ * Detecta overlap: resposta de stage + pergunta paralela, complementos, off-trail.
+ * Resultado ephemeral — descartado após step().
+ */
+function reconcileClientInput(st, userText) {
+  const text = String(userText || "").trim();
+  const temPerguntaParalela = /\?/.test(text) && text.length > 10;
+  const temComplemento = /^(e tamb[eé]m|ah[,\s]|ah e|mais uma|al[eé]m disso|tamb[eé]m)\b/i.test(text);
+  const ehSaudacaoPura = /^(oi|ol[aá]|bom dia|boa tarde|boa noite|e a[ií]|ei|hey|opa)[!,.\s]*$/i.test(text);
+  const temRespostaDeStage = text.length > 3 && !ehSaudacaoPura;
+  const ehOffTrail = temPerguntaParalela && !ehSaudacaoPura && text.length < 120;
+  return {
+    text_original: text,
+    tem_pergunta_paralela: temPerguntaParalela,
+    tem_complemento: temComplemento,
+    eh_saudacao_pura: ehSaudacaoPura,
+    eh_off_trail: ehOffTrail,
+    tem_resposta_de_stage: temRespostaDeStage,
+    pode_ter_multiplas_intencoes: temPerguntaParalela && temRespostaDeStage && text.length > 20
+  };
+}
+
+/**
+ * buildRoundIntent — Bloco 1: Contrato de intenção da rodada.
+ * Captura estado mecânico + leitura reconciliada do cliente.
+ * Ephemeral — descartado após envio via step().
+ */
+function buildRoundIntent(st, userText) {
+  const reconciliado = reconcileClientInput(st, userText || st.last_user_text || "");
+  return {
+    stage_atual: st?.fase_conversa || "inicio",
+    still_needs_original_answer: true,
+    pode_avancar: false,
+    resposta_de_stage_detectada: reconciliado.tem_resposta_de_stage,
+    pergunta_paralela_detectada: reconciliado.tem_pergunta_paralela,
+    info_complementar_detectada: reconciliado.tem_complemento,
+    eh_off_trail: reconciliado.eh_off_trail,
+    eh_saudacao_pura: reconciliado.eh_saudacao_pura,
+    pode_ter_multiplas_intencoes: reconciliado.pode_ter_multiplas_intencoes,
+    texto_reconciliado: reconciliado.text_original
+  };
+}
+
+// Fases canônicas para filtro cognitivo de superfície
+const _COGNITIVE_RENDER_PHASE_MAP = (() => {
+  const topo = new Set([
+    "inicio", "inicio_programa", "inicio_nome", "inicio_nacionalidade",
+    "inicio_rnm", "inicio_rnm_validade", "estado_civil", "confirmar_casamento",
+    "financiamento_conjunto", "somar_renda_solteiro", "somar_renda_familiar",
+    "quem_pode_somar", "interpretar_composicao", "verificar_averbacao",
+    "verificar_inventario"
+  ]);
+  const gates = new Set([
+    "ir_declarado", "autonomo_ir_pergunta", "ctps_36", "ctps_36_parceiro",
+    "restricao", "restricao_parceiro", "regularizacao_restricao",
+    "regularizacao_restricao_parceiro", "dependente"
+  ]);
+  const operacional = new Set([
+    "envio_docs", "aguardando_retorno_correspondente", "agendamento_visita",
+    "finalizacao_processo", "fim_ineligivel"
+  ]);
+  return { topo, gates, operacional };
+})();
+
+function _getCognitiveRenderPhase(stage) {
+  if (_COGNITIVE_RENDER_PHASE_MAP.topo.has(stage)) return "topo";
+  if (_COGNITIVE_RENDER_PHASE_MAP.gates.has(stage)) return "gates_finais";
+  if (_COGNITIVE_RENDER_PHASE_MAP.operacional.has(stage)) return "operacional";
+  return "meio";
+}
+
+function _softQuestion(q) {
+  const clean = q.trim();
+  // Já começa com entrada conversacional → mantém
+  if (/^(me |você |vc |qual |como |quando |onde |por que |tudo |pode |pra |para |e |a )/i.test(clean)) return clean;
+  return "Me conta: " + clean.charAt(0).toLowerCase() + clean.slice(1);
+}
+
+/**
+ * _applyCognitiveSurfaceFilter — Filtro mínimo de superfície cognitiva.
+ * Se o conjunto já tem tom conversacional → retorna sem mudança.
+ * Se não → aplica ajuste mínimo de tom (sem alterar conteúdo/informação).
+ */
+function _applyCognitiveSurfaceFilter(lines) {
+  const allText = lines.join(" ");
+  // Tom conversacional detectado: emoji de feedback ou palavra-chave afirmativa
+  const jaConversacional = (
+    /👌|✅|💛|😊|😉|👍|✍️|🤝|🔥|⚠️|📝|✨/.test(allText) ||
+    /\b(perfeito|ótimo|entendi|tranquilo|show|certinho|boa|claro)\b/i.test(allText) ||
+    /\bme (conta|diz|fala)\b/i.test(allText)
+  );
+  if (jaConversacional) return lines;
+  // Aplica ajuste mínimo de tom nas perguntas e instruções diretas
+  return lines.map(line => {
+    const clean = line.trim();
+    if (!clean) return clean;
+    if (/\?$/.test(clean)) return _softQuestion(clean);
+    if (/^(informe|insira|coloque|preencha)\b/i.test(clean)) {
+      return clean
+        .replace(/^informe\b/i, "Me fala")
+        .replace(/^insira\b/i, "Me envia")
+        .replace(/^coloque\b/i, "Me coloca")
+        .replace(/^preencha\b/i, "Me preenche");
+    }
+    return clean;
+  });
+}
+
+/**
+ * buildMinimalCognitiveFallback — Bloco 4: Fallback cognitivo mínimo.
+ * Garante que a fala final é cognitiva mesmo quando LLM falha ou não está disponível.
+ * Synchronous. Sem chamadas a LLM. Sem persistência. Sem mudança de gates.
+ */
+function buildMinimalCognitiveFallback(stage, rawArr, roundIntent) {
+  if (!Array.isArray(rawArr) || rawArr.length === 0) return ["Pode continuar 😊"];
+  const lines = rawArr.filter(l => typeof l === "string" && l.trim().length > 0);
+  if (lines.length === 0) return ["Pode continuar 😊"];
+  const phase = _getCognitiveRenderPhase(stage);
+  // Operacional e gates finais: conteúdo técnico — não alterar superfície
+  if (phase === "operacional" || phase === "gates_finais") return lines;
+  // Topo e meio: filtro cognitivo de superfície
+  const filtered = _applyCognitiveSurfaceFilter(lines);
+  // Overlap: se múltiplas intenções detectadas, reconhecer antes de continuar
+  if (roundIntent?.pode_ter_multiplas_intencoes && roundIntent?.eh_off_trail && filtered.length > 0) {
+    return ["Anotei tudo aqui 😊 Deixa eu continuar a análise do seu perfil.", ...filtered];
+  }
+  return filtered;
+}
+
+/**
+ * renderCognitiveSpeech — Bloco 2/3: Render cognitivo obrigatório.
+ * TODA fala visível ao cliente deve sair desta função.
+ * O mecânico permanece soberano em stage/gate/nextStage/persistência.
+ *
+ * Hierarquia:
+ * 1. __cognitive_v2_takes_final + prefix → fala cognitiva real (LLM)
+ * 2. prefix sem takes_final → prefix + filtro cognitivo do rawArr
+ * 3. sem flags → buildMinimalCognitiveFallback (nunca rawArr puro na superfície)
+ */
+function renderCognitiveSpeech(st, stage, rawArr) {
+  const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
+  const v2TakesFinal = st?.__cognitive_v2_takes_final === true;
+  const roundIntent = st?.__round_intent || null;
+  // Caminho 1: LLM real assumiu a fala → usa apenas a fala cognitiva
+  if (v2TakesFinal && cognitivePrefix) return [cognitivePrefix];
+  // Caminho 2: prefix sem takes_final → prefix + filtro cognitivo do rawArr
+  if (cognitivePrefix) {
+    const filtered = buildMinimalCognitiveFallback(stage, rawArr, null);
+    return [cognitivePrefix, ...filtered].filter(Boolean);
+  }
+  // Caminho 3: sem flags → fallback cognitivo mínimo (nunca rawArr puro)
+  return buildMinimalCognitiveFallback(stage, rawArr, roundIntent);
 }
 
 // =============================================================

@@ -54,6 +54,17 @@ import {
   getProbabilidadePastaLabel,
   getAcaoDocsSugeridaLabel,
 } from "../../lib/lead-docs-labels";
+import { classifyLeadReclassification } from "../../lib/lead-reclassification";
+import type { LeadReclassificationReading } from "../../lib/lead-reclassification";
+import {
+  getCalorRealLeadLabel,
+  getBaseSugeridaLabel,
+  getReclassificacaoSugeridaLabel,
+  getLeadFrioRecuperavelLabel,
+  getMotivoRecuperabilidadeLabel,
+  getEstrategiaReativacaoLabel,
+  getAcaoReativacaoLabel,
+} from "../../lib/lead-reclassification-labels";
 
 /* ── Type — mirrors AttendanceRow in AtendimentoUI ── */
 export type AttendanceDetalheRow = {
@@ -886,6 +897,17 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
     }
   }, [lead, convMsgs, clientProfile, cognitiveState]);
 
+  /* ── Reclassificação Assistida (PR6) — leitura read-only, never throws ── */
+  const reclassState = useMemo((): LeadReclassificationReading | null => {
+    if (!cognitiveState) return null;
+    try {
+      const signals = buildLeadSignals(lead, convMsgs, clientProfile);
+      return classifyLeadReclassification(signals, cognitiveState, followupState, docsState);
+    } catch {
+      return null;
+    }
+  }, [lead, convMsgs, clientProfile, cognitiveState, followupState, docsState]);
+
   useEffect(() => {
     let cancelled = false;
     async function loadMsgs() {
@@ -1339,7 +1361,11 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                   </span>
                 </div>
 
-                {/* ── Organização de Follow-up (PR4) — sub-bloco read-only ── */}
+                {/* ── Sub-blocos cognitivos em linha (PR4 + PR5 + PR6) ── */}
+                {(followupState || docsState || reclassState) && (
+                <div className={styles.subBlocosRow}>
+
+                {/* ── Organização de Follow-up (PR4) ── */}
                 {followupState && (
                   <div className={styles.followupSubBloco}>
                     <div className={styles.followupSubHeader}>
@@ -1430,7 +1456,7 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                   </div>
                 )}
 
-                {/* ── Máquina de Pastas (PR5) — sub-bloco read-only ── */}
+                {/* ── Máquina de Pastas (PR5) ── */}
                 {docsState && (
                   <div className={styles.docsSubBloco}>
                     <div className={styles.docsSubHeader}>
@@ -1530,6 +1556,130 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                     </div>
                   </div>
                 )}
+
+                {/* ── Reclassificação Assistida (PR6) ── */}
+                {reclassState && (
+                  <div className={styles.reclassSubBloco}>
+                    <div className={styles.reclassSubHeader}>
+                      <span className={styles.reclassSubIcon}>🌡️</span>
+                      <span className={styles.reclassSubTitle}>Reclassificação Assistida</span>
+                      <span
+                        className={`${styles.reclassCalorBadge} ${
+                          reclassState.calor_real_lead === "quente"
+                            ? styles.reclassCalorQuente
+                            : reclassState.calor_real_lead === "morno"
+                            ? styles.reclassCalorMorno
+                            : reclassState.calor_real_lead === "frio"
+                            ? styles.reclassCalorFrio
+                            : styles.reclassCalorIndefinido
+                        }`}
+                      >
+                        {getCalorRealLeadLabel(reclassState.calor_real_lead)}
+                      </span>
+                    </div>
+
+                    <div className={styles.reclassGrid}>
+                      {/* Base sugerida */}
+                      <div className={styles.reclassItem}>
+                        <span className={styles.reclassLabel}>Base sugerida</span>
+                        <span
+                          className={`${styles.reclassBadge} ${
+                            reclassState.base_sugerida === "base_quente"
+                              ? styles.reclassBaseQuente
+                              : reclassState.base_sugerida === "base_morna"
+                              ? styles.reclassBaseMorna
+                              : reclassState.base_sugerida === "base_fria"
+                              ? styles.reclassBaseFria
+                              : reclassState.base_sugerida === "reativacao"
+                              ? styles.reclassBaseReativacao
+                              : styles.reclassBaseManter
+                          }`}
+                        >
+                          {getBaseSugeridaLabel(reclassState.base_sugerida)}
+                        </span>
+                      </div>
+
+                      {/* Reclassificação */}
+                      <div className={styles.reclassItem}>
+                        <span className={styles.reclassLabel}>Reclassificação</span>
+                        <span
+                          className={`${styles.reclassBadge} ${
+                            reclassState.reclassificacao_sugerida === "subir_base"
+                              ? styles.reclassSubir
+                              : reclassState.reclassificacao_sugerida === "descer_base"
+                              ? styles.reclassDescer
+                              : reclassState.reclassificacao_sugerida === "mover_para_reativacao"
+                              ? styles.reclassReativacao
+                              : reclassState.reclassificacao_sugerida === "arquivavel"
+                              ? styles.reclassArquivavel
+                              : reclassState.reclassificacao_sugerida === "indefinido"
+                              ? styles.reclassIndefinido
+                              : styles.reclassManter
+                          }`}
+                        >
+                          {getReclassificacaoSugeridaLabel(reclassState.reclassificacao_sugerida)}
+                        </span>
+                      </div>
+
+                      {/* Recuperável */}
+                      <div className={styles.reclassItem}>
+                        <span className={styles.reclassLabel}>Recuperável?</span>
+                        <span
+                          className={`${styles.reclassBadge} ${
+                            reclassState.lead_frio_recuperavel === "sim"
+                              ? styles.reclassRecuperavelSim
+                              : reclassState.lead_frio_recuperavel === "nao"
+                              ? styles.reclassRecuperavelNao
+                              : styles.reclassRecuperavelIncerto
+                          }`}
+                        >
+                          {getLeadFrioRecuperavelLabel(reclassState.lead_frio_recuperavel)}
+                        </span>
+                      </div>
+
+                      {/* Ação de reativação */}
+                      <div className={styles.reclassItem}>
+                        <span className={styles.reclassLabel}>Ação</span>
+                        <span
+                          className={`${styles.reclassBadge} ${
+                            reclassState.acao_reativacao_sugerida === "reativar_agora"
+                              ? styles.reclassAcaoAtiva
+                              : reclassState.acao_reativacao_sugerida === "pedir_humano"
+                              ? styles.reclassAcaoUrgente
+                              : reclassState.acao_reativacao_sugerida === "sem_acao"
+                              ? styles.reclassAcaoNula
+                              : styles.reclassAcaoPadrao
+                          }`}
+                        >
+                          {getAcaoReativacaoLabel(reclassState.acao_reativacao_sugerida)}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Motivo + estratégia */}
+                    <div className={styles.reclassEstrategiaRow}>
+                      <span className={styles.reclassEstrategiaLabel}>Motivo:</span>
+                      <span className={styles.reclassEstrategiaValue}>
+                        {getMotivoRecuperabilidadeLabel(reclassState.motivo_recuperabilidade)}
+                      </span>
+                    </div>
+                    <div className={styles.reclassEstrategiaRow}>
+                      <span className={styles.reclassEstrategiaLabel}>Estratégia:</span>
+                      <span className={styles.reclassEstrategiaValue}>
+                        {getEstrategiaReativacaoLabel(reclassState.estrategia_reativacao_sugerida)}
+                      </span>
+                    </div>
+                    <div className={styles.reclassJustificativaRow}>
+                      <span className={styles.reclassJustificativa}>
+                        {reclassState.justificativa_reclassificacao}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                </div>
+                )}
+
               </div>
             </div>
           )}

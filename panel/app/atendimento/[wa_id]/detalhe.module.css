@@ -1625,14 +1625,40 @@
 
 
 
+/* ──────────────────────────────────────────────────────────────────────────
+   Sub-blocos cognitivos em linha — PR4 + PR5 + PR6
+   Wrapper de 3 colunas (follow-up / pastas / reclassificação) em desktop.
+   Em telas menores cai para 1 coluna de forma limpa.
+   ────────────────────────────────────────────────────────────────────────── */
+.subBlocosRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+}
+
+@media (max-width: 900px) {
+  .subBlocosRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 901px) and (max-width: 1200px) {
+  .subBlocosRow {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 /* ══════════════════════════════════════════════════════
    PR 4 — Organizador de Follow-up (sub-bloco dentro de Estado Cognitivo)
    ══════════════════════════════════════════════════════ */
 
 .followupSubBloco {
-  margin-top: 14px;
-  padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  min-width: 0;
+  padding: 10px 12px;
+  background: rgba(30, 30, 35, 0.4);
+  border: 1px solid rgba(63, 63, 70, 0.35);
+  border-radius: 6px;
 }
 
 .followupSubHeader {
@@ -1808,7 +1834,7 @@
 
 /* Sub-bloco container */
 .docsSubBloco {
-  margin-top: 12px;
+  min-width: 0;
   padding: 10px 12px;
   background: rgba(16, 185, 129, 0.04);
   border: 1px solid rgba(16, 185, 129, 0.12);
@@ -2013,6 +2039,261 @@
 }
 
 .docsJustificativa {
+  font-size: 0.75rem;
+  color: #71717a;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+/* ──────────────────────────────────────────────────────────────────────────
+   PR 6 — Reclassificação Assistida de Base + Lead Frio Recuperável
+   CSS prefix: reclass*
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Sub-bloco container */
+.reclassSubBloco {
+  min-width: 0;
+  padding: 10px 12px;
+  background: rgba(30, 30, 35, 0.4);
+  border: 1px solid rgba(63, 63, 70, 0.35);
+  border-radius: 6px;
+}
+
+/* Header */
+.reclassSubHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.reclassSubIcon {
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+.reclassSubTitle {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #d1d5db;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* Calor real badge (header) */
+.reclassCalorBadge {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+
+.reclassCalorQuente {
+  background: rgba(249, 115, 22, 0.12);
+  color: #fdba74;
+  border: 1px solid rgba(249, 115, 22, 0.2);
+}
+
+.reclassCalorMorno {
+  background: rgba(234, 179, 8, 0.1);
+  color: #facc15;
+  border: 1px solid rgba(234, 179, 8, 0.18);
+}
+
+.reclassCalorFrio {
+  background: rgba(59, 130, 246, 0.1);
+  color: #93c5fd;
+  border: 1px solid rgba(59, 130, 246, 0.18);
+}
+
+.reclassCalorIndefinido {
+  background: rgba(113, 113, 122, 0.1);
+  color: #71717a;
+  border: 1px solid rgba(113, 113, 122, 0.12);
+}
+
+/* Grid de campos */
+.reclassGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 12px;
+  margin-bottom: 8px;
+}
+
+.reclassItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reclassLabel {
+  font-size: 0.6875rem;
+  color: #71717a;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.reclassValue {
+  font-size: 0.75rem;
+  color: #e4e4e7;
+}
+
+/* Badge base */
+.reclassBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  width: fit-content;
+}
+
+/* ── Base sugerida ── */
+.reclassBaseQuente {
+  background: rgba(249, 115, 22, 0.1);
+  color: #fdba74;
+  border: 1px solid rgba(249, 115, 22, 0.18);
+}
+
+.reclassBaseMorna {
+  background: rgba(234, 179, 8, 0.08);
+  color: #fde68a;
+  border: 1px solid rgba(234, 179, 8, 0.15);
+}
+
+.reclassBaseFria {
+  background: rgba(59, 130, 246, 0.08);
+  color: #bfdbfe;
+  border: 1px solid rgba(59, 130, 246, 0.15);
+}
+
+.reclassBaseReativacao {
+  background: rgba(99, 102, 241, 0.1);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.18);
+}
+
+.reclassBaseManter {
+  background: rgba(113, 113, 122, 0.08);
+  color: #a1a1aa;
+  border: 1px solid rgba(113, 113, 122, 0.12);
+}
+
+/* ── Reclassificação sugerida ── */
+.reclassSubir {
+  background: rgba(16, 185, 129, 0.1);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.18);
+}
+
+.reclassDescer {
+  background: rgba(234, 179, 8, 0.08);
+  color: #fde68a;
+  border: 1px solid rgba(234, 179, 8, 0.15);
+}
+
+.reclassReativacao {
+  background: rgba(99, 102, 241, 0.1);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.18);
+}
+
+.reclassArquivavel {
+  background: rgba(113, 113, 122, 0.1);
+  color: #71717a;
+  border: 1px solid rgba(113, 113, 122, 0.15);
+}
+
+.reclassManter {
+  background: rgba(63, 63, 70, 0.2);
+  color: #a1a1aa;
+  border: 1px solid rgba(63, 63, 70, 0.15);
+}
+
+.reclassIndefinido {
+  background: rgba(63, 63, 70, 0.15);
+  color: #52525b;
+  border: 1px solid rgba(63, 63, 70, 0.12);
+}
+
+/* ── Recuperável ── */
+.reclassRecuperavelSim {
+  background: rgba(16, 185, 129, 0.1);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.18);
+}
+
+.reclassRecuperavelNao {
+  background: rgba(113, 113, 122, 0.1);
+  color: #71717a;
+  border: 1px solid rgba(113, 113, 122, 0.12);
+}
+
+.reclassRecuperavelIncerto {
+  background: rgba(234, 179, 8, 0.08);
+  color: #fde68a;
+  border: 1px solid rgba(234, 179, 8, 0.12);
+}
+
+/* ── Ação de reativação ── */
+.reclassAcaoAtiva {
+  background: rgba(16, 185, 129, 0.1);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.18);
+}
+
+.reclassAcaoUrgente {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.reclassAcaoPadrao {
+  background: rgba(99, 102, 241, 0.08);
+  color: #c7d2fe;
+  border: 1px solid rgba(99, 102, 241, 0.15);
+}
+
+.reclassAcaoNula {
+  background: rgba(113, 113, 122, 0.08);
+  color: #52525b;
+  border: 1px solid rgba(113, 113, 122, 0.1);
+}
+
+/* ── Motivo + Estratégia ── */
+.reclassEstrategiaRow {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding-top: 4px;
+  padding-bottom: 2px;
+}
+
+.reclassEstrategiaLabel {
+  font-size: 0.6875rem;
+  color: #71717a;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex-shrink: 0;
+}
+
+.reclassEstrategiaValue {
+  font-size: 0.75rem;
+  color: #a1a1aa;
+}
+
+/* ── Justificativa ── */
+.reclassJustificativaRow {
+  padding-top: 4px;
+}
+
+.reclassJustificativa {
   font-size: 0.75rem;
   color: #71717a;
   line-height: 1.5;

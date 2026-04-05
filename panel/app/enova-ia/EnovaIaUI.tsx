@@ -77,6 +77,7 @@ function LeituraGlobalSection({ leituraGlobal }: { leituraGlobal: LeituraGlobal 
 
 // ---------------------------------------------------------------------------
 
+// null = dados não disponíveis (erro de fetch ou env ausente) → UI renderiza estado de espera.
 export function EnovaIaUI({ leituraGlobal = null }: { leituraGlobal?: LeituraGlobal | null }) {
   return (
     <main className={styles.pageMain}>

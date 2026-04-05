@@ -123,12 +123,7 @@ export function agregaLeituraGlobal(
   let filaDeRetorno = 0;
   let docsPendentes = 0;
 
-  // Usamos Set para evitar dupla contagem em docs_pendentes
-  // (lead pode estar na fase de docs E ter pendencia textual)
-  const docsSet = new Set<string>();
-
   for (const lead of leads) {
-    const wa_id = strFieldRaw(lead, "wa_id");
     const faseFunil = strField(lead, "fase_funil");
     const statusAtencao = strField(lead, "status_atencao");
     const prazoProximaAcao = strFieldRaw(lead, "prazo_proxima_acao");
@@ -162,11 +157,9 @@ export function agregaLeituraGlobal(
       pendenciaPrincipal.includes("arquivo");
 
     if (emFaseDocs || pendenciaDocSinal) {
-      docsSet.add(wa_id || String(Math.random())); // deduplica por wa_id
+      docsPendentes += 1;
     }
   }
-
-  docsPendentes = docsSet.size;
 
   return {
     leads_ativos: {

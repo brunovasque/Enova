@@ -5,7 +5,7 @@ import { EnovaIaUI } from "./EnovaIaUI";
 export default async function EnovaIaPage() {
   let leituraGlobal: LeituraGlobal | null = null;
 
-  const result = await fetchAttendanceLeadsAction(300);
+  const result = await fetchAttendanceLeadsAction(500);
   if (result.ok && result.leads) {
     leituraGlobal = agregaLeituraGlobal(result.leads);
   }

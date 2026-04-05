@@ -85,6 +85,15 @@ import {
   getPrioridadeMelhoriaLabel,
   getPrecisaEvolucaoEstruturaLabel,
 } from "../../lib/lead-meta-ops-labels";
+import { readLeadAutonomy } from "../../lib/lead-autonomy";
+import type { LeadAutonomyReading } from "../../lib/lead-autonomy";
+import {
+  getAutonomiaSugeridaLabel,
+  getMotivoPedidoAutonomiaLabel,
+  getNivelRiscoExecucaoLabel,
+  getAcaoBaixoRiscoLabel,
+  getExecutorAssistidoLabel,
+} from "../../lib/lead-autonomy-labels";
 
 /* ── Type — mirrors AttendanceRow in AtendimentoUI ── */
 export type AttendanceDetalheRow = {
@@ -950,6 +959,17 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
     }
   }, [lead, convMsgs, clientProfile, cognitiveState, followupState, docsState, reclassState, visitReadinessState]);
 
+  /* ── Autonomia Assistida (PR9) — leitura read-only, never throws ── */
+  const autonomyState = useMemo((): LeadAutonomyReading | null => {
+    if (!cognitiveState) return null;
+    try {
+      const signals = buildLeadSignals(lead, convMsgs, clientProfile);
+      return readLeadAutonomy(signals, cognitiveState, followupState, docsState, reclassState, visitReadinessState, metaOpsState);
+    } catch {
+      return null;
+    }
+  }, [lead, convMsgs, clientProfile, cognitiveState, followupState, docsState, reclassState, visitReadinessState, metaOpsState]);
+
   useEffect(() => {
     let cancelled = false;
     async function loadMsgs() {
@@ -1403,8 +1423,8 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                   </span>
                 </div>
 
-                {/* ── Sub-blocos cognitivos em linha (PR4 + PR5 + PR6 + PR7) ── */}
-                {(followupState || docsState || reclassState || visitReadinessState || metaOpsState) && (
+                {/* ── Sub-blocos cognitivos em linha (PR4 + PR5 + PR6 + PR7 + PR9) ── */}
+                {(followupState || docsState || reclassState || visitReadinessState || metaOpsState || autonomyState) && (
                 <div className={styles.subBlocosRow}>
 
                 {/* ── Organização de Follow-up (PR4) ── */}
@@ -1934,6 +1954,121 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                         {metaOpsState.justificativa_meta_operacao}
                       </span>
                     </div>
+                  </div>
+                )}
+
+                {/* ── Autonomia Assistida (PR9) ── */}
+                {autonomyState && (
+                  <div className={styles.autonomySubBloco}>
+                    <div className={styles.autonomySubHeader}>
+                      <span className={styles.autonomySubIcon}>🤝</span>
+                      <span className={styles.autonomySubTitle}>Autonomia Assistida</span>
+                      <span
+                        className={`${styles.autonomyRiscoBadge} ${
+                          autonomyState.nivel_risco_execucao === "baixo"
+                            ? styles.autonomyRiscoBaixo
+                            : autonomyState.nivel_risco_execucao === "medio"
+                            ? styles.autonomyRiscoMedio
+                            : styles.autonomyRiscoAlto
+                        }`}
+                      >
+                        Risco: {getNivelRiscoExecucaoLabel(autonomyState.nivel_risco_execucao)}
+                      </span>
+                    </div>
+
+                    <div className={styles.autonomyGrid}>
+                      {/* Autonomia sugerida */}
+                      <div className={styles.autonomyItem}>
+                        <span className={styles.autonomyLabel}>Autonomia</span>
+                        <span
+                          className={`${styles.autonomyBadge} ${
+                            autonomyState.autonomia_sugerida === "nenhuma"
+                              ? styles.autonomyNenhuma
+                              : autonomyState.autonomia_sugerida === "intervencao_humana"
+                              ? styles.autonomyUrgente
+                              : styles.autonomyPadrao
+                          }`}
+                        >
+                          {getAutonomiaSugeridaLabel(autonomyState.autonomia_sugerida)}
+                        </span>
+                      </div>
+
+                      {/* Motivo */}
+                      <div className={styles.autonomyItem}>
+                        <span className={styles.autonomyLabel}>Motivo</span>
+                        <span
+                          className={`${styles.autonomyBadge} ${
+                            autonomyState.motivo_pedido_autonomia === "sem_motivo_claro"
+                              ? styles.autonomyNenhuma
+                              : autonomyState.motivo_pedido_autonomia === "precisa_decisao_humana"
+                              ? styles.autonomyUrgente
+                              : styles.autonomyPadrao
+                          }`}
+                        >
+                          {getMotivoPedidoAutonomiaLabel(autonomyState.motivo_pedido_autonomia)}
+                        </span>
+                      </div>
+
+                      {/* Executor assistido */}
+                      <div className={styles.autonomyItem}>
+                        <span className={styles.autonomyLabel}>Executor</span>
+                        <span
+                          className={`${styles.autonomyBadge} ${
+                            autonomyState.executor_assistido_habilitado === "sim"
+                              ? styles.autonomyExecutorSim
+                              : autonomyState.executor_assistido_habilitado === "incerto"
+                              ? styles.autonomyExecutorIncerto
+                              : styles.autonomyExecutorNao
+                          }`}
+                        >
+                          {getExecutorAssistidoLabel(autonomyState.executor_assistido_habilitado)}
+                        </span>
+                      </div>
+
+                      {/* Aprovação humana */}
+                      <div className={styles.autonomyItem}>
+                        <span className={styles.autonomyLabel}>Aprovação humana</span>
+                        <span className={`${styles.autonomyBadge} ${styles.autonomyAprovacaoSim}`}>
+                          Obrigatória
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Justificativa */}
+                    <div className={styles.autonomyJustificativaRow}>
+                      <span className={styles.autonomyJustificativa}>
+                        {autonomyState.justificativa_autonomia}
+                      </span>
+                    </div>
+
+                    {/* ── Executor assistido de baixo risco — CTA contextual ── */}
+                    {autonomyState.executor_assistido_habilitado === "sim" &&
+                      autonomyState.acao_baixo_risco_sugerida !== "nenhuma" && (() => {
+                      const acao = autonomyState.acao_baixo_risco_sugerida;
+                      // acao é sempre "abrir_modal_chamar_cliente" ou "abrir_modal_followup"
+                      // — ambos reutilizam o modal callOpen já validado no painel.
+                      const icon = acao === "abrir_modal_chamar_cliente" ? "📞" : "📋";
+                      const handleCtaClick = () => {
+                        setCallText(suggestCallMessage(lead));
+                        setCallOpen(true);
+                        setCallFeedback(null);
+                        setCallError(null);
+                      };
+                      return (
+                        <div className={styles.autonomyCtaRow}>
+                          <button
+                            type="button"
+                            className={styles.autonomyCtaBtn}
+                            onClick={handleCtaClick}
+                          >
+                            {icon} {getAcaoBaixoRiscoLabel(acao)}
+                          </button>
+                          <span className={styles.autonomyCtaHint}>
+                            Requer gesto humano — sem execução automática
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 

@@ -2748,3 +2748,190 @@
   line-height: 1.5;
   font-style: italic;
 }
+
+/* ════════════════════════════════════════════════════════════
+   PR 9 — Autonomia Assistida
+   Prefixo: autonomy*
+   ════════════════════════════════════════════════════════════ */
+
+.autonomySubBloco {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(63, 63, 70, 0.25);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 180px;
+}
+
+/* ── Header ── */
+.autonomySubHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.autonomySubIcon {
+  font-size: 0.875rem;
+  flex-shrink: 0;
+}
+
+.autonomySubTitle {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: #a1a1aa;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  flex: 1;
+}
+
+/* ── Badge de risco ── */
+.autonomyRiscoBadge {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.autonomyRiscoBaixo {
+  background: rgba(16, 185, 129, 0.1);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.autonomyRiscoMedio {
+  background: rgba(234, 179, 8, 0.1);
+  color: #fde68a;
+  border: 1px solid rgba(234, 179, 8, 0.18);
+}
+
+.autonomyRiscoAlto {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+/* ── Grid de campos ── */
+.autonomyGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px 8px;
+}
+
+.autonomyItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.autonomyLabel {
+  font-size: 0.625rem;
+  color: #52525b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 500;
+}
+
+.autonomyBadge {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  width: fit-content;
+}
+
+/* ── Autonomia ── */
+.autonomyNenhuma {
+  background: rgba(113, 113, 122, 0.08);
+  color: #52525b;
+  border: 1px solid rgba(113, 113, 122, 0.1);
+}
+
+.autonomyUrgente {
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.autonomyPadrao {
+  background: rgba(99, 102, 241, 0.1);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.18);
+}
+
+/* ── Executor ── */
+.autonomyExecutorSim {
+  background: rgba(16, 185, 129, 0.08);
+  color: #6ee7b7;
+  border: 1px solid rgba(16, 185, 129, 0.14);
+}
+
+.autonomyExecutorIncerto {
+  background: rgba(234, 179, 8, 0.08);
+  color: #fde68a;
+  border: 1px solid rgba(234, 179, 8, 0.12);
+}
+
+.autonomyExecutorNao {
+  background: rgba(113, 113, 122, 0.08);
+  color: #52525b;
+  border: 1px solid rgba(113, 113, 122, 0.1);
+}
+
+/* ── Aprovação ── */
+.autonomyAprovacaoSim {
+  background: rgba(99, 102, 241, 0.08);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.14);
+}
+
+/* ── Justificativa ── */
+.autonomyJustificativaRow {
+  padding-top: 2px;
+}
+
+.autonomyJustificativa {
+  font-size: 0.75rem;
+  color: #71717a;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+/* ── CTA executor assistido de baixo risco ── */
+.autonomyCtaRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+  border-top: 1px solid rgba(63, 63, 70, 0.2);
+  margin-top: 2px;
+}
+
+.autonomyCtaBtn {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: rgba(16, 185, 129, 0.08);
+  color: #6ee7b7;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.autonomyCtaBtn:hover {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.45);
+}
+
+.autonomyCtaHint {
+  font-size: 0.625rem;
+  color: #52525b;
+  font-style: italic;
+}

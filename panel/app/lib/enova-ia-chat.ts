@@ -36,8 +36,10 @@ import { PRIORIDADE_FILA_LABEL } from "./enova-ia-fila";
 import type { KnowledgeIntent } from "./enova-ia-knowledge";
 import { KNOWLEDGE_PATTERNS, getKnowledgeEntry } from "./enova-ia-knowledge";
 import type { EnovaIaOpenAIResponse } from "./enova-ia-openai";
+import type { EnovaIaActionDraft } from "./enova-ia-action-builder";
 
 export type { EnovaIaOpenAIResponse } from "./enova-ia-openai";
+export type { EnovaIaActionDraft } from "./enova-ia-action-builder";
 
 // ── Tipos canônicos ────────────────────────────────────────────────────────
 
@@ -83,6 +85,8 @@ export type ChatMsg = {
   resposta?: ChatResponse;
   /** Resposta via OpenAI Structured Outputs (prioritária quando disponível). */
   openai_response?: EnovaIaOpenAIResponse;
+  /** Draft de ação assistida (G2.1) — produzido pelo action builder quando há base. */
+  action_draft?: EnovaIaActionDraft | null;
   ts: number;
 };
 

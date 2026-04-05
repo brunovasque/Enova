@@ -22,9 +22,11 @@ import {
 import type { ExecutorPreparationStatus } from "../lib/enova-ia-preparation";
 import {
   buildPreExecutionPackage,
+  buildExecutionAuthorizationPackage,
   PRE_EXECUTION_NOT_YET_EXECUTED_NOTICE,
+  EXECUTION_AUTHORIZATION_NOTICE,
 } from "../lib/enova-ia-pre-execution";
-import type { PreExecutionPackage } from "../lib/enova-ia-pre-execution";
+import type { PreExecutionPackage, ExecutionAuthorizationPackage } from "../lib/enova-ia-pre-execution";
 
 const GARGALOS = [
   { tipo: "Documentação", descricao: "Leitura de gargalos virá da análise cognitiva global" },
@@ -328,27 +330,32 @@ const EXECUTOR_RISK_BADGE_CLASS: Record<EnovaIaActionDraft["risk_level"], string
 };
 
 const PREPARATION_STATUS_BADGE_CLASS: Record<ExecutorPreparationStatus, string> = {
-  draft:                         styles.executorBadgeStatusDraft,
-  review_ready:                  styles.executorBadgeStatusReviewReady,
-  approved_for_manual_execution: styles.executorBadgeStatusApproved,
-  pre_execution_ready:           styles.executorBadgeStatusPreExecutionReady,
-  discarded:                     styles.executorBadgeStatusDiscarded,
+  draft:                                styles.executorBadgeStatusDraft,
+  review_ready:                         styles.executorBadgeStatusReviewReady,
+  approved_for_manual_execution:        styles.executorBadgeStatusApproved,
+  pre_execution_ready:                  styles.executorBadgeStatusPreExecutionReady,
+  authorized_for_controlled_execution:  styles.executorBadgeStatusAuthorized,
+  discarded:                            styles.executorBadgeStatusDiscarded,
 };
 
 function ExecutorAssistidoBloco({
   draft,
   status,
+  authPackage,
   onRevisar,
   onDescartar,
   onAprovar,
   onMarcarPreExecucao,
+  onAutorizarExecucaoControlada,
 }: {
   draft: EnovaIaActionDraft;
   status: ExecutorPreparationStatus;
+  authPackage: ExecutionAuthorizationPackage | null;
   onRevisar: () => void;
   onDescartar: () => void;
   onAprovar: () => void;
   onMarcarPreExecucao: () => void;
+  onAutorizarExecucaoControlada: () => void;
 }) {
   // [G2.4] Use target_leads_detail when available, fall back to plain target_leads
   const hasDetail = draft.target_leads_detail && draft.target_leads_detail.length > 0;
@@ -364,6 +371,7 @@ function ExecutorAssistidoBloco({
     status === "approved_for_manual_execution" ? styles.executorBlocoApproved : "",
     status === "review_ready" ? styles.executorBlocoReviewReady : "",
     status === "pre_execution_ready" ? styles.executorBlocoPreExecutionReady : "",
+    status === "authorized_for_controlled_execution" ? styles.executorBlocoAuthorized : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -374,6 +382,7 @@ function ExecutorAssistidoBloco({
     status === "approved_for_manual_execution" ? styles.executorStatusRowApproved : "",
     status === "review_ready" ? styles.executorStatusRowReviewReady : "",
     status === "pre_execution_ready" ? styles.executorStatusRowPreExecution : "",
+    status === "authorized_for_controlled_execution" ? styles.executorStatusRowAuthorized : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -498,10 +507,49 @@ function ExecutorAssistidoBloco({
           </div>
         )}
 
+        {/* [G2.6] Pacote de autorização final humana — visível apenas quando autorizado */}
+        {authPackage && (
+          <div className={styles.executorAuthPackage}>
+            <span className={styles.executorAuthPackageLabel}>
+              🔐 Autorização final humana
+            </span>
+            <div className={styles.executorAuthPackageRows}>
+              <div className={styles.executorAuthPackageRow}>
+                <span className={styles.executorAuthPackageKey}>Status</span>
+                <span className={styles.executorAuthPackageValue}>Autorizado para execução controlada futura</span>
+              </div>
+              <div className={styles.executorAuthPackageRow}>
+                <span className={styles.executorAuthPackageKey}>Autorizado por humano</span>
+                <span className={styles.executorAuthPackageValue}>Sim</span>
+              </div>
+              <div className={styles.executorAuthPackageRow}>
+                <span className={styles.executorAuthPackageKey}>Gesto final cumprido</span>
+                <span className={styles.executorAuthPackageValue}>Sim</span>
+              </div>
+              <div className={styles.executorAuthPackageRow}>
+                <span className={styles.executorAuthPackageKey}>Executado agora</span>
+                <span className={styles.executorAuthPackageValue}>Não — nenhuma execução ocorreu</span>
+              </div>
+              <div className={styles.executorAuthPackageRow}>
+                <span className={styles.executorAuthPackageKey}>Autorizado em</span>
+                <span className={styles.executorAuthPackageValue}>{authPackage.authorized_at_local}</span>
+              </div>
+            </div>
+            <p className={styles.executorAuthNotice}>
+              ⚠️ {EXECUTION_AUTHORIZATION_NOTICE}
+            </p>
+          </div>
+        )}
+
         {/* Status row — texto de apoio contextual por estado */}
         {status !== "discarded" && (
           <div className={statusRowClass}>
-            {status === "pre_execution_ready" ? (
+            {status === "authorized_for_controlled_execution" ? (
+              <>
+                <span className={styles.executorStatusAuthorizedDot} />
+                <span className={styles.executorStatusAuthorizedText}>{supportText}</span>
+              </>
+            ) : status === "pre_execution_ready" ? (
               <>
                 <span className={styles.executorStatusPreExecutionDot} />
                 <span className={styles.executorStatusPreExecutionText}>{supportText}</span>
@@ -526,11 +574,12 @@ function ExecutorAssistidoBloco({
         )}
 
         {/* Botões — coerentes com o estado atual
-            draft:                        Revisar ação | Descartar
-            review_ready:                 Aprovar preparo | Descartar
-            approved_for_manual_execution: Armar para pré-execução [G2.5]
-            pre_execution_ready:          badge estático armado [G2.5]
-            discarded:                    não renderizado (bloco ocultado no pai) */}
+            draft:                               Revisar ação | Descartar
+            review_ready:                        Aprovar preparo | Descartar
+            approved_for_manual_execution:       Armar para pré-execução [G2.5]
+            pre_execution_ready:                 Autorizar execução controlada futura [G2.6]
+            authorized_for_controlled_execution: badge estático autorizado [G2.6]
+            discarded:                           não renderizado (bloco ocultado no pai) */}
         {status === "draft" && (
           <div className={styles.executorButtons}>
             <button
@@ -590,6 +639,22 @@ function ExecutorAssistidoBloco({
           <div className={styles.executorButtons}>
             <span className={styles.executorBtnPreExecucaoActive}>
               🎯 Pronta para pré-execução assistida
+            </span>
+            <button
+              type="button"
+              className={styles.executorBtnAutorizarExecucao}
+              onClick={onAutorizarExecucaoControlada}
+              aria-label="Autorizar execução controlada futura"
+            >
+              🔐 Autorizar execução controlada futura
+            </button>
+          </div>
+        )}
+
+        {status === "authorized_for_controlled_execution" && (
+          <div className={styles.executorButtons}>
+            <span className={styles.executorBtnAuthorizedActive}>
+              🔐 Autorizado — execução controlada futura
             </span>
           </div>
         )}
@@ -678,6 +743,7 @@ function ChatOperacionalSection({
   const listaRef = useRef<HTMLDivElement>(null);
   const [prepStatus, setPrepStatus] = useState<ExecutorPreparationStatus>(PREPARATION_INITIAL_STATUS);
   const [trackedDraftId, setTrackedDraftId] = useState<string | null>(null);
+  const [authPackage, setAuthPackage] = useState<ExecutionAuthorizationPackage | null>(null);
 
   // Derive activeDraft from the most recent message that has an action_draft.
   // This ensures the executor block always reflects the latest conversation state,
@@ -695,6 +761,7 @@ function ChatOperacionalSection({
     if (newId !== trackedDraftId) {
       setTrackedDraftId(newId);
       setPrepStatus(PREPARATION_INITIAL_STATUS);
+      setAuthPackage(null);
     }
   }, [activeDraft, trackedDraftId]);
 
@@ -860,6 +927,7 @@ function ChatOperacionalSection({
         <ExecutorAssistidoBloco
           draft={activeDraft}
           status={prepStatus}
+          authPackage={authPackage}
           onRevisar={() => {
             const next = transitionPreparationStatus(prepStatus, "revisar");
             if (next) setPrepStatus(next);
@@ -875,6 +943,14 @@ function ChatOperacionalSection({
           onMarcarPreExecucao={() => {
             const next = transitionPreparationStatus(prepStatus, "marcar_pre_execucao");
             if (next) setPrepStatus(next);
+          }}
+          onAutorizarExecucaoControlada={() => {
+            const next = transitionPreparationStatus(prepStatus, "autorizar_execucao_controlada");
+            if (next) {
+              setPrepStatus(next);
+              const preExec = buildPreExecutionPackage(activeDraft);
+              setAuthPackage(buildExecutionAuthorizationPackage(preExec));
+            }
           }}
         />
       ) : (

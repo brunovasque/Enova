@@ -14,7 +14,7 @@
 //   2. Estado pre_execution_ready na máquina de estados
 //   3. Ação marcar_pre_execucao na máquina de estados
 //   4. Transição canônica: approved_for_manual_execution → pre_execution_ready
-//   5. pre_execution_ready é estado terminal (nenhuma ação válida)
+//   5. pre_execution_ready aceita autorizar_execucao_controlada [G2.6]
 //   6. Transições inválidas para marcar_pre_execucao retornam null
 //   7. Labels e textos de apoio para pre_execution_ready
 //   8. buildPreExecutionPackage — campos obrigatórios
@@ -162,9 +162,9 @@ test("approved_for_manual_execution aceita marcar_pre_execucao [G2.5]", () => {
   assert.ok(actions.includes("marcar_pre_execucao"), "deve incluir marcar_pre_execucao");
 });
 
-test("pre_execution_ready não aceita nenhuma ação (estado terminal)", () => {
+test("pre_execution_ready aceita autorizar_execucao_controlada [G2.6] — não é mais terminal", () => {
   const actions = PREPARATION_VALID_ACTIONS["pre_execution_ready"];
-  assert.strictEqual(actions.length, 0);
+  assert.ok(actions.includes("autorizar_execucao_controlada"), "deve incluir autorizar_execucao_controlada [G2.6]");
 });
 
 // ── 4. Transição canônica → pre_execution_ready ───────────────────────────
@@ -183,9 +183,9 @@ test("pre_execution_ready + marcar_pre_execucao → null (já armado)", () => {
 
 // ── 5. pre_execution_ready é estado terminal ─────────────────────────────
 
-console.log("\n── 5. pre_execution_ready é estado terminal ──────────────────────");
+console.log("\n── 5. pre_execution_ready aceita autorizar_execucao_controlada [G2.6] ─");
 
-test("pre_execution_ready rejeita todas as ações conhecidas", () => {
+test("pre_execution_ready rejeita ações anteriores (revisar, aprovar, descartar, marcar_pre_execucao)", () => {
   const actions = ["revisar", "aprovar", "descartar", "marcar_pre_execucao"];
   for (const action of actions) {
     const next = transitionPreparationStatus("pre_execution_ready", action);

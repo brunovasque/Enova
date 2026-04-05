@@ -209,10 +209,12 @@ function deriveAutonomiaSugerida(
   }
 
   // Follow-up urgente ou janela clara → follow-up assistido
+  // caso_parado_com_potencial: caso parado há dias mas lead ainda tem interesse e não está travado
+  const casoParadoComPotencial = dias >= DIAS_CASO_PARADO && cognitiveState.nivel_interesse !== "baixo" && !faseTravamento;
   if (
     followupState?.urgencia_followup === "alta" ||
     followupState?.acao_followup_sugerida === "chamar_agora" ||
-    (dias >= DIAS_CASO_PARADO && cognitiveState.nivel_interesse !== "baixo" && !faseTravamento)
+    casoParadoComPotencial
   ) {
     return "followup_assistido";
   }
@@ -280,7 +282,9 @@ function deriveNivelRisco(
   reclassState: LeadReclassificationReading | null,
 ): NivelRiscoExecucao {
   // Intervenção humana = risco alto (não deve ser executado automaticamente)
-  if (autonomia === "intervencao_humana" || autonomia === "nenhuma") return "alto";
+  if (autonomia === "intervencao_humana") return "alto";
+  // Sem autonomia sugerida = sem execução proposta (risco indeterminado — médio)
+  if (autonomia === "nenhuma") return "medio";
 
   // Estado do cliente arquivável ou interesse baixo aumenta risco
   if (
@@ -315,8 +319,8 @@ function deriveNivelRisco(
     autonomia === "docs_assistido" ||
     autonomia === "reativacao_assistida"
   ) {
-    const diasSem = signals.interacao.dias_sem_resposta_cliente ?? 0;
-    return diasSem >= DIAS_CASO_TRAVADO ? "medio" : "baixo";
+    const diasSemResposta = signals.interacao.dias_sem_resposta_cliente ?? 0;
+    return diasSemResposta >= DIAS_CASO_TRAVADO ? "medio" : "baixo";
   }
 
   // Visita tem nível de risco médio por padrão (envolve agenda externa)

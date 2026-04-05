@@ -2043,57 +2043,33 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
 
                     {/* ── Executor assistido de baixo risco — CTA contextual ── */}
                     {autonomyState.executor_assistido_habilitado === "sim" &&
-                      autonomyState.acao_baixo_risco_sugerida !== "nenhuma" && (
-                      <div className={styles.autonomyCtaRow}>
-                        {autonomyState.acao_baixo_risco_sugerida === "abrir_modal_chamar_cliente" && (
+                      autonomyState.acao_baixo_risco_sugerida !== "nenhuma" && (() => {
+                      const acao = autonomyState.acao_baixo_risco_sugerida;
+                      const icon =
+                        acao === "abrir_modal_chamar_cliente" ? "📞"
+                        : acao === "abrir_modal_docs" || acao === "abrir_modal_visita" ? "📁"
+                        : "📋";
+                      const handleCtaClick = () => {
+                        setCallText(suggestCallMessage(lead));
+                        setCallOpen(true);
+                        setCallFeedback(null);
+                        setCallError(null);
+                      };
+                      return (
+                        <div className={styles.autonomyCtaRow}>
                           <button
                             type="button"
                             className={styles.autonomyCtaBtn}
-                            onClick={() => {
-                              setCallText(suggestCallMessage(lead));
-                              setCallOpen(true);
-                              setCallFeedback(null);
-                              setCallError(null);
-                            }}
+                            onClick={handleCtaClick}
                           >
-                            📞 {getAcaoBaixoRiscoLabel(autonomyState.acao_baixo_risco_sugerida)}
+                            {icon} {getAcaoBaixoRiscoLabel(acao)}
                           </button>
-                        )}
-                        {(autonomyState.acao_baixo_risco_sugerida === "abrir_modal_followup" ||
-                          autonomyState.acao_baixo_risco_sugerida === "abrir_modal_reativacao") && (
-                          <button
-                            type="button"
-                            className={styles.autonomyCtaBtn}
-                            onClick={() => {
-                              setCallText(suggestCallMessage(lead));
-                              setCallOpen(true);
-                              setCallFeedback(null);
-                              setCallError(null);
-                            }}
-                          >
-                            📋 {getAcaoBaixoRiscoLabel(autonomyState.acao_baixo_risco_sugerida)}
-                          </button>
-                        )}
-                        {(autonomyState.acao_baixo_risco_sugerida === "abrir_modal_docs" ||
-                          autonomyState.acao_baixo_risco_sugerida === "abrir_modal_visita") && (
-                          <button
-                            type="button"
-                            className={styles.autonomyCtaBtn}
-                            onClick={() => {
-                              setCallText(suggestCallMessage(lead));
-                              setCallOpen(true);
-                              setCallFeedback(null);
-                              setCallError(null);
-                            }}
-                          >
-                            📁 {getAcaoBaixoRiscoLabel(autonomyState.acao_baixo_risco_sugerida)}
-                          </button>
-                        )}
-                        <span className={styles.autonomyCtaHint}>
-                          Requer gesto humano — sem execução automática
-                        </span>
-                      </div>
-                    )}
+                          <span className={styles.autonomyCtaHint}>
+                            Requer gesto humano — sem execução automática
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 

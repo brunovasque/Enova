@@ -23042,6 +23042,12 @@ case "inicio_programa": {
         cognitiveMessage: userText || "hmm"
       });
       setTopoHappyPathFlags(st, _ambSpeech);
+      // Pós-reset: apenas cognitive_real pode dominar o primeiro turno.
+      // heuristic_guidance (template automático) não pode assumir takes_final nesse turno.
+      if (_isFirstAfterReset && _ambSpeech.source === "heuristic_guidance") {
+        st.__cognitive_reply_prefix = null;
+        st.__cognitive_v2_takes_final = false;
+      }
     }
 
     // Se greeting/reentry/first-after-reset e já tinha prefix cognitivo → confirma takes_final
@@ -23050,7 +23056,8 @@ case "inicio_programa": {
     }
 
     // ── Resolvedor cognitivo estruturado como camada adicional (se cognitivo real falhou) ──
-    if (!st.__cognitive_v2_takes_final) {
+    // Pós-reset: bloqueia resolveTopoStructured como dominância de fala (retorna templates).
+    if (!st.__cognitive_v2_takes_final && !_isFirstAfterReset) {
       const _resolução = resolveTopoStructured("inicio_programa", userText);
       if (_resolução && _resolução.reply_text) {
         st.__cognitive_reply_prefix = _resolução.reply_text;

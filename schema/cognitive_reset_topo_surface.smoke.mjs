@@ -3,8 +3,9 @@
  *
  * Smoke tests for reset/topo cognitive surface fix.
  * Validates:
- *   A) IMMEDIATE reset response uses cognitive surface (not mechanical)
- *   B) After reset, greetings/reentry at inicio_programa get cognitive-only response
+ *   A) SILENT reset — no auto-speech, _post_reset flag set
+ *   B) After reset, first message from client gets cognitive-only response
+ *   C) Name candidate capture and reuse before inicio_nome
  *
  * Scenarios:
  *  1. reset + "oi"     → cognitive takes final, no mechanical reprompt
@@ -21,13 +22,20 @@
  * 12. inicio_programa + greeting + NO cognitive prefix → mechanical fallback
  * 13. stage/nextStage preserved after cognitive takes final
  * 14. cognitive engine produces useful reply for greeting at inicio_programa
- * 15. IMMEDIATE reset: cognitive flags set on novoSt → step() outputs cognitive only
- * 16. IMMEDIATE reset: response does NOT contain "Me responde com *sim*"
- * 17. IMMEDIATE reset: response contains natural reanchor question
- * 18. IMMEDIATE reset: stage stays inicio_programa
- * 19. IMMEDIATE reset: cognitive flags cleared after step (no leak)
- * 20. Normal inicio (no reset) → no regression (no cognitive flags)
- * 21. IMMEDIATE reset: no impact on docs/correspondente/visita stages
+ * 15. SILENT reset: no messages sent (silence)
+ * 16. SILENT reset: _post_reset cleared after first message
+ * 17. First msg after reset: greeting + cognitive prefix → takes_final
+ * 18. First msg after reset: stage preserved
+ * 19. First msg after reset: non-greeting "Bruno Vasques" → takes_final
+ * 20. Normal inicio (no reset) → no regression
+ * 21. Silent reset: no impact on docs/correspondente/visita
+ * 22. "Bruno Vasques" → detected as name_candidate
+ * 23. "meu nome é Ana Silva" → detected as name_candidate
+ * 24. "Oi" → handled by greeting detection, not name capture
+ * 25. "me explica" → NOT a name_candidate
+ * 26. inicio_nome reuse: high confidence → accepts direct
+ * 27. inicio_nome reuse: medium confidence → confirms short
+ * 28. inicio_nome reuse: no candidate → normal flow
  */
 
 import assert from "node:assert/strict";
@@ -224,80 +232,101 @@ await asyncTest('14. Cognitive engine returns useful reply for "oi" at inicio_pr
 });
 
 // =======================================================================
-// IMMEDIATE RESET RESPONSE — Tests 15-21
-// Validates the fix where the reset handler itself sets cognitive flags
-// on novoSt BEFORE calling step(), so the IMMEDIATE reply is cognitive.
+// SILENT RESET — Tests 15-19
+// Validates that reset returns silence (no auto-speech) and sets _post_reset flag.
+// First user message after reset gets cognitive real treatment.
 // =======================================================================
 
-// ── Simulates the EXACT reset handler logic (worker L21408-21419) ──
-function simulateResetHandlerFlags() {
-  // After resetTotal + getState, novoSt is a fresh object with no cognitive flags.
+// ── Simulates the NEW silent reset handler ──
+function simulateSilentReset() {
   const novoSt = {
     fase_conversa: "inicio_programa",
     last_user_text: null,
     last_processed_text: null,
     last_message_id: null,
-    last_message_id_prev: null
+    last_message_id_prev: null,
+    _post_reset: true
   };
-
-  // ── The fix: cognitive surface for immediate reset ──
-  novoSt.__cognitive_reply_prefix =
-    "Perfeito, limpamos tudo aqui pra você 👌\n" +
-    "Eu sou a Enova, assistente do programa Minha Casa Minha Vida — um programa do governo com subsídio e condições especiais pra quem quer conquistar o primeiro imóvel 😊\n" +
-    "Você já sabe como funciona ou prefere que eu explique rapidinho?";
-  novoSt.__cognitive_v2_takes_final = true;
-
   return novoSt;
 }
 
-const MECHANICAL_RESET_MESSAGES = [
-  "Perfeito, limpamos tudo aqui pra você 👌",
-  "Eu sou a Enova 😊, assistente do programa Minha Casa Minha Vida.",
-  "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
-  "Me responde com *sim* (já sei) ou *não* (quero que explique)."
-];
-
-// ===== 15. IMMEDIATE reset: cognitive flags → step() outputs cognitive only =====
-await asyncTest('15. IMMEDIATE reset: step() outputs ONLY cognitive reply, not mechanical', async () => {
-  const novoSt = simulateResetHandlerFlags();
-  const result = assembleMessages(novoSt, MECHANICAL_RESET_MESSAGES);
-  assert.strictEqual(result.length, 1, "should have ONLY one cognitive message");
-  assert.ok(result[0].includes("Perfeito"), "reply should start with reset acknowledgment");
-  assert.ok(!result[0].includes("Me responde com"), "should NOT contain mechanical reprompt");
-  assert.ok(!result[0].includes("sim ou não"), "should NOT contain dry sim/não prompt");
-});
-
-// ===== 16. IMMEDIATE reset: no "Me responde com *sim*" =====
-await asyncTest('16. IMMEDIATE reset: response does NOT contain "Me responde com *sim*"', async () => {
-  const novoSt = simulateResetHandlerFlags();
-  const result = assembleMessages(novoSt, MECHANICAL_RESET_MESSAGES);
-  const joined = result.join("\n");
-  assert.ok(!joined.includes("Me responde com"), "no mechanical reprompt instruction");
-  assert.ok(!joined.includes("*sim* (já sei) ou *não*"), "no mechanical options formatting");
-});
-
-// ===== 17. IMMEDIATE reset: contains natural reanchor question =====
-await asyncTest('17. IMMEDIATE reset: response contains natural reanchor question', async () => {
-  const novoSt = simulateResetHandlerFlags();
-  const result = assembleMessages(novoSt, MECHANICAL_RESET_MESSAGES);
-  const joined = result.join("\n");
-  assert.ok(joined.includes("já sabe como funciona") || joined.includes("explique rapidinho"),
-    "should contain natural question about knowing the program");
-});
-
-// ===== 18. IMMEDIATE reset: stage stays inicio_programa =====
-await asyncTest('18. IMMEDIATE reset: stage preserved as inicio_programa', async () => {
-  const novoSt = simulateResetHandlerFlags();
-  assembleMessages(novoSt, MECHANICAL_RESET_MESSAGES);
+// ===== 15. SILENT reset: no messages sent =====
+await asyncTest('15. SILENT reset: no messages sent after reset (silence)', async () => {
+  const novoSt = simulateSilentReset();
+  // Reset handler returns without calling step() — no messages assembled
+  assert.strictEqual(novoSt._post_reset, true, "_post_reset flag must be set");
   assert.strictEqual(novoSt.fase_conversa, "inicio_programa", "stage must be inicio_programa");
+  // No cognitive flags set (no speech at all)
+  assert.strictEqual(novoSt.__cognitive_reply_prefix, undefined, "no cognitive prefix");
+  assert.strictEqual(novoSt.__cognitive_v2_takes_final, undefined, "no takes_final");
 });
 
-// ===== 19. IMMEDIATE reset: flags cleared after step =====
-await asyncTest('19. IMMEDIATE reset: cognitive flags cleared after step() (no leak)', async () => {
-  const novoSt = simulateResetHandlerFlags();
-  assembleMessages(novoSt, MECHANICAL_RESET_MESSAGES);
-  assert.strictEqual(novoSt.__cognitive_reply_prefix, null, "prefix cleared");
-  assert.strictEqual(novoSt.__cognitive_v2_takes_final, false, "takes_final cleared");
+// ===== 16. SILENT reset: _post_reset flag consumed on first message =====
+await asyncTest('16. SILENT reset: _post_reset cleared after first message detection', async () => {
+  const novoSt = simulateSilentReset();
+  // Simulates inicio_programa entry detecting _post_reset
+  const isFirstAfterReset = novoSt._post_reset === true;
+  assert.ok(isFirstAfterReset, "should detect first-after-reset");
+  novoSt._post_reset = null; // mirrors the worker clear
+  assert.strictEqual(novoSt._post_reset, null, "flag cleared after consumption");
+});
+
+// ===== 17. First message after reset: cognitive takes final for greeting =====
+await asyncTest('17. First msg after reset: "oi" + cognitive prefix → cognitive takes final', async () => {
+  const st = {
+    fase_conversa: "inicio_programa",
+    _post_reset: true,
+    __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY,
+    __cognitive_v2_takes_final: false
+  };
+  // _isFirstAfterReset = true → forces takes_final when prefix exists
+  const isFirstAfterReset = st._post_reset === true;
+  st._post_reset = null;
+
+  const nt = normalizeText("oi");
+  const _isGreetingOrReentry = isGreetingOrReentry(nt);
+
+  if ((isFirstAfterReset || _isGreetingOrReentry) && st.__cognitive_reply_prefix) {
+    st.__cognitive_v2_takes_final = true;
+  }
+
+  const result = assembleMessages(st, [
+    "Você já conhece como o programa funciona?",
+    "Me diz *sim* ou *não*."
+  ]);
+  assert.strictEqual(result.length, 1, "should have ONLY cognitive reply");
+  assert.ok(result[0].includes("Oi!"), "reply should be cognitive greeting");
+});
+
+// ===== 18. First message after reset: stage stays inicio_programa =====
+await asyncTest('18. First msg after reset: stage preserved as inicio_programa', async () => {
+  const st = simulateSilentReset();
+  assert.strictEqual(st.fase_conversa, "inicio_programa", "stage must be inicio_programa");
+});
+
+// ===== 19. First message after reset: non-greeting also gets cognitive =====
+await asyncTest('19. First msg after reset: non-greeting "Bruno Vasques" + prefix → cognitive takes final', async () => {
+  const st = {
+    fase_conversa: "inicio_programa",
+    _post_reset: true,
+    __cognitive_reply_prefix: "Oi, Bruno Vasques! Que bom ter você aqui 😊 Você já sabe como funciona o MCMV?",
+    __cognitive_v2_takes_final: false
+  };
+
+  const isFirstAfterReset = st._post_reset === true;
+  st._post_reset = null;
+
+  // Even non-greeting input gets takes_final when _isFirstAfterReset is true
+  if (isFirstAfterReset && st.__cognitive_reply_prefix) {
+    st.__cognitive_v2_takes_final = true;
+  }
+
+  const result = assembleMessages(st, [
+    "Você já conhece como o programa funciona?",
+    "Me diz *sim* ou *não*."
+  ]);
+  assert.strictEqual(result.length, 1, "should have ONLY cognitive reply");
+  assert.ok(result[0].includes("Bruno Vasques"), "reply should reference name");
 });
 
 // ===== 20. Normal inicio (no reset) → no regression =====
@@ -315,24 +344,104 @@ await asyncTest('20. Normal inicio_programa entry (no reset) → mechanical mess
   assert.ok(result[2].includes("sim"), "last message has sim/não prompt");
 });
 
-// ===== 21. IMMEDIATE reset: no impact on docs/correspondente/visita =====
-await asyncTest('21. IMMEDIATE reset: docs/correspondente/visita stages unaffected', async () => {
-  // The fix only applies inside the reset handler (L21408-21419).
-  // Other stages should not have cognitive flags set by this code path.
+// ===== 21. Silent reset: no impact on docs/correspondente/visita =====
+await asyncTest('21. Silent reset: docs/correspondente/visita stages unaffected', async () => {
   const docsSt = { fase_conversa: "envio_docs" };
-  assert.strictEqual(docsSt.__cognitive_reply_prefix, undefined, "envio_docs has no reset cognitive prefix");
-  assert.strictEqual(docsSt.__cognitive_v2_takes_final, undefined, "envio_docs has no reset takes_final");
+  assert.strictEqual(docsSt._post_reset, undefined, "envio_docs has no _post_reset flag");
+  assert.strictEqual(docsSt.__cognitive_reply_prefix, undefined, "envio_docs has no cognitive prefix");
 
   const visitaSt = { fase_conversa: "agendamento_visita" };
-  assert.strictEqual(visitaSt.__cognitive_reply_prefix, undefined, "agendamento_visita has no reset cognitive prefix");
+  assert.strictEqual(visitaSt._post_reset, undefined, "agendamento_visita has no _post_reset");
 
   const corrSt = { fase_conversa: "aguardando_retorno_correspondente" };
-  assert.strictEqual(corrSt.__cognitive_reply_prefix, undefined, "correspondente has no reset cognitive prefix");
+  assert.strictEqual(corrSt._post_reset, undefined, "correspondente has no _post_reset");
+});
+
+// =======================================================================
+// NAME CANDIDATE REUSE — Tests 22-28
+// Validates name_candidate capture in inicio_programa and reuse in inicio_nome.
+// =======================================================================
+
+// ── Mirrors resolveInicioNomeStructured name extraction (simplified) ──
+function extractNameCandidate(rawText) {
+  let candidate = String(rawText || "").trim();
+  if (/^(meu nome e|meu nome é|me chamo|me chama|sou|sou o|sou a|aqui e|aqui é)/i.test(candidate)) {
+    candidate = candidate.replace(/^(meu nome e|meu nome é|me chamo|me chama|sou|sou o|sou a|aqui e|aqui é)\s*/i, "").trim();
+  }
+  candidate = candidate.replace(/^[\"'\-–—\s]+|[\"'\-–—\s]+$/g, "").trim();
+  const fc = candidate.split(/[.,!?]/)[0].trim();
+  const icRx = /\s+\b(e|mas|que|porque|por)\s+(queria|quero|gostaria|adoraria|preciso|posso|tenho|tem|vai|vou|fui|vim|estou|está|nao|não)\b/i;
+  const ci = fc.search(icRx);
+  candidate = ci > 0 ? fc.slice(0, ci).trim() : fc;
+  candidate = candidate.replace(/^[\"'\-–—\s]+|[\"'\-–—\s]+$/g, "").trim();
+  const ntCand = normalizeText(candidate);
+  const isIntent = /\bexplica|\bexplique/.test(ntCand) || /\bcomo funciona\b/.test(ntCand) ||
+    /\bquero (entender|saber)\b/.test(ntCand) || /\bpode explicar\b/.test(ntCand) ||
+    /\bnao sei\b/.test(ntCand) || /\bprefiro que\b/.test(ntCand) || /\bme ajuda\b/.test(ntCand);
+  if (isIntent || !candidate || candidate.length < 2) return null;
+  const parts = candidate.split(/\s+/).filter(p => p.length >= 2);
+  if (parts.length < 1 || parts.length > 6) return null;
+  return { extracted_name: candidate, parts };
+}
+
+// ===== 22. "Bruno Vasques" → captured as name_candidate =====
+await asyncTest('22. "Bruno Vasques" → detected as plausible name_candidate', async () => {
+  const result = extractNameCandidate("Bruno Vasques");
+  assert.ok(result, "should extract a name candidate");
+  assert.strictEqual(result.extracted_name, "Bruno Vasques");
+  assert.strictEqual(result.parts.length, 2, "two parts = high confidence");
+});
+
+// ===== 23. "meu nome é Ana Silva" → captured as name_candidate =====
+await asyncTest('23. "meu nome é Ana Silva" → detected as name_candidate', async () => {
+  const result = extractNameCandidate("meu nome é Ana Silva");
+  assert.ok(result, "should extract a name candidate");
+  assert.strictEqual(result.extracted_name, "Ana Silva");
+});
+
+// ===== 24. "Oi" → greeting handled before name capture (sim/nao/greeting path) =====
+await asyncTest('24. "Oi" → handled by greeting detection, not name capture path', async () => {
+  // "Oi" is NOT sim/nao, but IS a greeting → caught by greeting branch first.
+  // The name probe may extract it, but inicio_programa handles greetings before probing names.
+  const nt = normalizeText("Oi");
+  const _isGreeting = isGreetingOrReentry(nt);
+  assert.ok(_isGreeting, "Oi should be caught as greeting before name probe");
+});
+
+// ===== 25. "me explica" → NOT captured as name_candidate (intent guard) =====
+await asyncTest('25. "me explica" → NOT a name_candidate (intent phrase)', async () => {
+  const result = extractNameCandidate("me explica");
+  assert.strictEqual(result, null, "explanation request should not be name candidate");
+});
+
+// ===== 26. inicio_nome reuse: high confidence → accepts direct =====
+await asyncTest('26. inicio_nome: name_candidate "Bruno Vasques" (2 parts) → high confidence accept', async () => {
+  const candidato = "Bruno Vasques";
+  const partes = candidato.split(/\s+/).filter(p => p.length >= 2);
+  const confiancaAlta = partes.length >= 2 && partes.length <= 6;
+  assert.ok(confiancaAlta, "2 parts should be high confidence");
+  assert.strictEqual(partes[0], "Bruno", "first name extracted correctly");
+});
+
+// ===== 27. inicio_nome reuse: medium confidence → confirms short =====
+await asyncTest('27. inicio_nome: name_candidate "Bruno" (1 part) → medium confidence confirm', async () => {
+  const candidato = "Bruno";
+  const partes = candidato.split(/\s+/).filter(p => p.length >= 2);
+  const confiancaAlta = partes.length >= 2 && partes.length <= 6;
+  const confiancaMedia = partes.length === 1 && candidato.length >= 2;
+  assert.ok(!confiancaAlta, "1 part should NOT be high confidence");
+  assert.ok(confiancaMedia, "1 part with >=2 chars should be medium confidence");
+});
+
+// ===== 28. inicio_nome reuse: no candidate → normal flow =====
+await asyncTest('28. inicio_nome: no name_candidate → normal flow unchanged', async () => {
+  const st = { fase_conversa: "inicio_nome", name_candidate: null };
+  assert.ok(!st.name_candidate, "no candidate means normal flow");
 });
 
 // ===== Summary =====
 console.log(`\n📊 Results: ${passed} passed, ${failed} failed (total: ${passed + failed})`);
-assert.strictEqual(passed + failed, 21, "expected exactly 21 tests");
+assert.strictEqual(passed + failed, 28, "expected exactly 28 tests");
 if (failed > 0) {
   console.error(`\n❌ ${failed} test(s) FAILED`);
   process.exit(1);

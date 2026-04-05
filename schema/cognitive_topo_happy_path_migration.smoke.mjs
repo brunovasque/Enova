@@ -19,7 +19,7 @@
  *  2.  Each key has cognitiveStage, cognitiveMessage, fallback, validate
  *  3.  getTopoHappyPathSpeech anchor exists in worker
  *  4.  setTopoHappyPathFlags anchor exists in worker
- *  5.  reset:abertura calls getTopoHappyPathSpeech
+ *  5.  reset is silent — first speech at inicio_programa:first_after_reset
  *  6.  inicio_programa:sim calls getTopoHappyPathSpeech
  *  7.  inicio_programa:nao calls getTopoHappyPathSpeech
  *  8.  inicio_programa:ambiguous calls getTopoHappyPathSpeech
@@ -155,9 +155,11 @@ await asyncTest("4. setTopoHappyPathFlags function exists", async () => {
 // ================================================================
 console.log("\n── Happy path integration anchors ──");
 
-await asyncTest("5. reset:abertura calls getTopoHappyPathSpeech", async () => {
-  assert.ok(workerSrc.includes('getTopoHappyPathSpeech(env, "reset:abertura"'),
-    "reset handler must call getTopoHappyPathSpeech");
+await asyncTest("5. reset is silent — first speech happens at inicio_programa:first_after_reset", async () => {
+  assert.ok(workerSrc.includes('"inicio_programa:first_after_reset"'),
+    "inicio_programa must reference first_after_reset speech key for post-reset cognitive");
+  assert.ok(workerSrc.includes('_post_reset'),
+    "reset handler must set _post_reset flag for silent reset");
 });
 
 await asyncTest("6. inicio_programa:sim calls getTopoHappyPathSpeech", async () => {

@@ -18483,6 +18483,281 @@ const CORRESPONDENTE_RETURN_STATUS_CANONICAL = new Set([
 const CORRESPONDENTE_RETURN_MIN_CONFIDENCE_AUTO = 0.75;
 
 // ================================================================
+// TOPO HAPPY PATH — FALA DOMINANTE VIA COGNITIVO REAL
+// O worker permanece soberano em stage/gate/parser/nextStage/validação.
+// O cognitivo real (run-cognitive.js) passa a ser a fonte dominante da
+// fala principal no happy path do topo.
+// Fallback mecânico existe sempre — se o cognitivo falhar, o cliente
+// NUNCA fica sem resposta.
+// ================================================================
+
+/**
+ * TOPO_HAPPY_PATH_SPEECH — Mapa canônico de falas cognitivas por transição.
+ *
+ * Cada chave é uma transição happy-path (ex: "inicio_programa:sim").
+ * O valor é um objeto com:
+ *   - cognitiveStage: stage a passar para o cognitive engine
+ *   - cognitiveMessage: mensagem contextual a passar como input do cliente
+ *   - fallback: array de strings mecânicas (safety net)
+ *   - validate(reply): função que valida se o reply cognitivo é usável
+ *
+ * O cognitivo real (runCognitiveV2WithAdapter) é chamado com esses parâmetros.
+ * Se o reply for válido → substitui a fala mecânica.
+ * Se falhar → fallback mecânico entra automaticamente.
+ */
+const TOPO_HAPPY_PATH_SPEECH = {
+  // ── reset / abertura ──
+  "reset:abertura": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "oi, quero começar",
+    fallback: [
+      "Perfeito, limpamos tudo aqui pra você 👌",
+      "Eu sou a Enova 😊, assistente do programa Minha Casa Minha Vida.",
+      "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
+      "Me responde com *sim* (já sei) ou *não* (quero que explique)."
+    ],
+    validate: (reply) => reply && reply.length > 30 && /\?/.test(reply)
+  },
+
+  // ── inicio_programa: sim (já conhece) → avança para inicio_nome ──
+  "inicio_programa:sim": {
+    cognitiveStage: "inicio_nome",
+    cognitiveMessage: "sim, já sei como funciona",
+    fallback: [
+      "Ótimo, então vamos direto ao ponto 😉",
+      "Vou analisar sua situação pra ver quanto de subsídio você pode ter e como ficariam as condições.",
+      "Pra começar, qual o seu *nome completo*?"
+    ],
+    validate: (reply) => reply && reply.length > 20 && /nome/i.test(reply)
+  },
+
+  // ── inicio_programa: sim pós-explicação → avança para inicio_nome ──
+  "inicio_programa:sim_pos_explicacao": {
+    cognitiveStage: "inicio_nome",
+    cognitiveMessage: "entendi, pode seguir",
+    fallback: [
+      "Ótimo! Vou analisar sua situação pra ver quanto de subsídio você pode ter e como ficariam as condições.",
+      "Pra começar, qual o seu *nome completo*?"
+    ],
+    validate: (reply) => reply && reply.length > 20 && /nome/i.test(reply)
+  },
+
+  // ── inicio_programa: confirmação pós-explicação → avança para inicio_nome ──
+  "inicio_programa:post_expl_confirmation": {
+    cognitiveStage: "inicio_nome",
+    cognitiveMessage: "certo, entendi",
+    fallback: [
+      "Ótimo! Vou analisar sua situação pra ver quanto de subsídio você pode ter e como ficariam as condições.",
+      "Pra começar, qual o seu *nome completo*?"
+    ],
+    validate: (reply) => reply && reply.length > 20 && /nome/i.test(reply)
+  },
+
+  // ── inicio_programa: nao (quer explicação) → permanece inicio_programa ──
+  "inicio_programa:nao": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "não sei, me explica",
+    fallback: [
+      "Perfeito, te explico rapidinho 😊",
+      "O Minha Casa Minha Vida é o programa do governo que ajuda na entrada e reduz a parcela do financiamento, conforme a renda e a faixa de cada família.",
+      "Eu vou analisar seu perfil e te mostrar exatamente quanto de subsídio você pode ter e como ficam as condições.",
+      "Tudo certo até aqui? Me diz *sim* pra gente seguir com a análise do seu perfil 😊"
+    ],
+    validate: (reply) => reply && reply.length > 40 && /programa|governo|subs[ií]dio|financiamento|renda/i.test(reply) && /\?|sim/i.test(reply)
+  },
+
+  // ── inicio_programa: ambíguo (fallback de reprompt) ──
+  "inicio_programa:ambiguous": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho?",
+      "Me diz *sim* (já sei) ou *não* (me explica)."
+    ],
+    validate: (reply) => reply && reply.length > 20 && /sim|não|nao|funciona|programa/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── inicio_nome: nome aceito → avança para inicio_nacionalidade ──
+  "inicio_nome:nome_aceito": {
+    cognitiveStage: "inicio_nacionalidade",
+    cognitiveMessage: "meu nome é Bruno",
+    fallback: null, // Construído dinamicamente com nome
+    validate: (reply) => reply && reply.length > 15 && /brasileiro|estrangeir/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── inicio_nacionalidade: brasileiro → avança para estado_civil ──
+  "inicio_nacionalidade:brasileiro": {
+    cognitiveStage: "estado_civil",
+    cognitiveMessage: "sou brasileiro",
+    fallback: [
+      "Perfeito! 🇧🇷",
+      "Vamos seguir… Qual é o seu estado civil?"
+    ],
+    validate: (reply) => reply && reply.length > 15 && /estado civil|solteiro|casad|uni[aã]o|separad|divorciad|vi[uú]v/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── inicio_nacionalidade: estrangeiro → avança para inicio_rnm ──
+  "inicio_nacionalidade:estrangeiro": {
+    cognitiveStage: "inicio_rnm",
+    cognitiveMessage: "sou estrangeiro",
+    fallback: [
+      "Obrigado! 😊",
+      "Você possui *RNM — Registro Nacional Migratório*?",
+      "Responda: *sim* ou *não*."
+    ],
+    validate: (reply) => reply && reply.length > 15 && /RNM|registro/i.test(reply) && /sim|não|nao/i.test(reply)
+  },
+
+  // ── estado_civil: solteiro → avança para somar_renda_solteiro ──
+  "estado_civil:solteiro": {
+    cognitiveStage: "somar_renda_solteiro",
+    cognitiveMessage: "sou solteiro",
+    fallback: [
+      "Perfeito 👌",
+      "E sobre renda… você pretende usar **só sua renda**, ou quer considerar **parceiro(a)** ou **familiar**?"
+    ],
+    validate: (reply) => reply && reply.length > 15 && /renda|sozinho|parceiro|familiar|somar/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── estado_civil: casado → avança para confirmar_casamento ──
+  "estado_civil:casado": {
+    cognitiveStage: "confirmar_casamento",
+    cognitiveMessage: "sou casado",
+    fallback: [
+      "Entendi! 👍",
+      "Seu casamento é **civil no papel** ou vocês vivem como **união estável**?"
+    ],
+    validate: (reply) => reply && reply.length > 15 && /civil|uni[aã]o/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── estado_civil: uniao_estavel → avança para financiamento_conjunto ──
+  "estado_civil:uniao_estavel": {
+    cognitiveStage: "financiamento_conjunto",
+    cognitiveMessage: "tenho união estável",
+    fallback: [
+      "Perfeito! ✍️",
+      "Vocês querem **comprar juntos**, só você, ou **apenas se precisar**?"
+    ],
+    validate: (reply) => reply && reply.length > 15 && /juntos|sozinho|precisar|comprar/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── estado_civil: separado → avança para verificar_averbacao ──
+  "estado_civil:separado": {
+    cognitiveStage: "verificar_averbacao",
+    cognitiveMessage: "sou separado",
+    fallback: [
+      "Entendi 👍",
+      "Sua separação está **averbada no documento** (RG/Certidão)?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /averba|documento|certid/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── estado_civil: divorciado → avança para verificar_averbacao ──
+  "estado_civil:divorciado": {
+    cognitiveStage: "verificar_averbacao",
+    cognitiveMessage: "sou divorciado",
+    fallback: [
+      "Perfeito 👌",
+      "Seu divórcio está **averbado no documento**?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /averba|documento|div[oó]rcio/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── estado_civil: viuvo → avança para verificar_inventario ──
+  "estado_civil:viuvo": {
+    cognitiveStage: "verificar_inventario",
+    cognitiveMessage: "sou viúvo",
+    fallback: [
+      "Entendi, sinto muito pela sua perda 💛",
+      "Pra eu montar certinho sua lista de documentos: você já tem a *certidão de óbito* do(a) ex-cônjuge e a *certidão de casamento* já *averbada com o óbito*?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /\?/.test(reply)
+  },
+
+  // ── estado_civil: fallback (não entendido) ──
+  "estado_civil:fallback": {
+    cognitiveStage: "estado_civil",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Pra te orientar certinho, me diz seu estado civil:",
+      "*Solteiro(a)*, *casado(a) no civil*, *união estável*, *separado(a)*, *divorciado(a)* ou *viúvo(a)*?"
+    ],
+    validate: (reply) => reply && reply.length > 15 && /estado civil|solteiro|casad/i.test(reply) && /\?/.test(reply)
+  }
+};
+
+/**
+ * getTopoHappyPathSpeech — Obtém fala do cognitivo real para happy path do topo.
+ *
+ * @param {object} env - Environment (contém COGNITIVE_V2_MODE, API keys, etc.)
+ * @param {string} transitionKey - Chave no mapa TOPO_HAPPY_PATH_SPEECH (ex: "inicio_programa:sim")
+ * @param {object} st - State do lead (para construir known_slots)
+ * @param {object} [overrides] - Overrides opcionais: { cognitiveMessage, fallback }
+ * @returns {Promise<{ speech: string[], source: "cognitive_real"|"fallback_mechanical" }>}
+ *
+ * O worker chama esta função no happy path de cada stage.
+ * Se o cognitivo real retornar speech válido → source = "cognitive_real"
+ * Se falhar ou retornar inválido → source = "fallback_mechanical"
+ */
+async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
+  const config = TOPO_HAPPY_PATH_SPEECH[transitionKey];
+  if (!config) {
+    // Chave desconhecida → fallback direto
+    return {
+      speech: overrides?.fallback || ["Pode continuar por aqui 😊"],
+      source: "fallback_mechanical"
+    };
+  }
+
+  const fallback = overrides?.fallback || config.fallback || ["Pode continuar por aqui 😊"];
+
+  try {
+    const cogResult = await runCognitiveV2WithAdapter(
+      env,
+      config.cognitiveStage,
+      overrides?.cognitiveMessage || config.cognitiveMessage,
+      st
+    );
+
+    const replyText = sanitizeCognitiveReply(cogResult?.reply_text);
+    const confidence = Number(cogResult?.confidence || 0);
+
+    // Valida reply: confiança mínima + validação contextual
+    if (
+      replyText &&
+      confidence >= COGNITIVE_V1_CONFIDENCE_MIN &&
+      config.validate(replyText)
+    ) {
+      return {
+        speech: [replyText],
+        source: "cognitive_real"
+      };
+    }
+
+    // Reply insuficiente → fallback
+    return { speech: fallback, source: "fallback_mechanical" };
+  } catch (e) {
+    // Erro no cognitivo → fallback seguro
+    console.error("TOPO_HAPPY_PATH_COGNITIVE_ERROR:", transitionKey, e?.message || e);
+    return { speech: fallback, source: "fallback_mechanical" };
+  }
+}
+
+/**
+ * setTopoHappyPathFlags — Configura st para que step() use o reply cognitivo como fala final.
+ * Worker permanece soberano em stage/gate/nextStage.
+ */
+function setTopoHappyPathFlags(st, happyResult) {
+  if (happyResult.source === "cognitive_real") {
+    st.__cognitive_reply_prefix = happyResult.speech[0];
+    st.__cognitive_v2_takes_final = true;
+  } else {
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+  }
+}
+
+// ================================================================
 // RESOLVEDORES COGNITIVOS ESTRUTURADOS — TOPO DO FUNIL
 // Cada resolvedor devolve classificação estruturada limitada ao
 // contrato do stage atual. O mecânico continua soberano em
@@ -21808,16 +22083,11 @@ async function runFunnel(env, st, userText) {
     novoSt.last_message_id = null;
     novoSt.last_message_id_prev = null;
 
-    // ── Cognitive surface for immediate reset response ──
-    // The mechanical block below serves as fallback inside step(); cognitive
-    // takes final so the user sees a natural reply instead of the dry
-    // "sim ou não" reprompt.  Mechanical engine stays sovereign (stage, gate,
-    // nextStage, persistence) — only the surface changes.
-    novoSt.__cognitive_reply_prefix =
-      "Perfeito, limpamos tudo aqui pra você 👌\n" +
-      "Eu sou a Enova, assistente do programa Minha Casa Minha Vida — um programa do governo com subsídio e condições especiais pra quem quer conquistar o primeiro imóvel 😊\n" +
-      "Você já sabe como funciona ou prefere que eu explique rapidinho?";
-    novoSt.__cognitive_v2_takes_final = true;
+    // ── TOPO HAPPY PATH MIGRATION: reset/abertura ──
+    // Cognitivo real gera a fala principal. Mecânico preserva stage/gate/nextStage.
+    // Fallback seguro: se cognitivo falhar, mensagem mecânica é usada.
+    const _resetSpeech = await getTopoHappyPathSpeech(env, "reset:abertura", novoSt);
+    setTopoHappyPathFlags(novoSt, _resetSpeech);
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -21829,7 +22099,8 @@ async function runFunnel(env, st, userText) {
       details: {
         previous_stage: stage,
         normalized_text: normalizedUserText,
-        last_user_text: userText
+        last_user_text: userText,
+        speech_source: _resetSpeech.source
       }
     });
 
@@ -22652,8 +22923,9 @@ case "inicio_programa": {
 
   // ✅ Pós-explicação: confirmação curta → avança para inicio_nome
   if (_isPostExplConfirmation) {
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
+    // ── TOPO HAPPY PATH MIGRATION: inicio_programa post-explanation confirmation ──
+    const _postExplSpeech = await getTopoHappyPathSpeech(env, "inicio_programa:post_expl_confirmation", st);
+    setTopoHappyPathFlags(st, _postExplSpeech);
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -22662,7 +22934,7 @@ case "inicio_programa": {
       next_stage: "inicio_nome",
       severity: "info",
       message: "inicio_programa: confirmação curta pós-explicação → avançando para inicio_nome",
-      details: { userText, postExplicacao: true }
+      details: { userText, postExplicacao: true, speech_source: _postExplSpeech.source }
     });
 
     return step(
@@ -22676,22 +22948,35 @@ case "inicio_programa": {
     );
   }
 
-  // 🔁 Resposta ambígua → NÃO repetir igual (nova mensagem)
+  // 🔁 Resposta ambígua → cognitivo real domina a superfície
   if (!sim && !nao) {
-    // ── Pós-reset / reentrada: casca cognitiva assume superfície,
-    //    mecânico preserva stage. Evita reprompt seco após saudação curta.
+    // ── Pós-reset / reentrada: cognitivo real assume superfície,
+    //    mecânico preserva stage.
     const _isGreetingOrReentry =
       /^(oi+|ola|olá|opa|eae|eai|fala|bom dia|boa tarde|boa noite|e ai|e aí)\b/i.test(nt) ||
       /\b(quero comecar|quero começar|voltei|to de volta|tô de volta|vamos la|vamos lá)\b/i.test(nt);
+
+    // ── TOPO HAPPY PATH MIGRATION: ambiguous / greeting ──
+    // Cognitivo real tenta gerar fala. Se já havia prefix de reset, preserva.
+    if (!st.__cognitive_v2_takes_final) {
+      const _ambSpeech = await getTopoHappyPathSpeech(env, "inicio_programa:ambiguous", st, {
+        cognitiveMessage: userText || "hmm"
+      });
+      setTopoHappyPathFlags(st, _ambSpeech);
+    }
+
+    // Se greeting/reentry e já tinha prefix cognitivo → confirma takes_final
     if (_isGreetingOrReentry && st.__cognitive_reply_prefix) {
       st.__cognitive_v2_takes_final = true;
     }
 
-    // ── Resolvedor cognitivo estruturado: classifica + gera fala indutiva ──
-    const _resolução = resolveTopoStructured("inicio_programa", userText);
-    if (_resolução && _resolução.reply_text && !st.__cognitive_v2_takes_final) {
-      st.__cognitive_reply_prefix = _resolução.reply_text;
-      st.__cognitive_v2_takes_final = true;
+    // ── Resolvedor cognitivo estruturado como camada adicional (se cognitivo real falhou) ──
+    if (!st.__cognitive_v2_takes_final) {
+      const _resolução = resolveTopoStructured("inicio_programa", userText);
+      if (_resolução && _resolução.reply_text) {
+        st.__cognitive_reply_prefix = _resolução.reply_text;
+        st.__cognitive_v2_takes_final = true;
+      }
     }
 
     await funnelTelemetry(env, {
@@ -22701,12 +22986,12 @@ case "inicio_programa": {
       next_stage: "inicio_programa",
       severity: "info",
       message: _isGreetingOrReentry && st.__cognitive_v2_takes_final
-        ? "Saudação/reentrada em inicio_programa — cognitivo assume superfície"
-        : "Resposta ambígua em inicio_programa — resolvedor estruturado ativo",
+        ? "Saudação/reentrada em inicio_programa — cognitivo real assume superfície"
+        : "Resposta ambígua em inicio_programa — cognitivo real + resolvedor estruturado",
       details: {
         userText,
         cognitive_takes_final: st.__cognitive_v2_takes_final || false,
-        resolver: _resolução ? { detected_answer: _resolução.detected_answer, confidence: _resolução.confidence } : null
+        speech_source: st.__cognitive_v2_takes_final ? "cognitive_real" : "fallback_mechanical"
       }
     });
 
@@ -22725,8 +23010,9 @@ case "inicio_programa": {
   //    com pergunta induzida do PRÓPRIO stage (não pula para inicio_nome).
   //    O mecânico só avança quando o cliente confirma entendimento.
   if (nao) {
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
+    // ── TOPO HAPPY PATH MIGRATION: inicio_programa:nao ──
+    const _naoSpeech = await getTopoHappyPathSpeech(env, "inicio_programa:nao", st);
+    setTopoHappyPathFlags(st, _naoSpeech);
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -22734,8 +23020,8 @@ case "inicio_programa": {
       stage,
       next_stage: "inicio_programa",
       severity: "info",
-      message: "inicio_programa: cliente pediu explicação — explica e permanece no stage",
-      details: { userText }
+      message: "inicio_programa: cliente pediu explicação — cognitivo real explica e permanece no stage",
+      details: { userText, speech_source: _naoSpeech.source }
     });
 
     return step(
@@ -22752,43 +23038,47 @@ case "inicio_programa": {
   }
 
   // ✅ JÁ CONHECE (direto ou pós-explicação com "sim"/"ok")
-  st.__cognitive_reply_prefix = null;
-  st.__cognitive_v2_takes_final = false;
+  // ── TOPO HAPPY PATH MIGRATION: inicio_programa:sim ──
+  {
+    const _simKey = _postExplicacao ? "inicio_programa:sim_pos_explicacao" : "inicio_programa:sim";
+    const _simSpeech = await getTopoHappyPathSpeech(env, _simKey, st);
+    setTopoHappyPathFlags(st, _simSpeech);
 
-  await funnelTelemetry(env, {
-    wa_id: st.wa_id,
-    event: "exit_stage",
-    stage,
-    next_stage: "inicio_nome",
-    severity: "info",
-    message: _postExplicacao
-      ? "inicio_programa: sim pós-explicação → avançando para inicio_nome"
-      : "inicio_programa: cliente já conhece o programa",
-    details: { userText, postExplicacao: _postExplicacao }
-  });
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "inicio_nome",
+      severity: "info",
+      message: _postExplicacao
+        ? "inicio_programa: sim pós-explicação → avançando para inicio_nome"
+        : "inicio_programa: cliente já conhece o programa",
+      details: { userText, postExplicacao: _postExplicacao, speech_source: _simSpeech.source }
+    });
 
-  if (_postExplicacao) {
+    if (_postExplicacao) {
+      return step(
+        env,
+        st,
+        [
+          "Ótimo! Vou analisar sua situação pra ver quanto de subsídio você pode ter e como ficariam as condições.",
+          "Pra começar, qual o seu *nome completo*?"
+        ],
+        "inicio_nome"
+      );
+    }
+
     return step(
       env,
       st,
       [
-        "Ótimo! Vou analisar sua situação pra ver quanto de subsídio você pode ter e como ficariam as condições.",
+        "Ótimo, então vamos direto ao ponto 😉",
+        "Vou analisar sua situação pra ver quanto de subsídio você pode ter e como ficariam as condições.",
         "Pra começar, qual o seu *nome completo*?"
       ],
       "inicio_nome"
     );
   }
-
-  return step(
-    env,
-    st,
-    [
-      "Ótimo, então vamos direto ao ponto 😉",
-      "Vou analisar sua situação pra ver quanto de subsídio você pode ter e como ficariam as condições.",
-      "Pra começar, qual o seu *nome completo*?"
-    ],
-    "inicio_nome"
-  );
 }
 
 // --------------------------------------------------
@@ -22955,9 +23245,16 @@ case "inicio_nome": {
     }
   });
 
-  // Nome resolvido: limpa prefixo cognitivo residual para evitar reprompt fantasma.
-  st.__cognitive_reply_prefix = null;
-  st.__cognitive_v2_takes_final = false;
+  // Nome resolvido: cognitivo real gera a fala de transição para inicio_nacionalidade.
+  // ── TOPO HAPPY PATH MIGRATION: inicio_nome:nome_aceito ──
+  const _nomeSpeech = await getTopoHappyPathSpeech(env, "inicio_nome:nome_aceito", st, {
+    cognitiveMessage: `meu nome é ${nomeCompleto}`,
+    fallback: [
+      `Ótimo, ${primeiroNome} 👌`,
+      "Agora me diz: você é *brasileiro(a)* ou *estrangeiro(a)*?"
+    ]
+  });
+  setTopoHappyPathFlags(st, _nomeSpeech);
 
   return step(
     env,
@@ -23001,9 +23298,9 @@ case "inicio_nacionalidade": {
     st.nacionalidade = "brasileiro";
     st.fase_conversa = "estado_civil";
 
-    // ── Casca cognitiva: inclui opções para facilitar o parser no próximo stage ──
-    st.__cognitive_reply_prefix = "Perfeito! Agora me diz seu estado civil: *solteiro(a)*, *casado(a) no civil*, *união estável*, *separado(a)*, *divorciado(a)* ou *viúvo(a)*?";
-    st.__cognitive_v2_takes_final = true;
+    // ── TOPO HAPPY PATH MIGRATION: inicio_nacionalidade:brasileiro ──
+    const _brSpeech = await getTopoHappyPathSpeech(env, "inicio_nacionalidade:brasileiro", st);
+    setTopoHappyPathFlags(st, _brSpeech);
 
     return step(
       env,
@@ -23030,9 +23327,9 @@ case "inicio_nacionalidade": {
     st.nacionalidade = "estrangeiro";
     st.fase_conversa = "inicio_rnm";
 
-    // ── Casca cognitiva: resposta acolhedora com pergunta curta sobre RNM ──
-    st.__cognitive_reply_prefix = "Tudo bem! Você possui *RNM* (Registro Nacional Migratório)? Responde *sim* ou *não*.";
-    st.__cognitive_v2_takes_final = true;
+    // ── TOPO HAPPY PATH MIGRATION: inicio_nacionalidade:estrangeiro ──
+    const _estSpeech = await getTopoHappyPathSpeech(env, "inicio_nacionalidade:estrangeiro", st);
+    setTopoHappyPathFlags(st, _estSpeech);
 
     return step(
       env,
@@ -23047,12 +23344,25 @@ case "inicio_nacionalidade": {
   }
 
   // -------------------------------------------
-  // ❓ Fallback — resolvedor cognitivo estruturado
+  // ❓ Fallback — cognitivo real + resolvedor estruturado
   // -------------------------------------------
-  const _resolNac = resolveTopoStructured("inicio_nacionalidade", nt);
-  if (_resolNac && _resolNac.reply_text) {
-    st.__cognitive_reply_prefix = _resolNac.reply_text;
-    st.__cognitive_v2_takes_final = true;
+  // ── TOPO HAPPY PATH MIGRATION: nacionalidade fallback ──
+  const _nacFallbackSpeech = await getTopoHappyPathSpeech(env, "inicio_programa:ambiguous", st, {
+    cognitiveMessage: userText || "hmm",
+    fallback: [
+      "Perdão 😅, não consegui entender.",
+      "Você é *brasileiro* ou *estrangeiro*?"
+    ]
+  });
+  // Resolver estruturado como camada adicional se cognitivo real falhou
+  if (_nacFallbackSpeech.source !== "cognitive_real") {
+    const _resolNac = resolveTopoStructured("inicio_nacionalidade", nt);
+    if (_resolNac && _resolNac.reply_text) {
+      st.__cognitive_reply_prefix = _resolNac.reply_text;
+      st.__cognitive_v2_takes_final = true;
+    }
+  } else {
+    setTopoHappyPathFlags(st, _nacFallbackSpeech);
   }
 
   return step(
@@ -23288,6 +23598,10 @@ case "estado_civil": {
       p2_tipo: null
     });
 
+    // ── TOPO HAPPY PATH MIGRATION: estado_civil:solteiro ──
+    const _solSpeech = await getTopoHappyPathSpeech(env, "estado_civil:solteiro", st);
+    setTopoHappyPathFlags(st, _solSpeech);
+
     return step(
       env,
       st,
@@ -23318,6 +23632,10 @@ case "estado_civil": {
       solteiro_sozinho: false
     });
 
+    // ── TOPO HAPPY PATH MIGRATION: estado_civil:casado ──
+    const _casSpeech = await getTopoHappyPathSpeech(env, "estado_civil:casado", st);
+    setTopoHappyPathFlags(st, _casSpeech);
+
     return step(
       env,
       st,
@@ -23346,6 +23664,10 @@ case "estado_civil": {
     await upsertState(env, st.wa_id, {
       estado_civil: "uniao_estavel"
     });
+
+    // ── TOPO HAPPY PATH MIGRATION: estado_civil:uniao_estavel ──
+    const _ueSpeech = await getTopoHappyPathSpeech(env, "estado_civil:uniao_estavel", st);
+    setTopoHappyPathFlags(st, _ueSpeech);
 
     return step(
       env,
@@ -23376,6 +23698,10 @@ case "estado_civil": {
       estado_civil: "separado"
     });
 
+    // ── TOPO HAPPY PATH MIGRATION: estado_civil:separado ──
+    const _sepSpeech = await getTopoHappyPathSpeech(env, "estado_civil:separado", st);
+    setTopoHappyPathFlags(st, _sepSpeech);
+
     return step(
       env,
       st,
@@ -23404,6 +23730,10 @@ case "estado_civil": {
     await upsertState(env, st.wa_id, {
       estado_civil: "divorciado"
     });
+
+    // ── TOPO HAPPY PATH MIGRATION: estado_civil:divorciado ──
+    const _divSpeech = await getTopoHappyPathSpeech(env, "estado_civil:divorciado", st);
+    setTopoHappyPathFlags(st, _divSpeech);
 
     return step(
       env,
@@ -23434,6 +23764,10 @@ case "estado_civil": {
       estado_civil: "viuvo"
     });
 
+    // ── TOPO HAPPY PATH MIGRATION: estado_civil:viuvo ──
+    const _viuSpeech = await getTopoHappyPathSpeech(env, "estado_civil:viuvo", st);
+    setTopoHappyPathFlags(st, _viuSpeech);
+
     return step(
       env,
       st,
@@ -23447,11 +23781,21 @@ case "estado_civil": {
 
   // --------- NÃO ENTENDIDO ---------
 
-  // ── Resolvedor cognitivo estruturado: classifica + gera fala indutiva ──
-  const _resolEstCivil = resolveTopoStructured("estado_civil", t);
-  if (_resolEstCivil && _resolEstCivil.reply_text) {
-    st.__cognitive_reply_prefix = _resolEstCivil.reply_text;
-    st.__cognitive_v2_takes_final = true;
+  // ── TOPO HAPPY PATH MIGRATION: estado_civil:fallback ──
+  // Cognitivo real + resolvedor estruturado como camada adicional
+  const _ecFallbackSpeech = await getTopoHappyPathSpeech(env, "estado_civil:fallback", st, {
+    cognitiveMessage: t || "hmm"
+  });
+
+  if (_ecFallbackSpeech.source === "cognitive_real") {
+    setTopoHappyPathFlags(st, _ecFallbackSpeech);
+  } else {
+    // Resolvedor estruturado como camada adicional se cognitivo real falhou
+    const _resolEstCivil = resolveTopoStructured("estado_civil", t);
+    if (_resolEstCivil && _resolEstCivil.reply_text) {
+      st.__cognitive_reply_prefix = _resolEstCivil.reply_text;
+      st.__cognitive_v2_takes_final = true;
+    }
   }
 
   // 🟩 EXIT_STAGE (fallback permanece na mesma fase)
@@ -23461,10 +23805,10 @@ case "estado_civil": {
     stage,
     next_stage: "estado_civil",
     severity: "info",
-    message: "Saindo da fase: estado_civil → estado_civil (resolvedor estruturado ativo)",
+    message: "Saindo da fase: estado_civil → estado_civil (cognitivo real + resolvedor estruturado)",
     details: {
       userText: t,
-      resolver: _resolEstCivil ? { detected_answer: _resolEstCivil.detected_answer, confidence: _resolEstCivil.confidence } : null
+      speech_source: st.__cognitive_v2_takes_final ? "cognitive_real_or_resolver" : "fallback_mechanical"
     }
   });
 

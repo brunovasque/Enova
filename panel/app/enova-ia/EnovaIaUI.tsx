@@ -10,6 +10,8 @@ import type { ProgramaSugerido, PrioridadePrograma } from "../lib/enova-ia-progr
 import { routeChat, genMsgId, buildChatHistoryForApi } from "../lib/enova-ia-chat";
 import type { ChatMsg } from "../lib/enova-ia-chat";
 import type { EnovaIaOpenAIResponse, EnovaIaMode } from "../lib/enova-ia-openai";
+import { buildEnovaIaActionDraft } from "../lib/enova-ia-action-builder";
+import { ACTION_TYPE_LABEL, RISK_LEVEL_LABEL } from "../lib/enova-ia-action-builder";
 
 const GARGALOS = [
   { tipo: "Documentação", descricao: "Leitura de gargalos virá da análise cognitiva global" },
@@ -303,7 +305,27 @@ function ChatAIResponseRender({ r }: { r: EnovaIaOpenAIResponse }) {
 function ChatResponseRender({ msg }: { msg: ChatMsg }) {
   // OpenAI structured response takes priority
   if (msg.openai_response) {
-    return <ChatAIResponseRender r={msg.openai_response} />;
+    return (
+      <>
+        <ChatAIResponseRender r={msg.openai_response} />
+        {/* G2.1 — Indicador mínimo de draft de ação assistida */}
+        {msg.action_draft && (
+          <div className={styles.chatActionDraftIndicator}>
+            <span className={styles.chatActionDraftBadge}>📋 Draft</span>
+            <span className={styles.chatActionDraftLabel}>
+              {ACTION_TYPE_LABEL[msg.action_draft.action_type]}
+              {" · "}
+              Risco {RISK_LEVEL_LABEL[msg.action_draft.risk_level]}
+              {msg.action_draft.target_count > 0 &&
+                ` · ${msg.action_draft.target_count} lead${msg.action_draft.target_count > 1 ? "s" : ""}`}
+            </span>
+            <span className={styles.chatActionDraftStatus}>
+              Aguardando aprovação humana
+            </span>
+          </div>
+        )}
+      </>
+    );
   }
 
   const r = msg.resposta;
@@ -419,12 +441,16 @@ function ChatOperacionalSection({
       const data = await res.json();
 
       if (data.ok && data.response) {
+        // G2.1 — Tentar montar draft de ação assistida a partir da resposta
+        const actionDraft = buildEnovaIaActionDraft(data.response, t);
+
         msgEnova = {
-          id:             genMsgId(),
-          origem:         "enova",
-          texto:          data.response.answer_title,
+          id:              genMsgId(),
+          origem:          "enova",
+          texto:           data.response.answer_title,
           openai_response: data.response,
-          ts:             Date.now(),
+          action_draft:    actionDraft,
+          ts:              Date.now(),
         };
       } else {
         // API respondeu mas sem ok — fallback local

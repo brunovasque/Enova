@@ -18482,6 +18482,341 @@ const CORRESPONDENTE_RETURN_STATUS_CANONICAL = new Set([
 ]);
 const CORRESPONDENTE_RETURN_MIN_CONFIDENCE_AUTO = 0.75;
 
+// ================================================================
+// RESOLVEDORES COGNITIVOS ESTRUTURADOS — TOPO DO FUNIL
+// Cada resolvedor devolve classificação estruturada limitada ao
+// contrato do stage atual. O mecânico continua soberano em
+// stage/gate/nextStage/persistência. A IA NÃO avança stage.
+//
+// Contrato de saída:
+//   { stage, detected_answer, confidence, needs_confirmation,
+//     safe_stage_signal, reply_text, payload? }
+//
+// detected_answer e safe_stage_signal SEMPRE limitados às opções
+// válidas do stage atual.
+// ================================================================
+
+/**
+ * Dispatcher: resolve texto do cliente no stage atual.
+ * Retorna resolução estruturada ou null se stage não coberto.
+ */
+function resolveTopoStructured(stage, rawText) {
+  switch (stage) {
+    case "inicio_programa":        return resolveInicioProgramaStructured(rawText);
+    case "inicio_nome":            return resolveInicioNomeStructured(rawText);
+    case "estado_civil":           return resolveEstadoCivilStructured(rawText);
+    case "confirmar_casamento":    return resolveConfirmarCasamentoStructured(rawText);
+    case "financiamento_conjunto": return resolveFinanciamentoConjuntoStructured(rawText);
+    default: return null;
+  }
+}
+
+// ── inicio_programa ─────────────────────────────────────────
+// Categorias válidas: ja_sabe | quer_explicacao | ambiguous
+// ─────────────────────────────────────────────────────────────
+function resolveInicioProgramaStructured(rawText) {
+  const nt = normalizeText(rawText || "");
+  const base = { stage: "inicio_programa" };
+
+  if (!nt) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0, needs_confirmation: true, safe_stage_signal: null,
+      reply_text: "Você já conhece o programa Minha Casa Minha Vida ou prefere que eu te explique rapidinho? Me diz *sim* ou *não*." };
+  }
+
+  // ── JA_SABE ──
+  const ja_sabe =
+    isYes(nt) ||
+    /\bja sei\b/.test(nt) ||
+    /\bja conhe[cç]o\b/.test(nt) ||
+    /\bsei sim\b/.test(nt) ||
+    /\bt[oô] ligado\b/.test(nt) ||
+    /\bconhe[cç]o\b/.test(nt) ||
+    (/\bsei como\b/.test(nt) && !/nao sei/.test(nt)) ||
+    /\bpode pular\b/.test(nt) ||
+    /\bja vi\b/.test(nt) ||
+    /\bt[oô] por dentro\b/.test(nt) ||
+    /\bsei tudo\b/.test(nt) ||
+    (/\bentendi\b/.test(nt) && !/nao\s+entendi/.test(nt));
+
+  if (ja_sabe) {
+    return { ...base, detected_answer: "ja_sabe", confidence: 0.95, needs_confirmation: false,
+      safe_stage_signal: "inicio_programa:sim", reply_text: null };
+  }
+
+  // ── QUER_EXPLICACAO ──
+  const quer_explicacao =
+    isNo(nt) ||
+    /\bnao sei\b/.test(nt) ||
+    /\bnao conhe[cç]o\b/.test(nt) ||
+    /\bnao entendi\b/.test(nt) ||
+    /\bexplica\b/.test(nt) ||
+    /\bexplique\b/.test(nt) ||
+    /\bpode explicar\b/.test(nt) ||
+    /\bcomo funciona\b/.test(nt) ||
+    /\bquero saber\b/.test(nt) ||
+    /\bquero entender\b/.test(nt) ||
+    /\bnunca ouvi\b/.test(nt) ||
+    /\bnao faco ideia\b/.test(nt) ||
+    /\bme conta\b/.test(nt) ||
+    /\bquero que explique\b/.test(nt);
+
+  if (quer_explicacao) {
+    return { ...base, detected_answer: "quer_explicacao", confidence: 0.90, needs_confirmation: false,
+      safe_stage_signal: "inicio_programa:nao", reply_text: null };
+  }
+
+  // ── AMBIGUOUS ──
+  return { ...base, detected_answer: "ambiguous", confidence: 0.30, needs_confirmation: true, safe_stage_signal: null,
+    reply_text: "Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho? Me diz *sim* (já sei) ou *não* (me explica)." };
+}
+
+// ── inicio_nome ─────────────────────────────────────────────
+// Categorias válidas: name_candidate | not_name | ambiguous
+// Payload auxiliar: extracted_name (se confiança suficiente)
+// ─────────────────────────────────────────────────────────────
+function resolveInicioNomeStructured(rawText) {
+  const raw = String(rawText || "").trim();
+  const nt = normalizeText(raw);
+  const base = { stage: "inicio_nome" };
+
+  if (!nt) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0, needs_confirmation: true, safe_stage_signal: null,
+      reply_text: "Me diz seu nome completo, por favor 😊 Pode mandar tipo: *Ana Silva*.",
+      payload: null };
+  }
+
+  // ── Tentar extrair nome PRIMEIRO (mesma lógica do mecânico) ──
+  let candidate = raw;
+  if (/^(meu nome e|meu nome é|me chamo|me chama|sou|sou o|sou a|aqui e|aqui é)/i.test(candidate)) {
+    candidate = candidate.replace(/^(meu nome e|meu nome é|me chamo|me chama|sou|sou o|sou a|aqui e|aqui é)\s*/i, "").trim();
+  }
+  candidate = candidate.replace(/^[\"'\-–—\s]+|[\"'\-–—\s]+$/g, "").trim();
+
+  // Extrai primeiro segmento (antes de ponto, vírgula, etc.)
+  {
+    const fc = candidate.split(/[.,!?]/)[0].trim();
+    const icRx = /\s+\b(e|mas|que|porque|por)\s+(queria|quero|gostaria|adoraria|preciso|posso|tenho|tem|vai|vou|fui|vim|estou|está|nao|não)\b/i;
+    const ci = fc.search(icRx);
+    const c2 = ci > 0 ? fc.slice(0, ci).trim() : fc;
+    if (c2) candidate = c2;
+    candidate = candidate.replace(/^[\"'\-–—\s]+|[\"'\-–—\s]+$/g, "").trim();
+  }
+
+  // ── Guarda semântico: rejeita se candidato parece intenção/pedido ──
+  const ntCand = normalizeText(candidate);
+  const intentInCandidate =
+    /\bexplica|\bexplique/.test(ntCand) ||
+    /\bcomo funciona\b/.test(ntCand) ||
+    /\bquero (entender|saber)\b/.test(ntCand) ||
+    /\bpode explicar\b/.test(ntCand) ||
+    /\bnao sei\b/.test(ntCand) ||
+    /\bprefiro que\b/.test(ntCand) ||
+    /\bme ajuda\b/.test(ntCand) ||
+    /\bo que e isso\b/.test(ntCand);
+
+  if (intentInCandidate) {
+    return { ...base, detected_answer: "not_name", confidence: 0.90, needs_confirmation: false,
+      safe_stage_signal: "inicio_nome:intent",
+      reply_text: "Entendi sua dúvida! Mas antes, me confirma só seu *nome completo*, por favor 😊",
+      payload: null };
+  }
+
+  if (!candidate || candidate.length < 2) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0.30, needs_confirmation: true,
+      safe_stage_signal: null,
+      reply_text: "Me diz seu nome completo, por favor 😊 Pode mandar tipo: *Ana Silva*.",
+      payload: null };
+  }
+
+  const parts = candidate.split(/\s+/).filter(p => p.length >= 2);
+  if (parts.length < 1 || parts.length > 6) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0.40, needs_confirmation: true,
+      safe_stage_signal: null,
+      reply_text: "Não consegui pegar seu nome certinho 😅 Me manda só seu *nome completo*, por favor.",
+      payload: null };
+  }
+
+  // ── NAME_CANDIDATE ──
+  return { ...base, detected_answer: "name_candidate", confidence: 0.90, needs_confirmation: false,
+    safe_stage_signal: "inicio_nome:nome",
+    reply_text: null,
+    payload: { extracted_name: candidate } };
+}
+
+// ── estado_civil ────────────────────────────────────────────
+// Categorias válidas: solteiro | casado_civil | uniao_estavel |
+//                     separado | divorciado | viuvo | ambiguous
+// ─────────────────────────────────────────────────────────────
+function resolveEstadoCivilStructured(rawText) {
+  const nt = normalizeText(rawText || "");
+  const base = { stage: "estado_civil" };
+  const REPLY_OPCOES = "Qual seu estado civil hoje? *Solteiro(a)*, *casado(a) no civil*, *união estável*, *separado(a)*, *divorciado(a)* ou *viúvo(a)*?";
+
+  if (!nt) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0, needs_confirmation: true, safe_stage_signal: null,
+      reply_text: "Pra te orientar certinho, me diz seu estado civil: " + REPLY_OPCOES };
+  }
+
+  // Usar parseEstadoCivil (mecânico canônico) como base
+  const parsed = parseEstadoCivil(rawText);
+
+  if (parsed === "solteiro") {
+    return { ...base, detected_answer: "solteiro", confidence: 0.95, needs_confirmation: false,
+      safe_stage_signal: "estado_civil:solteiro", reply_text: null };
+  }
+  if (parsed === "casado") {
+    return { ...base, detected_answer: "casado_civil", confidence: 0.95, needs_confirmation: false,
+      safe_stage_signal: "estado_civil:casado", reply_text: null };
+  }
+  if (parsed === "uniao_estavel") {
+    return { ...base, detected_answer: "uniao_estavel", confidence: 0.95, needs_confirmation: false,
+      safe_stage_signal: "estado_civil:uniao_estavel", reply_text: null };
+  }
+  if (parsed === "separado") {
+    return { ...base, detected_answer: "separado", confidence: 0.95, needs_confirmation: false,
+      safe_stage_signal: "estado_civil:separado", reply_text: null };
+  }
+  if (parsed === "divorciado") {
+    return { ...base, detected_answer: "divorciado", confidence: 0.95, needs_confirmation: false,
+      safe_stage_signal: "estado_civil:divorciado", reply_text: null };
+  }
+  if (parsed === "viuvo") {
+    return { ...base, detected_answer: "viuvo", confidence: 0.95, needs_confirmation: false,
+      safe_stage_signal: "estado_civil:viuvo", reply_text: null };
+  }
+
+  // ── Classificação expandida para linguagem natural ──
+  // "moro junto" → precisa esclarecimento (casado ou união estável?)
+  if (/\bmoro junto\b|\bmoramos juntos\b|\bvivemos juntos\b|\bvivo com\b|\bmoro com\b/.test(nt)) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0.50, needs_confirmation: true,
+      safe_stage_signal: null,
+      reply_text: "Morar junto é diferente de casamento civil. Me diz: vocês são *casados no civil* (com certidão), têm *união estável* registrada, ou é convivência sem registro? Se sem registro, me diz *solteiro(a)*." };
+  }
+  // "não sei" / "qual a diferença"
+  if (/\bnao sei\b|\bqual a diferenca\b|\bo que muda\b/.test(nt)) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0.20, needs_confirmation: true,
+      safe_stage_signal: null,
+      reply_text: "Sem problema! " + REPLY_OPCOES };
+  }
+
+  // ── AMBIGUOUS genérico ──
+  return { ...base, detected_answer: "ambiguous", confidence: 0.20, needs_confirmation: true, safe_stage_signal: null,
+    reply_text: "Pra te orientar certinho, me diz: " + REPLY_OPCOES };
+}
+
+// ── confirmar_casamento ─────────────────────────────────────
+// Categorias válidas: civil_papel | uniao_estavel | ambiguous
+// ─────────────────────────────────────────────────────────────
+function resolveConfirmarCasamentoStructured(rawText) {
+  const nt = normalizeText(rawText || "");
+  const base = { stage: "confirmar_casamento" };
+  const REPLY_OPCOES = "É *casamento civil no papel* (com certidão) ou *união estável*? Se preferir, responda *sim* (civil) ou *não* (estável).";
+
+  if (!nt) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0, needs_confirmation: true, safe_stage_signal: null,
+      reply_text: REPLY_OPCOES };
+  }
+
+  // Ambiguidade explícita
+  const respostaAmbigua = /\b(nao\s+sei|n\s*sei|talvez)\b/.test(nt);
+
+  const respondeuSim = !respostaAmbigua && isYes(nt);
+  const respondeuNao = !respostaAmbigua && isNo(nt);
+
+  const civil =
+    respondeuSim ||
+    /(civil|no papel|casamento civil|casad[ao] no papel|civil no papel|casad[ao] no civil|papel passado)/i.test(rawText || "");
+
+  const uniaoEstavel =
+    respondeuNao ||
+    parseEstadoCivil(rawText) === "uniao_estavel" ||
+    /(uni[aã]o est[áa]vel|estavel)/i.test(rawText || "");
+
+  if (civil) {
+    return { ...base, detected_answer: "civil_papel", confidence: 0.95, needs_confirmation: false,
+      safe_stage_signal: "confirmar_casamento:civil", reply_text: null };
+  }
+  if (uniaoEstavel) {
+    return { ...base, detected_answer: "uniao_estavel", confidence: 0.90, needs_confirmation: false,
+      safe_stage_signal: "confirmar_casamento:uniao_estavel", reply_text: null };
+  }
+
+  // ── Padrões ambíguos específicos ──
+  if (/\bmoro junto\b|\bmoramos juntos\b/.test(nt)) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0.40, needs_confirmation: true,
+      safe_stage_signal: null,
+      reply_text: "Morar junto não é casamento civil. Vocês são *casados no civil* (com certidão registrada) ou é *união estável*?" };
+  }
+  if (/\breligioso\b/.test(nt)) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0.40, needs_confirmation: true,
+      safe_stage_signal: null,
+      reply_text: "Só religioso funciona como união estável. Vocês têm *registro civil* (certidão) ou só o religioso?" };
+  }
+  if (respostaAmbigua) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0.20, needs_confirmation: true,
+      safe_stage_signal: null,
+      reply_text: "Se foram no cartório e assinaram certidão, é civil. Se não, é união estável. " + REPLY_OPCOES };
+  }
+
+  return { ...base, detected_answer: "ambiguous", confidence: 0.20, needs_confirmation: true, safe_stage_signal: null,
+    reply_text: REPLY_OPCOES };
+}
+
+// ── financiamento_conjunto ──────────────────────────────────
+// Categorias válidas: juntos | solo | se_precisar | ambiguous
+// ─────────────────────────────────────────────────────────────
+function resolveFinanciamentoConjuntoStructured(rawText) {
+  const nt = normalizeText(rawText || "");
+  const base = { stage: "financiamento_conjunto" };
+  const REPLY_OPCOES = "Vocês querem *comprar juntos*, *só você*, ou *apenas se precisar* somar renda?";
+
+  if (!nt) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0, needs_confirmation: true, safe_stage_signal: null,
+      reply_text: REPLY_OPCOES };
+  }
+
+  // ── Guard: "não sei" é ambíguo, não solo ──
+  const ambiguoExplicito = /\bnao sei\b|\bn\s*sei\b|\btalvez\b|\bdepende\b/.test(nt);
+  if (ambiguoExplicito) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0.25, needs_confirmation: true,
+      safe_stage_signal: null,
+      reply_text: "Se não tem certeza, pode ir com *apenas se precisar* — eu analiso sua renda primeiro. O que prefere: *juntos*, *só você* ou *se precisar*?" };
+  }
+
+  // Ordem de prioridade: se_precisar > nao/solo > sim/juntos (mesma do mecânico)
+  const sePrecisar = /(se precisar|s[oó] se precisar|apenas se precisar|se faltar a gente soma|s[oó] se faltar)/i.test(rawText || "");
+  const solo = !sePrecisar && (isNo(nt) || /(n[aã]o|s[oó] eu|apenas eu|somente eu|sozinh[oa])/i.test(rawText || ""));
+  const juntos = !sePrecisar && !solo && (isYes(nt) || /(sim|isso|claro|vamos juntos|comprar juntos|juntos|somar renda com (minha|meu)|com minha esposa|com meu marido)/i.test(rawText || ""));
+
+  if (juntos) {
+    return { ...base, detected_answer: "juntos", confidence: 0.95, needs_confirmation: false,
+      safe_stage_signal: "financiamento_conjunto:sim", reply_text: null };
+  }
+  if (solo) {
+    return { ...base, detected_answer: "solo", confidence: 0.90, needs_confirmation: false,
+      safe_stage_signal: "financiamento_conjunto:nao", reply_text: null };
+  }
+  if (sePrecisar) {
+    return { ...base, detected_answer: "se_precisar", confidence: 0.90, needs_confirmation: false,
+      safe_stage_signal: "financiamento_conjunto:se_precisar", reply_text: null };
+  }
+
+  // ── Padrões ambíguos específicos ──
+  if (/\bobrigatorio\b|\bprecisa ser junto\b/.test(nt)) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0.35, needs_confirmation: true,
+      safe_stage_signal: null,
+      reply_text: "No seu caso não é obrigatório. " + REPLY_OPCOES };
+  }
+  if (/\bmelhora\b|\bfaz diferenca\b|\bmuda algo\b/.test(nt)) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0.35, needs_confirmation: true,
+      safe_stage_signal: null,
+      reply_text: "Comprar juntos pode ajudar se precisar somar renda. " + REPLY_OPCOES };
+  }
+
+  return { ...base, detected_answer: "ambiguous", confidence: 0.20, needs_confirmation: true, safe_stage_signal: null,
+    reply_text: REPLY_OPCOES };
+}
+
 // ========================================
 // BLOCO 12 — Casca Cognitiva: Retorno do Correspondente
 // Gera fala final cognitiva para cada status canônico.
@@ -22259,6 +22594,13 @@ case "inicio_programa": {
       st.__cognitive_v2_takes_final = true;
     }
 
+    // ── Resolvedor cognitivo estruturado: classifica + gera fala indutiva ──
+    const _resolução = resolveTopoStructured("inicio_programa", userText);
+    if (_resolução && _resolução.reply_text && !st.__cognitive_v2_takes_final) {
+      st.__cognitive_reply_prefix = _resolução.reply_text;
+      st.__cognitive_v2_takes_final = true;
+    }
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -22267,18 +22609,20 @@ case "inicio_programa": {
       severity: "info",
       message: _isGreetingOrReentry && st.__cognitive_v2_takes_final
         ? "Saudação/reentrada em inicio_programa — cognitivo assume superfície"
-        : "Resposta ambígua em inicio_programa — permanecendo",
-      details: { userText, cognitive_takes_final: st.__cognitive_v2_takes_final || false }
+        : "Resposta ambígua em inicio_programa — resolvedor estruturado ativo",
+      details: {
+        userText,
+        cognitive_takes_final: st.__cognitive_v2_takes_final || false,
+        resolver: _resolução ? { detected_answer: _resolução.detected_answer, confidence: _resolução.confidence } : null
+      }
     });
 
     return step(
       env,
       st,
       [
-        "Acho que posso ter entendido errado 🤔",
-        "Só confirma pra mim rapidinho:",
-        "Você *já sabe como funciona* o programa Minha Casa Minha Vida, ou prefere que eu te explique de forma bem simples?",
-        "Responde com *sim* (já sei) ou *não* (quero que explique)."
+        "Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho?",
+        "Me diz *sim* (já sei) ou *não* (me explica)."
       ],
       "inicio_programa"
     );
@@ -22392,22 +22736,33 @@ case "inicio_nome": {
     /\bprefiro que\b/.test(_ntNomeGuard);
 
   if (_isIntentNotName) {
+    // ── Resolvedor cognitivo estruturado: gera fala indutiva ──
+    const _resolução = resolveTopoStructured("inicio_nome", userText);
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
       stage,
       next_stage: "inicio_nome",
       severity: "info",
-      message: "inicio_nome: texto parece intenção/pedido, não nome — solicitando nome novamente",
-      details: { userText, rawNome, guard: "intent_phrase" }
+      message: "inicio_nome: texto parece intenção/pedido, não nome — resolvedor estruturado ativo",
+      details: {
+        userText, rawNome, guard: "intent_phrase",
+        resolver: _resolução ? { detected_answer: _resolução.detected_answer, confidence: _resolução.confidence } : null
+      }
     });
+
+    if (_resolução && _resolução.reply_text) {
+      st.__cognitive_reply_prefix = _resolução.reply_text;
+      st.__cognitive_v2_takes_final = true;
+    }
 
     return step(
       env,
       st,
       [
-        "Ops, não consegui pegar seu nome 😅",
-        "Me manda seu *nome completo*, por favor, tipo: *Ana Silva*."
+        "Entendi sua dúvida! Mas antes, me confirma só seu *nome completo*, por favor 😊",
+        "Pode mandar tipo: *Ana Silva*."
       ],
       "inicio_nome"
     );
@@ -22963,6 +23318,13 @@ case "estado_civil": {
 
   // --------- NÃO ENTENDIDO ---------
 
+  // ── Resolvedor cognitivo estruturado: classifica + gera fala indutiva ──
+  const _resolEstCivil = resolveTopoStructured("estado_civil", t);
+  if (_resolEstCivil && _resolEstCivil.reply_text) {
+    st.__cognitive_reply_prefix = _resolEstCivil.reply_text;
+    st.__cognitive_v2_takes_final = true;
+  }
+
   // 🟩 EXIT_STAGE (fallback permanece na mesma fase)
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
@@ -22970,16 +23332,19 @@ case "estado_civil": {
     stage,
     next_stage: "estado_civil",
     severity: "info",
-    message: "Saindo da fase: estado_civil → estado_civil (fallback)",
-    details: { userText: t }
+    message: "Saindo da fase: estado_civil → estado_civil (resolvedor estruturado ativo)",
+    details: {
+      userText: t,
+      resolver: _resolEstCivil ? { detected_answer: _resolEstCivil.detected_answer, confidence: _resolEstCivil.confidence } : null
+    }
   });
 
   return step(
     env,
     st,
     [
-      "Acho que não entendi certinho 🤔",
-      "Me diga seu *estado civil*: solteiro(a), casado(a), união estável, separado(a), divorciado(a) ou viúvo(a)?"
+      "Pra te orientar certinho, me diz seu estado civil:",
+      "*Solteiro(a)*, *casado(a) no civil*, *união estável*, *separado(a)*, *divorciado(a)* ou *viúvo(a)*?"
     ],
     "estado_civil"
   );
@@ -23098,6 +23463,13 @@ case "confirmar_casamento": {
 
   // ===== NÃO ENTENDIDO =====
 
+  // ── Resolvedor cognitivo estruturado: classifica + gera fala indutiva ──
+  const _resolConfCas = resolveTopoStructured("confirmar_casamento", t);
+  if (_resolConfCas && _resolConfCas.reply_text) {
+    st.__cognitive_reply_prefix = _resolConfCas.reply_text;
+    st.__cognitive_v2_takes_final = true;
+  }
+
   // 🟩 EXIT_STAGE (fallback na mesma fase)
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
@@ -23105,17 +23477,19 @@ case "confirmar_casamento": {
     stage,
     next_stage: "confirmar_casamento",
     severity: "info",
-    message: "Saindo da fase: confirmar_casamento → confirmar_casamento (fallback)",
-    details: { userText }
+    message: "Saindo da fase: confirmar_casamento → confirmar_casamento (resolvedor estruturado ativo)",
+    details: {
+      userText,
+      resolver: _resolConfCas ? { detected_answer: _resolConfCas.detected_answer, confidence: _resolConfCas.confidence } : null
+    }
   });
 
   return step(
     env,
     st,
     [
-      "Me confirma rapidinho 😊",
-      "É **casamento civil no papel** ou **união estável**?",
-      "Se preferir, pode responder só: **sim** (civil) ou **não** (união estável)."
+      "É *casamento civil no papel* (com certidão) ou *união estável*?",
+      "Se preferir, responda *sim* (civil) ou *não* (estável)."
     ],
     "confirmar_casamento"
   );
@@ -23246,6 +23620,13 @@ case "financiamento_conjunto": {
 
   // =================== NÃO ENTENDIDO ===================
 
+  // ── Resolvedor cognitivo estruturado: classifica + gera fala indutiva ──
+  const _resolFinConj = resolveTopoStructured("financiamento_conjunto", t);
+  if (_resolFinConj && _resolFinConj.reply_text) {
+    st.__cognitive_reply_prefix = _resolFinConj.reply_text;
+    st.__cognitive_v2_takes_final = true;
+  }
+
   // 🟩 EXIT_STAGE (permanece na mesma fase)
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
@@ -23253,16 +23634,18 @@ case "financiamento_conjunto": {
     stage,
     next_stage: "financiamento_conjunto",
     severity: "info",
-    message: "Saindo da fase: financiamento_conjunto → financiamento_conjunto (fallback)",
-    details: { userText }
+    message: "Saindo da fase: financiamento_conjunto → financiamento_conjunto (resolvedor estruturado ativo)",
+    details: {
+      userText,
+      resolver: _resolFinConj ? { detected_answer: _resolFinConj.detected_answer, confidence: _resolFinConj.confidence } : null
+    }
   });
 
   return step(
     env,
     st,
     [
-      "Só pra confirmar 😊",
-      "Vocês querem **comprar juntos**, só você, ou **apenas se precisar**?"
+      "Vocês querem *comprar juntos*, *só você*, ou *apenas se precisar* somar renda?"
     ],
     "financiamento_conjunto"
   );

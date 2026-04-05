@@ -139,8 +139,12 @@ test("review_ready NÃO permite 'revisar' novamente", () => {
   assert.ok(!PREPARATION_VALID_ACTIONS["review_ready"].includes("revisar"));
 });
 
-test("approved_for_manual_execution não tem ações disponíveis", () => {
-  assert.equal(PREPARATION_VALID_ACTIONS["approved_for_manual_execution"].length, 0);
+test("approved_for_manual_execution aceita marcar_pre_execucao (G2.5 adicionou pré-execução)", () => {
+  // G2.5: approved_for_manual_execution → marcar_pre_execucao → pre_execution_ready
+  assert.equal(
+    PREPARATION_VALID_ACTIONS["approved_for_manual_execution"].includes("marcar_pre_execucao"),
+    true,
+  );
 });
 
 test("discarded não tem ações disponíveis", () => {

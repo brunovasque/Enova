@@ -22324,10 +22324,18 @@ async function runFunnel(env, st, userText) {
 
       if (hasUsefulCognitiveReply) {
         st.__cognitive_reply_prefix = cognitiveReply;
-        // V2 "on" com LLM ou heuristic útil: V2 assume fala final (substitui mecânico).
-        // Mecânico continua soberano em stage/gate/nextStage/persistência.
+        // Assunção da fala final: cognitivo substitui o mecânico quando a resposta é útil
+        // e suficiente para a rodada. Mecânico permanece soberano em stage/gate/nextStage/persistência.
         // Sempre definir explicitamente para evitar vazamento de estado anterior.
-        st.__cognitive_v2_takes_final = (v2OnWithLlm || (v2OnWithHeuristic && cognitiveReply.length > 30)) ? true : false;
+        // Condições de assunção (qualquer modo):
+        //   1. V2 "on" com LLM real (cognitive_v2) → takes_final=true
+        //   2. V2 "on" com heurística útil (>30 chars) → takes_final=true
+        //   3. Qualquer modo: cognitivo respondeu explicitamente a pergunta do cliente
+        //      (answered_customer_question=true) com reply substancial (>30 chars) → takes_final=true
+        //      Cobre: off-trail com reply útil, topo happy path, pós-reset.
+        //      NÃO assume: reply ambíguo, reply curto, fluxo que exige confirmação mecânica.
+        const _answeredSufficiently = cognitive.answered_customer_question === true && cognitiveReply.length > 30;
+        st.__cognitive_v2_takes_final = (v2OnWithLlm || (v2OnWithHeuristic && cognitiveReply.length > 30) || _answeredSufficiently) ? true : false;
       } else {
         st.__cognitive_reply_prefix = null;
         st.__cognitive_v2_takes_final = false;
@@ -22367,9 +22375,14 @@ async function runFunnel(env, st, userText) {
     });
 
     if (guard?.offtrack === true) {
-      // Se o V2 já gerou reply útil (prefixo + takes_final), usar ele como resposta
-      // em vez do offtrack hardcoded — o V2 já acolheu e reancorou.
-      const v2HasReply = Boolean(st.__cognitive_reply_prefix) && st.__cognitive_v2_takes_final === true;
+      // Se o cognitivo já gerou reply útil, usar ele como resposta em vez do offtrack
+      // hardcoded — o cognitivo já acolheu e reancorou.
+      // Condição ampliada: takes_final=true OU prefix substancial (>30 chars), garantindo
+      // que replies úteis de modo "off" (V1) também evitem cola mecânica redundante.
+      const v2HasReply = Boolean(st.__cognitive_reply_prefix) && (
+        st.__cognitive_v2_takes_final === true ||
+        String(st.__cognitive_reply_prefix).length > 30
+      );
       const offtrackMessages = v2HasReply
         ? [] // V2 reply já está no prefix e vai assumir via takes_final
         : buildReanchor({ currentStage: stage }).lines;

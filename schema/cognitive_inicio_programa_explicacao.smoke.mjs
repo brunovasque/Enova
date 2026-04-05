@@ -235,14 +235,16 @@ test("10. All explanation phrases → no ambiguo (no reprompt loop)", () => {
 });
 
 // ──────────────────────────────────────────────
-// 11. nao branch resolves to inicio_nome (no future stage skip)
+// 11. nao branch stays at inicio_programa (explains + closes with own-stage question)
+//     After confirmation, THEN advances to inicio_nome (two-step flow).
 // ──────────────────────────────────────────────
-test('11. nao branch next stage is inicio_nome (no skip)', () => {
-  // This is a structural test: verifying the nao branch in worker goes to inicio_nome.
-  // We confirm the branch logic: if nao=true, worker returns step(..., "inicio_nome").
-  // Represented here as a contract assertion.
-  const NAO_BRANCH_NEXT_STAGE = "inicio_nome";
-  assert.strictEqual(NAO_BRANCH_NEXT_STAGE, "inicio_nome", "nao branch must go to inicio_nome only");
+test('11. nao branch next stage is inicio_programa (stays for confirmation)', () => {
+  // Structural contract: nao branch now stays at inicio_programa
+  // so the stage closes with its own induced question before advancing.
+  // The subsequent confirmation (sim/certo/ok) then advances to inicio_nome.
+  const NAO_BRANCH_NEXT_STAGE = "inicio_programa";
+  assert.strictEqual(NAO_BRANCH_NEXT_STAGE, "inicio_programa",
+    "nao branch must stay at inicio_programa (two-step: explain → confirm → inicio_nome)");
 });
 
 // ──────────────────────────────────────────────

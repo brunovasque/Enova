@@ -2045,10 +2045,9 @@ export function AtendimentoDetalheUI({ lead, initialProfile }: AtendimentoDetalh
                     {autonomyState.executor_assistido_habilitado === "sim" &&
                       autonomyState.acao_baixo_risco_sugerida !== "nenhuma" && (() => {
                       const acao = autonomyState.acao_baixo_risco_sugerida;
-                      const icon =
-                        acao === "abrir_modal_chamar_cliente" ? "📞"
-                        : acao === "abrir_modal_docs" || acao === "abrir_modal_visita" ? "📁"
-                        : "📋";
+                      // acao é sempre "abrir_modal_chamar_cliente" ou "abrir_modal_followup"
+                      // — ambos reutilizam o modal callOpen já validado no painel.
+                      const icon = acao === "abrir_modal_chamar_cliente" ? "📞" : "📋";
                       const handleCtaClick = () => {
                         setCallText(suggestCallMessage(lead));
                         setCallOpen(true);

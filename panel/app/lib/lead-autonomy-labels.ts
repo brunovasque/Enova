@@ -52,11 +52,8 @@ export function getNivelRiscoExecucaoLabel(v: NivelRiscoExecucao): string {
 
 export function getAcaoBaixoRiscoLabel(v: AcaoBaixoRiscoSugerida): string {
   const MAP: Record<AcaoBaixoRiscoSugerida, string> = {
-    abrir_modal_followup: "Abrir follow-up",
     abrir_modal_chamar_cliente: "Chamar cliente",
-    abrir_modal_docs: "Abrir docs",
-    abrir_modal_visita: "Convidar para visita",
-    abrir_modal_reativacao: "Reativar lead",
+    abrir_modal_followup: "Fazer follow-up",
     nenhuma: "Nenhuma",
   };
   return MAP[v] ?? v;

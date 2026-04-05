@@ -92,15 +92,18 @@ export type NivelRiscoExecucao = "baixo" | "medio" | "alto";
 
 /**
  * AcaoBaixoRiscoSugerida — ação concreta de baixo risco que pode ser
- * executada de forma assistida reaproveitando fluxos já validados no painel.
+ * executada de forma assistida reaproveitando o modal callOpen já validado
+ * no painel (POST /api/bases {action:call_now}).
+ *
+ * Apenas ações com modal real existente no painel são listadas aqui.
+ * Ações como docs/visita/reativação não têm modal dedicado e são excluídas
+ * para manter o contrato semanticamente honesto.
+ *
  * "nenhuma" quando não há ação adequada ou o risco não é baixo.
  */
 export type AcaoBaixoRiscoSugerida =
-  | "abrir_modal_followup"
   | "abrir_modal_chamar_cliente"
-  | "abrir_modal_docs"
-  | "abrir_modal_visita"
-  | "abrir_modal_reativacao"
+  | "abrir_modal_followup"
   | "nenhuma";
 
 /**
@@ -333,39 +336,28 @@ function deriveAcaoBaixoRisco(
   autonomia: AutonomiaSugerida,
   nivelRisco: NivelRiscoExecucao,
   followupState: LeadFollowupOrganizer | null,
-  docsState: LeadDocsReading | null,
-  reclassState: LeadReclassificationReading | null,
-  visitReadinessState: LeadVisitReadiness | null,
 ): AcaoBaixoRiscoSugerida {
   // Somente ações de baixo risco são habilitadas
   if (nivelRisco !== "baixo") return "nenhuma";
 
   switch (autonomia) {
     case "followup_assistido":
-      // Reaproveitamos o modal "Chamar cliente" já validado no painel
+      // "chamar_agora" → CTA de chamada imediata; demais urgências → follow-up
       return followupState?.acao_followup_sugerida === "chamar_agora"
         ? "abrir_modal_chamar_cliente"
         : "abrir_modal_followup";
 
-    case "docs_assistido":
-      return docsState?.acao_docs_sugerida === "estimular_docs" ||
-        docsState?.acao_docs_sugerida === "chamar_cliente"
-        ? "abrir_modal_docs"
-        : "nenhuma";
-
-    case "reativacao_assistida":
-      return reclassState?.acao_reativacao_sugerida === "reativar_agora"
-        ? "abrir_modal_reativacao"
-        : "nenhuma";
-
-    case "visita_assistida":
-      // Visita só é baixo risco em casos específicos (verificado antes)
-      return visitReadinessState?.acao_plantao_sugerida === "convidar_para_plantao"
-        ? "abrir_modal_visita"
-        : "nenhuma";
-
     case "ajuste_operacional":
+      // Ajuste via follow-up assistido
       return "abrir_modal_followup";
+
+    case "docs_assistido":
+    case "reativacao_assistida":
+    case "visita_assistida":
+      // Nenhum modal dedicado existe no painel para estas ações.
+      // Retornar "nenhuma" mantém o contrato semanticamente honesto:
+      // a autonomia pode ser sugerida, mas o executor não é habilitado.
+      return "nenhuma";
 
     default:
       return "nenhuma";
@@ -489,9 +481,6 @@ export function readLeadAutonomy(
     autonomia_sugerida,
     nivel_risco_execucao,
     followupState,
-    docsState,
-    reclassState,
-    visitReadinessState,
   );
 
   const executor_assistido_habilitado = deriveExecutorAssistido(

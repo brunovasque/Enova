@@ -18504,11 +18504,53 @@ function resolveTopoStructured(stage, rawText) {
   switch (stage) {
     case "inicio_programa":        return resolveInicioProgramaStructured(rawText);
     case "inicio_nome":            return resolveInicioNomeStructured(rawText);
+    case "inicio_nacionalidade":   return resolveInicioNacionalidadeStructured(rawText);
     case "estado_civil":           return resolveEstadoCivilStructured(rawText);
     case "confirmar_casamento":    return resolveConfirmarCasamentoStructured(rawText);
     case "financiamento_conjunto": return resolveFinanciamentoConjuntoStructured(rawText);
     default: return null;
   }
+}
+
+// ── inicio_nacionalidade ─────────────────────────────────────
+// Categorias válidas: brasileiro | estrangeiro | ambiguous
+// ─────────────────────────────────────────────────────────────
+function resolveInicioNacionalidadeStructured(rawText) {
+  const nt = normalizeText(rawText || "");
+  const base = { stage: "inicio_nacionalidade" };
+  const REPLY_DEFAULT = "Me confirma: você é *brasileiro(a)* ou *estrangeiro(a)*?";
+
+  if (!nt) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0, needs_confirmation: true,
+      safe_stage_signal: null,
+      reply_text: REPLY_DEFAULT };
+  }
+
+  const estrangeiro =
+    /\b(estrangeiro|estrangeira|nao sou brasileiro|nao sou brasileira)\b/i.test(nt);
+  const brasileiro =
+    !estrangeiro &&
+    /\b(brasileiro|brasileira|nascido no brasil|nasci no brasil|sou daqui|do brasil|sou brasileira|sou brasileiro|daqui mesmo)\b/i.test(nt);
+
+  if (brasileiro) {
+    return { ...base, detected_answer: "brasileiro", confidence: 0.95, needs_confirmation: false,
+      safe_stage_signal: "inicio_nacionalidade:brasileiro", reply_text: null };
+  }
+  if (estrangeiro) {
+    return { ...base, detected_answer: "estrangeiro", confidence: 0.95, needs_confirmation: false,
+      safe_stage_signal: "inicio_nacionalidade:estrangeiro", reply_text: null };
+  }
+
+  // Dúvida sobre RNM → redirecionar sem divergir do stage
+  if (/\b(rnm|registro nacional|registro migrat)\b/i.test(nt)) {
+    return { ...base, detected_answer: "ambiguous", confidence: 0.30, needs_confirmation: true,
+      safe_stage_signal: null,
+      reply_text: "Sobre o RNM eu explico logo em seguida. Mas antes: você é *brasileiro(a)* ou *estrangeiro(a)*?" };
+  }
+
+  return { ...base, detected_answer: "ambiguous", confidence: 0.20, needs_confirmation: true,
+    safe_stage_signal: null,
+    reply_text: REPLY_DEFAULT };
 }
 
 // ── inicio_programa ─────────────────────────────────────────
@@ -22959,6 +23001,10 @@ case "inicio_nacionalidade": {
     st.nacionalidade = "brasileiro";
     st.fase_conversa = "estado_civil";
 
+    // ── Casca cognitiva: inclui opções para facilitar o parser no próximo stage ──
+    st.__cognitive_reply_prefix = "Perfeito! Agora me diz seu estado civil: *solteiro(a)*, *casado(a) no civil*, *união estável*, *separado(a)*, *divorciado(a)* ou *viúvo(a)*?";
+    st.__cognitive_v2_takes_final = true;
+
     return step(
       env,
       st,
@@ -22984,6 +23030,10 @@ case "inicio_nacionalidade": {
     st.nacionalidade = "estrangeiro";
     st.fase_conversa = "inicio_rnm";
 
+    // ── Casca cognitiva: resposta acolhedora com pergunta curta sobre RNM ──
+    st.__cognitive_reply_prefix = "Tudo bem! Você possui *RNM* (Registro Nacional Migratório)? Responde *sim* ou *não*.";
+    st.__cognitive_v2_takes_final = true;
+
     return step(
       env,
       st,
@@ -22997,8 +23047,14 @@ case "inicio_nacionalidade": {
   }
 
   // -------------------------------------------
-  // ❓ Fallback
+  // ❓ Fallback — resolvedor cognitivo estruturado
   // -------------------------------------------
+  const _resolNac = resolveTopoStructured("inicio_nacionalidade", nt);
+  if (_resolNac && _resolNac.reply_text) {
+    st.__cognitive_reply_prefix = _resolNac.reply_text;
+    st.__cognitive_v2_takes_final = true;
+  }
+
   return step(
     env,
     st,
@@ -24178,6 +24234,10 @@ case "somar_renda_solteiro": {
     details: { userText, userText_normalized: t }
   });
 
+  // ── Casca cognitiva: reprompt natural com opções explícitas ──
+  st.__cognitive_reply_prefix = "Sobre a renda — você pretende seguir *só com a sua*, somar com *parceiro(a)*, ou somar com *familiar*?";
+  st.__cognitive_v2_takes_final = true;
+
   return step(
     env,
     st,
@@ -24474,6 +24534,10 @@ await funnelTelemetry(env, {
     message: "Saindo da fase: somar_renda_familiar → somar_renda_familiar (fallback)",
     details: { userText, txt }
   });
+
+  // ── Casca cognitiva: reprompt natural listando os parentescos válidos ──
+  st.__cognitive_reply_prefix = "Me diz com qual familiar você quer compor renda: pai, mãe, irmão(ã), avô(ó) ou tio(a)?";
+  st.__cognitive_v2_takes_final = true;
 
   return step(
     env,
@@ -27697,6 +27761,10 @@ case "quem_pode_somar": {
     message: "Resposta ambígua → permanecendo em quem_pode_somar",
     details: { userText }
   });
+
+  // ── Casca cognitiva: reprompt natural com opções explícitas ──
+  st.__cognitive_reply_prefix = "Com quem você pretende somar renda: *Parceiro(a)*, *familiar* (pai/mãe/irmão) ou *sozinho(a)*?";
+  st.__cognitive_v2_takes_final = true;
 
   return step(
     env,

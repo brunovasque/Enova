@@ -347,9 +347,9 @@ function ExecutorAssistidoBloco({
 
   const blocoClass = [
     styles.executorBloco,
-    status === "discarded"                     ? styles.executorBlocoDiscarded  : "",
-    status === "approved_for_manual_execution" ? styles.executorBlocoApproved   : "",
-    status === "review_ready"                  ? styles.executorBlocoReviewReady : "",
+    status === "discarded" ? styles.executorBlocoDiscarded : "",
+    status === "approved_for_manual_execution" ? styles.executorBlocoApproved : "",
+    status === "review_ready" ? styles.executorBlocoReviewReady : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -357,8 +357,8 @@ function ExecutorAssistidoBloco({
   // Status row class driven by preparation state
   const statusRowClass = [
     styles.executorStatusRow,
-    status === "approved_for_manual_execution" ? styles.executorStatusRowApproved    : "",
-    status === "review_ready"                  ? styles.executorStatusRowReviewReady : "",
+    status === "approved_for_manual_execution" ? styles.executorStatusRowApproved : "",
+    status === "review_ready" ? styles.executorStatusRowReviewReady : "",
   ]
     .filter(Boolean)
     .join(" ");

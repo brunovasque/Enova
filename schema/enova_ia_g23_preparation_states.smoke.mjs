@@ -236,7 +236,7 @@ test("'draft' support text indica estado inicial/rascunho", () => {
 test("'review_ready' support text indica preparação para aprovação", () => {
   const txt = PREPARATION_STATUS_SUPPORT_TEXT["review_ready"].toLowerCase();
   assert.ok(
-    txt.includes("aprovação") || txt.includes("aprovacao") || txt.includes("aprovação"),
+    txt.includes("aprovação") || txt.includes("aprovacao"),
     `deve indicar que está pronto para aprovação: "${txt}"`,
   );
 });

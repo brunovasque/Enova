@@ -181,7 +181,10 @@ SET
   telefone    = COALESCE(m.telefone,    bt.best_telefone),
   lead_source = COALESCE(m.lead_source, bs.best_lead_source),
   obs_curta   = COALESCE(m.obs_curta,   bo.best_obs),
-  wa_id       = masters.numero_normalizado,   -- normalize wa_id to canonical form
+  -- NOTE: wa_id (PRIMARY KEY) is intentionally NOT updated here.
+  -- The master record keeps its own wa_id. Duplicate records are removed/archived
+  -- in PASSO 4. If the master's wa_id is not the normalized form, rename it only
+  -- after confirming zero FK references in enova_state, crm_override_log, etc.
   updated_at  = now()
 FROM masters
 JOIN best_nome    bn ON bn.numero_normalizado = masters.numero_normalizado

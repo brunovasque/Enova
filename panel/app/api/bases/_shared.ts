@@ -643,6 +643,11 @@ export async function runBasesAction(
           body: { ok: false, error: "Já existe um lead cadastrado com este número." },
         };
       }
+      // Note: the check above and the upsert below are not atomic. In a concurrent
+      // request scenario, two simultaneous add_lead_manual calls for the same wa_id
+      // could both pass the check. The underlying upsert with on_conflict:wa_id ensures
+      // only one row exists at the end (merge-duplicates), so no data corruption occurs.
+      // The second request would then be a silent update, not a true duplicate.
       const savedRows = await upsertLeadMetaRows(supabaseUrl, serviceRoleKey, [row]);
       const savedRow = savedRows[0] ?? null;
       await upsertEnovaStateSourceType(supabaseUrl, serviceRoleKey, [

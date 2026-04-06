@@ -158,15 +158,15 @@ try {
     assert.equal(body.ok, false);
   }
 
-  // ── E. Same number in format 4 (full digits) must be blocked ──
+  // ── E. Same number as full-digit string in telefone field must be blocked ──
   {
     const { status, body } = await runBasesAction({
       action: "add_lead_manual",
-      wa_id: "5541987654321",
+      telefone: "5541987654321",
       nome: "Souza Maria",
       lead_pool: "WARM_POOL",
     });
-    assert.equal(status, 409, "duplicate wa_id (format 4) must return 409");
+    assert.equal(status, 409, "duplicate phone (full 13-digit string) must return 409");
     assert.equal(body.ok, false);
   }
 

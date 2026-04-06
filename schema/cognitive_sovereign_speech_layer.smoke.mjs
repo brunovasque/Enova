@@ -94,6 +94,12 @@ function _mkSt(overrides = {}) {
   };
 }
 
+/** _containsAny(text, terms) — true se text.toLowerCase() contém algum de terms[] */
+function _containsAny(text, terms) {
+  const lower = String(text || "").toLowerCase();
+  return terms.some(t => lower.includes(t));
+}
+
 let passed = 0;
 let failed = 0;
 
@@ -576,7 +582,7 @@ test("51. BEHAVIORAL: 'oi' at inicio_programa — usa mapa cognitivo, rawArr NUN
   assert.strictEqual(_classifyRenderPath(st), "cognitive_fallback");
   // Prova de intenção da fase: fala menciona MCMV ou análise
   assert.ok(
-    result[0].toLowerCase().includes("mcmv") || result[0].toLowerCase().includes("analisar") || result[0].toLowerCase().includes("perfil"),
+    _containsAny(result[0], ["mcmv", "analisar", "perfil"]),
     "Intenção da fase (MCMV) preservada na saída cognitiva"
   );
 });
@@ -610,7 +616,7 @@ test("53. BEHAVIORAL: 'oi, posso usar o meu fgts?' — overlap + fala cognitiva,
   assert.ok(!result[0].includes("[mecânico") && !result[1].includes("[mecânico"), "rawArr não exposto em nenhum elemento");
   // Intenção da fase preservada via mapa (MCMV ou análise)
   assert.ok(
-    result[1].toLowerCase().includes("mcmv") || result[1].toLowerCase().includes("analisar") || result[1].toLowerCase().includes("perfil") || result[1].includes("😊"),
+    _containsAny(result[1], ["mcmv", "analisar", "perfil"]) || result[1].includes("😊"),
     "Intenção da fase preservada no segundo elemento"
   );
 });
@@ -633,7 +639,7 @@ test("54. BEHAVIORAL: 'sou casado' at estado_civil — Caminho 2, rawArr DESCART
   assert.ok(!result[0].includes("Me conta:"), "Sem wrapper verniz");
   // Intenção da fase preservada no prefix (contém a pergunta de casamento)
   assert.ok(
-    result[0].toLowerCase().includes("casamento") || result[0].toLowerCase().includes("civil") || result[0].toLowerCase().includes("estável"),
+    _containsAny(result[0], ["casamento", "civil", "estável"]),
     "Intenção da fase (estado civil) preservada no prefix"
   );
   assert.strictEqual(_classifyRenderPath(st), "cognitive_heuristic");
@@ -672,7 +678,7 @@ test("56. BEHAVIORAL: off-trail sem ? at inicio_nome — usa mapa cognitivo, raw
   assert.ok(!result[0].includes("Anotei tudo aqui"), "Sem ? → sem overlap prefix");
   // Intenção da fase (nome) preservada no mapa
   assert.ok(
-    result[0].toLowerCase().includes("nome"),
+    _containsAny(result[0], ["nome"]),
     "Intenção da fase (nome completo) preservada via mapa"
   );
   // Confirmação de limitação: sem ? → sem detecção de overlap
@@ -715,7 +721,7 @@ test("58. BEHAVIORAL: complemento 'e também' at somar_renda_familiar — rawArr
   assert.ok(!result[0].includes("Anotei tudo aqui"), "Complemento sem ? não dispara overlap prefix");
   // Intenção da fase (renda familiar) preservada no mapa
   assert.ok(
-    result[0].toLowerCase().includes("renda") || result[0].toLowerCase().includes("familiar") || result[0].toLowerCase().includes("somar"),
+    _containsAny(result[0], ["renda", "familiar", "somar"]),
     "Intenção da fase (renda familiar) preservada via mapa"
   );
   // Confirmação de contrato

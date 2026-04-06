@@ -34,7 +34,7 @@
 // 20.  Estado execution_bridge_ready existe na máquina de estados
 // 21.  Ação preparar_bridge_integracao existe na máquina de estados
 // 22.  Transição canônica: execution_contract_ready → execution_bridge_ready
-// 23.  execution_bridge_ready é estado terminal (nenhuma ação válida)
+// 23.  execution_bridge_ready NÃO é terminal — aceita preparar_handshake_controlado (G3.3)
 // 24.  execution_contract_ready agora tem ação preparar_bridge_integracao (não é mais terminal)
 // 25.  Transições inválidas para preparar_bridge_integracao retornam null
 // 26.  Labels para execution_bridge_ready presentes
@@ -308,9 +308,10 @@ test("22. Transição canônica: execution_contract_ready → execution_bridge_r
   assert.equal(next, "execution_bridge_ready");
 });
 
-test("23. execution_bridge_ready é estado terminal (nenhuma ação válida)", () => {
+test("23. execution_bridge_ready NÃO é terminal — aceita preparar_handshake_controlado (G3.3)", () => {
   const actions = PREPARATION_VALID_ACTIONS["execution_bridge_ready"];
-  assert.equal(actions.length, 0);
+  assert.ok(actions.length > 0, "execution_bridge_ready não é mais terminal");
+  assert.ok(actions.includes("preparar_handshake_controlado"), "execution_bridge_ready deve aceitar preparar_handshake_controlado");
 });
 
 test("24. execution_contract_ready agora tem ação preparar_bridge_integracao (não é mais terminal)", () => {
@@ -323,7 +324,7 @@ test("25. Transições inválidas para preparar_bridge_integracao retornam null"
   const invalidStates = [
     "draft", "review_ready", "approved_for_manual_execution",
     "pre_execution_ready", "authorized_for_controlled_execution",
-    "discarded",
+    "execution_bridge_ready", "execution_handshake_ready", "discarded",
   ];
   for (const s of invalidStates) {
     const result = transitionPreparationStatus(s, "preparar_bridge_integracao");

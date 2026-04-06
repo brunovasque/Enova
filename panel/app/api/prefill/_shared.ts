@@ -47,6 +47,10 @@ export type PrefillMetaRow = {
   restricao_status: PrefillStatus;
   origem_lead: string | null;
   observacoes_admin: string | null;
+  campaign_platform: string | null;
+  campaign_name: string | null;
+  campaign_adset: string | null;
+  campaign_ad: string | null;
   updated_by: string | null;
   created_at: string | null;
   updated_at: string | null;
@@ -83,6 +87,10 @@ export type PrefillUpdatePayload = {
   restricao_status?: PrefillStatus;
   origem_lead?: string | null;
   observacoes_admin?: string | null;
+  campaign_platform?: string | null;
+  campaign_name?: string | null;
+  campaign_adset?: string | null;
+  campaign_ad?: string | null;
   updated_by?: string | null;
 };
 
@@ -167,6 +175,10 @@ export async function upsertPrefillMeta(
     "restricao_source",
     "origem_lead",
     "observacoes_admin",
+    "campaign_platform",
+    "campaign_name",
+    "campaign_adset",
+    "campaign_ad",
     "updated_by",
   ] as const;
 

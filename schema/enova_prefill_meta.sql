@@ -82,6 +82,12 @@ CREATE TABLE IF NOT EXISTS public.enova_prefill_meta (
   -- ── origem_lead (admin-only, sem confirmação) ──
   origem_lead                        TEXT,
 
+  -- ── detalhamento de campanha (admin-only, preenchido quando origem_lead = 'campanha') ──
+  campaign_platform                  TEXT,
+  campaign_name                      TEXT,
+  campaign_adset                     TEXT,
+  campaign_ad                        TEXT,
+
   -- ── observacoes_admin (admin-only, sem confirmação) ──
   observacoes_admin                  TEXT,
 

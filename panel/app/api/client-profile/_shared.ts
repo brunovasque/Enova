@@ -71,6 +71,10 @@ export type ClientProfileUpdatePayload = {
   // Admin-only (only go to enova_prefill_meta)
   origem_lead?: string | null;
   observacoes_admin?: string | null;
+  campaign_platform?: string | null;
+  campaign_name?: string | null;
+  campaign_adset?: string | null;
+  campaign_ad?: string | null;
   updated_by?: string | null;
   source?: ProfileSource;
 };
@@ -260,6 +264,12 @@ export async function writeClientProfile(
   if (Object.prototype.hasOwnProperty.call(fields, "observacoes_admin")) {
     const v = fields.observacoes_admin;
     metaPatch.observacoes_admin = typeof v === "string" && v.trim() ? v.trim() : null;
+  }
+  for (const campField of ["campaign_platform", "campaign_name", "campaign_adset", "campaign_ad"] as const) {
+    if (Object.prototype.hasOwnProperty.call(fields, campField)) {
+      const v = (fields as Record<string, unknown>)[campField];
+      metaPatch[campField] = typeof v === "string" && v.trim() ? v.trim() : null;
+    }
   }
 
   // 1. Write operational values to enova_state (guardrail: only profile fields)

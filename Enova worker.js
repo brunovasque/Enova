@@ -161,9 +161,10 @@ async function step(env, st, messages, nextStage, options = {}) {
   const rawArr = Array.isArray(messages) ? messages : [messages];
 
   // Reconciliar input do cliente para detectar overlap/múltiplas intenções.
+  // rawArr é passado como mechanical_prompt_source — fonte de intenção, NUNCA fala final.
   // Ephemeral — descartado logo abaixo após renderizar.
   if (!st.__round_intent && (st.last_user_text || "").trim()) {
-    st.__round_intent = buildRoundIntent(st, st.last_user_text);
+    st.__round_intent = buildRoundIntent(st, st.last_user_text, rawArr);
   }
 
   // Camada canônica de fala cognitiva soberana.
@@ -3906,14 +3907,28 @@ function reconcileClientInput(st, userText) {
 }
 
 /**
- * buildRoundIntent — Bloco 1: Contrato de intenção da rodada.
- * Captura estado mecânico + leitura reconciliada do cliente.
+ * buildRoundIntent — Contrato de intenção da rodada.
+ *
+ * Captura:
+ * - stage_atual: fase atual do mecânico
+ * - mechanical_prompt_source: frase mecânica original (rawArr) — fonte de verdade
+ *   para a intenção da rodada. NUNCA exposta diretamente ao cliente.
+ * - intencao_da_rodada: extração da intenção core do que o mecânico quer cobrar/comunicar
+ * - still_needs_original_answer: a fase ainda precisa da resposta do cliente
+ * - resposta_de_stage_detectada / pergunta_paralela_detectada / etc.: reconciliação
+ * - texto_reconciliado: input original do cliente
+ *
  * Ephemeral — descartado após envio via step().
  */
-function buildRoundIntent(st, userText) {
+function buildRoundIntent(st, userText, rawArr) {
   const reconciliado = reconcileClientInput(st, userText || st.last_user_text || "");
+  const mechanicalSource = (Array.isArray(rawArr) && rawArr.length > 0)
+    ? rawArr.filter(Boolean).join(" | ")
+    : "";
   return {
     stage_atual: st?.fase_conversa || "inicio",
+    mechanical_prompt_source: mechanicalSource,
+    intencao_da_rodada: _extractRoundIntention(st?.fase_conversa, mechanicalSource),
     still_needs_original_answer: true,
     pode_avancar: false,
     resposta_de_stage_detectada: reconciliado.tem_resposta_de_stage,
@@ -3955,16 +3970,149 @@ function _getCognitiveRenderPhase(stage) {
 }
 
 /**
- * _MINIMAL_FALLBACK_SPEECH_MAP — Fala cognitiva mínima por stage.
+ * _extractRoundIntention — Extrai a intenção central da frase mecânica.
  *
- * Usada em buildMinimalCognitiveFallback quando nenhuma flag cognitiva está ativa.
- * NUNCA expõe rawArr literal ao cliente — TODOS os stages usam este mapa.
+ * A frase mecânica contém o que o stage quer cobrar/comunicar.
+ * Esta função extrai a intenção core sem o tom mecânico.
+ * Se não houver fonte mecânica, retorna a intenção genérica do stage.
+ */
+function _extractRoundIntention(stage, mechanicalSource) {
+  if (!mechanicalSource) return stage || "continuar_conversa";
+  // Strip common mechanical prefixes
+  let intent = mechanicalSource
+    .replace(/^\s*(Informe|Insira|Digite|Selecione|Escolha|Diga|Responda|Confirme)\s+/gi, "")
+    .replace(/\s*\|\s*/g, " — ")
+    .trim();
+  return intent || stage || "continuar_conversa";
+}
+
+/**
+ * _PHASE_REQUIREMENT_GUARDRAILS — Guardrails de cobrança por fase.
+ *
+ * Para cada stage, define os termos/padrões obrigatórios que DEVEM estar
+ * presentes na fala cognitiva final. Se a renderização cognitiva não contiver
+ * esses termos, o guardrail força o fallback do mapa por stage.
+ *
+ * Isso garante: a IA fala bonito E cobra exatamente o que a fase precisa.
+ */
+const _PHASE_REQUIREMENT_GUARDRAILS = new Map([
+  // gates_finais — exigência técnica precisa
+  ["ir_declarado",        { required: /imposto|ir\b|renda|declara/i }],
+  ["autonomo_ir_pergunta", { required: /ir\b|imposto|autônom|declara/i }],
+  ["ctps_36",             { required: /36|carteira|ctps|meses/i }],
+  ["ctps_36_parceiro",    { required: /36|carteira|ctps|parceiro|meses/i }],
+  ["restricao",           { required: /restriç|cpf|spc|serasa|negativ/i }],
+  ["restricao_parceiro",  { required: /restriç|cpf|parceiro/i }],
+  ["regularizacao_restricao", { required: /regulariz|restriç|quitar|negoci/i }],
+  ["regularizacao_restricao_parceiro", { required: /regulariz|restriç|parceiro/i }],
+  ["dependente",          { required: /dependente|filho|menor/i }],
+  // operacional
+  ["envio_docs",          { required: /documento|envie|análise/i }],
+  ["aguardando_retorno_correspondente", { required: /aguard|correspondente|retorno|novidade/i }],
+  ["agendamento_visita",  { required: /agend|visita|empreendimento|data/i }],
+  ["finalizacao_processo", { required: /final|reta final|último|passo/i }],
+  ["fim_ineligivel",      { required: /não foi possível|infelizmente|processo/i }],
+  // topo — exigências conversacionais
+  ["inicio_nome",         { required: /nome/i }],
+  ["estado_civil",        { required: /estado civil|solteiro|casado|situaç/i }],
+  ["inicio_nacionalidade", { required: /brasileiro|nacionalidade/i }],
+  ["inicio_rnm",          { required: /rnm|registro|migratório/i }],
+  ["confirmar_casamento",  { required: /casamento|civil|união|estável/i }],
+  ["somar_renda_solteiro", { required: /renda|somar|sozinho/i }],
+  ["somar_renda_familiar", { required: /renda|somar|pai|mãe|irmão|familiar/i }],
+]);
+
+/**
+ * _validatePhaseRequirement — Valida se a fala cognitiva preserva a exigência da fase.
+ *
+ * Retorna true se o stage não tem guardrail OU se o texto cognitivo contém os termos obrigatórios.
+ * Retorna false se o guardrail existe e o texto não contém os termos exigidos.
+ */
+function _validatePhaseRequirement(stage, cognitiveText) {
+  const guard = _PHASE_REQUIREMENT_GUARDRAILS.get(stage);
+  if (!guard) return true; // sem guardrail → aceito
+  return guard.required.test(cognitiveText);
+}
+
+/**
+ * _renderCognitiveFromIntent — Transforma frase mecânica em fala cognitiva.
+ *
+ * Usa a frase mecânica como fonte de verdade para intenção da rodada.
+ * Transforma o tom imperativo/formal em conversacional Enova.
+ * Preserva todos os detalhes técnicos (números, documentos, condições).
+ *
+ * Regras de transformação:
+ * 1. Remove imperativos formais (Informe → pede conversacional)
+ * 2. Adiciona tom conversacional (emojis, "Pode me dizer", "Me conta", etc.)
+ * 3. Preserva conteúdo técnico intacto (36 meses, CPF, IR, etc.)
+ * 4. Se o resultado não passa no guardrail da fase, retorna null → fallback mapa
+ *
+ * Synchronous. Sem LLM.
+ */
+function _renderCognitiveFromIntent(mechanicalSource, stage) {
+  if (!mechanicalSource || !mechanicalSource.trim()) return null;
+
+  // Pega apenas a primeira frase mecânica (antes do separador "|")
+  let source = mechanicalSource.split("|")[0].trim();
+  if (!source) return null;
+
+  // ── Transformações de tom ──
+  let cognitive = source;
+
+  // Remove imperativos formais e substitui por conversacional
+  cognitive = cognitive.replace(/^Informe\s+/i, "Me fala ");
+  cognitive = cognitive.replace(/^Insira\s+/i, "Me envia ");
+  cognitive = cognitive.replace(/^Digite\s+/i, "Me passa ");
+  cognitive = cognitive.replace(/^Selecione\s+/i, "Escolhe pra mim ");
+  cognitive = cognitive.replace(/^Escolha\s+/i, "Escolhe pra mim ");
+  cognitive = cognitive.replace(/^Diga\s+/i, "Me conta ");
+  cognitive = cognitive.replace(/^Responda\s+/i, "Me responde ");
+  cognitive = cognitive.replace(/^Confirme\s+/i, "Confirma pra mim ");
+  cognitive = cognitive.replace(/^Envie\s+/i, "Me envia ");
+  cognitive = cognitive.replace(/^Preciso que\s+/i, "Pode ");
+  cognitive = cognitive.replace(/^Necessito que\s+/i, "Pode ");
+
+  // Se já é pergunta (tem ?), ajusta tom
+  if (/\?/.test(cognitive)) {
+    // Se começa com "Você" e é pergunta, manter — já é conversacional
+    // Se começa com artigo ou preposição mecânica, adicionar prefixo conversacional
+    if (/^(O |A |Os |As |Qual |Quanto )/i.test(cognitive) && !/😊|👍|📋|📎|💛/.test(cognitive)) {
+      cognitive = cognitive.charAt(0).toLowerCase() + cognitive.slice(1);
+      cognitive = "Me conta, " + cognitive;
+    }
+  }
+
+  // Garante que termina com pontuação
+  if (!/[.!?😊👍📋📎💛✅📅]$/.test(cognitive.trim())) {
+    cognitive = cognitive.trim() + " 😊";
+  }
+
+  // Adiciona emoji se não tem nenhum e texto é curto o suficiente
+  if (!/[😊👍📋📎💛✅📅⚠️🤝]/.test(cognitive) && cognitive.length < 120) {
+    cognitive = cognitive.replace(/([.!?])$/, " 😊");
+  }
+
+  // ── Guardrail: verifica se a transformação preservou a exigência técnica ──
+  if (!_validatePhaseRequirement(stage, cognitive)) {
+    return null; // guardrail falhou → fallback para mapa
+  }
+
+  return cognitive;
+}
+
+/**
+ * _MINIMAL_FALLBACK_SPEECH_MAP — Fala cognitiva de segurança por stage.
+ *
+ * Usada como FALLBACK quando:
+ * 1. Não há mechanical_prompt_source na rodada (rawArr vazio)
+ * 2. A transformação cognitiva da frase mecânica não passa no guardrail
+ * 3. Stage desconhecido sem fonte mecânica
+ *
+ * O MECANISMO PRIMÁRIO é: transformar a frase mecânica (mechanical_prompt_source)
+ * em fala cognitiva via _renderCognitiveFromIntent. O mapa é a rede de segurança.
  *
  * Critérios: curta, simpática, disciplinada, fiel à intenção e exigência técnica
  * do stage, sem expor texto mecânico cru.
- *
- * Inclui TODOS os stages: topo, meio, gates_finais e operacional.
- * Cognitivo é 100% dono da fala visível — sem exceção.
  */
 const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
   // ── topo ──
@@ -4002,28 +4150,42 @@ const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
 ]);
 
 /**
- * buildMinimalCognitiveFallback — Fallback cognitivo mínimo REAL.
+ * buildMinimalCognitiveFallback — Render cognitivo baseado em intenção.
  *
- * Contrato: NUNCA retorna rawArr literal ao cliente. Sem exceções.
+ * Hierarquia:
+ * 1. PRIMÁRIO: usa mechanical_prompt_source (rawArr) como fonte de intenção →
+ *    transforma em fala cognitiva via _renderCognitiveFromIntent.
+ *    Preserva conteúdo técnico, muda apenas o tom. Validado por guardrail.
+ * 2. FALLBACK: se não há fonte mecânica ou guardrail falha →
+ *    _MINIMAL_FALLBACK_SPEECH_MAP por stage (fala cognitiva de segurança).
+ * 3. GENÉRICO: stage desconhecido → "Pode continuar 😊" (nunca mecânico).
  *
- * TODOS os stages (topo, meio, gates_finais, operacional) usam
- * _MINIMAL_FALLBACK_SPEECH_MAP — fala cognitiva fiel à intenção e exigência
- * técnica de cada stage, sem expor texto mecânico cru.
- *
- * Se stage não está no mapa → fallback genérico "Pode continuar 😊".
+ * CONTRATO: rawArr como string literal NUNCA chega ao cliente.
+ * O que chega é a INTENÇÃO do rawArr renderizada cognitivamente.
  *
  * Overlap: se múltiplas intenções + off-trail → prefix de reconhecimento antes da fala.
  *
  * Synchronous. Sem chamadas a LLM. Sem persistência. Sem mudança de gates.
  */
 function buildMinimalCognitiveFallback(stage, rawArr, roundIntent) {
-  // TODOS os stages: fala cognitiva do mapa — rawArr NUNCA exposto
-  const stageSpeech = _MINIMAL_FALLBACK_SPEECH_MAP.get(stage) || "Pode continuar 😊";
+  // ── PRIMÁRIO: transformar frase mecânica em fala cognitiva ──
+  const mechanicalSource = roundIntent?.mechanical_prompt_source || "";
+  const cognitiveFromIntent = _renderCognitiveFromIntent(mechanicalSource, stage);
+
+  // Se a transformação passou no guardrail, usa como fala final
+  let finalSpeech;
+  if (cognitiveFromIntent) {
+    finalSpeech = cognitiveFromIntent;
+  } else {
+    // ── FALLBACK: mapa de segurança por stage ──
+    finalSpeech = _MINIMAL_FALLBACK_SPEECH_MAP.get(stage) || "Pode continuar 😊";
+  }
+
   // Overlap: se múltiplas intenções detectadas, reconhecer antes de continuar
   if (roundIntent?.pode_ter_multiplas_intencoes && roundIntent?.eh_off_trail) {
-    return ["Anotei tudo aqui 😊 Deixa eu continuar a análise do seu perfil.", stageSpeech];
+    return ["Anotei tudo aqui 😊 Deixa eu continuar a análise do seu perfil.", finalSpeech];
   }
-  return [stageSpeech];
+  return [finalSpeech];
 }
 
 /**
@@ -4034,10 +4196,12 @@ function buildMinimalCognitiveFallback(stage, rawArr, roundIntent) {
  * Hierarquia:
  * 1. __cognitive_v2_takes_final + prefix → fala cognitiva real (LLM) — rawArr DESCARTADO
  * 2. prefix sem takes_final → prefix é a fala cognitiva completa — rawArr DESCARTADO
- * 3. sem flags → buildMinimalCognitiveFallback — rawArr NUNCA exposto (TODOS os stages usam mapa)
+ * 3. sem flags → buildMinimalCognitiveFallback — usa mechanical_prompt_source do
+ *    roundIntent como fonte de intenção, transforma em fala cognitiva.
+ *    Mapa por stage é fallback de segurança. rawArr literal NUNCA exposto.
  *
- * CONTRATO: rawArr NUNCA chega ao cliente como superfície literal. Sem exceções.
- * Cognitivo é 100% dono de toda fala visível — inclusive em stages técnicos.
+ * CONTRATO: rawArr como texto cru NUNCA chega ao cliente. Sem exceções.
+ * O que chega é: LLM real, prefix heurístico, ou intenção mecânica renderizada cognitivamente.
  */
 function renderCognitiveSpeech(st, stage, rawArr) {
   const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
@@ -4062,8 +4226,9 @@ function renderCognitiveSpeech(st, stage, rawArr) {
  *                           (__cognitive_reply_prefix set, __cognitive_v2_takes_final=false)
  *                           rawArr é DESCARTADO. Prefix é a fala completa.
  *   "cognitive_fallback"  — Nenhuma flag. buildMinimalCognitiveFallback é o caminho.
- *                           TODOS os stages usam _MINIMAL_FALLBACK_SPEECH_MAP.
- *                           rawArr NUNCA exposto — sem exceções.
+ *                           Primário: mechanical_prompt_source → fala cognitiva via _renderCognitiveFromIntent.
+ *                           Fallback: _MINIMAL_FALLBACK_SPEECH_MAP por stage.
+ *                           rawArr literal NUNCA exposto — sem exceções.
  *
  * Usado para telemetria e testes comportamentais. Não altera a fala.
  */

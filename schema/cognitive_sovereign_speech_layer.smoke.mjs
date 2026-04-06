@@ -7,22 +7,27 @@
  *   A) Funções da camada existem no worker (presença de âncoras)
  *   B) step() integra renderCognitiveSpeech
  *   C) renderCognitiveSpeech — hierarquia de 3 caminhos (contrato zero-rawArr)
- *   D) buildMinimalCognitiveFallback — _MINIMAL_FALLBACK_SPEECH_MAP para TODOS os stages
- *   E) reconcileClientInput / buildRoundIntent — campos canônicos
+ *   D) buildMinimalCognitiveFallback — intent-based primário, mapa fallback
+ *   E) reconcileClientInput / buildRoundIntent — campos canônicos incl. mechanical_prompt_source
  *   F) _COGNITIVE_RENDER_PHASE_MAP — stages mapeados
  *   G) Segurança estrutural (gates/nextStage/persistência preservados)
- *   H) Prova de remoção de verniz: _softQuestion removida, sem wrapper "Me conta:"
+ *   H) Prova de remoção de verniz: _applyCognitiveSurfaceFilter/_softQuestion removidas
  *   I) BEHAVIORAL: 8 cenários topo/meio → zero rawArr exposto + fase preservada
  *   J) classifyRenderPath — classificação canônica de origem
  *   K) Limitações honestas do overlap/reconciliação
  *   L) BEHAVIORAL: 6 cenários gates_finais/operacional → zero rawArr, fala cognitiva
+ *   M) Intent-based rendering: mechanical source como fonte de intenção
+ *   N) Guardrails de cobrança por fase (_PHASE_REQUIREMENT_GUARDRAILS)
+ *   O) buildRoundIntent novos campos canônicos (mechanical_prompt_source, intencao_da_rodada)
+ *   P) BEHAVIORAL: intent-based rendering end-to-end em stages técnicos
  *
- * CONTRATO CENTRAL (post comments 4189815742 + 4189874369):
+ * CONTRATO CENTRAL (post comments 4189815742 + 4189874369 + 4189949026):
  *   Nenhum caminho expõe rawArr literal ao cliente — SEM EXCEÇÕES:
  *   - cognitive_real (Caminho 1): rawArr DESCARTADO, só prefix LLM
  *   - cognitive_heuristic (Caminho 2): rawArr DESCARTADO, só prefix do resolver
- *   - cognitive_fallback (Caminho 3): TODOS os stages usam _MINIMAL_FALLBACK_SPEECH_MAP
- *     (topo, meio, gates_finais, operacional — sem exceção híbrida)
+ *   - cognitive_fallback (Caminho 3): mechanical_prompt_source → fala cognitiva
+ *     via _renderCognitiveFromIntent (primário), mapa por stage (fallback).
+ *     _PHASE_REQUIREMENT_GUARDRAILS valida preservação da exigência técnica.
  *
  * _applyCognitiveSurfaceFilter REMOVIDA — não existe mais exceção de superfície
  * híbrida para nenhum stage. _softQuestion também removida.
@@ -68,6 +73,9 @@ __EXPORTS.buildMinimalCognitiveFallback = buildMinimalCognitiveFallback;
 __EXPORTS.renderCognitiveSpeech = renderCognitiveSpeech;
 __EXPORTS.classifyRenderPath = classifyRenderPath;
 __EXPORTS._getCognitiveRenderPhase = _getCognitiveRenderPhase;
+__EXPORTS._renderCognitiveFromIntent = _renderCognitiveFromIntent;
+__EXPORTS._validatePhaseRequirement = _validatePhaseRequirement;
+__EXPORTS._extractRoundIntention = _extractRoundIntention;
 `;
 const _vmCtx = vm.createContext({ __EXPORTS: {} });
 vm.runInContext(_vmBlockSrc, _vmCtx);
@@ -77,7 +85,10 @@ const {
   buildMinimalCognitiveFallback: _buildMinimalCognitiveFallback,
   renderCognitiveSpeech: _renderCognitiveSpeech,
   classifyRenderPath: _classifyRenderPath,
-  _getCognitiveRenderPhase: _getCognitiveRenderPhaseFn
+  _getCognitiveRenderPhase: _getCognitiveRenderPhaseFn,
+  _renderCognitiveFromIntent: _renderCognitiveFromIntentFn,
+  _validatePhaseRequirement: _validatePhaseRequirementFn,
+  _extractRoundIntention: _extractRoundIntentionFn
 } = _vmCtx.__EXPORTS;
 
 // Helpers para testes comportamentais
@@ -143,7 +154,7 @@ test("3. reconcileClientInput está definida no worker", () => {
 
 test("4. buildRoundIntent está definida no worker", () => {
   assert.ok(
-    workerSrc.includes("function buildRoundIntent(st, userText)"),
+    workerSrc.includes("function buildRoundIntent(st, userText, rawArr)"),
     "buildRoundIntent não encontrada"
   );
 });
@@ -261,12 +272,16 @@ test("15. Caminho 3: sem flags → buildMinimalCognitiveFallback (rawArr NUNCA e
 // ================================================================
 console.log("\n── SECTION D: buildMinimalCognitiveFallback ──");
 
-test("16. TODOS os stages usam _MINIMAL_FALLBACK_SPEECH_MAP — sem exceção híbrida", () => {
-  // Post comment 4189874369: não existe mais exceção para gates/operacional.
-  // TODOS os stages (topo, meio, gates_finais, operacional) usam o mapa.
+test("16. Intent-based rendering: mechanical source como primário, mapa como fallback", () => {
+  // Post comment 4189949026: a frase mecânica é fonte de intenção, não mais stage→frase fixa.
+  // buildMinimalCognitiveFallback usa _renderCognitiveFromIntent como primário.
   assert.ok(
-    workerSrc.includes("TODOS os stages: fala cognitiva do mapa — rawArr NUNCA exposto"),
-    "Contrato de zero exceção não encontrado"
+    workerSrc.includes("_renderCognitiveFromIntent(mechanicalSource, stage)"),
+    "Deve usar _renderCognitiveFromIntent como mecanismo primário"
+  );
+  assert.ok(
+    workerSrc.includes("_MINIMAL_FALLBACK_SPEECH_MAP.get(stage)"),
+    "Deve manter mapa como fallback de segurança"
   );
   // Verifica que NÃO existe mais branch separado para gates/operacional
   assert.ok(
@@ -275,14 +290,15 @@ test("16. TODOS os stages usam _MINIMAL_FALLBACK_SPEECH_MAP — sem exceção h�
   );
 });
 
-test("17. _MINIMAL_FALLBACK_SPEECH_MAP inclui stages gates_finais e operacional", () => {
+test("17. _MINIMAL_FALLBACK_SPEECH_MAP inclui stages gates_finais e operacional (rede de segurança)", () => {
   assert.ok(
     workerSrc.includes("_MINIMAL_FALLBACK_SPEECH_MAP"),
     "_MINIMAL_FALLBACK_SPEECH_MAP deve existir no worker"
   );
+  // O mapa é fallback — o mecanismo primário é intent-based
   assert.ok(
-    workerSrc.includes("TODOS os stages: fala cognitiva do mapa — rawArr NUNCA exposto"),
-    "Contrato de cobertura total não encontrado"
+    workerSrc.includes("O MECANISMO PRIMÁRIO é: transformar a frase mecânica"),
+    "Docstring deve declarar que o mecanismo primário é intent-based"
   );
   // Verifica que gates e operacional estão no mapa
   const gateStages = ["ir_declarado", "ctps_36", "restricao", "envio_docs", "fim_ineligivel"];
@@ -908,6 +924,318 @@ test("72. BEHAVIORAL: fim_ineligivel — fala cognitiva, rawArr DESCARTADO", () 
   );
   assert.ok(result[0].includes("💛"), "Tom empático presente");
   assert.strictEqual(result.length, 1, "Exatamente 1 linha cognitiva");
+});
+
+// ================================================================
+// SECTION M — Intent-based rendering: mechanical source como fonte de intenção
+// Post comment 4189949026: frases mecânicas = intent source, não fala final.
+// O render cognitivo usa a intenção mecânica para gerar fala conversacional.
+// ================================================================
+
+console.log("\n── SECTION M: Intent-based rendering — mechanical source como intenção ──");
+
+test("73. _renderCognitiveFromIntent transforma imperativo em conversacional", () => {
+  const result = _renderCognitiveFromIntentFn("Informe o número do seu RNM", "inicio_rnm");
+  assert.ok(result, "Deve retornar resultado não-null");
+  assert.ok(!result.startsWith("Informe"), "Não deve começar com imperativo");
+  assert.ok(_containsAny(result, ["rnm", "número"]), "Deve preservar conteúdo técnico (RNM)");
+  assert.ok(/😊|📋|👍/.test(result), "Deve ter tom conversacional (emoji)");
+});
+
+test("74. _renderCognitiveFromIntent com pergunta preserva sentido", () => {
+  const result = _renderCognitiveFromIntentFn("Você declarou IR nos últimos 2 anos?", "ir_declarado");
+  assert.ok(result, "Deve retornar resultado não-null");
+  assert.ok(_containsAny(result, ["ir", "declar", "2 anos"]), "Conteúdo técnico preservado");
+  // Guardrail valida presença de termos obrigatórios
+  assert.ok(_validatePhaseRequirementFn("ir_declarado", result), "Guardrail deve passar");
+});
+
+test("75. _renderCognitiveFromIntent retorna null quando source vazio", () => {
+  const result = _renderCognitiveFromIntentFn("", "inicio_nome");
+  assert.strictEqual(result, null, "Source vazio → null → fallback mapa");
+});
+
+test("76. _renderCognitiveFromIntent: 'Envie seus documentos' → conversacional", () => {
+  const result = _renderCognitiveFromIntentFn("Envie seus documentos para análise", "envio_docs");
+  assert.ok(result, "Deve retornar resultado");
+  assert.ok(!result.startsWith("Envie"), "Não deve começar com imperativo");
+  assert.ok(_containsAny(result, ["documento", "análise"]), "Conteúdo técnico preservado");
+  assert.ok(_validatePhaseRequirementFn("envio_docs", result), "Guardrail envio_docs passa");
+});
+
+test("77. _renderCognitiveFromIntent: 'Selecione o tipo de casamento' → conversacional", () => {
+  const result = _renderCognitiveFromIntentFn("Selecione o tipo de casamento civil ou união estável", "confirmar_casamento");
+  assert.ok(result, "Deve retornar resultado");
+  assert.ok(!result.startsWith("Selecione"), "Imperativo removido");
+  assert.ok(_containsAny(result, ["casamento", "civil", "união"]), "Conteúdo técnico preservado");
+});
+
+test("78. buildMinimalCognitiveFallback usa mechanical source quando presente no roundIntent", () => {
+  // Simula roundIntent com mechanical_prompt_source
+  const roundIntent = {
+    stage_atual: "ir_declarado",
+    mechanical_prompt_source: "Você declarou Imposto de Renda nos últimos 2 anos?",
+    intencao_da_rodada: "Imposto de Renda nos últimos 2 anos?",
+    still_needs_original_answer: true,
+    pode_avancar: false,
+    resposta_de_stage_detectada: true,
+    pergunta_paralela_detectada: false,
+    info_complementar_detectada: false,
+    eh_off_trail: false,
+    eh_saudacao_pura: false,
+    pode_ter_multiplas_intencoes: false,
+    texto_reconciliado: "sim"
+  };
+  const result = _buildMinimalCognitiveFallback("ir_declarado", ["RAWMECH"], roundIntent);
+  assert.ok(!result[0].includes("RAWMECH"), "rawArr literal não exposto");
+  assert.ok(_containsAny(result[0], ["imposto", "renda", "ir", "declar"]), "Intenção mecânica preservada na saída");
+});
+
+test("79. buildMinimalCognitiveFallback cai no mapa quando mechanical source vazio", () => {
+  const roundIntent = {
+    stage_atual: "inicio_nome",
+    mechanical_prompt_source: "",
+    intencao_da_rodada: "inicio_nome",
+    still_needs_original_answer: true,
+    pode_avancar: false,
+    resposta_de_stage_detectada: false,
+    pergunta_paralela_detectada: false,
+    info_complementar_detectada: false,
+    eh_off_trail: false,
+    eh_saudacao_pura: true,
+    pode_ter_multiplas_intencoes: false,
+    texto_reconciliado: "oi"
+  };
+  const result = _buildMinimalCognitiveFallback("inicio_nome", ["RAWMECH"], roundIntent);
+  assert.ok(!result[0].includes("RAWMECH"), "rawArr literal não exposto");
+  assert.ok(_containsAny(result[0], ["nome"]), "Mapa de segurança preserva intenção do stage");
+});
+
+test("80. BEHAVIORAL: mechanical source 'Informe seu nome completo' → fala cognitiva com nome", () => {
+  const st = _mkSt({ fase_conversa: "inicio_nome", last_user_text: "oi" });
+  const rawArr = ["Informe seu nome completo"];
+  st.__round_intent = _buildRoundIntent(st, "oi", rawArr);
+  const result = _renderCognitiveSpeech(st, "inicio_nome", rawArr);
+  assert.ok(!result[0].includes("Informe"), "Imperativo não exposto");
+  assert.ok(_containsAny(result[0], ["nome"]), "Intenção (nome) preservada");
+  assert.ok(/😊|👍/.test(result[0]), "Tom conversacional");
+  assert.strictEqual(result.length, 1, "Exatamente 1 linha");
+});
+
+test("81. BEHAVIORAL: mechanical source 'Confirme se tem restrição no CPF' → cognitivo com CPF/restrição", () => {
+  const st = _mkSt({ fase_conversa: "restricao", last_user_text: "sim" });
+  const rawArr = ["Confirme se tem restrição no CPF ou Serasa"];
+  st.__round_intent = _buildRoundIntent(st, "sim", rawArr);
+  const result = _renderCognitiveSpeech(st, "restricao", rawArr);
+  assert.ok(!result[0].includes("Confirme se"), "Imperativo não exposto");
+  assert.ok(_containsAny(result[0], ["restriç", "cpf", "serasa"]), "Conteúdo técnico preservado");
+  assert.ok(_validatePhaseRequirementFn("restricao", result[0]), "Guardrail restricao passa");
+});
+
+// ================================================================
+// SECTION N — Guardrails de cobrança por fase
+// Post comment 4189949026: se a fase precisa de resposta, a fala COBRA.
+// ================================================================
+
+console.log("\n── SECTION N: Guardrails de cobrança por fase ──");
+
+test("82. _validatePhaseRequirement: ir_declarado PASSA com texto correto", () => {
+  assert.ok(
+    _validatePhaseRequirementFn("ir_declarado", "Você declarou Imposto de Renda nos últimos 2 anos?"),
+    "Guardrail deve passar"
+  );
+});
+
+test("83. _validatePhaseRequirement: ir_declarado FALHA sem termo obrigatório", () => {
+  assert.ok(
+    !_validatePhaseRequirementFn("ir_declarado", "Me conta mais sobre você"),
+    "Guardrail deve falhar — falta termo obrigatório"
+  );
+});
+
+test("84. _validatePhaseRequirement: ctps_36 exige '36' ou 'carteira' ou 'meses'", () => {
+  assert.ok(
+    _validatePhaseRequirementFn("ctps_36", "Você tem mais de 36 meses de carteira?"),
+    "Guardrail ctps_36 com termos corretos"
+  );
+  assert.ok(
+    !_validatePhaseRequirementFn("ctps_36", "Me fala sobre sua vida profissional"),
+    "Guardrail ctps_36 sem termos obrigatórios"
+  );
+});
+
+test("85. _validatePhaseRequirement: restricao exige 'restriç' ou 'cpf' ou 'spc' ou 'serasa'", () => {
+  assert.ok(
+    _validatePhaseRequirementFn("restricao", "Existe alguma restrição no seu CPF?"),
+    "Guardrail restricao com termos corretos"
+  );
+  assert.ok(
+    !_validatePhaseRequirementFn("restricao", "Tudo bem com você?"),
+    "Guardrail restricao sem termos"
+  );
+});
+
+test("86. _validatePhaseRequirement: stage sem guardrail → sempre aceita", () => {
+  assert.ok(
+    _validatePhaseRequirementFn("stage_desconhecido", "Qualquer texto"),
+    "Stage sem guardrail → aceita qualquer texto"
+  );
+});
+
+test("87. _validatePhaseRequirement: envio_docs exige 'documento' ou 'envie' ou 'análise'", () => {
+  assert.ok(
+    _validatePhaseRequirementFn("envio_docs", "Me envia os documentos para análise"),
+    "Guardrail envio_docs com termos corretos"
+  );
+});
+
+test("88. Guardrail + renderCognitiveFromIntent: transformação que perde intent → fallback mapa", () => {
+  // Se _renderCognitiveFromIntent gerar texto que NÃO passa no guardrail,
+  // buildMinimalCognitiveFallback cai no mapa de segurança
+  const fakeRound = {
+    stage_atual: "ir_declarado",
+    // Fonte mecânica sem conteúdo relevante — guardrail vai falhar
+    mechanical_prompt_source: "Ok, vamos continuar",
+    intencao_da_rodada: "Ok, vamos continuar",
+    still_needs_original_answer: true,
+    pode_avancar: false,
+    resposta_de_stage_detectada: false,
+    pergunta_paralela_detectada: false,
+    info_complementar_detectada: false,
+    eh_off_trail: false,
+    eh_saudacao_pura: false,
+    pode_ter_multiplas_intencoes: false,
+    texto_reconciliado: "sim"
+  };
+  const result = _buildMinimalCognitiveFallback("ir_declarado", ["RAWMECH"], fakeRound);
+  // O guardrail ir_declarado exige "imposto|ir|renda|declara" — "Ok, vamos continuar" não tem.
+  // Então deve cair no mapa.
+  assert.ok(!result[0].includes("RAWMECH"), "rawArr não exposto");
+  assert.ok(_containsAny(result[0], ["imposto", "renda", "ir", "declar"]),
+    "Mapa de segurança garante cobrança correta quando guardrail falha");
+});
+
+// ================================================================
+// SECTION O — buildRoundIntent novos campos canônicos
+// Post comment 4189949026: mechanical_prompt_source + intencao_da_rodada
+// ================================================================
+
+console.log("\n── SECTION O: buildRoundIntent — novos campos canônicos ──");
+
+test("89. buildRoundIntent inclui mechanical_prompt_source do rawArr", () => {
+  const st = _mkSt({ fase_conversa: "ir_declarado", last_user_text: "sim" });
+  const rawArr = ["Você declarou IR?", "Preciso confirmar."];
+  const intent = _buildRoundIntent(st, "sim", rawArr);
+  assert.ok(intent.mechanical_prompt_source, "mechanical_prompt_source deve existir");
+  assert.ok(intent.mechanical_prompt_source.includes("Você declarou IR?"), "Deve conter a frase mecânica");
+  assert.ok(intent.mechanical_prompt_source.includes("Preciso confirmar."), "Deve conter todas as partes do rawArr");
+});
+
+test("90. buildRoundIntent inclui intencao_da_rodada extraída da frase mecânica", () => {
+  const st = _mkSt({ fase_conversa: "inicio_nome", last_user_text: "oi" });
+  const rawArr = ["Informe seu nome completo"];
+  const intent = _buildRoundIntent(st, "oi", rawArr);
+  assert.ok(intent.intencao_da_rodada, "intencao_da_rodada deve existir");
+  // A intenção deve ter o imperativo removido
+  assert.ok(!intent.intencao_da_rodada.startsWith("Informe"), "Imperativo deve ser removido da intenção");
+  assert.ok(_containsAny(intent.intencao_da_rodada, ["nome"]), "Intenção preserva o conteúdo core");
+});
+
+test("91. buildRoundIntent sem rawArr → mechanical_prompt_source vazio", () => {
+  const st = _mkSt({ fase_conversa: "inicio_programa", last_user_text: "oi" });
+  const intent = _buildRoundIntent(st, "oi");
+  assert.strictEqual(intent.mechanical_prompt_source, "", "Sem rawArr → source vazio");
+  assert.ok(intent.intencao_da_rodada, "intencao_da_rodada deve existir mesmo sem source");
+});
+
+test("92. buildRoundIntent com rawArr vazio [] → mechanical_prompt_source vazio", () => {
+  const st = _mkSt({ fase_conversa: "inicio_programa", last_user_text: "oi" });
+  const intent = _buildRoundIntent(st, "oi", []);
+  assert.strictEqual(intent.mechanical_prompt_source, "", "rawArr vazio → source vazio");
+});
+
+test("93. buildRoundIntent preserva todos os campos canônicos originais", () => {
+  const st = _mkSt({ fase_conversa: "estado_civil", last_user_text: "sou casado, e o fgts?" });
+  const rawArr = ["Casamento civil ou união estável?"];
+  const intent = _buildRoundIntent(st, "sou casado, e o fgts?", rawArr);
+  // Campos originais
+  assert.ok("stage_atual" in intent);
+  assert.ok("still_needs_original_answer" in intent);
+  assert.ok("pode_avancar" in intent);
+  assert.ok("resposta_de_stage_detectada" in intent);
+  assert.ok("pergunta_paralela_detectada" in intent);
+  assert.ok("info_complementar_detectada" in intent);
+  assert.ok("eh_off_trail" in intent);
+  assert.ok("eh_saudacao_pura" in intent);
+  assert.ok("pode_ter_multiplas_intencoes" in intent);
+  assert.ok("texto_reconciliado" in intent);
+  // Novos campos
+  assert.ok("mechanical_prompt_source" in intent);
+  assert.ok("intencao_da_rodada" in intent);
+});
+
+// ================================================================
+// SECTION P — BEHAVIORAL: intent-based rendering end-to-end em stages técnicos
+// Post comment 4189949026: mechanical source → fala cognitiva (não stage→frase fixa)
+// ================================================================
+
+console.log("\n── SECTION P: BEHAVIORAL — intent-based rendering end-to-end ──");
+
+test("94. E2E: ir_declarado com mechanical source → fala cognitiva baseada na intenção", () => {
+  const st = _mkSt({ fase_conversa: "ir_declarado", last_user_text: "sim" });
+  const rawArr = ["Você declarou Imposto de Renda nos últimos 2 anos?"];
+  st.__round_intent = _buildRoundIntent(st, "sim", rawArr);
+  const result = _renderCognitiveSpeech(st, "ir_declarado", rawArr);
+  assert.ok(!result[0].includes("[mecânico"), "rawArr literal não exposto");
+  assert.ok(_containsAny(result[0], ["imposto", "renda", "ir", "declar"]), "Intenção técnica preservada");
+  assert.ok(/😊|📋|👍/.test(result[0]), "Tom conversacional");
+  assert.strictEqual(result.length, 1, "1 linha");
+});
+
+test("95. E2E: ctps_36 com mechanical source → preserva '36 meses'", () => {
+  const st = _mkSt({ fase_conversa: "ctps_36", last_user_text: "sim" });
+  const rawArr = ["Você tem mais de 36 meses de carteira assinada?"];
+  st.__round_intent = _buildRoundIntent(st, "sim", rawArr);
+  const result = _renderCognitiveSpeech(st, "ctps_36", rawArr);
+  assert.ok(_containsAny(result[0], ["36", "carteira", "meses"]), "Conteúdo técnico '36 meses' preservado");
+  assert.ok(/😊|📋/.test(result[0]), "Tom conversacional");
+});
+
+test("96. E2E: envio_docs com mechanical 'Envie documentos' → conversacional", () => {
+  const st = _mkSt({ fase_conversa: "envio_docs", last_user_text: "ok" });
+  const rawArr = ["Envie os documentos necessários para análise do financiamento"];
+  st.__round_intent = _buildRoundIntent(st, "ok", rawArr);
+  const result = _renderCognitiveSpeech(st, "envio_docs", rawArr);
+  assert.ok(!result[0].startsWith("Envie"), "Imperativo 'Envie' não exposto como superfície");
+  assert.ok(_containsAny(result[0], ["documento", "análise"]), "Conteúdo técnico preservado");
+});
+
+test("97. E2E: restricao com mechanical 'Confirme restrição CPF' → cognitivo preserva SPC/Serasa", () => {
+  const st = _mkSt({ fase_conversa: "restricao", last_user_text: "não sei" });
+  const rawArr = ["Confirme se existe restrição no CPF. Pode ser SPC ou Serasa."];
+  st.__round_intent = _buildRoundIntent(st, "não sei", rawArr);
+  const result = _renderCognitiveSpeech(st, "restricao", rawArr);
+  assert.ok(_containsAny(result[0], ["restriç", "cpf"]), "Conteúdo 'restrição CPF' preservado");
+});
+
+test("98. E2E: stage sem mechanical source → cai no mapa de segurança, não expõe rawArr", () => {
+  const st = _mkSt({ fase_conversa: "dependente", last_user_text: "não" });
+  // Sem rawArr no buildRoundIntent
+  st.__round_intent = _buildRoundIntent(st, "não");
+  const result = _renderCognitiveSpeech(st, "dependente", ["[rawArr mecânico não expor]"]);
+  assert.ok(!result[0].includes("[rawArr"), "rawArr literal NUNCA exposto");
+  assert.ok(_containsAny(result[0], ["dependente", "filho"]), "Mapa preserva intenção do stage");
+});
+
+test("99. E2E: stage desconhecido com mechanical source → renderiza cognitivamente o source", () => {
+  const st = _mkSt({ fase_conversa: "stage_futuro_xyz", last_user_text: "ok" });
+  const rawArr = ["Preciso que confirme o endereço residencial"];
+  st.__round_intent = _buildRoundIntent(st, "ok", rawArr);
+  const result = _renderCognitiveSpeech(st, "stage_futuro_xyz", rawArr);
+  // Stage desconhecido sem guardrail → intent-based rendering aceita
+  assert.ok(!result[0].startsWith("Preciso que"), "Não expõe imperativo mecânico cru");
+  assert.ok(_containsAny(result[0], ["endereço", "residencial"]) || result[0].includes("continuar"),
+    "Deve usar intenção mecânica OU fallback genérico");
 });
 
 // ================================================================

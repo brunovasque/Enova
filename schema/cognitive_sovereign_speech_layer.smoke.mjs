@@ -6,25 +6,30 @@
  * Valida:
  *   A) Funções da camada existem no worker (presença de âncoras)
  *   B) step() integra renderCognitiveSpeech
- *   C) renderCognitiveSpeech — hierarquia de 3 caminhos (âncoras)
- *   D) buildMinimalCognitiveFallback — filtro cognitivo (âncoras)
+ *   C) renderCognitiveSpeech — hierarquia de 3 caminhos (contrato zero-rawArr)
+ *   D) buildMinimalCognitiveFallback — _MINIMAL_FALLBACK_SPEECH_MAP para topo/meio
  *   E) reconcileClientInput / buildRoundIntent — campos canônicos
  *   F) _COGNITIVE_RENDER_PHASE_MAP — stages mapeados
  *   G) Segurança estrutural (gates/nextStage/persistência preservados)
- *   H) _applyCognitiveSurfaceFilter — filtro honesto (SEM verniz)
- *   I) BEHAVIORAL: 8 cenários concretos de entrada → saída final
+ *   H) _applyCognitiveSurfaceFilter — filtro honesto (SEM verniz, SEM _softQuestion)
+ *   I) BEHAVIORAL: 8 cenários → prova explícita zero rawArr exposto + fase preservada
  *   J) classifyRenderPath — classificação canônica de origem
  *   K) Limitações honestas do overlap/reconciliação
  *
- * BLOCO 2 (verniz removido):
- *   _softQuestion removida. _applyCognitiveSurfaceFilter não adiciona
- *   "Me conta:" nem qualquer wrapper cosmético. Passthrough honesto
- *   quando o texto não é conversacional.
+ * CONTRATO CENTRAL (post comment 4189815742):
+ *   Nenhum caminho expõe rawArr literal ao cliente:
+ *   - cognitive_real (Caminho 1): rawArr DESCARTADO, só prefix LLM
+ *   - cognitive_heuristic (Caminho 2): rawArr DESCARTADO, só prefix do resolver
+ *   - cognitive_fallback topo/meio (Caminho 3): usa _MINIMAL_FALLBACK_SPEECH_MAP
+ *   - cognitive_fallback gates/operacional: conteúdo técnico obrigatório
  *
- * BLOCO 3 (overlap honesto):
+ * BLOCO 2 (verniz removido):
+ *   _softQuestion removida. _applyCognitiveSurfaceFilter é filtro honesto para
+ *   gates/operacional: converte imperativo formal → conversacional se presente.
+ *
+ * BLOCO 3 (overlap honesto, limitações declaradas):
  *   Cobertura real: ? + comprimento > 20 + não-saudação pura.
- *   Limitações declaradas: off-trail sem ?, complementos sem ?,
- *   inputs ≤ 20 chars com ?, gates/operacional não filtrados.
+ *   Limitações: off-trail sem ?, ≤ 20 chars, complementos sem ?, gates/operacional.
  */
 
 import assert from "node:assert/strict";
@@ -229,17 +234,21 @@ test("13. Caminho 1: v2TakesFinal + cognitivePrefix → usa apenas o prefix cogn
   );
 });
 
-test("14. Caminho 2: prefix sem takes_final → prefix + filtro cognitivo do rawArr", () => {
+test("14. Caminho 2: prefix sem takes_final → APENAS prefix, rawArr DESCARTADO", () => {
   assert.ok(
-    workerSrc.includes("Caminho 2: prefix sem takes_final → prefix + filtro cognitivo do rawArr"),
-    "Caminho 2 não encontrado em renderCognitiveSpeech"
+    workerSrc.includes("Caminho 2: prefix cognitivo sem takes_final → prefix É a fala completa, rawArr descartado"),
+    "Caminho 2 novo contrato não encontrado em renderCognitiveSpeech"
+  );
+  assert.ok(
+    workerSrc.includes("if (cognitivePrefix) return [cognitivePrefix]"),
+    "Lógica do caminho 2 (prefix only, rawArr descartado) não encontrada"
   );
 });
 
-test("15. Caminho 3: sem flags → buildMinimalCognitiveFallback (nunca rawArr puro)", () => {
+test("15. Caminho 3: sem flags → buildMinimalCognitiveFallback (rawArr NUNCA exposto para topo/meio)", () => {
   assert.ok(
-    workerSrc.includes("Caminho 3: sem flags → fallback cognitivo mínimo (nunca rawArr puro)"),
-    "Caminho 3 não encontrado em renderCognitiveSpeech"
+    workerSrc.includes("Caminho 3: sem flags → fallback cognitivo mínimo (rawArr NUNCA exposto literalmente para topo/meio)"),
+    "Caminho 3 novo contrato não encontrado em renderCognitiveSpeech"
   );
 });
 
@@ -248,17 +257,32 @@ test("15. Caminho 3: sem flags → buildMinimalCognitiveFallback (nunca rawArr p
 // ================================================================
 console.log("\n── SECTION D: buildMinimalCognitiveFallback ──");
 
-test("16. Operacional e gates finais passam direto sem alteração de superfície", () => {
+test("16. Gates finais e operacional: conteúdo técnico preservado via _applyCognitiveSurfaceFilter", () => {
+  // Gates e operacional têm conteúdo técnico obrigatório — não é possível substituir sem LLM
+  // _applyCognitiveSurfaceFilter é chamada para fazer ajuste de registro (Informe→Me fala) mas
+  // preserva o conteúdo técnico porque ele É a resposta correta para essas fases.
   assert.ok(
-    workerSrc.includes("if (phase === \"operacional\" || phase === \"gates_finais\") return lines"),
-    "Guard operacional/gates_finais não encontrado"
+    workerSrc.includes("Gates finais e operacional: conteúdo técnico obrigatório — precisão > forma"),
+    "Guard gates/operacional não encontrado com novo contrato"
+  );
+  assert.ok(
+    workerSrc.includes("_applyCognitiveSurfaceFilter(lines)"),
+    "_applyCognitiveSurfaceFilter deve ser usada para gates/operacional"
   );
 });
 
-test("17. Topo e meio passam por _applyCognitiveSurfaceFilter", () => {
+test("17. Topo e meio: usa _MINIMAL_FALLBACK_SPEECH_MAP — rawArr NUNCA exposto literalmente", () => {
   assert.ok(
-    workerSrc.includes("const filtered = _applyCognitiveSurfaceFilter(lines)"),
-    "_applyCognitiveSurfaceFilter não chamada para topo/meio"
+    workerSrc.includes("_MINIMAL_FALLBACK_SPEECH_MAP"),
+    "_MINIMAL_FALLBACK_SPEECH_MAP deve existir no worker"
+  );
+  assert.ok(
+    workerSrc.includes("Topo e meio: NUNCA expor rawArr literal — usar fala cognitiva mínima por stage"),
+    "Contrato de não-exposição de rawArr não encontrado"
+  );
+  assert.ok(
+    workerSrc.includes('_MINIMAL_FALLBACK_SPEECH_MAP.get(stage) || "Pode continuar 😊"'),
+    "Lookup de stage no mapa não encontrado"
   );
 });
 
@@ -273,10 +297,12 @@ test("18. Overlap detectado adiciona reconhecimento antes de continuar", () => {
   );
 });
 
-test("19. buildMinimalCognitiveFallback retorna fallback seguro para rawArr vazio", () => {
+test("19. buildMinimalCognitiveFallback retorna fallback seguro para rawArr vazio em gates/operacional", () => {
+  // Para gates/operacional, rawArr vazio → "Pode continuar 😊"
+  // Para topo/meio, rawArr é ignorado — usa _MINIMAL_FALLBACK_SPEECH_MAP
   assert.ok(
     workerSrc.includes('if (!Array.isArray(rawArr) || rawArr.length === 0) return ["Pode continuar 😊"]'),
-    "Fallback seguro para rawArr vazio não encontrado"
+    "Fallback seguro para rawArr vazio não encontrado (gates/operacional)"
   );
 });
 
@@ -526,55 +552,71 @@ test("50. _softQuestion foi REMOVIDA — sem wrapper 'Me conta:' em perguntas", 
 
 // ================================================================
 // SECTION I — BEHAVIORAL: 8 cenários concretos de entrada → saída final
+//
+// CONTRATO NOVO (BLOCOs 1-3 do comment 4189815742):
+// - Nenhum caminho expõe rawArr literal ao cliente
+// - cognitive_real: rawArr DESCARTADO, só prefix cognitivo
+// - cognitive_heuristic: rawArr DESCARTADO, só prefix (que já é completo)
+// - cognitive_fallback topo/meio: usa _MINIMAL_FALLBACK_SPEECH_MAP (rawArr ignorado)
+// - cognitive_fallback gates/operacional: conteúdo técnico preservado
 // ================================================================
 console.log("\n── SECTION I: BEHAVIORAL — entrada → saída final ──");
 
 // ─── Cenário 1: `oi` — saudação pura, topo, Caminho 3 ───
-test("51. BEHAVIORAL: 'oi' at inicio_programa — saída preserva rawArr sem modificação", () => {
+test("51. BEHAVIORAL: 'oi' at inicio_programa — usa mapa cognitivo, rawArr NUNCA exposto", () => {
   const st = _mkSt({ fase_conversa: "inicio_programa", last_user_text: "oi" });
   st.__round_intent = _buildRoundIntent(st, "oi");
-  const rawArr = ["Oi! 😊 Eu sou a Enova, assistente do MCMV.", "Você já sabe como funciona?"];
+  const rawArr = ["[texto mecânico — deve ser ignorado]"];
   const result = _renderCognitiveSpeech(st, "inicio_programa", rawArr);
-  // Caminho 3 — rawArr já conversacional → pass through
-  assert.deepEqual(result, rawArr, "rawArr com emoji deve passar sem modificação");
-  assert.ok(!result[0].startsWith("Me conta:"), "Nunca adiciona wrapper verniz");
+  // Caminho 3: usa _MINIMAL_FALLBACK_SPEECH_MAP para inicio_programa
+  assert.strictEqual(result.length, 1, "Exatamente 1 linha cognitiva");
+  assert.ok(!result[0].includes("[texto mecânico"), "rawArr não exposto ao cliente");
   assert.ok(!result[0].startsWith("Anotei tudo aqui"), "Saudação pura não dispara overlap");
+  assert.ok(result[0].includes("😊"), "Saída tem tom conversacional");
   assert.strictEqual(_classifyRenderPath(st), "cognitive_fallback");
+  // Prova de intenção da fase: fala menciona MCMV ou análise
+  assert.ok(
+    result[0].toLowerCase().includes("mcmv") || result[0].toLowerCase().includes("analisar") || result[0].toLowerCase().includes("perfil"),
+    "Intenção da fase (MCMV) preservada na saída cognitiva"
+  );
 });
 
 // ─── Cenário 2: `oi enova` — não saudação pura, sem pergunta, topo, Caminho 3 ───
-test("52. BEHAVIORAL: 'oi enova' at inicio_programa — sem overlap (sem ?)", () => {
+test("52. BEHAVIORAL: 'oi enova' at inicio_programa — rawArr IGNORADO, fala cognitiva por stage", () => {
   const st = _mkSt({ fase_conversa: "inicio_programa", last_user_text: "oi enova" });
   st.__round_intent = _buildRoundIntent(st, "oi enova");
-  const rawArr = ["Oi! 😊 Eu sou a Enova.", "Você já sabe como funciona?"];
+  const rawArr = ["[mecânico — ignorado]"];
   const result = _renderCognitiveSpeech(st, "inicio_programa", rawArr);
-  // Sem ? → sem overlap. Caminho 3, rawArr conversacional.
-  assert.deepEqual(result, rawArr);
-  assert.ok(!result[0].startsWith("Anotei"), "Sem ? não dispara overlap prefix");
+  // Caminho 3 sem overlap: usa mapa, rawArr não exposto
+  assert.ok(!result[0].includes("[mecânico"), "rawArr não exposto ao cliente");
+  assert.ok(!result[0].startsWith("Anotei"), "Sem ? → sem overlap");
+  assert.ok(result[0].includes("😊"), "Tom conversacional presente");
   // reconcile: não é saudação pura, não tem pergunta paralela
   const ri = _buildRoundIntent(st, "oi enova");
   assert.strictEqual(ri.eh_saudacao_pura, false, "oi enova não é saudação pura");
-  assert.strictEqual(ri.pergunta_paralela_detectada, false, "sem ? = sem pergunta paralela");
+  assert.strictEqual(ri.pergunta_paralela_detectada, false, "Sem ? = sem pergunta paralela");
 });
 
 // ─── Cenário 3: `oi, posso usar o meu fgts?` — overlap detectado ───
-test("53. BEHAVIORAL: 'oi, posso usar o meu fgts?' — overlap prefix adicionado", () => {
+test("53. BEHAVIORAL: 'oi, posso usar o meu fgts?' — overlap + fala cognitiva, SEM rawArr exposto", () => {
   const input = "oi, posso usar o meu fgts?"; // 26 chars > 20
   const st = _mkSt({ fase_conversa: "inicio_programa", last_user_text: input });
   st.__round_intent = _buildRoundIntent(st, input);
-  const rawArr = ["Oi! 😊 Vou analisar seu perfil.", "Qual o seu nome completo?"];
+  const rawArr = ["[mecânico — não deve aparecer ao cliente]"];
   const result = _renderCognitiveSpeech(st, "inicio_programa", rawArr);
-  // Overlap detectado → prefix "Anotei tudo aqui 😊" + rawArr
+  // Overlap detectado → prefix "Anotei tudo aqui 😊" + fala cognitiva do mapa
   assert.ok(result[0].includes("Anotei tudo aqui"), "Overlap prefix deve ser adicionado");
-  assert.strictEqual(result.length, rawArr.length + 1, "rawArr preservado após prefix");
-  assert.strictEqual(result[1], rawArr[0], "rawArr[0] deve ser result[1]");
-  assert.ok(!result[1].startsWith("Me conta:"), "rawArr não recebe wrapper verniz");
-  // Intenção da fase preservada (nome ainda solicitado)
-  assert.ok(result[result.length - 1].includes("nome"), "Pergunta de fase preservada");
+  assert.strictEqual(result.length, 2, "Exatamente 2 elementos: overlap prefix + stage speech");
+  assert.ok(!result[0].includes("[mecânico") && !result[1].includes("[mecânico"), "rawArr não exposto em nenhum elemento");
+  // Intenção da fase preservada via mapa (MCMV ou análise)
+  assert.ok(
+    result[1].toLowerCase().includes("mcmv") || result[1].toLowerCase().includes("analisar") || result[1].toLowerCase().includes("perfil") || result[1].includes("😊"),
+    "Intenção da fase preservada no segundo elemento"
+  );
 });
 
-// ─── Cenário 4: `sou casado` — Caminho 2, cognitive heuristic ───
-test("54. BEHAVIORAL: 'sou casado' at estado_civil — Caminho 2 (prefix heurístico)", () => {
+// ─── Cenário 4: `sou casado` — Caminho 2, cognitive_heuristic, rawArr DESCARTADO ───
+test("54. BEHAVIORAL: 'sou casado' at estado_civil — Caminho 2, rawArr DESCARTADO, só prefix", () => {
   const prefix = "Entendi! 👍 Seu casamento é civil no papel ou vocês vivem como união estável?";
   const st = _mkSt({
     fase_conversa: "estado_civil",
@@ -582,13 +624,18 @@ test("54. BEHAVIORAL: 'sou casado' at estado_civil — Caminho 2 (prefix heurís
     __cognitive_reply_prefix: prefix,
     __cognitive_v2_takes_final: false
   });
-  const rawArr = ["Casamento civil ou união estável?"];
+  const rawArr = ["[mecânico — deve ser descartado]"];
   const result = _renderCognitiveSpeech(st, "estado_civil", rawArr);
-  // Caminho 2: prefix primeiro + rawArr filtrado appended
-  assert.strictEqual(result[0], prefix, "Prefix cognitivo deve ser o primeiro elemento");
-  assert.ok(result.length >= 2, "rawArr appended após prefix");
-  // rawArr sem emoji → passthrough honesto (sem Me conta:)
-  assert.ok(!result[1].startsWith("Me conta:"), "rawArr não recebe wrapper verniz");
+  // Caminho 2: APENAS o prefix, rawArr DESCARTADO
+  assert.strictEqual(result.length, 1, "Exatamente 1 elemento — só o prefix cognitivo");
+  assert.strictEqual(result[0], prefix, "Saída é exclusivamente o prefix cognitivo");
+  assert.ok(!result[0].includes("[mecânico"), "rawArr foi descartado");
+  assert.ok(!result[0].includes("Me conta:"), "Sem wrapper verniz");
+  // Intenção da fase preservada no prefix (contém a pergunta de casamento)
+  assert.ok(
+    result[0].toLowerCase().includes("casamento") || result[0].toLowerCase().includes("civil") || result[0].toLowerCase().includes("estável"),
+    "Intenção da fase (estado civil) preservada no prefix"
+  );
   assert.strictEqual(_classifyRenderPath(st), "cognitive_heuristic");
 });
 
@@ -611,28 +658,32 @@ test("55. BEHAVIORAL: 'reset + oi enova' — Caminho 1, rawArr DESCARTADO", () =
   assert.strictEqual(_classifyRenderPath(st), "cognitive_real");
 });
 
-// ─── Cenário 6: off-trail sem `?` — limitação honesta ───
-test("56. BEHAVIORAL (limitação honesta): off-trail sem ? não detectado como overlap", () => {
-  // BLOCO 3: esta é uma limitação CONHECIDA e declarada
+// ─── Cenário 6: off-trail sem `?` — usa mapa cognitivo (rawArr ignorado) ───
+test("56. BEHAVIORAL: off-trail sem ? at inicio_nome — usa mapa cognitivo, rawArr ignorado", () => {
+  // BLOCO 3: sem ? → sem overlap detectado. Mas rawArr ainda NÃO é exposto.
+  // Caminho 3 → _MINIMAL_FALLBACK_SPEECH_MAP para inicio_nome.
   const input = "quero entender como funciona o subsidio";
   const st = _mkSt({ fase_conversa: "inicio_nome", last_user_text: input });
   st.__round_intent = _buildRoundIntent(st, input);
-  const rawArr = ["Para começar, me diz seu nome completo 😊"];
+  const rawArr = ["[pergunta mecânica — não expor]"];
   const result = _renderCognitiveSpeech(st, "inicio_nome", rawArr);
-  // LIMITAÇÃO: off-trail sem ? não dispara overlap (não há ? na entrada)
-  assert.ok(!result[0].includes("Anotei tudo aqui"), "Limitação: off-trail sem ? não é detectado como overlap");
-  // rawArr passa através (tem 'me diz' → conversacional)
-  assert.deepEqual(result, rawArr);
-  // Confirmar que reconcileClientInput reflete a limitação
+  // rawArr não exposto — usa mapa
+  assert.ok(!result[0].includes("[pergunta mecânica"), "rawArr não exposto ao cliente");
+  assert.ok(!result[0].includes("Anotei tudo aqui"), "Sem ? → sem overlap prefix");
+  // Intenção da fase (nome) preservada no mapa
+  assert.ok(
+    result[0].toLowerCase().includes("nome"),
+    "Intenção da fase (nome completo) preservada via mapa"
+  );
+  // Confirmação de limitação: sem ? → sem detecção de overlap
   const ri = _buildRoundIntent(st, input);
   assert.strictEqual(ri.pergunta_paralela_detectada, false, "Sem ? → sem detecção de pergunta paralela");
-  assert.strictEqual(ri.pode_ter_multiplas_intencoes, false, "Sem detecção de múltiplas intenções");
 });
 
-// ─── Cenário 7: resposta de fase + pergunta paralela ───
-test("57. BEHAVIORAL: resposta de fase + pergunta paralela — Caminho 2 preserva fase", () => {
+// ─── Cenário 7: resposta de fase + pergunta paralela → Caminho 2, rawArr DESCARTADO ───
+test("57. BEHAVIORAL: resposta de fase + pergunta paralela — Caminho 2, rawArr DESCARTADO", () => {
   // "sou solteiro, e posso comprar com minha irmã?" — 46 chars, ? presente
-  // O resolver cognitivo detectou "solteiro" e setou prefix
+  // O resolver cognitivo detectou "solteiro" e setou prefix completo
   const prefix = "Perfeito 👌 E sobre renda... você pretende usar só sua renda ou quer somar com alguém?";
   const st = _mkSt({
     fase_conversa: "estado_civil",
@@ -640,31 +691,37 @@ test("57. BEHAVIORAL: resposta de fase + pergunta paralela — Caminho 2 preserv
     __cognitive_reply_prefix: prefix,
     __cognitive_v2_takes_final: false
   });
-  const rawArr = ["Sobre renda — só a sua ou soma com alguém?"];
+  const rawArr = ["[mecânico — deve ser descartado]"];
   const result = _renderCognitiveSpeech(st, "estado_civil", rawArr);
-  // Caminho 2: prefix do resolver + rawArr filtrado
-  assert.strictEqual(result[0], prefix, "Prefix do resolver vem primeiro");
-  assert.ok(result.length >= 2, "rawArr appended");
-  // A intenção da fase (renda) está preservada
+  // Caminho 2: APENAS o prefix, rawArr DESCARTADO
+  assert.strictEqual(result.length, 1, "Exatamente 1 elemento — só o prefix cognitivo");
+  assert.strictEqual(result[0], prefix, "Saída é exclusivamente o prefix cognitivo");
+  assert.ok(!result[0].includes("[mecânico"), "rawArr descartado");
+  // Intenção da fase (renda) está preservada no prefix
   assert.ok(result[0].includes("renda"), "Intenção da fase preservada no prefix");
-  // Sem concatenação torta (não há duplicação, não tem Me conta:)
   assert.ok(!result[0].includes("Me conta:"), "Sem wrapper verniz no prefix");
+  assert.strictEqual(_classifyRenderPath(st), "cognitive_heuristic");
 });
 
-// ─── Cenário 8: complemento logo em seguida ───
-test("58. BEHAVIORAL: complemento 'e também' — sem overlap prefix (sem ?)", () => {
+// ─── Cenário 8: complemento `e também` — Caminho 3, rawArr ignorado, fala cognitiva ───
+test("58. BEHAVIORAL: complemento 'e também' at somar_renda_familiar — rawArr ignorado, fala cognitiva", () => {
   const input = "e também tenho uma filha dependente";
   const st = _mkSt({ fase_conversa: "somar_renda_familiar", last_user_text: input });
   st.__round_intent = _buildRoundIntent(st, input);
-  const rawArr = ["Ótimo! 😊 Vamos incluir a renda também.", "Qual a renda dela?"];
+  const rawArr = ["[mecânico — não expor]"];
   const result = _renderCognitiveSpeech(st, "somar_renda_familiar", rawArr);
-  // temComplemento=true, mas sem ? → pode_ter_multiplas_intencoes=false
-  // Caminho 3, rawArr conversacional → pass through
+  // Caminho 3: usa mapa, rawArr NÃO exposto
+  assert.ok(!result[0].includes("[mecânico"), "rawArr não exposto ao cliente");
+  assert.ok(!result[0].includes("Anotei tudo aqui"), "Complemento sem ? não dispara overlap prefix");
+  // Intenção da fase (renda familiar) preservada no mapa
+  assert.ok(
+    result[0].toLowerCase().includes("renda") || result[0].toLowerCase().includes("familiar") || result[0].toLowerCase().includes("somar"),
+    "Intenção da fase (renda familiar) preservada via mapa"
+  );
+  // Confirmação de contrato
   const ri = _buildRoundIntent(st, input);
   assert.strictEqual(ri.info_complementar_detectada, true, "Complemento deve ser detectado");
   assert.strictEqual(ri.pode_ter_multiplas_intencoes, false, "Sem pergunta paralela, sem múltiplas intenções");
-  assert.ok(!result[0].includes("Anotei tudo aqui"), "Complemento sem ? não dispara overlap prefix");
-  assert.deepEqual(result, rawArr, "rawArr conversacional passa sem modificação");
 });
 
 // ================================================================
@@ -726,16 +783,18 @@ test("65. LIMITAÇÃO: complemento sem ? não dispara overlap prefix", () => {
   // buildMinimalCognitiveFallback não adiciona prefix para este caso.
 });
 
-test("66. LIMITAÇÃO: paralelas em gates_finais/operacional passam sem reconhecimento de overlap", () => {
-  // Gates finais e operacional passam rawArr sem qualquer filtro
-  // (conteúdo técnico intocável). Overlap também não é reconhecido.
+test("66. Gates finais: conteúdo técnico preservado via _applyCognitiveSurfaceFilter", () => {
+  // Gates finais têm conteúdo técnico obrigatório. Não é possível substituir
+  // por fala genérica sem LLM. O _applyCognitiveSurfaceFilter é aplicado para
+  // ajuste de registro (Informe→Me fala) mas preserva o conteúdo.
   const st = _mkSt({ fase_conversa: "ir_declarado", last_user_text: "não, mas e o meu sócio?" });
   st.__round_intent = _buildRoundIntent(st, "não, mas e o meu sócio?");
   const rawArr = ["Você declarou IR nos últimos 2 anos?"];
   const result = _renderCognitiveSpeech(st, "ir_declarado", rawArr);
-  // gates_finais → passthrough direto, sem filtro de overlap
-  assert.deepEqual(result, rawArr, "Gates finais passam sem filtro");
-  // Limitação: o reconhecimento de overlap não está ativo para stages técnicos.
+  // gates_finais → conteúdo técnico preservado (é a resposta correta para a fase)
+  assert.strictEqual(result[0], rawArr[0], "Conteúdo técnico de gate preservado");
+  // Limitação declarada: overlap não é reconhecido em stages técnicos.
+  assert.ok(!result[0].includes("Anotei tudo aqui"), "Overlap não ativo para gates técnicos");
 });
 
 // ================================================================

@@ -3955,22 +3955,42 @@ function _getCognitiveRenderPhase(stage) {
 }
 
 /**
+ * _MINIMAL_FALLBACK_SPEECH_MAP — Fala cognitiva mínima por stage.
+ *
+ * Usada em buildMinimalCognitiveFallback quando nenhuma flag cognitiva está ativa
+ * e a fase é topo/meio. NUNCA expõe rawArr literal ao cliente.
+ *
+ * Critérios: curta, simpática, disciplinada, fiel à intenção do stage,
+ * sem expor texto mecânico.
+ */
+const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
+  ["inicio",                  "Oi! 😊 Pode falar, tô por aqui."],
+  ["inicio_programa",         "Oi! 😊 Vou analisar seu perfil pro MCMV. Pode começar?"],
+  ["inicio_nome",             "Pode me dizer seu nome completo? 😊"],
+  ["inicio_nacionalidade",    "Você é brasileiro(a) nato(a)?"],
+  ["inicio_rnm",              "Qual o número do seu Registro Nacional Migratório?"],
+  ["inicio_rnm_validade",     "Qual a validade do seu RNM?"],
+  ["estado_civil",            "Me conta seu estado civil — solteiro(a), casado(a) ou outra situação? 😊"],
+  ["confirmar_casamento",     "Esse casamento é civil registrado ou é união estável?"],
+  ["financiamento_conjunto",  "Vai financiar sozinho(a) ou junto com alguém?"],
+  ["somar_renda_solteiro",    "Sobre renda — vai somar com parceiro(a), familiar, ou segue sozinho(a)? 😊"],
+  ["somar_renda_familiar",    "Com quem quer somar renda? Pode ser pai, mãe, irmão(ã) ou tio(a)."],
+  ["quem_pode_somar",         "Quem mais compõe renda com você?"],
+  ["interpretar_composicao",  "Me conta mais sobre a composição de renda. 😊"],
+  ["verificar_averbacao",     "Você tem averbação de separação judicial?"],
+  ["verificar_inventario",    "O inventário já foi concluído?"],
+]);
+
+/**
  * _applyCognitiveSurfaceFilter — Filtro honesto de superfície cognitiva.
  *
- * Dois resultados possíveis:
- *   "já_conversacional" — texto tem emoji ou palavra afirmativa conversacional:
- *       passa sem mudança. Este texto já tem qualidade cognitiva.
- *   "passthrough_honesto" — texto não tem marcador conversacional e não tem
- *       imperativo formal: passa sem modificação. NÃO adiciona verniz textual
- *       (nenhum "Me conta:" ou prefixo cosmético).
+ * Usado apenas para gates_finais/operacional (conteúdo técnico obrigatório).
+ * Para topo/meio, buildMinimalCognitiveFallback já usa _MINIMAL_FALLBACK_SPEECH_MAP
+ * e nunca chega a este filtro.
  *
  * O único ajuste real desta função é converter imperativo formal → conversacional
  * quando presente (ex: "Informe" → "Me fala"). Isso é mudança de registro,
- * não cosmética.
- *
- * NUNCA wraps perguntas com "Me conta:" ou equivalentes.
- * A razão: "Me conta: qual é o seu estado civil?" é mecânico maquiado.
- * "qual é o seu estado civil?" é honestamente mecânico — e está OK.
+ * não cosmética. NUNCA adiciona wrapper como "Me conta:".
  */
 function _applyCognitiveSurfaceFilter(lines) {
   const allText = lines.join(" ");
@@ -3993,30 +4013,39 @@ function _applyCognitiveSurfaceFilter(lines) {
         .replace(/^coloque\b/i, "Me coloca")
         .replace(/^preencha\b/i, "Me preenche");
     }
-    // Passthrough honesto: não adicionar verniz em cima de texto mecânico.
     return clean;
   });
 }
 
 /**
- * buildMinimalCognitiveFallback — Bloco 4: Fallback cognitivo mínimo.
- * Garante que a fala final é cognitiva mesmo quando LLM falha ou não está disponível.
+ * buildMinimalCognitiveFallback — Bloco 4: Fallback cognitivo mínimo REAL.
+ *
+ * Contrato: NUNCA retorna rawArr literal ao cliente.
+ *
+ * - topo/meio: usa _MINIMAL_FALLBACK_SPEECH_MAP por stage (fiel à intenção da fase).
+ *   Se stage não está no mapa → fallback genérico simpático.
+ * - gates_finais/operacional: conteúdo técnico obrigatório — rawArr É o fallback
+ *   cognitivo mínimo para estas fases (conteúdo de precisão, não decorativo).
+ *
+ * Overlap: se múltiplas intenções + off-trail → prefix de reconhecimento antes da fala.
+ *
  * Synchronous. Sem chamadas a LLM. Sem persistência. Sem mudança de gates.
  */
 function buildMinimalCognitiveFallback(stage, rawArr, roundIntent) {
-  if (!Array.isArray(rawArr) || rawArr.length === 0) return ["Pode continuar 😊"];
-  const lines = rawArr.filter(l => typeof l === "string" && l.trim().length > 0);
-  if (lines.length === 0) return ["Pode continuar 😊"];
   const phase = _getCognitiveRenderPhase(stage);
-  // Operacional e gates finais: conteúdo técnico — não alterar superfície
-  if (phase === "operacional" || phase === "gates_finais") return lines;
-  // Topo e meio: filtro cognitivo de superfície
-  const filtered = _applyCognitiveSurfaceFilter(lines);
-  // Overlap: se múltiplas intenções detectadas, reconhecer antes de continuar
-  if (roundIntent?.pode_ter_multiplas_intencoes && roundIntent?.eh_off_trail && filtered.length > 0) {
-    return ["Anotei tudo aqui 😊 Deixa eu continuar a análise do seu perfil.", ...filtered];
+  // Gates finais e operacional: conteúdo técnico obrigatório — precisão > forma
+  if (phase === "operacional" || phase === "gates_finais") {
+    if (!Array.isArray(rawArr) || rawArr.length === 0) return ["Pode continuar 😊"];
+    const lines = rawArr.filter(l => typeof l === "string" && l.trim().length > 0);
+    return lines.length > 0 ? _applyCognitiveSurfaceFilter(lines) : ["Pode continuar 😊"];
   }
-  return filtered;
+  // Topo e meio: NUNCA expor rawArr literal — usar fala cognitiva mínima por stage
+  const stageSpeech = _MINIMAL_FALLBACK_SPEECH_MAP.get(stage) || "Pode continuar 😊";
+  // Overlap: se múltiplas intenções detectadas, reconhecer antes de continuar
+  if (roundIntent?.pode_ter_multiplas_intencoes && roundIntent?.eh_off_trail) {
+    return ["Anotei tudo aqui 😊 Deixa eu continuar a análise do seu perfil.", stageSpeech];
+  }
+  return [stageSpeech];
 }
 
 /**
@@ -4025,22 +4054,22 @@ function buildMinimalCognitiveFallback(stage, rawArr, roundIntent) {
  * O mecânico permanece soberano em stage/gate/nextStage/persistência.
  *
  * Hierarquia:
- * 1. __cognitive_v2_takes_final + prefix → fala cognitiva real (LLM)
- * 2. prefix sem takes_final → prefix + filtro cognitivo do rawArr
- * 3. sem flags → buildMinimalCognitiveFallback (nunca rawArr puro na superfície)
+ * 1. __cognitive_v2_takes_final + prefix → fala cognitiva real (LLM) — rawArr DESCARTADO
+ * 2. prefix sem takes_final → prefix é a fala cognitiva completa — rawArr DESCARTADO
+ * 3. sem flags → buildMinimalCognitiveFallback (NUNCA rawArr literal para topo/meio)
+ *
+ * CONTRATO: rawArr nunca chega ao cliente como superfície literal em nenhum caminho.
  */
 function renderCognitiveSpeech(st, stage, rawArr) {
   const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
   const v2TakesFinal = st?.__cognitive_v2_takes_final === true;
   const roundIntent = st?.__round_intent || null;
-  // Caminho 1: LLM real assumiu a fala → usa apenas a fala cognitiva
+  // Caminho 1: LLM real assumiu a fala → usa apenas a fala cognitiva, rawArr descartado
   if (v2TakesFinal && cognitivePrefix) return [cognitivePrefix];
-  // Caminho 2: prefix sem takes_final → prefix + filtro cognitivo do rawArr
-  if (cognitivePrefix) {
-    const filtered = buildMinimalCognitiveFallback(stage, rawArr, null);
-    return [cognitivePrefix, ...filtered].filter(Boolean);
-  }
-  // Caminho 3: sem flags → fallback cognitivo mínimo (nunca rawArr puro)
+  // Caminho 2: prefix cognitivo sem takes_final → prefix É a fala completa, rawArr descartado
+  // O prefix vem de resolver estruturado ou motor cognitivo e já contém a resposta completa.
+  if (cognitivePrefix) return [cognitivePrefix];
+  // Caminho 3: sem flags → fallback cognitivo mínimo (rawArr NUNCA exposto literalmente para topo/meio)
   return buildMinimalCognitiveFallback(stage, rawArr, roundIntent);
 }
 
@@ -4052,9 +4081,10 @@ function renderCognitiveSpeech(st, stage, rawArr) {
  *                           rawArr é DESCARTADO. A fala é 100% cognitiva.
  *   "cognitive_heuristic" — Heurístico/structured resolver pré-computou um prefix.
  *                           (__cognitive_reply_prefix set, __cognitive_v2_takes_final=false)
- *                           rawArr é appended como contexto (filtrado).
+ *                           rawArr é DESCARTADO. Prefix é a fala completa.
  *   "cognitive_fallback"  — Nenhuma flag. buildMinimalCognitiveFallback é o caminho.
- *                           Se rawArr já é conversacional → passa; se não → passthrough honesto.
+ *                           Para topo/meio: usa _MINIMAL_FALLBACK_SPEECH_MAP (rawArr NUNCA exposto).
+ *                           Para gates/operacional: conteúdo técnico obrigatório.
  *
  * Usado para telemetria e testes comportamentais. Não altera a fala.
  */

@@ -158,21 +158,24 @@ async function step(env, st, messages, nextStage, options = {}) {
   const currentStage = st?.fase_conversa || "inicio";
 
   // Converte sempre para array
-    const rawArr = Array.isArray(messages) ? messages : [messages];
-  const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
-  const v2TakesFinal = st?.__cognitive_v2_takes_final === true;
+  const rawArr = Array.isArray(messages) ? messages : [messages];
 
-  // Se V2 assumiu a fala final, ele substitui as mensagens mecânicas (não prefixa).
-  // Mecânico continua soberano no stage/gate/nextStage/persistência — só a fala muda.
-  const arr = v2TakesFinal && cognitivePrefix
-    ? [cognitivePrefix]
-    : cognitivePrefix
-      ? [cognitivePrefix, ...rawArr].filter(Boolean)
-      : rawArr.filter(Boolean);
+  // Reconciliar input do cliente para detectar overlap/múltiplas intenções.
+  // rawArr é passado como mechanical_prompt_source — fonte de intenção, NUNCA fala final.
+  // Ephemeral — descartado logo abaixo após renderizar.
+  if (!st.__round_intent && (st.last_user_text || "").trim()) {
+    st.__round_intent = buildRoundIntent(st, st.last_user_text, rawArr);
+  }
+
+  // Camada canônica de fala cognitiva soberana.
+  // Toda fala visível ao cliente passa por renderCognitiveSpeech().
+  // O mecânico permanece soberano em stage/gate/nextStage/persistência.
+  const arr = renderCognitiveSpeech(st, currentStage, rawArr.filter(Boolean));
 
   // limpa flags transitórias para não vazar para próximas respostas
   st.__cognitive_reply_prefix = null;
   st.__cognitive_v2_takes_final = false;
+  st.__round_intent = null;
 
   // 🔥 AQUI: aplica modo humano (somente se ativo)
   const msgs = modoHumanoRender(st, arr);
@@ -3869,6 +3872,372 @@ function buildCognitiveFallback(stage) {
     confidence: 0.68,
     reason: "no_llm_or_parse"
   };
+}
+
+// ================================================================
+// CAMADA CANÔNICA DE FALA COGNITIVA SOBERANA
+// ================================================================
+// Garante que toda fala visível ao cliente é filtrada cognitivamente.
+// O mecânico continua soberano em stage/gate/nextStage/persistência.
+// Sem chamadas a LLM. Sem persistência. Sem mudança de gates.
+// Ref: schema/COGNITIVE_MIGRATION_CONTRACT.md — seção 3.2
+// ================================================================
+
+/**
+ * reconcileClientInput — Bloco 5: Leitura reconciliada do input do cliente.
+ * Detecta overlap: resposta de stage + pergunta paralela, complementos, off-trail.
+ * Resultado ephemeral — descartado após step().
+ */
+function reconcileClientInput(st, userText) {
+  const text = String(userText || "").trim();
+  const temPerguntaParalela = /\?/.test(text) && text.length > 10;
+  const temComplemento = /^(e tamb[eé]m|ah[,\s]|ah e|mais uma|al[eé]m disso|tamb[eé]m)\b/i.test(text);
+  const ehSaudacaoPura = /^(oi|ol[aá]|bom dia|boa tarde|boa noite|e a[ií]|ei|hey|opa)[!,.\s]*$/i.test(text);
+  const temRespostaDeStage = text.length > 3 && !ehSaudacaoPura;
+  const ehOffTrail = temPerguntaParalela && !ehSaudacaoPura && text.length < 120;
+  return {
+    text_original: text,
+    tem_pergunta_paralela: temPerguntaParalela,
+    tem_complemento: temComplemento,
+    eh_saudacao_pura: ehSaudacaoPura,
+    eh_off_trail: ehOffTrail,
+    tem_resposta_de_stage: temRespostaDeStage,
+    pode_ter_multiplas_intencoes: temPerguntaParalela && temRespostaDeStage && text.length > 20
+  };
+}
+
+/**
+ * buildRoundIntent — Contrato de intenção da rodada.
+ *
+ * Captura:
+ * - stage_atual: fase atual do mecânico
+ * - mechanical_prompt_source: frase mecânica original (rawArr) — fonte de verdade
+ *   para a intenção da rodada. NUNCA exposta diretamente ao cliente.
+ * - intencao_da_rodada: extração da intenção core do que o mecânico quer cobrar/comunicar
+ * - still_needs_original_answer: a fase ainda precisa da resposta do cliente
+ * - resposta_de_stage_detectada / pergunta_paralela_detectada / etc.: reconciliação
+ * - texto_reconciliado: input original do cliente
+ *
+ * Ephemeral — descartado após envio via step().
+ */
+function buildRoundIntent(st, userText, rawArr) {
+  const reconciliado = reconcileClientInput(st, userText || st.last_user_text || "");
+  const mechanicalSource = (Array.isArray(rawArr) && rawArr.length > 0)
+    ? rawArr.filter(Boolean).join(" | ")
+    : "";
+  return {
+    stage_atual: st?.fase_conversa || "inicio",
+    mechanical_prompt_source: mechanicalSource,
+    intencao_da_rodada: _extractRoundIntention(st?.fase_conversa, mechanicalSource),
+    still_needs_original_answer: true,
+    pode_avancar: false,
+    resposta_de_stage_detectada: reconciliado.tem_resposta_de_stage,
+    pergunta_paralela_detectada: reconciliado.tem_pergunta_paralela,
+    info_complementar_detectada: reconciliado.tem_complemento,
+    eh_off_trail: reconciliado.eh_off_trail,
+    eh_saudacao_pura: reconciliado.eh_saudacao_pura,
+    pode_ter_multiplas_intencoes: reconciliado.pode_ter_multiplas_intencoes,
+    texto_reconciliado: reconciliado.text_original
+  };
+}
+
+// Fases canônicas para filtro cognitivo de superfície
+const _COGNITIVE_RENDER_PHASE_MAP = (() => {
+  const topo = new Set([
+    "inicio", "inicio_programa", "inicio_nome", "inicio_nacionalidade",
+    "inicio_rnm", "inicio_rnm_validade", "estado_civil", "confirmar_casamento",
+    "financiamento_conjunto", "somar_renda_solteiro", "somar_renda_familiar",
+    "quem_pode_somar", "interpretar_composicao", "verificar_averbacao",
+    "verificar_inventario"
+  ]);
+  const gates = new Set([
+    "ir_declarado", "autonomo_ir_pergunta", "ctps_36", "ctps_36_parceiro",
+    "restricao", "restricao_parceiro", "regularizacao_restricao",
+    "regularizacao_restricao_parceiro", "dependente"
+  ]);
+  const operacional = new Set([
+    "envio_docs", "aguardando_retorno_correspondente", "agendamento_visita",
+    "finalizacao_processo", "fim_ineligivel"
+  ]);
+  return { topo, gates, operacional };
+})();
+
+function _getCognitiveRenderPhase(stage) {
+  if (_COGNITIVE_RENDER_PHASE_MAP.topo.has(stage)) return "topo";
+  if (_COGNITIVE_RENDER_PHASE_MAP.gates.has(stage)) return "gates_finais";
+  if (_COGNITIVE_RENDER_PHASE_MAP.operacional.has(stage)) return "operacional";
+  return "meio";
+}
+
+/**
+ * _extractRoundIntention — Extrai a intenção central da frase mecânica.
+ *
+ * A frase mecânica contém o que o stage quer cobrar/comunicar.
+ * Esta função extrai a intenção core sem o tom mecânico.
+ * Se não houver fonte mecânica, retorna a intenção genérica do stage.
+ */
+function _extractRoundIntention(stage, mechanicalSource) {
+  if (!mechanicalSource) return stage || "continuar_conversa";
+  // Strip common mechanical prefixes
+  let intent = mechanicalSource
+    .replace(/^\s*(Informe|Insira|Digite|Selecione|Escolha|Diga|Responda|Confirme)\s+/gi, "")
+    .replace(/\s*\|\s*/g, " — ")
+    .trim();
+  return intent || stage || "continuar_conversa";
+}
+
+/**
+ * _PHASE_REQUIREMENT_GUARDRAILS — Guardrails de cobrança por fase.
+ *
+ * Para cada stage, define os termos/padrões obrigatórios que DEVEM estar
+ * presentes na fala cognitiva final. Se a renderização cognitiva não contiver
+ * esses termos, o guardrail força o fallback do mapa por stage.
+ *
+ * Isso garante: a IA fala bonito E cobra exatamente o que a fase precisa.
+ */
+const _PHASE_REQUIREMENT_GUARDRAILS = new Map([
+  // gates_finais — exigência técnica precisa
+  ["ir_declarado",        { required: /imposto|ir\b|renda|declara/i }],
+  ["autonomo_ir_pergunta", { required: /ir\b|imposto|autônom|declara/i }],
+  ["ctps_36",             { required: /36|carteira|ctps|meses/i }],
+  ["ctps_36_parceiro",    { required: /36|carteira|ctps|parceiro|meses/i }],
+  ["restricao",           { required: /restriç|cpf|spc|serasa|negativ/i }],
+  ["restricao_parceiro",  { required: /restriç|cpf|parceiro/i }],
+  ["regularizacao_restricao", { required: /regulariz|restriç|quitar|negoci/i }],
+  ["regularizacao_restricao_parceiro", { required: /regulariz|restriç|parceiro/i }],
+  ["dependente",          { required: /dependente|filho|menor/i }],
+  // operacional
+  ["envio_docs",          { required: /documento|envie|análise/i }],
+  ["aguardando_retorno_correspondente", { required: /aguard|correspondente|retorno|novidade/i }],
+  ["agendamento_visita",  { required: /agend|visita|empreendimento|data/i }],
+  ["finalizacao_processo", { required: /final|reta final|último|passo/i }],
+  ["fim_ineligivel",      { required: /não foi possível|infelizmente|processo/i }],
+  // topo — exigências conversacionais
+  ["inicio_nome",         { required: /nome/i }],
+  ["estado_civil",        { required: /estado civil|solteiro|casado|situaç/i }],
+  ["inicio_nacionalidade", { required: /brasileiro|nacionalidade/i }],
+  ["inicio_rnm",          { required: /rnm|registro|migratório/i }],
+  ["confirmar_casamento",  { required: /casamento|civil|união|estável/i }],
+  ["somar_renda_solteiro", { required: /renda|somar|sozinho/i }],
+  ["somar_renda_familiar", { required: /renda|somar|pai|mãe|irmão|familiar/i }],
+]);
+
+/**
+ * _validatePhaseRequirement — Valida se a fala cognitiva preserva a exigência da fase.
+ *
+ * Retorna true se o stage não tem guardrail OU se o texto cognitivo contém os termos obrigatórios.
+ * Retorna false se o guardrail existe e o texto não contém os termos exigidos.
+ */
+function _validatePhaseRequirement(stage, cognitiveText) {
+  const guard = _PHASE_REQUIREMENT_GUARDRAILS.get(stage);
+  if (!guard) return true; // sem guardrail → aceito
+  return guard.required.test(cognitiveText);
+}
+
+/**
+ * _renderCognitiveFromIntent — Transforma frase mecânica em fala cognitiva.
+ *
+ * Usa a frase mecânica como fonte de verdade para intenção da rodada.
+ * Transforma o tom imperativo/formal em conversacional Enova.
+ * Preserva todos os detalhes técnicos (números, documentos, condições).
+ *
+ * Regras de transformação:
+ * 1. Remove imperativos formais (Informe → pede conversacional)
+ * 2. Adiciona tom conversacional (emojis, "Pode me dizer", "Me conta", etc.)
+ * 3. Preserva conteúdo técnico intacto (36 meses, CPF, IR, etc.)
+ * 4. Se o resultado não passa no guardrail da fase, retorna null → fallback mapa
+ *
+ * Synchronous. Sem LLM.
+ */
+function _renderCognitiveFromIntent(mechanicalSource, stage) {
+  if (!mechanicalSource || !mechanicalSource.trim()) return null;
+
+  // Pega apenas a primeira frase mecânica (antes do separador "|")
+  let source = mechanicalSource.split("|")[0].trim();
+  if (!source) return null;
+
+  // ── Transformações de tom ──
+  let cognitive = source;
+
+  // Remove imperativos formais e substitui por conversacional
+  cognitive = cognitive.replace(/^Informe\s+/i, "Me fala ");
+  cognitive = cognitive.replace(/^Insira\s+/i, "Me envia ");
+  cognitive = cognitive.replace(/^Digite\s+/i, "Me passa ");
+  cognitive = cognitive.replace(/^Selecione\s+/i, "Escolhe pra mim ");
+  cognitive = cognitive.replace(/^Escolha\s+/i, "Escolhe pra mim ");
+  cognitive = cognitive.replace(/^Diga\s+/i, "Me conta ");
+  cognitive = cognitive.replace(/^Responda\s+/i, "Me responde ");
+  cognitive = cognitive.replace(/^Confirme\s+/i, "Confirma pra mim ");
+  cognitive = cognitive.replace(/^Envie\s+/i, "Me envia ");
+  cognitive = cognitive.replace(/^Preciso que\s+/i, "Pode ");
+  cognitive = cognitive.replace(/^Necessito que\s+/i, "Pode ");
+
+  // Se já é pergunta (tem ?), ajusta tom
+  if (/\?/.test(cognitive)) {
+    // Se começa com "Você" e é pergunta, manter — já é conversacional
+    // Se começa com artigo ou preposição mecânica, adicionar prefixo conversacional
+    if (/^(O |A |Os |As |Qual |Quanto )/i.test(cognitive) && !/😊|👍|📋|📎|💛/.test(cognitive)) {
+      cognitive = cognitive.charAt(0).toLowerCase() + cognitive.slice(1);
+      cognitive = "Me conta, " + cognitive;
+    }
+  }
+
+  // Garante que termina com pontuação
+  if (!/[.!?😊👍📋📎💛✅📅]$/.test(cognitive.trim())) {
+    cognitive = cognitive.trim() + " 😊";
+  }
+
+  // Adiciona emoji se não tem nenhum e texto é curto o suficiente
+  if (!/[😊👍📋📎💛✅📅⚠️🤝]/.test(cognitive) && cognitive.length < 120) {
+    cognitive = cognitive.replace(/([.!?])$/, " 😊");
+  }
+
+  // ── Guardrail: verifica se a transformação preservou a exigência técnica ──
+  if (!_validatePhaseRequirement(stage, cognitive)) {
+    return null; // guardrail falhou → fallback para mapa
+  }
+
+  return cognitive;
+}
+
+/**
+ * _MINIMAL_FALLBACK_SPEECH_MAP — Fala cognitiva de segurança por stage.
+ *
+ * Usada como FALLBACK quando:
+ * 1. Não há mechanical_prompt_source na rodada (rawArr vazio)
+ * 2. A transformação cognitiva da frase mecânica não passa no guardrail
+ * 3. Stage desconhecido sem fonte mecânica
+ *
+ * O MECANISMO PRIMÁRIO é: transformar a frase mecânica (mechanical_prompt_source)
+ * em fala cognitiva via _renderCognitiveFromIntent. O mapa é a rede de segurança.
+ *
+ * Critérios: curta, simpática, disciplinada, fiel à intenção e exigência técnica
+ * do stage, sem expor texto mecânico cru.
+ */
+const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
+  // ── topo ──
+  ["inicio",                  "Oi! 😊 Pode falar, tô por aqui."],
+  ["inicio_programa",         "Oi! 😊 Vou analisar seu perfil pro MCMV. Pode começar?"],
+  ["inicio_nome",             "Pode me dizer seu nome completo? 😊"],
+  ["inicio_nacionalidade",    "Você é brasileiro(a) nato(a)?"],
+  ["inicio_rnm",              "Qual o número do seu Registro Nacional Migratório?"],
+  ["inicio_rnm_validade",     "Qual a validade do seu RNM?"],
+  ["estado_civil",            "Me conta seu estado civil — solteiro(a), casado(a) ou outra situação? 😊"],
+  ["confirmar_casamento",     "Esse casamento é civil registrado ou é união estável?"],
+  ["financiamento_conjunto",  "Vai financiar sozinho(a) ou junto com alguém?"],
+  ["somar_renda_solteiro",    "Sobre renda — vai somar com parceiro(a), familiar, ou segue sozinho(a)? 😊"],
+  ["somar_renda_familiar",    "Com quem quer somar renda? Pode ser pai, mãe, irmão(ã) ou tio(a)."],
+  ["quem_pode_somar",         "Quem mais compõe renda com você?"],
+  ["interpretar_composicao",  "Me conta mais sobre a composição de renda. 😊"],
+  ["verificar_averbacao",     "Você tem averbação de separação judicial?"],
+  ["verificar_inventario",    "O inventário já foi concluído?"],
+  // ── gates_finais — mesma exigência técnica, fala cognitiva ──
+  ["ir_declarado",            "Você declarou Imposto de Renda nos últimos 2 anos? 😊"],
+  ["autonomo_ir_pergunta",    "Você fez declaração de IR como autônomo(a)?"],
+  ["ctps_36",                 "Você tem mais de 36 meses de carteira assinada? 📋"],
+  ["ctps_36_parceiro",        "Seu(sua) parceiro(a) tem mais de 36 meses de carteira assinada?"],
+  ["restricao",               "Existe alguma restrição no seu CPF? Pode ser SPC, Serasa ou similar 😊"],
+  ["restricao_parceiro",      "E no CPF do(a) parceiro(a), tem alguma restrição?"],
+  ["regularizacao_restricao", "Consegue regularizar essa restrição? Quitar ou negociar? 😊"],
+  ["regularizacao_restricao_parceiro", "O(a) parceiro(a) consegue regularizar a restrição?"],
+  ["dependente",              "Tem algum dependente? Filho(a) menor de idade, por exemplo 😊"],
+  // ── operacional — mesma exigência, fala cognitiva ──
+  ["envio_docs",              "Agora preciso que envie os documentos pra análise 📎😊"],
+  ["aguardando_retorno_correspondente", "Estou aguardando o retorno do correspondente. Te aviso assim que tiver novidade! 😊"],
+  ["agendamento_visita",      "Vamos agendar a visita ao empreendimento? Me diz uma data boa pra você 📅"],
+  ["finalizacao_processo",    "Estamos na reta final! Vou te orientar nos últimos passos 😊"],
+  ["fim_ineligivel",          "Infelizmente não foi possível seguir com o processo nesse momento. Se precisar, estou por aqui 💛"],
+]);
+
+/**
+ * buildMinimalCognitiveFallback — Render cognitivo baseado em intenção.
+ *
+ * Hierarquia:
+ * 1. PRIMÁRIO: usa mechanical_prompt_source (rawArr) como fonte de intenção →
+ *    transforma em fala cognitiva via _renderCognitiveFromIntent.
+ *    Preserva conteúdo técnico, muda apenas o tom. Validado por guardrail.
+ * 2. FALLBACK: se não há fonte mecânica ou guardrail falha →
+ *    _MINIMAL_FALLBACK_SPEECH_MAP por stage (fala cognitiva de segurança).
+ * 3. GENÉRICO: stage desconhecido → "Pode continuar 😊" (nunca mecânico).
+ *
+ * CONTRATO: rawArr como string literal NUNCA chega ao cliente.
+ * O que chega é a INTENÇÃO do rawArr renderizada cognitivamente.
+ *
+ * Overlap: se múltiplas intenções + off-trail → prefix de reconhecimento antes da fala.
+ *
+ * Synchronous. Sem chamadas a LLM. Sem persistência. Sem mudança de gates.
+ */
+function buildMinimalCognitiveFallback(stage, rawArr, roundIntent) {
+  // ── PRIMÁRIO: transformar frase mecânica em fala cognitiva ──
+  const mechanicalSource = roundIntent?.mechanical_prompt_source || "";
+  const cognitiveFromIntent = _renderCognitiveFromIntent(mechanicalSource, stage);
+
+  // Se a transformação passou no guardrail, usa como fala final
+  let finalSpeech;
+  if (cognitiveFromIntent) {
+    finalSpeech = cognitiveFromIntent;
+  } else {
+    // ── FALLBACK: mapa de segurança por stage ──
+    finalSpeech = _MINIMAL_FALLBACK_SPEECH_MAP.get(stage) || "Pode continuar 😊";
+  }
+
+  // Overlap: se múltiplas intenções detectadas, reconhecer antes de continuar
+  if (roundIntent?.pode_ter_multiplas_intencoes && roundIntent?.eh_off_trail) {
+    return ["Anotei tudo aqui 😊 Deixa eu continuar a análise do seu perfil.", finalSpeech];
+  }
+  return [finalSpeech];
+}
+
+/**
+ * renderCognitiveSpeech — Render cognitivo obrigatório.
+ * TODA fala visível ao cliente deve sair desta função.
+ * O mecânico permanece soberano em stage/gate/nextStage/persistência.
+ *
+ * Hierarquia:
+ * 1. __cognitive_v2_takes_final + prefix → fala cognitiva real (LLM) — rawArr DESCARTADO
+ * 2. prefix sem takes_final → prefix é a fala cognitiva completa — rawArr DESCARTADO
+ * 3. sem flags → buildMinimalCognitiveFallback — usa mechanical_prompt_source do
+ *    roundIntent como fonte de intenção, transforma em fala cognitiva.
+ *    Mapa por stage é fallback de segurança. rawArr literal NUNCA exposto.
+ *
+ * CONTRATO: rawArr como texto cru NUNCA chega ao cliente. Sem exceções.
+ * O que chega é: LLM real, prefix heurístico, ou intenção mecânica renderizada cognitivamente.
+ */
+function renderCognitiveSpeech(st, stage, rawArr) {
+  const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
+  const v2TakesFinal = st?.__cognitive_v2_takes_final === true;
+  const roundIntent = st?.__round_intent || null;
+  // Caminho 1: LLM real assumiu a fala → usa apenas a fala cognitiva, rawArr descartado
+  if (v2TakesFinal && cognitivePrefix) return [cognitivePrefix];
+  // Caminho 2: prefix cognitivo sem takes_final → prefix É a fala completa, rawArr descartado
+  // O prefix vem de resolver estruturado ou motor cognitivo e já contém a resposta completa.
+  if (cognitivePrefix) return [cognitivePrefix];
+  // Caminho 3: sem flags → fallback cognitivo mínimo (rawArr NUNCA exposto — TODOS os stages usam mapa)
+  return buildMinimalCognitiveFallback(stage, rawArr, roundIntent);
+}
+
+/**
+ * classifyRenderPath — Classifica a origem da fala renderizada.
+ *
+ * Retorna uma das três classificações canônicas:
+ *   "cognitive_real"      — LLM real assumiu a fala (__cognitive_v2_takes_final=true).
+ *                           rawArr é DESCARTADO. A fala é 100% cognitiva.
+ *   "cognitive_heuristic" — Heurístico/structured resolver pré-computou um prefix.
+ *                           (__cognitive_reply_prefix set, __cognitive_v2_takes_final=false)
+ *                           rawArr é DESCARTADO. Prefix é a fala completa.
+ *   "cognitive_fallback"  — Nenhuma flag. buildMinimalCognitiveFallback é o caminho.
+ *                           Primário: mechanical_prompt_source → fala cognitiva via _renderCognitiveFromIntent.
+ *                           Fallback: _MINIMAL_FALLBACK_SPEECH_MAP por stage.
+ *                           rawArr literal NUNCA exposto — sem exceções.
+ *
+ * Usado para telemetria e testes comportamentais. Não altera a fala.
+ */
+function classifyRenderPath(st) {
+  const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
+  const v2TakesFinal = st?.__cognitive_v2_takes_final === true;
+  if (v2TakesFinal && cognitivePrefix) return "cognitive_real";
+  if (cognitivePrefix) return "cognitive_heuristic";
+  return "cognitive_fallback";
 }
 
 // =============================================================

@@ -3957,13 +3957,17 @@ function _getCognitiveRenderPhase(stage) {
 /**
  * _MINIMAL_FALLBACK_SPEECH_MAP — Fala cognitiva mínima por stage.
  *
- * Usada em buildMinimalCognitiveFallback quando nenhuma flag cognitiva está ativa
- * e a fase é topo/meio. NUNCA expõe rawArr literal ao cliente.
+ * Usada em buildMinimalCognitiveFallback quando nenhuma flag cognitiva está ativa.
+ * NUNCA expõe rawArr literal ao cliente — TODOS os stages usam este mapa.
  *
- * Critérios: curta, simpática, disciplinada, fiel à intenção do stage,
- * sem expor texto mecânico.
+ * Critérios: curta, simpática, disciplinada, fiel à intenção e exigência técnica
+ * do stage, sem expor texto mecânico cru.
+ *
+ * Inclui TODOS os stages: topo, meio, gates_finais e operacional.
+ * Cognitivo é 100% dono da fala visível — sem exceção.
  */
 const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
+  // ── topo ──
   ["inicio",                  "Oi! 😊 Pode falar, tô por aqui."],
   ["inicio_programa",         "Oi! 😊 Vou analisar seu perfil pro MCMV. Pode começar?"],
   ["inicio_nome",             "Pode me dizer seu nome completo? 😊"],
@@ -3979,67 +3983,41 @@ const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
   ["interpretar_composicao",  "Me conta mais sobre a composição de renda. 😊"],
   ["verificar_averbacao",     "Você tem averbação de separação judicial?"],
   ["verificar_inventario",    "O inventário já foi concluído?"],
+  // ── gates_finais — mesma exigência técnica, fala cognitiva ──
+  ["ir_declarado",            "Você declarou Imposto de Renda nos últimos 2 anos? 😊"],
+  ["autonomo_ir_pergunta",    "Você fez declaração de IR como autônomo(a)?"],
+  ["ctps_36",                 "Você tem mais de 36 meses de carteira assinada? 📋"],
+  ["ctps_36_parceiro",        "Seu(sua) parceiro(a) tem mais de 36 meses de carteira assinada?"],
+  ["restricao",               "Existe alguma restrição no seu CPF? Pode ser SPC, Serasa ou similar 😊"],
+  ["restricao_parceiro",      "E no CPF do(a) parceiro(a), tem alguma restrição?"],
+  ["regularizacao_restricao", "Consegue regularizar essa restrição? Quitar ou negociar? 😊"],
+  ["regularizacao_restricao_parceiro", "O(a) parceiro(a) consegue regularizar a restrição?"],
+  ["dependente",              "Tem algum dependente? Filho(a) menor de idade, por exemplo 😊"],
+  // ── operacional — mesma exigência, fala cognitiva ──
+  ["envio_docs",              "Agora preciso que envie os documentos pra análise 📎😊"],
+  ["aguardando_retorno_correspondente", "Estou aguardando o retorno do correspondente. Te aviso assim que tiver novidade! 😊"],
+  ["agendamento_visita",      "Vamos agendar a visita ao empreendimento? Me diz uma data boa pra você 📅"],
+  ["finalizacao_processo",    "Estamos na reta final! Vou te orientar nos últimos passos 😊"],
+  ["fim_ineligivel",          "Infelizmente não foi possível seguir com o processo nesse momento. Se precisar, estou por aqui 💛"],
 ]);
 
 /**
- * _applyCognitiveSurfaceFilter — Filtro honesto de superfície cognitiva.
+ * buildMinimalCognitiveFallback — Fallback cognitivo mínimo REAL.
  *
- * Usado apenas para gates_finais/operacional (conteúdo técnico obrigatório).
- * Para topo/meio, buildMinimalCognitiveFallback já usa _MINIMAL_FALLBACK_SPEECH_MAP
- * e nunca chega a este filtro.
+ * Contrato: NUNCA retorna rawArr literal ao cliente. Sem exceções.
  *
- * O único ajuste real desta função é converter imperativo formal → conversacional
- * quando presente (ex: "Informe" → "Me fala"). Isso é mudança de registro,
- * não cosmética. NUNCA adiciona wrapper como "Me conta:".
- */
-function _applyCognitiveSurfaceFilter(lines) {
-  const allText = lines.join(" ");
-  // Tom conversacional detectado: emoji de feedback ou palavra-chave afirmativa
-  const jaConversacional = (
-    /👌|✅|💛|😊|😉|👍|✍️|🤝|🔥|⚠️|📝|✨/.test(allText) ||
-    /\b(perfeito|ótimo|entendi|tranquilo|show|certinho|boa|claro)\b/i.test(allText) ||
-    /\bme (conta|diz|fala)\b/i.test(allText)
-  );
-  if (jaConversacional) return lines;
-  // Ajuste de registro: imperativo formal → conversacional (mudança real, não cosmética).
-  // Defensive: o mecânico usa raramente esses verbos no funil conversacional.
-  return lines.map(line => {
-    const clean = line.trim();
-    if (!clean) return clean;
-    if (/^(informe|insira|coloque|preencha)\b/i.test(clean)) {
-      return clean
-        .replace(/^informe\b/i, "Me fala")
-        .replace(/^insira\b/i, "Me envia")
-        .replace(/^coloque\b/i, "Me coloca")
-        .replace(/^preencha\b/i, "Me preenche");
-    }
-    return clean;
-  });
-}
-
-/**
- * buildMinimalCognitiveFallback — Bloco 4: Fallback cognitivo mínimo REAL.
+ * TODOS os stages (topo, meio, gates_finais, operacional) usam
+ * _MINIMAL_FALLBACK_SPEECH_MAP — fala cognitiva fiel à intenção e exigência
+ * técnica de cada stage, sem expor texto mecânico cru.
  *
- * Contrato: NUNCA retorna rawArr literal ao cliente.
- *
- * - topo/meio: usa _MINIMAL_FALLBACK_SPEECH_MAP por stage (fiel à intenção da fase).
- *   Se stage não está no mapa → fallback genérico simpático.
- * - gates_finais/operacional: conteúdo técnico obrigatório — rawArr É o fallback
- *   cognitivo mínimo para estas fases (conteúdo de precisão, não decorativo).
+ * Se stage não está no mapa → fallback genérico "Pode continuar 😊".
  *
  * Overlap: se múltiplas intenções + off-trail → prefix de reconhecimento antes da fala.
  *
  * Synchronous. Sem chamadas a LLM. Sem persistência. Sem mudança de gates.
  */
 function buildMinimalCognitiveFallback(stage, rawArr, roundIntent) {
-  const phase = _getCognitiveRenderPhase(stage);
-  // Gates finais e operacional: conteúdo técnico obrigatório — precisão > forma
-  if (phase === "operacional" || phase === "gates_finais") {
-    if (!Array.isArray(rawArr) || rawArr.length === 0) return ["Pode continuar 😊"];
-    const lines = rawArr.filter(l => typeof l === "string" && l.trim().length > 0);
-    return lines.length > 0 ? _applyCognitiveSurfaceFilter(lines) : ["Pode continuar 😊"];
-  }
-  // Topo e meio: NUNCA expor rawArr literal — usar fala cognitiva mínima por stage
+  // TODOS os stages: fala cognitiva do mapa — rawArr NUNCA exposto
   const stageSpeech = _MINIMAL_FALLBACK_SPEECH_MAP.get(stage) || "Pode continuar 😊";
   // Overlap: se múltiplas intenções detectadas, reconhecer antes de continuar
   if (roundIntent?.pode_ter_multiplas_intencoes && roundIntent?.eh_off_trail) {
@@ -4049,16 +4027,17 @@ function buildMinimalCognitiveFallback(stage, rawArr, roundIntent) {
 }
 
 /**
- * renderCognitiveSpeech — Bloco 2/3: Render cognitivo obrigatório.
+ * renderCognitiveSpeech — Render cognitivo obrigatório.
  * TODA fala visível ao cliente deve sair desta função.
  * O mecânico permanece soberano em stage/gate/nextStage/persistência.
  *
  * Hierarquia:
  * 1. __cognitive_v2_takes_final + prefix → fala cognitiva real (LLM) — rawArr DESCARTADO
  * 2. prefix sem takes_final → prefix é a fala cognitiva completa — rawArr DESCARTADO
- * 3. sem flags → buildMinimalCognitiveFallback (NUNCA rawArr literal para topo/meio)
+ * 3. sem flags → buildMinimalCognitiveFallback — rawArr NUNCA exposto (TODOS os stages usam mapa)
  *
- * CONTRATO: rawArr nunca chega ao cliente como superfície literal em nenhum caminho.
+ * CONTRATO: rawArr NUNCA chega ao cliente como superfície literal. Sem exceções.
+ * Cognitivo é 100% dono de toda fala visível — inclusive em stages técnicos.
  */
 function renderCognitiveSpeech(st, stage, rawArr) {
   const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
@@ -4069,7 +4048,7 @@ function renderCognitiveSpeech(st, stage, rawArr) {
   // Caminho 2: prefix cognitivo sem takes_final → prefix É a fala completa, rawArr descartado
   // O prefix vem de resolver estruturado ou motor cognitivo e já contém a resposta completa.
   if (cognitivePrefix) return [cognitivePrefix];
-  // Caminho 3: sem flags → fallback cognitivo mínimo (rawArr NUNCA exposto literalmente para topo/meio)
+  // Caminho 3: sem flags → fallback cognitivo mínimo (rawArr NUNCA exposto — TODOS os stages usam mapa)
   return buildMinimalCognitiveFallback(stage, rawArr, roundIntent);
 }
 
@@ -4083,8 +4062,8 @@ function renderCognitiveSpeech(st, stage, rawArr) {
  *                           (__cognitive_reply_prefix set, __cognitive_v2_takes_final=false)
  *                           rawArr é DESCARTADO. Prefix é a fala completa.
  *   "cognitive_fallback"  — Nenhuma flag. buildMinimalCognitiveFallback é o caminho.
- *                           Para topo/meio: usa _MINIMAL_FALLBACK_SPEECH_MAP (rawArr NUNCA exposto).
- *                           Para gates/operacional: conteúdo técnico obrigatório.
+ *                           TODOS os stages usam _MINIMAL_FALLBACK_SPEECH_MAP.
+ *                           rawArr NUNCA exposto — sem exceções.
  *
  * Usado para telemetria e testes comportamentais. Não altera a fala.
  */

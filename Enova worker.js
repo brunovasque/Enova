@@ -3954,17 +3954,23 @@ function _getCognitiveRenderPhase(stage) {
   return "meio";
 }
 
-function _softQuestion(q) {
-  const clean = q.trim();
-  // Já começa com entrada conversacional → mantém
-  if (/^(me |você |vc |qual |como |quando |onde |por que |tudo |pode |pra |para |e |a )/i.test(clean)) return clean;
-  return "Me conta: " + clean.charAt(0).toLowerCase() + clean.slice(1);
-}
-
 /**
- * _applyCognitiveSurfaceFilter — Filtro mínimo de superfície cognitiva.
- * Se o conjunto já tem tom conversacional → retorna sem mudança.
- * Se não → aplica ajuste mínimo de tom (sem alterar conteúdo/informação).
+ * _applyCognitiveSurfaceFilter — Filtro honesto de superfície cognitiva.
+ *
+ * Dois resultados possíveis:
+ *   "já_conversacional" — texto tem emoji ou palavra afirmativa conversacional:
+ *       passa sem mudança. Este texto já tem qualidade cognitiva.
+ *   "passthrough_honesto" — texto não tem marcador conversacional e não tem
+ *       imperativo formal: passa sem modificação. NÃO adiciona verniz textual
+ *       (nenhum "Me conta:" ou prefixo cosmético).
+ *
+ * O único ajuste real desta função é converter imperativo formal → conversacional
+ * quando presente (ex: "Informe" → "Me fala"). Isso é mudança de registro,
+ * não cosmética.
+ *
+ * NUNCA wraps perguntas com "Me conta:" ou equivalentes.
+ * A razão: "Me conta: qual é o seu estado civil?" é mecânico maquiado.
+ * "qual é o seu estado civil?" é honestamente mecânico — e está OK.
  */
 function _applyCognitiveSurfaceFilter(lines) {
   const allText = lines.join(" ");
@@ -3975,11 +3981,11 @@ function _applyCognitiveSurfaceFilter(lines) {
     /\bme (conta|diz|fala)\b/i.test(allText)
   );
   if (jaConversacional) return lines;
-  // Aplica ajuste mínimo de tom nas perguntas e instruções diretas
+  // Ajuste de registro: imperativo formal → conversacional (mudança real, não cosmética).
+  // Defensive: o mecânico usa raramente esses verbos no funil conversacional.
   return lines.map(line => {
     const clean = line.trim();
     if (!clean) return clean;
-    if (/\?$/.test(clean)) return _softQuestion(clean);
     if (/^(informe|insira|coloque|preencha)\b/i.test(clean)) {
       return clean
         .replace(/^informe\b/i, "Me fala")
@@ -3987,6 +3993,7 @@ function _applyCognitiveSurfaceFilter(lines) {
         .replace(/^coloque\b/i, "Me coloca")
         .replace(/^preencha\b/i, "Me preenche");
     }
+    // Passthrough honesto: não adicionar verniz em cima de texto mecânico.
     return clean;
   });
 }
@@ -4035,6 +4042,28 @@ function renderCognitiveSpeech(st, stage, rawArr) {
   }
   // Caminho 3: sem flags → fallback cognitivo mínimo (nunca rawArr puro)
   return buildMinimalCognitiveFallback(stage, rawArr, roundIntent);
+}
+
+/**
+ * classifyRenderPath — Classifica a origem da fala renderizada.
+ *
+ * Retorna uma das três classificações canônicas:
+ *   "cognitive_real"      — LLM real assumiu a fala (__cognitive_v2_takes_final=true).
+ *                           rawArr é DESCARTADO. A fala é 100% cognitiva.
+ *   "cognitive_heuristic" — Heurístico/structured resolver pré-computou um prefix.
+ *                           (__cognitive_reply_prefix set, __cognitive_v2_takes_final=false)
+ *                           rawArr é appended como contexto (filtrado).
+ *   "cognitive_fallback"  — Nenhuma flag. buildMinimalCognitiveFallback é o caminho.
+ *                           Se rawArr já é conversacional → passa; se não → passthrough honesto.
+ *
+ * Usado para telemetria e testes comportamentais. Não altera a fala.
+ */
+function classifyRenderPath(st) {
+  const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
+  const v2TakesFinal = st?.__cognitive_v2_takes_final === true;
+  if (v2TakesFinal && cognitivePrefix) return "cognitive_real";
+  if (cognitivePrefix) return "cognitive_heuristic";
+  return "cognitive_fallback";
 }
 
 // =============================================================

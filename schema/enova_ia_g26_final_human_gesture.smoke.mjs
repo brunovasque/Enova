@@ -14,7 +14,7 @@
 //   2.  Estado authorized_for_controlled_execution na máquina de estados
 //   3.  Ação autorizar_execucao_controlada na máquina de estados
 //   4.  Transição canônica: pre_execution_ready → authorized_for_controlled_execution
-//   5.  authorized_for_controlled_execution é estado terminal (nenhuma ação válida)
+//   5.  authorized_for_controlled_execution aceita preparar_contrato_execucao (G3.1)
 //   6.  Transições inválidas para autorizar_execucao_controlada retornam null
 //   7.  Labels para authorized_for_controlled_execution
 //   8.  Texto de apoio contém "nenhuma execução"
@@ -33,7 +33,7 @@
 //  21.  Fluxo completo: draft → … → pre_execution_ready → authorized_for_controlled_execution
 //  22.  Backward compatibility: estados anteriores (G2.3–G2.5) não afetados
 //  23.  pre_execution_ready agora aceita autorizar_execucao_controlada [G2.6]
-//  24.  PREPARATION_VALID_ACTIONS[authorized] é array vazio
+//  24.  PREPARATION_VALID_ACTIONS[authorized] tem preparar_contrato_execucao (G3.1)
 //  25.  Estado anterior pre_execution_ready ainda existe e é válido
 // ============================================================
 
@@ -166,10 +166,11 @@ test("pre_execution_ready + autorizar_execucao_controlada → authorized_for_con
 
 console.log("\n── 5. authorized_for_controlled_execution é terminal ─────────────");
 
-test("authorized_for_controlled_execution tem nenhuma ação válida", () => {
+test("authorized_for_controlled_execution tem 1 ação válida (G3.1: preparar_contrato_execucao)", () => {
   const actions = PREPARATION_VALID_ACTIONS["authorized_for_controlled_execution"];
   assert.ok(Array.isArray(actions), "deve ser array");
-  assert.strictEqual(actions.length, 0, "deve ser array vazio");
+  assert.strictEqual(actions.length, 1, "deve ter 1 ação (preparar_contrato_execucao adicionada em G3.1)");
+  assert.ok(actions.includes("preparar_contrato_execucao"), "deve incluir preparar_contrato_execucao");
 });
 
 test("autorizar_execucao_controlada a partir de authorized retorna null", () => {
@@ -448,11 +449,10 @@ test("pre_execution_ready NÃO é mais terminal — aceita autorizar_execucao_co
 
 console.log("\n── 24. authorized_for_controlled_execution é terminal ───────────");
 
-test("PREPARATION_VALID_ACTIONS[authorized] é array vazio", () => {
-  assert.deepEqual(
-    Array.from(PREPARATION_VALID_ACTIONS["authorized_for_controlled_execution"]),
-    [],
-  );
+test("PREPARATION_VALID_ACTIONS[authorized] tem preparar_contrato_execucao (G3.1)", () => {
+  const actions = Array.from(PREPARATION_VALID_ACTIONS["authorized_for_controlled_execution"]);
+  assert.ok(actions.includes("preparar_contrato_execucao"), "G3.1 adiciona preparar_contrato_execucao");
+  assert.strictEqual(actions.length, 1, "exatamente 1 ação");
 });
 
 // ── 25. pre_execution_ready ainda existe ─────────────────────────────────

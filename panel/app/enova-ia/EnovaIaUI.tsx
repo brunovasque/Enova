@@ -27,6 +27,13 @@ import {
   EXECUTION_AUTHORIZATION_NOTICE,
 } from "../lib/enova-ia-pre-execution";
 import type { PreExecutionPackage, ExecutionAuthorizationPackage } from "../lib/enova-ia-pre-execution";
+import {
+  buildExecutionContract,
+  EXECUTION_CONTRACT_NOT_EXECUTED_NOTICE,
+  EXECUTION_CONTRACT_READY_LABEL,
+  FUTURE_SCOPE_NOTICE,
+} from "../lib/enova-ia-execution-contract";
+import type { ExecutionContract } from "../lib/enova-ia-execution-contract";
 
 const GARGALOS = [
   { tipo: "Documentação", descricao: "Leitura de gargalos virá da análise cognitiva global" },
@@ -335,6 +342,7 @@ const PREPARATION_STATUS_BADGE_CLASS: Record<ExecutorPreparationStatus, string> 
   approved_for_manual_execution:        styles.executorBadgeStatusApproved,
   pre_execution_ready:                  styles.executorBadgeStatusPreExecutionReady,
   authorized_for_controlled_execution:  styles.executorBadgeStatusAuthorized,
+  execution_contract_ready:             styles.executorBadgeStatusContractReady,
   discarded:                            styles.executorBadgeStatusDiscarded,
 };
 
@@ -342,20 +350,24 @@ function ExecutorAssistidoBloco({
   draft,
   status,
   authPackage,
+  contractPackage,
   onRevisar,
   onDescartar,
   onAprovar,
   onMarcarPreExecucao,
   onAutorizarExecucaoControlada,
+  onPrepararContratoExecucao,
 }: {
   draft: EnovaIaActionDraft;
   status: ExecutorPreparationStatus;
   authPackage: ExecutionAuthorizationPackage | null;
+  contractPackage: ExecutionContract | null;
   onRevisar: () => void;
   onDescartar: () => void;
   onAprovar: () => void;
   onMarcarPreExecucao: () => void;
   onAutorizarExecucaoControlada: () => void;
+  onPrepararContratoExecucao: () => void;
 }) {
   // [G2.4] Use target_leads_detail when available, fall back to plain target_leads
   const hasDetail = draft.target_leads_detail && draft.target_leads_detail.length > 0;
@@ -372,6 +384,7 @@ function ExecutorAssistidoBloco({
     status === "review_ready" ? styles.executorBlocoReviewReady : "",
     status === "pre_execution_ready" ? styles.executorBlocoPreExecutionReady : "",
     status === "authorized_for_controlled_execution" ? styles.executorBlocoAuthorized : "",
+    status === "execution_contract_ready" ? styles.executorBlocoContractReady : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -383,6 +396,7 @@ function ExecutorAssistidoBloco({
     status === "review_ready" ? styles.executorStatusRowReviewReady : "",
     status === "pre_execution_ready" ? styles.executorStatusRowPreExecution : "",
     status === "authorized_for_controlled_execution" ? styles.executorStatusRowAuthorized : "",
+    status === "execution_contract_ready" ? styles.executorStatusRowContractReady : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -541,10 +555,64 @@ function ExecutorAssistidoBloco({
           </div>
         )}
 
+        {/* [G3.1] Contrato local de execução futura — visível apenas quando contrato preparado */}
+        {contractPackage && (
+          <div className={styles.executorContractPackage}>
+            <span className={styles.executorContractPackageLabel}>
+              📋 {EXECUTION_CONTRACT_READY_LABEL}
+            </span>
+            <div className={styles.executorContractRows}>
+              <div className={styles.executorContractRow}>
+                <span className={styles.executorContractKey}>Autorizado</span>
+                <span className={styles.executorContractValue}>Sim</span>
+              </div>
+              <div className={styles.executorContractRow}>
+                <span className={styles.executorContractKey}>Pronto para executor real</span>
+                <span className={styles.executorContractValue}>Sim — aguardando próxima frente (G3.2+)</span>
+              </div>
+              <div className={styles.executorContractRow}>
+                <span className={styles.executorContractKey}>Executado</span>
+                <span className={styles.executorContractValue}>Não — nenhuma execução ocorreu</span>
+              </div>
+              <div className={styles.executorContractRow}>
+                <span className={styles.executorContractKey}>Status de execução</span>
+                <span className={styles.executorContractValue}>{contractPackage.execution_status}</span>
+              </div>
+              <div className={styles.executorContractRow}>
+                <span className={styles.executorContractKey}>Contrato preparado em</span>
+                <span className={styles.executorContractValue}>{contractPackage.contract_prepared_at_local}</span>
+              </div>
+            </div>
+            {/* Guardrails canônicos */}
+            <div className={styles.executorContractGuardrails}>
+              <span className={styles.executorContractGuardrailsLabel}>🛡️ Guardrails canônicos</span>
+              <ul className={styles.executorContractGuardrailsList}>
+                {contractPackage.execution_guardrails.map((g) => (
+                  <li key={g.id} className={styles.executorContractGuardrailItem}>
+                    <span className={styles.executorContractGuardrailIcon}>✗</span>
+                    <span>{g.rule}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <p className={styles.executorContractNotice}>
+              🔒 {EXECUTION_CONTRACT_NOT_EXECUTED_NOTICE}
+            </p>
+            <p className={styles.executorContractFutureScope}>
+              ℹ️ {FUTURE_SCOPE_NOTICE}
+            </p>
+          </div>
+        )}
+
         {/* Status row — texto de apoio contextual por estado */}
         {status !== "discarded" && (
           <div className={statusRowClass}>
-            {status === "authorized_for_controlled_execution" ? (
+            {status === "execution_contract_ready" ? (
+              <>
+                <span className={styles.executorStatusContractReadyDot} />
+                <span className={styles.executorStatusContractReadyText}>{supportText}</span>
+              </>
+            ) : status === "authorized_for_controlled_execution" ? (
               <>
                 <span className={styles.executorStatusAuthorizedDot} />
                 <span className={styles.executorStatusAuthorizedText}>{supportText}</span>
@@ -578,7 +646,8 @@ function ExecutorAssistidoBloco({
             review_ready:                        Aprovar preparo | Descartar
             approved_for_manual_execution:       Armar para pré-execução [G2.5]
             pre_execution_ready:                 Autorizar execução controlada futura [G2.6]
-            authorized_for_controlled_execution: badge estático autorizado [G2.6]
+            authorized_for_controlled_execution: Preparar contrato de execução [G3.1]
+            execution_contract_ready:            badge estático contrato preparado [G3.1]
             discarded:                           não renderizado (bloco ocultado no pai) */}
         {status === "draft" && (
           <div className={styles.executorButtons}>
@@ -655,6 +724,22 @@ function ExecutorAssistidoBloco({
           <div className={styles.executorButtons}>
             <span className={styles.executorBtnAuthorizedActive}>
               🔐 Autorizado — execução controlada futura
+            </span>
+            <button
+              type="button"
+              className={styles.executorBtnPrepararContrato}
+              onClick={onPrepararContratoExecucao}
+              aria-label="Preparar contrato de execução"
+            >
+              📋 Preparar contrato de execução
+            </button>
+          </div>
+        )}
+
+        {status === "execution_contract_ready" && (
+          <div className={styles.executorButtons}>
+            <span className={styles.executorBtnContractReadyActive}>
+              📋 Contrato local preparado — aguardando executor real (G3.2+)
             </span>
           </div>
         )}
@@ -744,6 +829,7 @@ function ChatOperacionalSection({
   const [prepStatus, setPrepStatus] = useState<ExecutorPreparationStatus>(PREPARATION_INITIAL_STATUS);
   const [trackedDraftId, setTrackedDraftId] = useState<string | null>(null);
   const [authPackage, setAuthPackage] = useState<ExecutionAuthorizationPackage | null>(null);
+  const [contractPackage, setContractPackage] = useState<ExecutionContract | null>(null);
 
   // Derive activeDraft from the most recent message that has an action_draft.
   // This ensures the executor block always reflects the latest conversation state,
@@ -762,6 +848,7 @@ function ChatOperacionalSection({
       setTrackedDraftId(newId);
       setPrepStatus(PREPARATION_INITIAL_STATUS);
       setAuthPackage(null);
+      setContractPackage(null);
     }
   }, [activeDraft, trackedDraftId]);
 
@@ -928,6 +1015,7 @@ function ChatOperacionalSection({
           draft={activeDraft}
           status={prepStatus}
           authPackage={authPackage}
+          contractPackage={contractPackage}
           onRevisar={() => {
             const next = transitionPreparationStatus(prepStatus, "revisar");
             if (next) setPrepStatus(next);
@@ -950,6 +1038,13 @@ function ChatOperacionalSection({
               setPrepStatus(next);
               const preExec = buildPreExecutionPackage(activeDraft);
               setAuthPackage(buildExecutionAuthorizationPackage(preExec));
+            }
+          }}
+          onPrepararContratoExecucao={() => {
+            const next = transitionPreparationStatus(prepStatus, "preparar_contrato_execucao");
+            if (next && authPackage) {
+              setPrepStatus(next);
+              setContractPackage(buildExecutionContract(authPackage, activeDraft));
             }
           }}
         />

@@ -42,6 +42,13 @@ import {
   BRIDGE_OUT_OF_SCOPE_NOTICE,
 } from "../lib/enova-ia-execution-bridge";
 import type { ExecutionBridgePayload } from "../lib/enova-ia-execution-bridge";
+import {
+  buildControlledExecutionHandshake,
+  HANDSHAKE_READY_LABEL,
+  HANDSHAKE_NOT_EXECUTED_NOTICE,
+  HANDSHAKE_OUT_OF_SCOPE_NOTICE,
+} from "../lib/enova-ia-execution-handshake";
+import type { ControlledExecutionHandshake } from "../lib/enova-ia-execution-handshake";
 
 const GARGALOS = [
   { tipo: "Documentação", descricao: "Leitura de gargalos virá da análise cognitiva global" },
@@ -352,6 +359,7 @@ const PREPARATION_STATUS_BADGE_CLASS: Record<ExecutorPreparationStatus, string> 
   authorized_for_controlled_execution:  styles.executorBadgeStatusAuthorized,
   execution_contract_ready:             styles.executorBadgeStatusContractReady,
   execution_bridge_ready:               styles.executorBadgeStatusBridgeReady,
+  execution_handshake_ready:            styles.executorBadgeStatusHandshakeReady,
   discarded:                            styles.executorBadgeStatusDiscarded,
 };
 
@@ -361,6 +369,7 @@ function ExecutorAssistidoBloco({
   authPackage,
   contractPackage,
   bridgePackage,
+  handshakePackage,
   onRevisar,
   onDescartar,
   onAprovar,
@@ -368,12 +377,14 @@ function ExecutorAssistidoBloco({
   onAutorizarExecucaoControlada,
   onPrepararContratoExecucao,
   onPrepararBridgeIntegracao,
+  onPrepararHandshakeControlado,
 }: {
   draft: EnovaIaActionDraft;
   status: ExecutorPreparationStatus;
   authPackage: ExecutionAuthorizationPackage | null;
   contractPackage: ExecutionContract | null;
   bridgePackage: ExecutionBridgePayload | null;
+  handshakePackage: ControlledExecutionHandshake | null;
   onRevisar: () => void;
   onDescartar: () => void;
   onAprovar: () => void;
@@ -381,6 +392,7 @@ function ExecutorAssistidoBloco({
   onAutorizarExecucaoControlada: () => void;
   onPrepararContratoExecucao: () => void;
   onPrepararBridgeIntegracao: () => void;
+  onPrepararHandshakeControlado: () => void;
 }) {
   // [G2.4] Use target_leads_detail when available, fall back to plain target_leads
   const hasDetail = draft.target_leads_detail && draft.target_leads_detail.length > 0;
@@ -399,6 +411,7 @@ function ExecutorAssistidoBloco({
     status === "authorized_for_controlled_execution" ? styles.executorBlocoAuthorized : "",
     status === "execution_contract_ready" ? styles.executorBlocoContractReady : "",
     status === "execution_bridge_ready" ? styles.executorBlocoBridgeReady : "",
+    status === "execution_handshake_ready" ? styles.executorBlocoHandshakeReady : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -412,6 +425,7 @@ function ExecutorAssistidoBloco({
     status === "authorized_for_controlled_execution" ? styles.executorStatusRowAuthorized : "",
     status === "execution_contract_ready" ? styles.executorStatusRowContractReady : "",
     status === "execution_bridge_ready" ? styles.executorStatusRowBridgeReady : "",
+    status === "execution_handshake_ready" ? styles.executorStatusRowHandshakeReady : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -693,6 +707,77 @@ function ExecutorAssistidoBloco({
           </div>
         )}
 
+        {/* [G3.3] Handshake controlado — visível apenas quando handshake preparado */}
+        {handshakePackage && (
+          <div className={styles.executorHandshakePackage}>
+            <span className={styles.executorHandshakePackageLabel}>
+              🤝 {HANDSHAKE_READY_LABEL}
+            </span>
+            <div className={styles.executorHandshakeRows}>
+              <div className={styles.executorHandshakeRow}>
+                <span className={styles.executorHandshakeKey}>Bridge</span>
+                <span className={styles.executorHandshakeValue}>Pronta</span>
+              </div>
+              <div className={styles.executorHandshakeRow}>
+                <span className={styles.executorHandshakeKey}>Handshake</span>
+                <span className={styles.executorHandshakeValue}>Preparado</span>
+              </div>
+              <div className={styles.executorHandshakeRow}>
+                <span className={styles.executorHandshakeKey}>Execução real</span>
+                <span className={styles.executorHandshakeValue}>Ainda não iniciada</span>
+              </div>
+              <div className={styles.executorHandshakeRow}>
+                <span className={styles.executorHandshakeKey}>Ack real</span>
+                <span className={styles.executorHandshakeValue}>Ainda não recebido — aguarda G4+</span>
+              </div>
+              <div className={styles.executorHandshakeRow}>
+                <span className={styles.executorHandshakeKey}>Tipo suportado</span>
+                <span className={styles.executorHandshakeValue}>
+                  {handshakePackage.handshake_request.supported_action_type
+                    ? `${handshakePackage.handshake_request.action_type} ✓`
+                    : `${handshakePackage.handshake_request.action_type} — fora do subconjunto`}
+                </span>
+              </div>
+              <div className={styles.executorHandshakeRow}>
+                <span className={styles.executorHandshakeKey}>Handshake preparado em</span>
+                <span className={styles.executorHandshakeValue}>
+                  {handshakePackage.handshake_request.handshake_prepared_at_local}
+                </span>
+              </div>
+            </div>
+            {/* Ack mínimo esperado */}
+            <div className={styles.executorHandshakeAckSection}>
+              <span className={styles.executorHandshakeAckLabel}>📋 Ack mínimo esperado</span>
+              <ul className={styles.executorHandshakeAckList}>
+                {handshakePackage.handshake_request.expected_ack_fields.map((f) => (
+                  <li key={f} className={styles.executorHandshakeAckItem}>{f}</li>
+                ))}
+              </ul>
+              <p className={styles.executorHandshakeAckNotice}>
+                {handshakePackage.handshake_ack_model.ack_notice}
+              </p>
+            </div>
+            {/* Guardrails do handshake */}
+            <div className={styles.executorHandshakeGuardrails}>
+              <span className={styles.executorHandshakeGuardrailsLabel}>🛡️ Guardrails do handshake</span>
+              <ul className={styles.executorHandshakeGuardrailsList}>
+                {handshakePackage.handshake_guardrails.map((g) => (
+                  <li key={g.id} className={styles.executorHandshakeGuardrailItem}>
+                    <span className={styles.executorHandshakeGuardrailIcon}>✗</span>
+                    <span>{g.rule}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <p className={styles.executorHandshakeNotice}>
+              🔒 {HANDSHAKE_NOT_EXECUTED_NOTICE}
+            </p>
+            <p className={styles.executorHandshakeOutOfScope}>
+              ℹ️ {HANDSHAKE_OUT_OF_SCOPE_NOTICE}
+            </p>
+          </div>
+        )}
+
         {/* Status row — texto de apoio contextual por estado */}
         {status !== "discarded" && (
           <div className={statusRowClass}>
@@ -700,6 +785,11 @@ function ExecutorAssistidoBloco({
               <>
                 <span className={styles.executorStatusBridgeReadyDot} />
                 <span className={styles.executorStatusBridgeReadyText}>{supportText}</span>
+              </>
+            ) : status === "execution_handshake_ready" ? (
+              <>
+                <span className={styles.executorStatusHandshakeReadyDot} />
+                <span className={styles.executorStatusHandshakeReadyText}>{supportText}</span>
               </>
             ) : status === "execution_contract_ready" ? (
               <>
@@ -742,7 +832,8 @@ function ExecutorAssistidoBloco({
             pre_execution_ready:                 Autorizar execução controlada futura [G2.6]
             authorized_for_controlled_execution: Preparar contrato de execução [G3.1]
             execution_contract_ready:            Preparar integração inicial [G3.2]
-            execution_bridge_ready:              badge estático integração preparada [G3.2]
+            execution_bridge_ready:              Preparar handshake controlado [G3.3]
+            execution_handshake_ready:           badge estático handshake preparado [G3.3]
             discarded:                           não renderizado (bloco ocultado no pai) */}
         {status === "draft" && (
           <div className={styles.executorButtons}>
@@ -850,7 +941,23 @@ function ExecutorAssistidoBloco({
         {status === "execution_bridge_ready" && (
           <div className={styles.executorButtons}>
             <span className={styles.executorBtnBridgeReadyActive}>
-              🌉 Integração inicial preparada — execução real aguarda G4+
+              🌉 Integração inicial preparada
+            </span>
+            <button
+              type="button"
+              className={styles.executorBtnPrepararHandshake}
+              onClick={onPrepararHandshakeControlado}
+              aria-label="Preparar handshake controlado"
+            >
+              🤝 Preparar handshake controlado
+            </button>
+          </div>
+        )}
+
+        {status === "execution_handshake_ready" && (
+          <div className={styles.executorButtons}>
+            <span className={styles.executorBtnHandshakeReadyActive}>
+              🤝 Handshake controlado preparado — aguardando camada real (G4+)
             </span>
           </div>
         )}
@@ -942,6 +1049,7 @@ function ChatOperacionalSection({
   const [authPackage, setAuthPackage] = useState<ExecutionAuthorizationPackage | null>(null);
   const [contractPackage, setContractPackage] = useState<ExecutionContract | null>(null);
   const [bridgePackage, setBridgePackage] = useState<ExecutionBridgePayload | null>(null);
+  const [handshakePackage, setHandshakePackage] = useState<ControlledExecutionHandshake | null>(null);
 
   // Derive activeDraft from the most recent message that has an action_draft.
   // This ensures the executor block always reflects the latest conversation state,
@@ -962,6 +1070,7 @@ function ChatOperacionalSection({
       setAuthPackage(null);
       setContractPackage(null);
       setBridgePackage(null);
+      setHandshakePackage(null);
     }
   }, [activeDraft, trackedDraftId]);
 
@@ -1130,6 +1239,7 @@ function ChatOperacionalSection({
           authPackage={authPackage}
           contractPackage={contractPackage}
           bridgePackage={bridgePackage}
+          handshakePackage={handshakePackage}
           onRevisar={() => {
             const next = transitionPreparationStatus(prepStatus, "revisar");
             if (next) setPrepStatus(next);
@@ -1166,6 +1276,13 @@ function ChatOperacionalSection({
             if (next && contractPackage) {
               setPrepStatus(next);
               setBridgePackage(buildExecutionBridgePayload(contractPackage));
+            }
+          }}
+          onPrepararHandshakeControlado={() => {
+            const next = transitionPreparationStatus(prepStatus, "preparar_handshake_controlado");
+            if (next && bridgePackage) {
+              setPrepStatus(next);
+              setHandshakePackage(buildControlledExecutionHandshake(bridgePackage));
             }
           }}
         />

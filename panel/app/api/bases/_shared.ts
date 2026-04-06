@@ -477,6 +477,36 @@ function buildAuditRow(
   };
 }
 
+// ── Duplicate check ──
+
+/**
+ * Returns true if a row with the given wa_id already exists in crm_lead_meta.
+ * Used to block duplicate lead creation via add_lead_manual.
+ */
+async function checkLeadExistsByWaId(
+  supabaseUrl: string,
+  serviceRoleKey: string,
+  waId: string,
+): Promise<boolean> {
+  const endpoint = new URL("/rest/v1/crm_lead_meta", supabaseUrl);
+  endpoint.searchParams.set("select", "wa_id");
+  endpoint.searchParams.set("wa_id", `eq.${waId}`);
+  endpoint.searchParams.set("limit", "1");
+
+  const response = await fetch(endpoint, {
+    method: "GET",
+    headers: buildSupabaseHeaders(serviceRoleKey),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`FAILED_TO_CHECK_DUPLICATE:${response.status}`);
+  }
+
+  const rows = (await readJsonResponse<{ wa_id: string }[]>(response)) ?? [];
+  return rows.length > 0;
+}
+
 async function upsertEnovaStateSourceType(
   supabaseUrl: string,
   serviceRoleKey: string,
@@ -606,6 +636,13 @@ export async function runBasesAction(
         defaultAutoOutreachEnabled: true,
         defaultPaused: false,
       });
+      const alreadyExists = await checkLeadExistsByWaId(supabaseUrl, serviceRoleKey, row.wa_id);
+      if (alreadyExists) {
+        return {
+          status: 409,
+          body: { ok: false, error: "Já existe um lead cadastrado com este número." },
+        };
+      }
       const savedRows = await upsertLeadMetaRows(supabaseUrl, serviceRoleKey, [row]);
       const savedRow = savedRows[0] ?? null;
       await upsertEnovaStateSourceType(supabaseUrl, serviceRoleKey, [

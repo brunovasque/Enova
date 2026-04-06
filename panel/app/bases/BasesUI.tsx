@@ -197,6 +197,10 @@ export function BasesUI() {
     wa_id: "",
     source_type: "fria",
     observacao: "",
+    campaign_platform: "",
+    campaign_name: "",
+    campaign_adset: "",
+    campaign_ad: "",
   });
   const [newPrefill, setNewPrefill] = useState({
     showPrefill: false,
@@ -396,7 +400,11 @@ export function BasesUI() {
     if (!result) return;
 
     // Save optional prefill data if any field was provided
+    const hasCampaignData =
+      newLead.source_type === "campanha" &&
+      (newLead.campaign_platform || newLead.campaign_name || newLead.campaign_adset || newLead.campaign_ad);
     const hasPrefill =
+      hasCampaignData ||
       newPrefill.nacionalidade_prefill.trim() ||
       newPrefill.estado_civil_prefill.trim() ||
       newPrefill.regime_trabalho_prefill.trim() ||
@@ -438,13 +446,19 @@ export function BasesUI() {
         addBoolField("restricao_prefill", "restricao_status", newPrefill.restricao_prefill);
         if (newPrefill.observacoes_admin.trim()) payload.observacoes_admin = newPrefill.observacoes_admin.trim();
         payload.origem_lead = newLead.source_type || null;
+        if (newLead.source_type === "campanha") {
+          if (newLead.campaign_platform) payload.campaign_platform = newLead.campaign_platform;
+          if (newLead.campaign_name) payload.campaign_name = newLead.campaign_name;
+          if (newLead.campaign_adset) payload.campaign_adset = newLead.campaign_adset;
+          if (newLead.campaign_ad) payload.campaign_ad = newLead.campaign_ad;
+        }
         await savePrefillOnLeadCreateAction(payload);
       } catch {
         // Non-blocking: prefill save failure does not block lead creation
       }
     }
 
-    setNewLead({ nome: "", telefone: "", wa_id: "", source_type: "fria", observacao: "" });
+    setNewLead({ nome: "", telefone: "", wa_id: "", source_type: "fria", observacao: "", campaign_platform: "", campaign_name: "", campaign_adset: "", campaign_ad: "" });
     setNewPrefill({ showPrefill: false, nacionalidade_prefill: "", estado_civil_prefill: "", regime_trabalho_prefill: "", renda_prefill: "", meses_36_prefill: "", dependentes_prefill: "", valor_entrada_prefill: "", restricao_prefill: "", observacoes_admin: "" });
     setShowAddModal(false);
   };
@@ -1200,6 +1214,57 @@ export function BasesUI() {
                   <option value="lyx">Lyx</option>
                 </select>
               </div>
+              {newLead.source_type === "campanha" && (
+                <>
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}>Plataforma da campanha</label>
+                    <select
+                      className={styles.select}
+                      value={newLead.campaign_platform}
+                      onChange={(e) => setNewLead({ ...newLead, campaign_platform: e.target.value })}
+                    >
+                      <option value="">— selecione —</option>
+                      <option value="Facebook">Facebook</option>
+                      <option value="Instagram">Instagram</option>
+                      <option value="Meta">Meta</option>
+                      <option value="Google">Google</option>
+                      <option value="Outro">Outro</option>
+                    </select>
+                  </div>
+                  <div className={styles.formGroup}>
+                    <label className={styles.label}>Nome da campanha</label>
+                    <input
+                      type="text"
+                      className={styles.input}
+                      value={newLead.campaign_name}
+                      onChange={(e) => setNewLead({ ...newLead, campaign_name: e.target.value })}
+                      placeholder="Ex: campanha-fevereiro-2025"
+                    />
+                  </div>
+                  <div className={styles.formRow}>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>Conjunto de anúncios (adset)</label>
+                      <input
+                        type="text"
+                        className={styles.input}
+                        value={newLead.campaign_adset}
+                        onChange={(e) => setNewLead({ ...newLead, campaign_adset: e.target.value })}
+                        placeholder="Ex: adset-leads-sp"
+                      />
+                    </div>
+                    <div className={styles.formGroup}>
+                      <label className={styles.label}>Anúncio (ad)</label>
+                      <input
+                        type="text"
+                        className={styles.input}
+                        value={newLead.campaign_ad}
+                        onChange={(e) => setNewLead({ ...newLead, campaign_ad: e.target.value })}
+                        placeholder="Ex: ad-banner-v2"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
               <div className={styles.formGroup}>
                 <label htmlFor="observacao" className={styles.label}>
                   Observação

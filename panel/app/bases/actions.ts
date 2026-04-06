@@ -23,6 +23,10 @@ export async function savePrefillOnLeadCreateAction(
     restricao_prefill?: boolean | null;
     origem_lead?: string | null;
     observacoes_admin?: string | null;
+    campaign_platform?: string | null;
+    campaign_name?: string | null;
+    campaign_adset?: string | null;
+    campaign_ad?: string | null;
     updated_by?: string | null;
     [key: string]: unknown;
   },
@@ -53,6 +57,10 @@ export async function savePrefillOnLeadCreateAction(
         ...(payload.restricao_prefill != null ? { restricao: parseBoolStrict(payload.restricao_prefill) } : {}),
         ...(payload.origem_lead != null ? { origem_lead: payload.origem_lead } : {}),
         ...(payload.observacoes_admin != null ? { observacoes_admin: payload.observacoes_admin } : {}),
+        ...(payload.campaign_platform != null ? { campaign_platform: payload.campaign_platform } : {}),
+        ...(payload.campaign_name != null ? { campaign_name: payload.campaign_name } : {}),
+        ...(payload.campaign_adset != null ? { campaign_adset: payload.campaign_adset } : {}),
+        ...(payload.campaign_ad != null ? { campaign_ad: payload.campaign_ad } : {}),
         updated_by: payload.updated_by ?? "admin_panel",
         source: "admin_inicial",
       },

@@ -659,7 +659,7 @@ export function BasesUI() {
             <button
               type="button"
               className={styles.buttonSecondary}
-              onClick={() => setShowAddModal(true)}
+              onClick={() => { setShowAddModal(true); setActionError(null); }}
               disabled={actionBusy}
             >
               <span className={styles.buttonIcon}>+</span>
@@ -1412,6 +1412,11 @@ export function BasesUI() {
                 )}
               </div>
             </form>
+            {actionError && (
+              <div className={styles.modalError}>
+                {actionError}
+              </div>
+            )}
             <div className={styles.modalFooter}>
               <button
                 type="button"

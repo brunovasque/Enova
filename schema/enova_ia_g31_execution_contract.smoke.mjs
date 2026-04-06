@@ -249,10 +249,11 @@ test("15. Transição: authorized_for_controlled_execution → execution_contrac
   assert.equal(next, "execution_contract_ready");
 });
 
-// 16. execution_contract_ready é estado terminal
-test("16. execution_contract_ready é estado terminal (nenhuma ação válida)", () => {
+// 16. execution_contract_ready agora tem ação preparar_bridge_integracao [G3.2]
+test("16. execution_contract_ready tem ação preparar_bridge_integracao (G3.2 — não mais terminal)", () => {
   const actions = PREPARATION_VALID_ACTIONS["execution_contract_ready"];
-  assert.equal(actions.length, 0, "execution_contract_ready não deve ter ações válidas");
+  // G3.2: execution_contract_ready recebeu preparar_bridge_integracao — deixou de ser terminal
+  assert.ok(actions.includes("preparar_bridge_integracao"), "execution_contract_ready deve aceitar preparar_bridge_integracao (G3.2)");
 });
 
 // 17. Transições inválidas para preparar_contrato_execucao retornam null
@@ -468,9 +469,10 @@ test("42. authorized_for_controlled_execution rejeita ações inválidas (null)"
   }
 });
 
-// 43. execution_contract_ready: PREPARATION_VALID_ACTIONS é array vazio
-test("43. execution_contract_ready: PREPARATION_VALID_ACTIONS é array vazio", () => {
-  assert.deepEqual(PREPARATION_VALID_ACTIONS["execution_contract_ready"], []);
+// 43. execution_contract_ready: PREPARATION_VALID_ACTIONS tem preparar_bridge_integracao (G3.2)
+test("43. execution_contract_ready: PREPARATION_VALID_ACTIONS contém preparar_bridge_integracao (G3.2)", () => {
+  // G3.2 changed execution_contract_ready from terminal to having preparar_bridge_integracao
+  assert.ok(PREPARATION_VALID_ACTIONS["execution_contract_ready"].includes("preparar_bridge_integracao"));
 });
 
 // 44. EXECUTION_CONTRACT_READY_LABEL não vazio

@@ -28,6 +28,9 @@
  */
 
 import assert from "node:assert/strict";
+// vm: used to extract and test pure functions from worker source
+// without loading the full worker infrastructure (avoids side effects,
+// network calls, and unresolved dependencies).
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -45,10 +48,15 @@ const workerSrc = readFileSync(workerPath, "utf-8");
 // ================================================================
 const _VM_BLOCK_START = "// CAMADA CANÔNICA DE FALA COGNITIVA SOBERANA";
 const _VM_BLOCK_END = "// 🧠 COGNITIVE V2 — Adapter + Runner";
-const _vmBlockSrc = workerSrc.substring(
-  workerSrc.indexOf(_VM_BLOCK_START),
-  workerSrc.indexOf(_VM_BLOCK_END)
-) + `
+const _vmStartIdx = workerSrc.indexOf(_VM_BLOCK_START);
+const _vmEndIdx = workerSrc.indexOf(_VM_BLOCK_END);
+if (_vmStartIdx === -1 || _vmEndIdx === -1 || _vmEndIdx <= _vmStartIdx) {
+  throw new Error(
+    `VM block markers not found or invalid in worker source. ` +
+    `Start: "${_VM_BLOCK_START}" at ${_vmStartIdx}, End: "${_VM_BLOCK_END}" at ${_vmEndIdx}`
+  );
+}
+const _vmBlockSrc = workerSrc.substring(_vmStartIdx, _vmEndIdx) + `
 ;__EXPORTS.reconcileClientInput = reconcileClientInput;
 __EXPORTS.buildRoundIntent = buildRoundIntent;
 __EXPORTS.buildMinimalCognitiveFallback = buildMinimalCognitiveFallback;
@@ -693,7 +701,8 @@ console.log("\n── SECTION K: Limitações honestas do overlap ──");
 
 test("63. LIMITAÇÃO: off-trail sem ? não é detectado como overlap", () => {
   // Não temos cobertura para "quero saber sobre juros" sem ?
-  const ri = _buildRoundIntent(_mkSt(), "quero saber sobre os juros do financiamento");
+  const input = "quero saber sobre os juros do financiamento";
+  const ri = _buildRoundIntent(_mkSt({ last_user_text: input }), input);
   assert.strictEqual(ri.pergunta_paralela_detectada, false, "Sem ? → não detectado como pergunta paralela");
   assert.strictEqual(ri.pode_ter_multiplas_intencoes, false, "Sem ? → não detectado como múltiplas intenções");
   // Esta é uma limitação conhecida e declarada.
@@ -701,7 +710,8 @@ test("63. LIMITAÇÃO: off-trail sem ? não é detectado como overlap", () => {
 
 test("64. LIMITAÇÃO: inputs com ? mas ≤ 20 chars NÃO disparam overlap completo", () => {
   // "posso usar fgts?" = 16 chars ≤ 20 → pode_ter_multiplas_intencoes=false
-  const ri = _buildRoundIntent(_mkSt(), "posso usar fgts?");
+  const input = "posso usar fgts?";
+  const ri = _buildRoundIntent(_mkSt({ last_user_text: input }), input);
   assert.strictEqual(ri.pergunta_paralela_detectada, true, "Tem ? → pergunta paralela detectada");
   assert.strictEqual(ri.pode_ter_multiplas_intencoes, false, "Mas 16 ≤ 20 → não classifica como múltiplas intenções");
   // Limitação: threshold de 20 chars pode não capturar perguntas curtas mas legítimas
@@ -709,7 +719,8 @@ test("64. LIMITAÇÃO: inputs com ? mas ≤ 20 chars NÃO disparam overlap compl
 
 test("65. LIMITAÇÃO: complemento sem ? não dispara overlap prefix", () => {
   // "e também minha mãe" sem ? → sem overlap prefix mesmo sendo complemento
-  const ri = _buildRoundIntent(_mkSt(), "e também minha mãe vai comprar");
+  const input = "e também minha mãe vai comprar";
+  const ri = _buildRoundIntent(_mkSt({ last_user_text: input }), input);
   assert.strictEqual(ri.info_complementar_detectada, true, "Complemento detectado");
   assert.strictEqual(ri.pode_ter_multiplas_intencoes, false, "Mas sem ? → sem múltiplas intenções");
   // buildMinimalCognitiveFallback não adiciona prefix para este caso.

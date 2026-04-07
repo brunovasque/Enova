@@ -251,7 +251,7 @@ function controlLength(text, maxLen) {
     // Clean trailing orphan fragment left by word-boundary cut
     result = result.replace(TRAILING_FRAGMENT_PATTERN, "").trim();
     result = result.replace(TRAILING_ORPHAN_PUNCTUATION, "").trim();
-    return result || text.substring(0, lastSpace).trim() + "…";
+    return result || truncated.substring(0, lastSpace).trim() + "…";
   }
   return truncated.trim() + "…";
 }

@@ -18905,6 +18905,23 @@ const CORRESPONDENTE_RETURN_MIN_CONFIDENCE_AUTO = 0.75;
 // NUNCA fica sem resposta.
 // ================================================================
 
+// ── Contenção stage-aware do topo ──────────────────────────────────────────
+// Padrões de coleta estrutural prematura — proibidos no topo (inicio_programa).
+// Se a resposta do LLM contiver qualquer desses padrões, ela é semanticamente
+// inadequada para a abertura e NÃO pode dominar como llm_real.
+// A contenção segura entra automaticamente via fallback.
+const TOPO_PREMATURE_COLLECTION = /\b(?:estado\s+civil|solteiro\(?a?\)?|casad[oa]|divorci|separad[oa]|vi[uú]v[oa]|uni[aã]o\s+est[aá]vel|nome\s+completo|qual\s+(?:[eé]\s+)?(?:o\s+)?seu\s+nome|nacionalidade|voc[eê]\s+[eé]\s+brasileir|brasileiro\(?a?\)?(?:\s+nat[oa])?|estrangeir[oa]?|regime\s+de\s+trabalho|CLT|aut[oô]nom[oa]|renda\s+mensal|sal[aá]rio|quanto\s+(?:voc[eê]\s+)?ganh|CTPS|carteira\s+de\s+trabalho|SPC|Serasa|restri[cç][aã]o\s+no)/i;
+
+/**
+ * _isTopoReplySemanticallySafe — Valida que o reply NÃO puxa coleta estrutural
+ * prematura no topo (inicio_programa). Retorna true se a resposta é segura
+ * para uso como abertura; false se contém padrões de coleta futura.
+ */
+function _isTopoReplySemanticallySafe(reply) {
+  if (!reply || typeof reply !== "string") return false;
+  return !TOPO_PREMATURE_COLLECTION.test(reply);
+}
+
 /**
  * TOPO_HAPPY_PATH_SPEECH — Mapa canônico de falas cognitivas por transição.
  *
@@ -19061,7 +19078,7 @@ const TOPO_HAPPY_PATH_SPEECH = {
       "Você já sabe como funciona ou prefere que eu explique rapidinho?",
       "Me diz *sim* (já sei) ou *não* (me explica)."
     ],
-    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
+    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply) && _isTopoReplySemanticallySafe(reply)
   },
 
   // ── inicio_programa: saudação/reentrada (greeting puro, não pós-reset) ──
@@ -19074,7 +19091,7 @@ const TOPO_HAPPY_PATH_SPEECH = {
       "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
       "Me responde com *sim* (já sei) ou *não* (quero que explique)."
     ],
-    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
+    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply) && _isTopoReplySemanticallySafe(reply)
   },
 
   // ── inicio_nome: nome reaproveitado de sinal anterior (confiança alta) ──
@@ -19114,7 +19131,7 @@ const TOPO_HAPPY_PATH_SPEECH = {
       "Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho?",
       "Me diz *sim* (já sei) ou *não* (me explica)."
     ],
-    validate: (reply) => reply && reply.length > 20 && /sim|não|nao|funciona|programa/i.test(reply) && /\?/.test(reply)
+    validate: (reply) => reply && reply.length > 20 && /sim|não|nao|funciona|programa/i.test(reply) && /\?/.test(reply) && _isTopoReplySemanticallySafe(reply)
   },
 
   // ── inicio_nome: nome aceito → avança para inicio_nacionalidade ──

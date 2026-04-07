@@ -23064,6 +23064,22 @@ async function runFunnel(env, st, userText) {
         if (!v2OnWithLlm) {
           st.__cognitive_reply_prefix = null;
         }
+
+        // ── TOPO BYPASS GUARD ──────────────────────────────────────────
+        // No topo (inicio / inicio_decisao / inicio_programa) o cognitive
+        // assist geral NÃO pode selar takes_final sem passar pelo mesmo
+        // contrato de aceitação semântica e tonal do topo.
+        // Se o reply falhar no validador, revoga takes_final e prefix —
+        // a fala final será decidida pelo contrato de topo downstream
+        // (getTopoHappyPathSpeech → validateInicioProgramaChoiceSpeech).
+        if (st.__cognitive_v2_takes_final && (stage === "inicio" || stage === "inicio_decisao" || stage === "inicio_programa")) {
+          const _topoReply = st.__cognitive_reply_prefix || "";
+          if (!_isTopoReplySemanticallySafe(_topoReply) || !_isTopoReplyToneSafe(_topoReply)) {
+            st.__cognitive_reply_prefix = null;
+            st.__cognitive_v2_takes_final = false;
+            st.__speech_arbiter_source = null;
+          }
+        }
       } else {
         st.__cognitive_reply_prefix = null;
         st.__cognitive_v2_takes_final = false;

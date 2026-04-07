@@ -106,9 +106,19 @@ const SAFE_REPLACEMENT_MAP = Object.freeze({
 //   - "me diz/conta/fala (o) seu" → lead-in to "me diz o seu nome?"
 //   - "pra começar"       → lead-in like "pra começar, qual é o seu…"
 //   - "(o|a|os|as) seu/sua" → orphan article + possessive
-const TRAILING_FRAGMENT_PATTERN = /(?:,\s*)?(?:qual\s+(?:[eé]\s+)?(?:o\s+)?seu\s*|me\s+(?:diz|conta|fala)\s+(?:o\s+)?seu?\s*|pra\s+come[cç]ar\s*[,:]?\s*|(?:e\s+)?(?:o|a|os|as)\s+seu[as]?\s*)$/i;
+//   - "você é"            → orphan truncated fragment
+//   - "gostaria de saber" → orphan trailing lead-in
+//   - "eu preciso"        → orphan trailing lead-in
+//   - "me conta"          → orphan trailing lead-in
+const TRAILING_FRAGMENT_PATTERN = /(?:,\s*)?(?:qual\s+(?:[eé]\s+)?(?:o\s+)?seu\s*|me\s+(?:diz|conta|fala)\s+(?:o\s+)?seu?\s*|pra\s+come[cç]ar\s*[,:]?\s*|(?:e\s+)?(?:o|a|os|as)\s+seu[as]?\s*|voc[eê]\s+[eé]\s*|gostaria\s+de\s+(?:saber)?\s*|eu\s+preciso\s*|me\s+conta\s*|quero\s+(?:que|saber)\s*|(?:e\s+)?agora\s*[,:]?\s*)$/i;
 // Orphan punctuation left at end after fragment removal
 const TRAILING_ORPHAN_PUNCTUATION = /[,;:\-–—]\s*$/;
+
+// ── Topo safe minimum reconstruction ──────────────────────────────────────
+// When stripFutureStageCollection destroys the reply integrity for topo stages,
+// this safe minimum replaces the broken output. Must be compatible with the
+// topo contract: human, Enova identity, MCMV authority, parseável choice.
+const TOPO_SAFE_MINIMUM = "Eu sou a Enova e posso te ajudar com o Minha Casa Minha Vida. Você já sabe como funciona ou quer que eu te explique?";
 
 const COLLECTION_PATTERNS = Object.freeze({
   estado_civil: /\b(?:estado civil|solteiro|casad[oa]|divorci|separad[oa]|vi[uú]v[oa]|uni[aã]o est[aá]vel)\b[^?]*?\?/gi,
@@ -168,6 +178,13 @@ function stripFutureStageCollection(reply, currentStage) {
   result = result.replace(TRAILING_FRAGMENT_PATTERN, "").trim();
   // Clean trailing comma, colon, or dash left after fragment removal
   result = result.replace(TRAILING_ORPHAN_PUNCTUATION, "").trim();
+
+  // ── Integrity guard for topo ──
+  // If stripping destroyed the reply for a topo stage (result too short,
+  // empty, or ends mid-word/mid-phrase), reconstruct with a safe minimum.
+  if (group === "topo" && (!result || result.length < 20 || /\b\w{1,3}$/.test(result))) {
+    return TOPO_SAFE_MINIMUM;
+  }
 
   return result;
 }
@@ -230,7 +247,11 @@ function controlLength(text, maxLen) {
   // Fall back to word boundary
   const lastSpace = truncated.lastIndexOf(" ");
   if (lastSpace > limit * 0.6) {
-    return truncated.substring(0, lastSpace).trim() + "…";
+    let result = truncated.substring(0, lastSpace).trim();
+    // Clean trailing orphan fragment left by word-boundary cut
+    result = result.replace(TRAILING_FRAGMENT_PATTERN, "").trim();
+    result = result.replace(TRAILING_ORPHAN_PUNCTUATION, "").trim();
+    return result || text.substring(0, lastSpace).trim() + "…";
   }
   return truncated.trim() + "…";
 }

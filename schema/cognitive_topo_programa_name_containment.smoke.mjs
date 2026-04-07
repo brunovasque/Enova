@@ -64,13 +64,13 @@ const topoBlockMatch = workerSrc.match(
 );
 assert.ok(topoBlockMatch, "TOPO_HAPPY_PATH_SPEECH not found in worker");
 
-// Extract _isTopoReplySemanticallySafe
+// Extract _isTopoReplySemanticallySafe + _isTopoReplyToneSafe
 const safetyFnMatch = workerSrc.match(
-  /const TOPO_PREMATURE_COLLECTION[\s\S]*?function _isTopoReplySemanticallySafe\(reply\)\s*\{[\s\S]*?\n\}/
+  /const TOPO_PREMATURE_COLLECTION[\s\S]*?function _isTopoReplyToneSafe\(reply\)\s*\{[\s\S]*?\n\}/
 );
-assert.ok(safetyFnMatch, "_isTopoReplySemanticallySafe not found in worker");
+assert.ok(safetyFnMatch, "_isTopoReplySemanticallySafe/_isTopoReplyToneSafe not found in worker");
 
-// Build evaluate context with TOPO_PREMATURE_COLLECTION + _isTopoReplySemanticallySafe + TOPO_HAPPY_PATH_SPEECH
+// Build evaluate context with TOPO_PREMATURE_COLLECTION + TOPO_INSTITUTIONAL_TONE + safety fns + TOPO_HAPPY_PATH_SPEECH
 const evalCode = safetyFnMatch[0] + "\n" + topoBlockMatch[0] + "\nreturn TOPO_HAPPY_PATH_SPEECH;";
 const TOPO_HAPPY_PATH_SPEECH = new Function(evalCode)();
 

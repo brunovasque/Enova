@@ -294,10 +294,12 @@ await asyncTest("15. setTopoHappyPathFlags accepts cognitive_real", async () => 
   );
 });
 
-await asyncTest("16. setTopoHappyPathFlags accepts heuristic_guidance", async () => {
+await asyncTest("16. setTopoHappyPathFlags rejects heuristic_guidance (PR #550 — no fala final)", async () => {
+  // PR #550 BLOCO 3: heuristic_guidance no longer produces fala final.
+  // setTopoHappyPathFlags now has only two branches: cognitive_real (LLM) and else (clear all).
   assert.ok(
-    workerSrc.includes('happyResult.source === "heuristic_guidance"'),
-    "setTopoHappyPathFlags must accept heuristic_guidance"
+    !workerSrc.includes('happyResult.source === "heuristic_guidance"'),
+    "setTopoHappyPathFlags must NOT have heuristic_guidance branch (PR #550)"
   );
 });
 

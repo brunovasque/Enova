@@ -1,0 +1,38 @@
+Data/hora: 2026-04-07T19:50:32.0360670-03:00
+Branch: copilot/implementacao-fase-estrutural-again
+Commit final da resolucao de conflito: 8e56dd700e36dd2de231d6f12acd9226057594d5
+
+Arquivos com conflito:
+- Enova worker.js
+
+Como cada conflito foi resolvido:
+- Enova worker.js: os conflitos estavam nas validacoes de TOPO_HAPPY_PATH_SPEECH para:
+  - inicio_programa:first_after_reset
+  - inicio_programa:greeting_reentrada
+  - inicio_programa:ambiguous
+- A main adicionou os guardrails gerais _isTopoReplySemanticallySafe(reply) e _isTopoReplyToneSafe(reply).
+- O patch da PR #558 adicionou validateInicioProgramaChoiceSpeech(reply), que exige a escolha semantica compativel com o parser atual: "ja conhece/ja sabe" versus "quer explicacao".
+- A resolucao preservou os dois lados: validateInicioProgramaChoiceSpeech agora tambem chama _isTopoReplySemanticallySafe(text) e _isTopoReplyToneSafe(text), e as tres chaves do topo continuam usando validateInicioProgramaChoiceSpeech.
+
+O que foi preservado:
+- Endurecimento da validacao cognitiva do topo em first_after_reset, greeting_reentrada e ambiguous.
+- Bloqueio de coleta futura cedo.
+- Semantica "ja conhece/ja sabe" versus "quer explicacao".
+- Parser, gate, stage, nextStage, persistencia e modo humano manual.
+- Mudancas ja trazidas da main pelo merge.
+
+Smoke tests rodados:
+- node --check "Enova worker.js" -> passou
+- node schema/cognitive_topo_inicio_programa_validation.smoke.mjs -> passou
+- node schema/cognitive_reset_topo_surface.smoke.mjs -> passou, 42 passed, 0 failed
+- node schema/cognitive_inicio_programa_resolution.smoke.mjs -> passou, 30 passed, 0 failed
+- node schema/cognitive_topo_happy_path_migration.smoke.mjs -> passou, 40 passed, 0 failed
+- node schema/cognitive_topo_trigger.smoke.mjs -> passou, 14 passed, 0 failed
+
+Riscos residuais:
+- A branch agora contem a atualizacao de origin/main via merge; arquivos fora do conflito vieram da main e nao foram editados manualmente nesta resolucao.
+- A validacao do topo ficou propositalmente mais restritiva para impedir fala cognitiva que nao feche na escolha parseavel ou que puxe coleta futura.
+- Restam arquivos nao rastreados preexistentes fora do commit: .wrangler/, DIAGNOSTICO_TOPO_INICIO_PROGRAMA.txt e sessao-terminal.txt.
+
+Rollback exato:
+- Reverter a resolucao de conflito/merge: git revert -m 1 8e56dd700e36dd2de231d6f12acd9226057594d5

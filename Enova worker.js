@@ -19319,6 +19319,47 @@ function setTopoHappyPathFlags(st, happyResult) {
 }
 
 // ================================================================
+// ALIASES GENÉRICOS DE SPEECH — INFRAESTRUTURA (Fase 0)
+//
+// Thin delegates para as funções topo já provadas.
+// A lógica interna de getTopoHappyPathSpeech / setTopoHappyPathFlags
+// já é 100% stage-agnostic — apenas o nome carregava acoplamento ao topo.
+//
+// Estes aliases permitem que fases futuras (meio/gates/operacional)
+// chamem speech cognitivo sem referência ao topo no nome.
+//
+// CONTRATO:
+// - NENHUMA lógica nova. Delegates puros.
+// - getTopoHappyPathSpeech e setTopoHappyPathFlags continuam canônicos.
+// - HAPPY_PATH_SPEECH é a mesma referência que TOPO_HAPPY_PATH_SPEECH.
+// - Callsites existentes (topo) NÃO são alterados.
+// - Motor mecânico intacto: zero stage/gate/parser/nextStage/persistência.
+// ================================================================
+
+/**
+ * HAPPY_PATH_SPEECH — Mapa canônico de speech por transição.
+ * Mesma referência que TOPO_HAPPY_PATH_SPEECH (objeto compartilhado).
+ * Adicionar entries aqui é o mesmo que adicionar em TOPO_HAPPY_PATH_SPEECH.
+ */
+const HAPPY_PATH_SPEECH = TOPO_HAPPY_PATH_SPEECH;
+
+/**
+ * getHappyPathSpeech — Obtém fala cognitiva para qualquer transição do funil.
+ * Delegate puro para getTopoHappyPathSpeech (mesma assinatura, mesmo retorno).
+ */
+async function getHappyPathSpeech(env, transitionKey, st, overrides) {
+  return getTopoHappyPathSpeech(env, transitionKey, st, overrides);
+}
+
+/**
+ * setHappyPathFlags — Configura flags de fala no state para qualquer stage.
+ * Delegate puro para setTopoHappyPathFlags (mesma assinatura, mesmo efeito).
+ */
+function setHappyPathFlags(st, happyResult) {
+  return setTopoHappyPathFlags(st, happyResult);
+}
+
+// ================================================================
 // RESOLVEDORES COGNITIVOS ESTRUTURADOS — TOPO DO FUNIL
 // Cada resolvedor devolve classificação estruturada limitada ao
 // contrato do stage atual. O mecânico continua soberano em

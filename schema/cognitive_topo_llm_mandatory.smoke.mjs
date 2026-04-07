@@ -77,7 +77,7 @@ const _modoHumanoRender = _mhCtx.__EXPORTS.modoHumanoRender;
 const _setFlagsStart = workerSrc.indexOf("function setTopoHappyPathFlags(st, happyResult)");
 const _setFlagsEnd = workerSrc.indexOf("// RESOLVEDORES COGNITIVOS ESTRUTURADOS");
 if (_setFlagsStart === -1 || _setFlagsEnd === -1) throw new Error("setTopoHappyPathFlags not found");
-const _sfCtx = vm.createContext({ __EXPORTS: {} });
+const _sfCtx = vm.createContext({ __EXPORTS: {}, TOPO_HAPPY_PATH_SPEECH: {}, getTopoHappyPathSpeech: async () => ({}) });
 vm.runInContext(workerSrc.substring(_setFlagsStart, _setFlagsEnd) + `;__EXPORTS.setTopoHappyPathFlags = setTopoHappyPathFlags;`, _sfCtx);
 const _setTopoHappyPathFlags = _sfCtx.__EXPORTS.setTopoHappyPathFlags;
 

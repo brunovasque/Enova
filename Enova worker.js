@@ -22646,12 +22646,9 @@ async function runFunnel(env, st, userText) {
 
     // ── SILÊNCIO PÓS-RESET ──
     // Pós-reset: Enova fica em silêncio até o cliente mandar a primeira mensagem.
-    // Marca _post_reset=true para que inicio_programa saiba tratar a primeira msg
-    // com cognitivo real em vez de bloco mecânico automático.
-    await upsertState(env, novoSt.wa_id, {
-      _post_reset: true
-    });
-    novoSt._post_reset = true;
+    // Detecção de "first after reset" usa colunas canônicas: fase_conversa === "inicio_programa"
+    // && last_user_text === null && last_processed_text === null (já garantido acima).
+    // Nenhuma coluna nova necessária.
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -23450,25 +23447,10 @@ case "inicio_programa": {
   const nt = normalizeText(userText || st.last_user_text || "");
   // Exemplos cobertos: "já sei como funciona", "pode explicar rapidinho", "não entendi direito"
 
-  // ── Pós-reset: limpa flag transitória e marca contexto local ──
-  const _isFirstAfterReset = st._post_reset === true;
-  if (_isFirstAfterReset) {
-    await upsertState(env, st.wa_id, { _post_reset: null });
-    st._post_reset = null;
-  }
-
-  // ── Pós-reset: tentar capturar nome plausível como candidato transitório ──
-  // Se o cliente já mandou um nome antes de inicio_nome, guarda sinal.
-  // Não captura saudações curtas ("Oi", "Olá", etc.) como nome.
-  const _ntGreetingGuard = /^(oi+|ola|olá|opa|eae|eai|fala|bom dia|boa tarde|boa noite|e ai|e aí)\b/i.test(nt) ||
-    /\b(quero comecar|quero começar|voltei|to de volta|tô de volta|vamos la|vamos lá)\b/i.test(nt);
-  if (_isFirstAfterReset && !st.name_candidate && !_ntGreetingGuard) {
-    const _nameProbe = resolveInicioNomeStructured(userText);
-    if (_nameProbe && _nameProbe.detected_answer === "name_candidate" && _nameProbe.payload?.extracted_name) {
-      st.name_candidate = _nameProbe.payload.extracted_name;
-      await upsertState(env, st.wa_id, { name_candidate: _nameProbe.payload.extracted_name });
-    }
-  }
+  // ── Pós-reset: detecta primeira mensagem após reset usando colunas canônicas ──
+  // Após reset: fase_conversa="inicio_programa", last_user_text=null, last_processed_text=null.
+  // Nenhuma coluna inventada necessária.
+  const _isFirstAfterReset = !st.last_user_text && !st.last_processed_text;
 
   // 🟢 DETECÇÃO DE "SIM"
   const sim = isYes(nt) ||
@@ -23560,16 +23542,6 @@ case "inicio_programa": {
       /^(oi+|ola|olá|opa|eae|eai|fala|bom dia|boa tarde|boa noite|e ai|e aí)\b/i.test(nt) ||
       /\b(quero comecar|quero começar|voltei|to de volta|tô de volta|vamos la|vamos lá)\b/i.test(nt);
 
-    // ── Pós-reset: capturar nome plausível mesmo no bloco ambíguo ──
-    // Não captura saudações curtas ("Oi", "Olá", "Bom dia") como nome.
-    if (!st.name_candidate && !_isGreetingOrReentry) {
-      const _nameProbe = resolveInicioNomeStructured(userText);
-      if (_nameProbe && _nameProbe.detected_answer === "name_candidate" && _nameProbe.payload?.extracted_name) {
-        st.name_candidate = _nameProbe.payload.extracted_name;
-        await upsertState(env, st.wa_id, { name_candidate: _nameProbe.payload.extracted_name });
-      }
-    }
-
     // ── TOPO HAPPY PATH MIGRATION: ambiguous / greeting / first-after-reset ──
     // Pós-reset: usa speech key dedicada para primeira mensagem (cognitivo real + contexto do cliente).
     // Caso normal: usa speech key de ambiguous/greeting.
@@ -23634,7 +23606,6 @@ case "inicio_programa": {
       details: {
         userText,
         first_after_reset: _isFirstAfterReset,
-        name_candidate: st.name_candidate || null,
         cognitive_takes_final: st.__cognitive_v2_takes_final || false,
         speech_source: st.__cognitive_v2_takes_final ? "cognitive_real" : "fallback_mechanical"
       }
@@ -23730,90 +23701,9 @@ case "inicio_nome": {
     message: "Entrando na fase: inicio_nome",
     details: {
       last_user_text: st.last_user_text || null,
-      funil_status: st.funil_status || null,
-      name_candidate: st.name_candidate || null
+      funil_status: st.funil_status || null
     }
   });
-
-  // ── Reaproveitamento de nome candidato já capturado antes do inicio_nome ──
-  // Se o cliente já mandou um nome plausível antes (ex: pós-reset), reutiliza
-  // sem pedir de novo de forma burocrática.
-  if (st.name_candidate) {
-    const _candidato = String(st.name_candidate).trim();
-    const _partesCand = _candidato.split(/\s+/).filter(p => p.length >= 2);
-    const _confiancaAlta = _partesCand.length >= 2 && _partesCand.length <= 6;
-    const _confiancaMedia = _partesCand.length === 1 && _candidato.length >= 2;
-
-    // Limpa candidato transitório do estado (já foi consumido)
-    await upsertState(env, st.wa_id, { name_candidate: null });
-    st.name_candidate = null;
-
-    if (_confiancaAlta) {
-      // ── Confiança alta: aceita direto, salva e avança ──
-      const _primeiroNomeCand = _partesCand[0];
-      await upsertState(env, st.wa_id, { nome: _candidato });
-
-      await funnelTelemetry(env, {
-        wa_id: st.wa_id,
-        event: "exit_stage",
-        stage,
-        next_stage: "inicio_nacionalidade",
-        severity: "info",
-        message: "inicio_nome: nome reaproveitado de sinal anterior (confiança alta) — avançando",
-        details: { nome: _candidato, primeiro_nome: _primeiroNomeCand, source: "name_candidate_high" }
-      });
-
-      const _reuseSpeech = await getTopoHappyPathSpeech(env, "inicio_nome:nome_reaproveitado", st, {
-        cognitiveMessage: `meu nome é ${_candidato}`,
-        fallback: [
-          `Perfeito, ${_primeiroNomeCand}! 👌`,
-          "Agora me diz: você é *brasileiro(a)* ou *estrangeiro(a)*?"
-        ]
-      });
-      setTopoHappyPathFlags(st, _reuseSpeech);
-
-      return step(
-        env,
-        st,
-        [
-          `Perfeito, ${_primeiroNomeCand}! 👌`,
-          "Agora me diz: você é *brasileiro(a)* ou *estrangeiro(a)*?"
-        ],
-        "inicio_nacionalidade"
-      );
-    }
-
-    if (_confiancaMedia) {
-      // ── Confiança média: confirma curto e fica em inicio_nome ──
-      const _confirmSpeech = await getTopoHappyPathSpeech(env, "inicio_nome:nome_confirmar_candidato", st, {
-        cognitiveMessage: `meu nome é ${_candidato}`,
-        fallback: [
-          `Seu nome é ${_candidato}? Me manda o *nome completo* pra eu registrar certinho 😊`
-        ]
-      });
-      setTopoHappyPathFlags(st, _confirmSpeech);
-
-      await funnelTelemetry(env, {
-        wa_id: st.wa_id,
-        event: "exit_stage",
-        stage,
-        next_stage: "inicio_nome",
-        severity: "info",
-        message: "inicio_nome: nome candidato com confiança média — confirmação curta",
-        details: { candidato: _candidato, source: "name_candidate_medium" }
-      });
-
-      return step(
-        env,
-        st,
-        [
-          `Seu nome é ${_candidato}? Me manda o *nome completo* pra eu registrar certinho 😊`
-        ],
-        "inicio_nome"
-      );
-    }
-    // ── Confiança baixa (fallthrough): ignora candidato, segue fluxo normal ──
-  }
 
   // Exemplos cobertos: "meu nome é Ana Maria", "sou João Pedro", "aqui é Carla Souza"
   // Texto bruto digitado pelo cliente

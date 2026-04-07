@@ -1,0 +1,33 @@
+CORREÇÃO CIRÚRGICA — TOPO + NOME DO PROGRAMA
+==============================================
+
+PROBLEMA 1 — NOME DO PROGRAMA CONTAMINADO
+A regra global "casa" → "imóvel" contaminava o nome oficial
+"Minha Casa Minha Vida" → "Minha imóvel Minha Vida".
+
+CORREÇÃO: Placeholder pattern protege "Minha Casa Minha Vida" em:
+- cognitive/src/final-speech-contract.js (replaceCasa)
+- Enova worker.js (sanitizeCognitiveReply)
+
+PROBLEMA 2 — TOPO ACEITANDO COLETA PREMATURA
+applyFinalSpeechContract com llmSovereign=true pulava
+stripFutureStageCollection, permitindo LLM soberano no topo
+incluir perguntas de coleta estrutural prematura.
+
+CORREÇÃO: No bloco llmSovereign de applyFinalSpeechContract,
+quando stage é inicio_programa/inicio/inicio_decisao,
+stripFutureStageCollection agora é aplicado.
+
+ARQUIVOS ALTERADOS:
+- cognitive/src/final-speech-contract.js (3 edits: MCMV_PATTERN, replaceCasa, containsCasaInsteadOfImovel, applyFinalSpeechContract)
+- Enova worker.js (1 edit: sanitizeCognitiveReply)
+- schema/cognitive_topo_programa_name_containment.smoke.mjs (novo: 25 testes)
+
+NÃO TOCOU EM:
+- parser/gate/nextStage
+- persistência
+- fechamento/encerramento
+- composição/renda
+- regime/IR
+- docs/correspondente/visita
+- Fase 2+

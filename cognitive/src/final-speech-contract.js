@@ -44,6 +44,12 @@ const FORBIDDEN_PROMISE_PATTERNS = Object.freeze([
 // Captura "casa" isolada, mas não em "casado/casada/casamento/casal"
 const CASA_PATTERN = /\bcasa\b(?!d[oa]s?|ment|l\b|is\b)/gi;
 
+// ── Blindagem do nome oficial do programa ──────────────────────────────────
+// "Minha Casa Minha Vida" é nome próprio e NÃO deve sofrer replace para "imóvel".
+const MCMV_PATTERN = /Minha\s+Casa\s+Minha\s+Vida/gi;
+const MCMV_PLACEHOLDER = "\u200B__MCMV__\u200B";
+const MCMV_RESTORE_PATTERN = new RegExp(MCMV_PLACEHOLDER.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"), "g");
+
 // ── Controle de tamanho ────────────────────────────────────────────────────
 // 400 para coleta/conversação WhatsApp; 600 para stages operacionais (docs/visita/correspondente)
 // onde listas de documentos legitimamente precisam de mais espaço.
@@ -91,6 +97,19 @@ const SAFE_REPLACEMENT_MAP = Object.freeze({
 // The guard uses a stage-group ordering: each group defines forbidden downstream
 // collection patterns. A reply in stage X must not contain collection questions
 // about any stage group that follows X in the funnel.
+
+// ── Fragment residual detection ────────────────────────────────────────────
+// After stripping collection patterns, the result may end with a dangling
+// question preamble. Each alternative matches a common Brazilian Portuguese
+// sentence fragment that precedes a stripped question:
+//   - "qual (é o) seu"    → lead-in to "qual é o seu estado civil?"
+//   - "me diz/conta/fala (o) seu" → lead-in to "me diz o seu nome?"
+//   - "pra começar"       → lead-in like "pra começar, qual é o seu…"
+//   - "(o|a|os|as) seu/sua" → orphan article + possessive
+const TRAILING_FRAGMENT_PATTERN = /(?:,\s*)?(?:qual\s+(?:[eé]\s+)?(?:o\s+)?seu\s*|me\s+(?:diz|conta|fala)\s+(?:o\s+)?seu?\s*|pra\s+come[cç]ar\s*[,:]?\s*|(?:e\s+)?(?:o|a|os|as)\s+seu[as]?\s*)$/i;
+// Orphan punctuation left at end after fragment removal
+const TRAILING_ORPHAN_PUNCTUATION = /[,;:\-–—]\s*$/;
+
 const COLLECTION_PATTERNS = Object.freeze({
   estado_civil: /\b(?:estado civil|solteiro|casad[oa]|divorci|separad[oa]|vi[uú]v[oa]|uni[aã]o est[aá]vel)\b[^?]*?\?/gi,
   regime_trabalho: /\b(?:regime de trabalho|CLT|aut[oô]nomo|servidor|aposentad[oa])\b[^?]*?\?/gi,
@@ -141,6 +160,15 @@ function stripFutureStageCollection(reply, currentStage) {
   }
   // Clean up double spaces and orphan punctuation from stripping in one pass
   result = result.replace(/\s{2,}|\s+(?=[,.!?;:])/g, (m) => /\s+(?=[,.!?;:])/.test(m) ? "" : " ").trim();
+
+  // ── Fragment residual guard ──
+  // After stripping collection patterns, the result may end with a dangling
+  // preamble like "qual é o seu", "me diz o", "qual o seu" etc.
+  // Detect and remove trailing orphan sentence fragments.
+  result = result.replace(TRAILING_FRAGMENT_PATTERN, "").trim();
+  // Clean trailing comma, colon, or dash left after fragment removal
+  result = result.replace(TRAILING_ORPHAN_PUNCTUATION, "").trim();
+
   return result;
 }
 
@@ -179,7 +207,12 @@ function replaceForbiddenPromises(text) {
 }
 
 function replaceCasa(text) {
-  return text.replace(CASA_PATTERN, "imóvel");
+  // Protege nome oficial "Minha Casa Minha Vida" antes do replace global
+  let result = text.replace(MCMV_PATTERN, MCMV_PLACEHOLDER);
+  result = result.replace(CASA_PATTERN, "imóvel");
+  // Restaura nome oficial
+  result = result.replace(MCMV_RESTORE_PATTERN, "Minha Casa Minha Vida");
+  return result;
 }
 
 function controlLength(text, maxLen) {
@@ -238,11 +271,26 @@ export function applyFinalSpeechContract(reply, context = {}) {
 
   let result = reply;
 
-  // 1. Substituir "casa" por "imóvel"
+  // 1. Substituir "casa" por "imóvel" — guardrail mínimo (aplica sempre)
   result = replaceCasa(result);
 
-  // 2. Bloquear/ajustar promessas proibidas
+  // 2. Bloquear/ajustar promessas proibidas — guardrail mínimo (aplica sempre)
   result = replaceForbiddenPromises(result);
+
+  // ── BLOCO 4 (PR #550): Quando LLM é soberano, parar aqui. ──
+  // Guardrails mínimos aplicados acima. NÃO reescrever semântica:
+  // - NÃO adicionar empatia (altera tom)
+  // - NÃO truncar agressivamente (perde conteúdo)
+  // - NÃO strip future stage (pode alterar perguntas legítimas do LLM)
+  // EXCEÇÃO: no topo (inicio_programa), mesmo LLM soberano NÃO pode puxar
+  // coleta estrutural prematura — aplica stripFutureStageCollection.
+  if (context.llmSovereign === true) {
+    const currentStage = String(context.currentStage || "").toLowerCase().trim();
+    if (currentStage === "inicio_programa" || currentStage === "inicio" || currentStage === "inicio_decisao") {
+      result = stripFutureStageCollection(result, context.currentStage);
+    }
+    return normalizeWhitespace(result);
+  }
 
   // 2.5 Stage discipline: strip future-stage collection questions (ONE-STAGE-ONLY)
   result = stripFutureStageCollection(result, context.currentStage);
@@ -288,9 +336,10 @@ export function hasForbiddenPromise(text) {
  */
 export function containsCasaInsteadOfImovel(text) {
   if (!text || typeof text !== "string") return false;
-  // Create fresh RegExp to avoid lastIndex mutation on shared pattern
+  // Remove nome oficial do programa antes de verificar
+  const cleaned = text.replace(MCMV_PATTERN, "");
   const fresh = new RegExp(CASA_PATTERN.source, CASA_PATTERN.flags);
-  return fresh.test(text);
+  return fresh.test(cleaned);
 }
 
 /**

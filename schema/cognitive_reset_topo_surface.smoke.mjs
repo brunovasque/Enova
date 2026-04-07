@@ -3,9 +3,9 @@
  *
  * Smoke tests for reset/topo cognitive surface fix.
  * Validates:
- *   A) SILENT reset — no auto-speech, _post_reset flag set
+ *   A) SILENT reset — no auto-speech, post-reset detected via canonical columns
  *   B) After reset, first message from client gets cognitive-only response
- *   C) Name candidate capture and reuse before inicio_nome
+ *   C) No non-canonical columns persisted (name_candidate, _post_reset removed)
  *
  * Scenarios:
  *  1. reset + "oi"     → cognitive takes final, no mechanical reprompt
@@ -23,19 +23,19 @@
  * 13. stage/nextStage preserved after cognitive takes final
  * 14. cognitive engine produces useful reply for greeting at inicio_programa
  * 15. SILENT reset: no messages sent (silence)
- * 16. SILENT reset: _post_reset cleared after first message
+ * 16. SILENT reset: post-reset detected via canonical columns (last_user_text/last_processed_text null)
  * 17. First msg after reset: greeting + cognitive prefix → takes_final
  * 18. First msg after reset: stage preserved
- * 19. First msg after reset: non-greeting "Bruno Vasques" → takes_final
+ * 19. First msg after reset: non-greeting also gets cognitive
  * 20. Normal inicio (no reset) → no regression
  * 21. Silent reset: no impact on docs/correspondente/visita
- * 22. "Bruno Vasques" → detected as name_candidate
- * 23. "meu nome é Ana Silva" → detected as name_candidate
+ * 22. "Bruno Vasques" → detected by resolveInicioNomeStructured (pure resolver)
+ * 23. "meu nome é Ana Silva" → detected by resolveInicioNomeStructured (pure resolver)
  * 24. "Oi" → handled by greeting detection, not name capture
- * 25. "me explica" → NOT a name_candidate
- * 26. inicio_nome reuse: high confidence → accepts direct
- * 27. inicio_nome reuse: medium confidence → confirms short
- * 28. inicio_nome reuse: no candidate → normal flow
+ * 25. "me explica" → NOT a name candidate
+ * 26. No name_candidate column persisted to Supabase
+ * 27. No _post_reset column persisted to Supabase
+ * 28. inicio_nome normal flow unchanged (no name_candidate dependency)
  */
 
 import assert from "node:assert/strict";
@@ -81,18 +81,20 @@ function isGreetingOrReentry(nt) {
 
 // ── Mirrors step() message assembly (worker L161-175)
 function assembleMessages(st, rawMessages) {
+  // PR #550: mirrors renderCognitiveSpeech — only LLM real is sovereign.
   const rawArr = Array.isArray(rawMessages) ? rawMessages : [rawMessages];
   const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
   const v2TakesFinal = st?.__cognitive_v2_takes_final === true;
+  const arbiterSource = st?.__speech_arbiter_source || null;
 
-  const arr = v2TakesFinal && cognitivePrefix
+  // Only LLM real takes the surface. Everything else falls through.
+  const arr = (v2TakesFinal && cognitivePrefix && arbiterSource === "llm_real")
     ? [cognitivePrefix]
-    : cognitivePrefix
-      ? [cognitivePrefix, ...rawArr].filter(Boolean)
-      : rawArr.filter(Boolean);
+    : rawArr.filter(Boolean);
 
   st.__cognitive_reply_prefix = null;
   st.__cognitive_v2_takes_final = false;
+  st.__speech_arbiter_source = null;
   return arr;
 }
 
@@ -100,7 +102,8 @@ function assembleMessages(st, rawMessages) {
 function simulateInicioProgramaAmbiguous(st, userText) {
   const nt = normalizeText(userText);
   const _isGreetingOrReentry = isGreetingOrReentry(nt);
-  if (_isGreetingOrReentry && st.__cognitive_reply_prefix) {
+  // PR #550: only promote if arbiter_source === "llm_real"
+  if (_isGreetingOrReentry && st.__cognitive_reply_prefix && st.__speech_arbiter_source === "llm_real") {
     st.__cognitive_v2_takes_final = true;
   }
 
@@ -120,7 +123,7 @@ console.log("\n🧪 cognitive_reset_topo_surface.smoke.mjs\n");
 
 // ===== 1. reset + "oi" → cognitive takes final =====
 await asyncTest('1. reset + "oi" → cognitive takes final, no mechanical reprompt', async () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false };
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false, __speech_arbiter_source: "llm_real" };
   const result = simulateInicioProgramaAmbiguous(st, "oi");
   assert.strictEqual(result.length, 1, "should have ONLY cognitive reply");
   assert.ok(result[0].includes("Oi!"), "reply should be cognitive greeting");
@@ -129,7 +132,7 @@ await asyncTest('1. reset + "oi" → cognitive takes final, no mechanical reprom
 
 // ===== 2. reset + "olá" → cognitive takes final =====
 await asyncTest('2. reset + "olá" → cognitive takes final', async () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false };
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false, __speech_arbiter_source: "llm_real" };
   const result = simulateInicioProgramaAmbiguous(st, "olá");
   assert.strictEqual(result.length, 1, "should have ONLY cognitive reply");
   assert.ok(!result[0].includes("entendido errado"), "no mechanical reprompt");
@@ -137,42 +140,42 @@ await asyncTest('2. reset + "olá" → cognitive takes final', async () => {
 
 // ===== 3. reset + "oii" → cognitive takes final =====
 await asyncTest('3. reset + "oii" → cognitive takes final', async () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false };
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false, __speech_arbiter_source: "llm_real" };
   const result = simulateInicioProgramaAmbiguous(st, "oii");
   assert.strictEqual(result.length, 1, "should have ONLY cognitive reply");
 });
 
 // ===== 4. reset + "bom dia" → cognitive takes final =====
 await asyncTest('4. reset + "bom dia" → cognitive takes final', async () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false };
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false, __speech_arbiter_source: "llm_real" };
   const result = simulateInicioProgramaAmbiguous(st, "bom dia");
   assert.strictEqual(result.length, 1, "should have ONLY cognitive reply");
 });
 
 // ===== 5. reset + "boa tarde" → cognitive takes final =====
 await asyncTest('5. reset + "boa tarde" → cognitive takes final', async () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false };
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false, __speech_arbiter_source: "llm_real" };
   const result = simulateInicioProgramaAmbiguous(st, "boa tarde");
   assert.strictEqual(result.length, 1, "should have ONLY cognitive reply");
 });
 
 // ===== 6. reset + "voltei" → cognitive takes final (reentry) =====
 await asyncTest('6. reset + "voltei" → cognitive takes final (reentry)', async () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false };
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false, __speech_arbiter_source: "llm_real" };
   const result = simulateInicioProgramaAmbiguous(st, "voltei");
   assert.strictEqual(result.length, 1, "should have ONLY cognitive reply");
 });
 
 // ===== 7. reset + "quero começar" → cognitive takes final (reentry) =====
 await asyncTest('7. reset + "quero começar" → cognitive takes final (reentry)', async () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false };
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false, __speech_arbiter_source: "llm_real" };
   const result = simulateInicioProgramaAmbiguous(st, "quero começar");
   assert.strictEqual(result.length, 1, "should have ONLY cognitive reply");
 });
 
 // ===== 8. reset + "vamos lá" → cognitive takes final (reentry) =====
 await asyncTest('8. reset + "vamos lá" → cognitive takes final (reentry)', async () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false };
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false, __speech_arbiter_source: "llm_real" };
   const result = simulateInicioProgramaAmbiguous(st, "vamos lá");
   assert.strictEqual(result.length, 1, "should have ONLY cognitive reply");
 });
@@ -191,13 +194,13 @@ await asyncTest('10. REGRESSÃO: "não" flui normalmente (não entra no bloco !s
   assert.strictEqual(isGreetingOrReentry(nt), false, '"não" must NOT match greeting/reentry');
 });
 
-// ===== 11. Ambiguous non-greeting + cognitive prefix → prefix-only, NOT takes_final =====
-await asyncTest('11. Ambiguous non-greeting "hmm" + cognitive prefix → prefix + mechanical (NOT takes_final)', async () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: "Entendo sua dúvida.", __cognitive_v2_takes_final: false };
+// ===== 11. Ambiguous non-greeting + cognitive prefix (no LLM) → mechanical only =====
+await asyncTest('11. Ambiguous non-greeting "hmm" + cognitive prefix (no LLM) → mechanical only (PR #550)', async () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: "Entendo sua dúvida.", __cognitive_v2_takes_final: false, __speech_arbiter_source: null };
   const result = simulateInicioProgramaAmbiguous(st, "hmm");
-  assert.ok(result.length > 1, "should have cognitive prefix + mechanical messages");
-  assert.strictEqual(result[0], "Entendo sua dúvida.", "first element should be cognitive prefix");
-  assert.ok(result.some(m => m.includes("entendido errado")), "should still include mechanical reprompt");
+  // PR #550: Without llm_real, prefix is discarded. Result is raw mechanical.
+  assert.ok(result.length >= 1, "should have mechanical messages");
+  assert.ok(result.some(m => m.includes("entendido errado")), "should include mechanical reprompt");
 });
 
 // ===== 12. Greeting + NO cognitive prefix → mechanical fallback =====
@@ -210,7 +213,7 @@ await asyncTest('12. Greeting "oi" + NO cognitive prefix → mechanical fallback
 
 // ===== 13. Stage preserved after cognitive takes final =====
 await asyncTest('13. Stage/nextStage preserved (inicio_programa stays) after cognitive takes final', async () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false };
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY, __cognitive_v2_takes_final: false, __speech_arbiter_source: "llm_real" };
   simulateInicioProgramaAmbiguous(st, "oi");
   // After step(), __cognitive_v2_takes_final is cleared but fase_conversa stays
   assert.strictEqual(st.fase_conversa, "inicio_programa", "stage must stay inicio_programa");
@@ -233,19 +236,19 @@ await asyncTest('14. Cognitive engine returns useful reply for "oi" at inicio_pr
 
 // =======================================================================
 // SILENT RESET — Tests 15-19
-// Validates that reset returns silence (no auto-speech) and sets _post_reset flag.
+// Validates that reset returns silence (no auto-speech).
+// Post-reset detection uses canonical columns: last_user_text=null, last_processed_text=null.
 // First user message after reset gets cognitive real treatment.
 // =======================================================================
 
-// ── Simulates the NEW silent reset handler ──
+// ── Simulates the silent reset handler (canonical columns only) ──
 function simulateSilentReset() {
   const novoSt = {
     fase_conversa: "inicio_programa",
     last_user_text: null,
     last_processed_text: null,
     last_message_id: null,
-    last_message_id_prev: null,
-    _post_reset: true
+    last_message_id_prev: null
   };
   return novoSt;
 }
@@ -254,39 +257,41 @@ function simulateSilentReset() {
 await asyncTest('15. SILENT reset: no messages sent after reset (silence)', async () => {
   const novoSt = simulateSilentReset();
   // Reset handler returns without calling step() — no messages assembled
-  assert.strictEqual(novoSt._post_reset, true, "_post_reset flag must be set");
+  // Post-reset detected via canonical columns (no _post_reset flag)
+  assert.strictEqual(novoSt.last_user_text, null, "last_user_text must be null after reset");
+  assert.strictEqual(novoSt.last_processed_text, null, "last_processed_text must be null after reset");
   assert.strictEqual(novoSt.fase_conversa, "inicio_programa", "stage must be inicio_programa");
   // No cognitive flags set (no speech at all)
   assert.strictEqual(novoSt.__cognitive_reply_prefix, undefined, "no cognitive prefix");
   assert.strictEqual(novoSt.__cognitive_v2_takes_final, undefined, "no takes_final");
 });
 
-// ===== 16. SILENT reset: _post_reset flag consumed on first message =====
-await asyncTest('16. SILENT reset: _post_reset cleared after first message detection', async () => {
+// ===== 16. SILENT reset: post-reset detected via canonical columns =====
+await asyncTest('16. SILENT reset: post-reset detected via canonical columns', async () => {
   const novoSt = simulateSilentReset();
-  // Simulates inicio_programa entry detecting _post_reset
-  const isFirstAfterReset = novoSt._post_reset === true;
-  assert.ok(isFirstAfterReset, "should detect first-after-reset");
-  novoSt._post_reset = null; // mirrors the worker clear
-  assert.strictEqual(novoSt._post_reset, null, "flag cleared after consumption");
+  // Detection uses canonical columns instead of _post_reset
+  const isFirstAfterReset = !novoSt.last_user_text && !novoSt.last_processed_text;
+  assert.ok(isFirstAfterReset, "should detect first-after-reset via canonical columns");
+  // No need to clear a flag — detection is stateless from canonical columns
 });
 
 // ===== 17. First message after reset: cognitive takes final for greeting =====
-await asyncTest('17. First msg after reset: "oi" + cognitive prefix → cognitive takes final', async () => {
+await asyncTest('17. First msg after reset: "oi" + LLM cognitive prefix → cognitive takes final', async () => {
   const st = {
     fase_conversa: "inicio_programa",
-    _post_reset: true,
+    last_user_text: null,
+    last_processed_text: null,
     __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY,
-    __cognitive_v2_takes_final: false
+    __cognitive_v2_takes_final: false,
+    __speech_arbiter_source: "llm_real"  // PR #550: promotion requires llm_real
   };
-  // _isFirstAfterReset = true → forces takes_final when prefix exists
-  const isFirstAfterReset = st._post_reset === true;
-  st._post_reset = null;
+  const isFirstAfterReset = !st.last_user_text && !st.last_processed_text;
 
   const nt = normalizeText("oi");
   const _isGreetingOrReentry = isGreetingOrReentry(nt);
 
-  if ((isFirstAfterReset || _isGreetingOrReentry) && st.__cognitive_reply_prefix) {
+  // PR #550: only promote if arbiter_source === "llm_real"
+  if ((isFirstAfterReset || _isGreetingOrReentry) && st.__cognitive_reply_prefix && st.__speech_arbiter_source === "llm_real") {
     st.__cognitive_v2_takes_final = true;
   }
 
@@ -305,19 +310,20 @@ await asyncTest('18. First msg after reset: stage preserved as inicio_programa',
 });
 
 // ===== 19. First message after reset: non-greeting also gets cognitive =====
-await asyncTest('19. First msg after reset: non-greeting "Bruno Vasques" + prefix → cognitive takes final', async () => {
+await asyncTest('19. First msg after reset: non-greeting "Bruno Vasques" + LLM prefix → cognitive takes final', async () => {
   const st = {
     fase_conversa: "inicio_programa",
-    _post_reset: true,
+    last_user_text: null,
+    last_processed_text: null,
     __cognitive_reply_prefix: "Oi, Bruno Vasques! Que bom ter você aqui 😊 Você já sabe como funciona o MCMV?",
-    __cognitive_v2_takes_final: false
+    __cognitive_v2_takes_final: false,
+    __speech_arbiter_source: "llm_real"  // PR #550: promotion requires llm_real
   };
 
-  const isFirstAfterReset = st._post_reset === true;
-  st._post_reset = null;
+  const isFirstAfterReset = !st.last_user_text && !st.last_processed_text;
 
-  // Even non-greeting input gets takes_final when _isFirstAfterReset is true
-  if (isFirstAfterReset && st.__cognitive_reply_prefix) {
+  // PR #550: only promote if arbiter_source === "llm_real"
+  if (isFirstAfterReset && st.__cognitive_reply_prefix && st.__speech_arbiter_source === "llm_real") {
     st.__cognitive_v2_takes_final = true;
   }
 
@@ -347,19 +353,19 @@ await asyncTest('20. Normal inicio_programa entry (no reset) → mechanical mess
 // ===== 21. Silent reset: no impact on docs/correspondente/visita =====
 await asyncTest('21. Silent reset: docs/correspondente/visita stages unaffected', async () => {
   const docsSt = { fase_conversa: "envio_docs" };
-  assert.strictEqual(docsSt._post_reset, undefined, "envio_docs has no _post_reset flag");
   assert.strictEqual(docsSt.__cognitive_reply_prefix, undefined, "envio_docs has no cognitive prefix");
 
   const visitaSt = { fase_conversa: "agendamento_visita" };
-  assert.strictEqual(visitaSt._post_reset, undefined, "agendamento_visita has no _post_reset");
+  assert.strictEqual(visitaSt.__cognitive_reply_prefix, undefined, "agendamento_visita has no cognitive prefix");
 
   const corrSt = { fase_conversa: "aguardando_retorno_correspondente" };
-  assert.strictEqual(corrSt._post_reset, undefined, "correspondente has no _post_reset");
+  assert.strictEqual(corrSt.__cognitive_reply_prefix, undefined, "correspondente has no cognitive prefix");
 });
 
 // =======================================================================
-// NAME CANDIDATE REUSE — Tests 22-28
-// Validates name_candidate capture in inicio_programa and reuse in inicio_nome.
+// SCHEMA COMPLIANCE — Tests 22-28
+// Validates that no non-canonical columns are persisted to Supabase.
+// resolveInicioNomeStructured is a pure resolver (classification only, no persistence).
 // =======================================================================
 
 // ── Mirrors resolveInicioNomeStructured name extraction (simplified) ──
@@ -384,16 +390,16 @@ function extractNameCandidate(rawText) {
   return { extracted_name: candidate, parts };
 }
 
-// ===== 22. "Bruno Vasques" → captured as name_candidate =====
-await asyncTest('22. "Bruno Vasques" → detected as plausible name_candidate', async () => {
+// ===== 22. "Bruno Vasques" → detected by resolver (pure classification, no persistence) =====
+await asyncTest('22. "Bruno Vasques" → detected by resolver (pure, no Supabase write)', async () => {
   const result = extractNameCandidate("Bruno Vasques");
   assert.ok(result, "should extract a name candidate");
   assert.strictEqual(result.extracted_name, "Bruno Vasques");
   assert.strictEqual(result.parts.length, 2, "two parts = high confidence");
 });
 
-// ===== 23. "meu nome é Ana Silva" → captured as name_candidate =====
-await asyncTest('23. "meu nome é Ana Silva" → detected as name_candidate', async () => {
+// ===== 23. "meu nome é Ana Silva" → detected by resolver (pure, no persistence) =====
+await asyncTest('23. "meu nome é Ana Silva" → detected by resolver (pure, no Supabase write)', async () => {
   const result = extractNameCandidate("meu nome é Ana Silva");
   assert.ok(result, "should extract a name candidate");
   assert.strictEqual(result.extracted_name, "Ana Silva");
@@ -401,42 +407,42 @@ await asyncTest('23. "meu nome é Ana Silva" → detected as name_candidate', as
 
 // ===== 24. "Oi" → greeting handled before name capture (sim/nao/greeting path) =====
 await asyncTest('24. "Oi" → handled by greeting detection, not name capture path', async () => {
-  // "Oi" is NOT sim/nao, but IS a greeting → caught by greeting branch first.
-  // The name probe may extract it, but inicio_programa handles greetings before probing names.
   const nt = normalizeText("Oi");
   const _isGreeting = isGreetingOrReentry(nt);
   assert.ok(_isGreeting, "Oi should be caught as greeting before name probe");
 });
 
-// ===== 25. "me explica" → NOT captured as name_candidate (intent guard) =====
-await asyncTest('25. "me explica" → NOT a name_candidate (intent phrase)', async () => {
+// ===== 25. "me explica" → NOT a name candidate (intent guard) =====
+await asyncTest('25. "me explica" → NOT a name candidate (intent phrase)', async () => {
   const result = extractNameCandidate("me explica");
   assert.strictEqual(result, null, "explanation request should not be name candidate");
 });
 
-// ===== 26. inicio_nome reuse: high confidence → accepts direct =====
-await asyncTest('26. inicio_nome: name_candidate "Bruno Vasques" (2 parts) → high confidence accept', async () => {
-  const candidato = "Bruno Vasques";
-  const partes = candidato.split(/\s+/).filter(p => p.length >= 2);
-  const confiancaAlta = partes.length >= 2 && partes.length <= 6;
-  assert.ok(confiancaAlta, "2 parts should be high confidence");
-  assert.strictEqual(partes[0], "Bruno", "first name extracted correctly");
+// ===== 26. No name_candidate column persisted to Supabase =====
+await asyncTest('26. Worker does NOT persist name_candidate to Supabase', async () => {
+  // Verify no upsertState call writes name_candidate
+  const workerSrc = (await import("node:fs")).readFileSync(
+    new URL("../Enova worker.js", import.meta.url), "utf-8"
+  );
+  const upsertNameCandidate = /upsertState\([^)]*\{[^}]*name_candidate/.test(workerSrc);
+  assert.ok(!upsertNameCandidate, "upsertState must NOT write name_candidate (non-canonical column)");
 });
 
-// ===== 27. inicio_nome reuse: medium confidence → confirms short =====
-await asyncTest('27. inicio_nome: name_candidate "Bruno" (1 part) → medium confidence confirm', async () => {
-  const candidato = "Bruno";
-  const partes = candidato.split(/\s+/).filter(p => p.length >= 2);
-  const confiancaAlta = partes.length >= 2 && partes.length <= 6;
-  const confiancaMedia = partes.length === 1 && candidato.length >= 2;
-  assert.ok(!confiancaAlta, "1 part should NOT be high confidence");
-  assert.ok(confiancaMedia, "1 part with >=2 chars should be medium confidence");
+// ===== 27. No _post_reset column persisted to Supabase =====
+await asyncTest('27. Worker does NOT persist _post_reset to Supabase', async () => {
+  const workerSrc = (await import("node:fs")).readFileSync(
+    new URL("../Enova worker.js", import.meta.url), "utf-8"
+  );
+  const upsertPostReset = /upsertState\([^)]*\{[^}]*_post_reset/.test(workerSrc);
+  assert.ok(!upsertPostReset, "upsertState must NOT write _post_reset (non-canonical column)");
 });
 
-// ===== 28. inicio_nome reuse: no candidate → normal flow =====
-await asyncTest('28. inicio_nome: no name_candidate → normal flow unchanged', async () => {
-  const st = { fase_conversa: "inicio_nome", name_candidate: null };
-  assert.ok(!st.name_candidate, "no candidate means normal flow");
+// ===== 28. inicio_nome normal flow unchanged (no name_candidate dependency) =====
+await asyncTest('28. inicio_nome: normal flow unchanged (no name_candidate dependency)', async () => {
+  const st = { fase_conversa: "inicio_nome" };
+  // No name_candidate field at all — inicio_nome proceeds with normal name capture
+  assert.strictEqual(st.name_candidate, undefined, "no name_candidate field exists");
+  assert.strictEqual(st.fase_conversa, "inicio_nome", "stage is inicio_nome");
 });
 
 // =======================================================================
@@ -451,39 +457,31 @@ await asyncTest('28. inicio_nome: no name_candidate → normal flow unchanged', 
 
 // ── Mirrors the NEW patched setTopoHappyPathFlags + post-reset guard ──
 function applyFlagsWithPatch(st, happyResult, isFirstAfterReset) {
-  // mirrors setTopoHappyPathFlags
-  if (happyResult.source === "cognitive_real" || happyResult.source === "heuristic_guidance") {
+  // PR #550: mirrors updated setTopoHappyPathFlags.
+  // ONLY cognitive_real (LLM) sets prefix/takes_final.
+  // heuristic_guidance and fallback_mechanical do NOT produce fala final.
+  if (happyResult.source === "cognitive_real") {
     st.__cognitive_reply_prefix = happyResult.speech[0];
     st.__cognitive_v2_takes_final = true;
+    st.__speech_arbiter_source = "llm_real";
   } else {
     st.__cognitive_reply_prefix = null;
     st.__cognitive_v2_takes_final = false;
-  }
-  // POST-RESET GUARD (new patch line 23047-23050)
-  if (isFirstAfterReset && happyResult.source === "heuristic_guidance") {
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
   }
 }
 
-// ── Mirrors resolveTopoStructured guard (new patch line 23060) ──
+// ── PR #550: resolvers no longer produce fala final ──
 function applyResolveTopoStructuredIfAllowed(st, isFirstAfterReset, resolvedReply) {
-  if (!st.__cognitive_v2_takes_final && !isFirstAfterReset) {
-    if (resolvedReply) {
-      st.__cognitive_reply_prefix = resolvedReply;
-      st.__cognitive_v2_takes_final = true;
-    }
-  }
+  // BLOCO 3: resolver is internal support only — does NOT set prefix/takes_final.
+  // This function now correctly does nothing (resolver signals consumed by stage logic).
 }
 
-// ── Mirrors the new dedicated fallback guard (worker: after resolveTopoStructured block) ──
+// ── PR #550: TOPO dedicated fallback removed — fala vem do mapa estático ──
 function applyFirstResetDedicatedFallback(st, isFirstAfterReset, dedicatedFallback) {
-  if (isFirstAfterReset && !st.__cognitive_v2_takes_final) {
-    if (dedicatedFallback && dedicatedFallback.length > 0) {
-      st.__cognitive_reply_prefix = dedicatedFallback.join("\n");
-      st.__cognitive_v2_takes_final = true;
-    }
-  }
+  // BLOCO 3: TOPO_HAPPY_PATH_SPEECH.fallback no longer produces fala final.
+  // renderCognitiveSpeech will use the minimal fallback map instead.
+  // This function now correctly does nothing.
 }
 
 const HEURISTIC_TEMPLATE = "Oi! Fico feliz em te ajudar 😊 Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique rapidinho? Responda *sim* (já sei) ou *não* (explica).";
@@ -532,136 +530,115 @@ await asyncTest('32. resolveTopoStructured blocked on _isFirstAfterReset — no 
   assert.strictEqual(st.__cognitive_v2_takes_final, false, "takes_final stays false — resolver blocked");
 });
 
-// ===== 33. resolveTopoStructured ALLOWED on normal ambiguous (no reset) =====
-await asyncTest('33. resolveTopoStructured allowed on normal ambiguous (no reset) — prefix set', () => {
+// ===== 33. resolveTopoStructured DOES NOT produce speech (PR #550) =====
+await asyncTest('33. resolveTopoStructured does NOT produce speech — prefix stays null', () => {
   const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
   applyResolveTopoStructuredIfAllowed(st, false, RESOLVE_TOPO_REPLY);
-  assert.strictEqual(st.__cognitive_reply_prefix, RESOLVE_TOPO_REPLY, "resolver reply used as prefix in normal flow");
-  assert.strictEqual(st.__cognitive_v2_takes_final, true, "takes_final set in normal flow");
+  assert.strictEqual(st.__cognitive_reply_prefix, null, "resolver does NOT set prefix (PR #550)");
+  assert.strictEqual(st.__cognitive_v2_takes_final, false, "resolver does NOT set takes_final (PR #550)");
 });
 
-// ===== 34. reset + "Oi Enova" → heuristic rejected + dedicated fallback takes final =====
-await asyncTest('34. reset + "Oi Enova": heuristic rejected → dedicated fallback takes_final, not mechanical', () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
-  // Simulate full first-after-reset path: heuristic revoked, resolveTopoStructured blocked, dedicated fallback kicks in
+// ===== 34. reset + "Oi Enova" → heuristic/resolver/topo all blocked → raw mechanical =====
+await asyncTest('34. reset + "Oi Enova": heuristic/resolver/topo blocked → raw mechanical (will be filtered by renderCognitiveSpeech)', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false, __speech_arbiter_source: null };
+  // Simulate: heuristic doesn't set prefix, resolver doesn't set prefix, TOPO fallback doesn't set prefix
   applyFlagsWithPatch(st, { source: "heuristic_guidance", speech: [HEURISTIC_TEMPLATE] }, true);
   applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
   applyFirstResetDedicatedFallback(st, true, FIRST_RESET_DEDICATED_FALLBACK);
-  const result = assembleMessages(st, MECHANICAL_REPROMPT);
-  // Must use dedicated fallback — takes_final = true, single reply
-  assert.strictEqual(result.length, 1, "dedicated fallback takes_final: only one reply message");
-  assert.ok(result[0].includes("Enova"), "reply must contain Enova intro");
-  assert.ok(!result[0].includes("entendeu errado") && !result[0].includes("Fico feliz"), "no heuristic template");
-  assert.ok(!result.some(m => m === MECHANICAL_REPROMPT[0]), "raw mechanical reprompt must NOT dominate");
+  // All three functions are now no-ops for non-LLM. Result = raw mechanical (unfiltered in simulation).
+  // In PROD, renderCognitiveSpeech would use the minimal fallback map instead.
+  assert.strictEqual(st.__cognitive_reply_prefix, null, "no prefix set — all blocked");
+  assert.strictEqual(st.__cognitive_v2_takes_final, false, "no takes_final — all blocked");
+  // The final speech in PROD comes from renderCognitiveSpeech → minimal fallback map, not these layers.
 });
 
-// ===== 35. reset + "Oi" → dedicated fallback, not mechanical =====
-await asyncTest('35. reset + "Oi": heuristic rejected → dedicated fallback takes_final (not mechanical)', () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+// ===== 35. reset + "Oi" → same as 34, all blocked =====
+await asyncTest('35. reset + "Oi": heuristic/resolver/topo all blocked → raw mechanical (filtered by render)', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false, __speech_arbiter_source: null };
   applyFlagsWithPatch(st, { source: "heuristic_guidance", speech: [HEURISTIC_TEMPLATE] }, true);
   applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
   applyFirstResetDedicatedFallback(st, true, FIRST_RESET_DEDICATED_FALLBACK);
-  const result = assembleMessages(st, MECHANICAL_REPROMPT);
-  assert.strictEqual(result.length, 1, "dedicated fallback takes_final: single message");
-  assert.ok(result[0].includes("Enova"), "Enova intro present in dedicated fallback");
-  assert.strictEqual(st.__cognitive_reply_prefix, null, "flags cleared after step");
-  assert.strictEqual(st.__cognitive_v2_takes_final, false, "flags cleared after step");
+  assert.strictEqual(st.__cognitive_reply_prefix, null, "no prefix set");
+  assert.strictEqual(st.__cognitive_v2_takes_final, false, "no takes_final");
 });
 
-// ===== 36. Normal ambiguous (no reset): heuristic_guidance still accepted =====
-await asyncTest('36. Normal ambiguous (no reset): heuristic_guidance still accepted → takes_final', () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
-  // isFirstAfterReset = FALSE → guard does NOT fire
+// ===== 36. Normal ambiguous (no reset): heuristic no longer accepted (PR #550) =====
+await asyncTest('36. Normal ambiguous (no reset): heuristic NOT accepted → no takes_final', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false, __speech_arbiter_source: null };
+  // isFirstAfterReset = FALSE, but heuristic still doesn't set prefix (PR #550)
   applyFlagsWithPatch(st, { source: "heuristic_guidance", speech: [HEURISTIC_TEMPLATE] }, false);
-  assert.strictEqual(st.__cognitive_reply_prefix, HEURISTIC_TEMPLATE, "heuristic accepted in normal ambiguous");
-  assert.strictEqual(st.__cognitive_v2_takes_final, true, "takes_final set in normal ambiguous");
+  assert.strictEqual(st.__cognitive_reply_prefix, null, "heuristic no longer sets prefix (PR #550)");
+  assert.strictEqual(st.__cognitive_v2_takes_final, false, "heuristic no longer sets takes_final (PR #550)");
 });
 
 // ===== 37. Gate/nextStage: zero change — step() still called with "inicio_programa" =====
 await asyncTest('37. Gate/nextStage zero change: step() nextStage param is inicio_programa', () => {
-  // The step() call at L23081 passes "inicio_programa" as nextStage — the patch touches ONLY
-  // the speech flag logic above it, not the step() call or any gate variable.
-  // We simulate that the patch does NOT alter the nextStage by verifying the stage stays.
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false, __speech_arbiter_source: null };
   applyFlagsWithPatch(st, { source: "heuristic_guidance", speech: [HEURISTIC_TEMPLATE] }, true);
   applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
   applyFirstResetDedicatedFallback(st, true, FIRST_RESET_DEDICATED_FALLBACK);
-  assembleMessages(st, MECHANICAL_REPROMPT); // mirrors step() — does NOT change fase_conversa
+  assembleMessages(st, MECHANICAL_REPROMPT);
   assert.strictEqual(st.fase_conversa, "inicio_programa", "stage stays inicio_programa — gate/nextStage untouched");
 });
 
 // =======================================================================
-// DEDICATED FALLBACK — Tests 38–42
-// Validates the new dedicated first-reset fallback guard:
-//   - _isFirstAfterReset + LLM fails → dedicated fallback takes_final
-//   - dedicated fallback contains Enova intro (acolhedor, apresenta)
-//   - dedicated fallback never exposes raw mechanical reprompt as dominant speech
-//   - reset + "Me explica" → dedicated fallback
-//   - reset + nome direto ("Bruno Vasques") → dedicated fallback
+// MINIMAL FALLBACK — Tests 38–42 (PR #550 rewrite)
+// PR #550 removed dedicated TOPO fallback as speech producer.
+// Without LLM, all paths fall through to mechanical raw which in PROD
+// gets filtered by renderCognitiveSpeech → minimal fallback map.
+// Tests verify that no local layer produces fala final pronta.
 // =======================================================================
 
-// ===== 38. Dedicated fallback: _isFirstAfterReset + fallback_mechanical source → dedicated takes_final =====
-await asyncTest('38. Dedicated fallback: _isFirstAfterReset + fallback_mechanical → dedicated fallback takes_final', () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
-  // LLM returned fallback_mechanical (failed validation) — setTopoHappyPathFlags left flags false
+// ===== 38. Without LLM: no prefix set, falls through to raw =====
+await asyncTest('38. Without LLM: fallback_mechanical → no prefix, no takes_final (PR #550)', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false, __speech_arbiter_source: null };
   applyFlagsWithPatch(st, { source: "fallback_mechanical", speech: MECHANICAL_REPROMPT }, true);
-  // resolveTopoStructured blocked
   applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
-  // New dedicated fallback guard fires
   applyFirstResetDedicatedFallback(st, true, FIRST_RESET_DEDICATED_FALLBACK);
-  assert.strictEqual(st.__cognitive_v2_takes_final, true, "takes_final must be true after dedicated fallback");
-  assert.ok(st.__cognitive_reply_prefix && st.__cognitive_reply_prefix.includes("Enova"), "prefix must contain Enova intro");
+  assert.strictEqual(st.__cognitive_v2_takes_final, false, "takes_final must be false — no LLM");
+  assert.strictEqual(st.__cognitive_reply_prefix, null, "prefix must be null — no local speech producer");
 });
 
-// ===== 39. Dedicated fallback speech contains Enova intro (acolhedor, apresenta) =====
-await asyncTest('39. Dedicated fallback speech: contains Enova intro, acolhe, puxa para programa', () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+// ===== 39. Without LLM: assembleMessages returns raw (in PROD filtered by render) =====
+await asyncTest('39. Without LLM: assembleMessages returns raw mechanical (filtered by renderCognitiveSpeech in PROD)', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false, __speech_arbiter_source: null };
   applyFlagsWithPatch(st, { source: "fallback_mechanical", speech: MECHANICAL_REPROMPT }, true);
   applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
   applyFirstResetDedicatedFallback(st, true, FIRST_RESET_DEDICATED_FALLBACK);
   const result = assembleMessages(st, MECHANICAL_REPROMPT);
-  assert.strictEqual(result.length, 1, "dedicated fallback: single reply");
-  const reply = result[0];
-  assert.ok(reply.includes("Enova"), "reply presents Enova");
-  assert.ok(reply.includes("Minha Casa Minha Vida"), "reply references the program");
-  assert.ok(reply.includes("?"), "reply contains a question (conduz)");
-  assert.ok(!reply.includes("Você já conhece como o programa"), "raw mechanical reprompt NOT dominant");
+  // Without LLM, result is raw mechanical. In PROD, renderCognitiveSpeech would filter via map.
+  assert.ok(result.length >= 1, "result has at least 1 message");
 });
 
-// ===== 40. reset + "Me explica" → dedicated fallback, not mechanical =====
-await asyncTest('40. reset + "Me explica": LLM fallback → dedicated fallback takes_final, not raw mechanical', () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+// ===== 40. reset: no layer produces speech without LLM =====
+await asyncTest('40. reset + "Me explica": no layer produces speech without LLM (PR #550)', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false, __speech_arbiter_source: null };
   applyFlagsWithPatch(st, { source: "fallback_mechanical", speech: MECHANICAL_REPROMPT }, true);
   applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
   applyFirstResetDedicatedFallback(st, true, FIRST_RESET_DEDICATED_FALLBACK);
-  const result = assembleMessages(st, MECHANICAL_REPROMPT);
-  assert.strictEqual(result.length, 1, "single dedicated fallback reply");
-  assert.ok(result[0].includes("Enova"), "Enova intro present");
-  assert.ok(result[0] !== MECHANICAL_REPROMPT[0], "NOT the raw mechanical reprompt first line");
+  assert.strictEqual(st.__cognitive_reply_prefix, null, "no prefix — all blocked");
+  assert.strictEqual(st.__cognitive_v2_takes_final, false, "no takes_final — all blocked");
 });
 
-// ===== 41. reset + nome direto → dedicated fallback, not raw mechanical =====
-await asyncTest('41. reset + "Bruno Vasques" (no LLM reply): dedicated fallback, not raw mechanical', () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
+// ===== 41. reset + nome: no layer produces speech without LLM =====
+await asyncTest('41. reset + "Bruno Vasques" (no LLM): no layer produces speech (PR #550)', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false, __speech_arbiter_source: null };
   applyFlagsWithPatch(st, { source: "fallback_mechanical", speech: MECHANICAL_REPROMPT }, true);
   applyResolveTopoStructuredIfAllowed(st, true, RESOLVE_TOPO_REPLY);
   applyFirstResetDedicatedFallback(st, true, FIRST_RESET_DEDICATED_FALLBACK);
-  const result = assembleMessages(st, MECHANICAL_REPROMPT);
-  assert.strictEqual(result.length, 1, "only dedicated fallback");
-  assert.ok(result[0].includes("Enova"), "Enova intro in reply");
-  assert.ok(!result.some(m => m === "Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho?"), "raw mechanical reprompt absent");
+  assert.strictEqual(st.__cognitive_reply_prefix, null, "no prefix");
+  assert.strictEqual(st.__cognitive_v2_takes_final, false, "no takes_final");
 });
 
-// ===== 42. Normal ambiguous (no reset): dedicated fallback guard does NOT fire =====
-await asyncTest('42. Normal ambiguous (no reset): dedicated fallback guard does NOT fire — normal flow unchanged', () => {
-  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false };
-  // isFirstAfterReset = FALSE → dedicated fallback guard must NOT fire
+// ===== 42. Normal ambiguous (no reset): no local layer produces speech =====
+await asyncTest('42. Normal ambiguous (no reset): no local layer produces speech (PR #550)', () => {
+  const st = { fase_conversa: "inicio_programa", __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false, __speech_arbiter_source: null };
   applyFlagsWithPatch(st, { source: "fallback_mechanical", speech: MECHANICAL_REPROMPT }, false);
   applyResolveTopoStructuredIfAllowed(st, false, RESOLVE_TOPO_REPLY);
   applyFirstResetDedicatedFallback(st, false, FIRST_RESET_DEDICATED_FALLBACK);
-  // resolveTopoStructured was allowed (isFirstAfterReset=false), so takes_final=true via resolver
-  assert.strictEqual(st.__cognitive_v2_takes_final, true, "resolveTopoStructured took over in normal flow");
-  assert.strictEqual(st.__cognitive_reply_prefix, RESOLVE_TOPO_REPLY, "resolver reply used, not dedicated fallback");
+  // PR #550: resolver and dedicated fallback no longer produce speech
+  assert.strictEqual(st.__cognitive_v2_takes_final, false, "no takes_final — resolver no longer sovereign");
+  assert.strictEqual(st.__cognitive_reply_prefix, null, "no prefix — resolver no longer sovereign");
 });
 
 // ===== Summary =====

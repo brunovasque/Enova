@@ -22,7 +22,7 @@
  *  5.  reset is silent — first speech at inicio_programa:first_after_reset
  *  6.  inicio_programa:sim calls getTopoHappyPathSpeech
  *  7.  inicio_programa:nao calls getTopoHappyPathSpeech
- *  8.  inicio_programa:ambiguous calls getTopoHappyPathSpeech
+ *  8.  inicio_nacionalidade:fallback calls getTopoHappyPathSpeech
  *  9.  inicio_programa:post_expl_confirmation calls getTopoHappyPathSpeech
  * 10.  inicio_nome:nome_aceito calls getTopoHappyPathSpeech
  * 11.  inicio_nacionalidade:brasileiro calls getTopoHappyPathSpeech
@@ -158,8 +158,10 @@ console.log("\n── Happy path integration anchors ──");
 await asyncTest("5. reset is silent — first speech happens at inicio_programa:first_after_reset", async () => {
   assert.ok(workerSrc.includes('"inicio_programa:first_after_reset"'),
     "inicio_programa must reference first_after_reset speech key for post-reset cognitive");
-  assert.ok(workerSrc.includes('_post_reset'),
-    "reset handler must set _post_reset flag for silent reset");
+  // Post-reset detection uses canonical columns (last_user_text/last_processed_text null)
+  // instead of invented _post_reset flag. No non-canonical columns persisted.
+  assert.ok(!workerSrc.includes('upsertState(env, novoSt.wa_id, {\n      _post_reset'),
+    "reset handler must NOT persist _post_reset to Supabase (non-canonical column)");
 });
 
 await asyncTest("6. inicio_programa:sim calls getTopoHappyPathSpeech", async () => {
@@ -173,9 +175,9 @@ await asyncTest("7. inicio_programa:nao calls getTopoHappyPathSpeech", async () 
     "inicio_programa nao must call getTopoHappyPathSpeech");
 });
 
-await asyncTest("8. inicio_programa:ambiguous calls getTopoHappyPathSpeech", async () => {
-  assert.ok(workerSrc.includes('getTopoHappyPathSpeech(env, "inicio_programa:ambiguous"'),
-    "inicio_programa ambiguous must call getTopoHappyPathSpeech");
+await asyncTest("8. inicio_nacionalidade:fallback calls getTopoHappyPathSpeech", async () => {
+  assert.ok(workerSrc.includes('getTopoHappyPathSpeech(env, "inicio_nacionalidade:fallback"'),
+    "inicio_nacionalidade fallback must call getTopoHappyPathSpeech");
 });
 
 await asyncTest("9. inicio_programa:post_expl_confirmation calls getTopoHappyPathSpeech", async () => {
@@ -333,7 +335,7 @@ await asyncTest("35. Fallback messages contain parseeable hints (sim/não, optio
   assert.ok(workerSrc.includes('*Solteiro(a)*, *casado(a) no civil*'),
     "estado_civil fallback must have state options");
   // inicio_nacionalidade fallback should have options
-  assert.ok(workerSrc.includes('*brasileiro* ou *estrangeiro*'),
+  assert.ok(workerSrc.includes('*brasileiro(a)* ou *estrangeiro(a)*'),
     "inicio_nacionalidade fallback must have options");
 });
 

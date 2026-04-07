@@ -1779,3 +1779,766 @@
   border-left: 2px solid rgba(168, 85, 247, 0.35);
 }
 
+
+/* ── G2.6 — Gesto Final Humano + Autorização de Execução Controlada ──────── */
+
+.executorBlocoAuthorized {
+  border-color: rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.04);
+}
+
+.executorBadgeStatusAuthorized {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgba(34, 197, 94, 0.12);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
+.executorStatusRowAuthorized {
+  border-top: 1px solid rgba(34, 197, 94, 0.2);
+  background: rgba(34, 197, 94, 0.04);
+}
+
+.executorStatusAuthorizedDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4ade80;
+  flex-shrink: 0;
+}
+
+.executorStatusAuthorizedText {
+  font-size: 0.75rem;
+  color: #4ade80;
+  font-weight: 500;
+}
+
+.executorBtnAutorizarExecucao {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid rgba(34, 197, 94, 0.5);
+  background: rgba(34, 197, 94, 0.1);
+  color: #4ade80;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.executorBtnAutorizarExecucao:hover {
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.7);
+}
+
+.executorBtnAuthorizedActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  background: rgba(34, 197, 94, 0.08);
+  color: #4ade80;
+  cursor: default;
+}
+
+.executorAuthPackage {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(34, 197, 94, 0.05);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.executorAuthPackageLabel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #4ade80;
+}
+
+.executorAuthPackageRows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.executorAuthPackageRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.77rem;
+}
+
+.executorAuthPackageKey {
+  color: #9ca3af;
+  flex-shrink: 0;
+  min-width: 140px;
+  font-weight: 500;
+}
+
+.executorAuthPackageValue {
+  color: #d1d5db;
+  font-weight: 400;
+}
+
+.executorAuthNotice {
+  margin: 4px 0 0;
+  font-size: 0.75rem;
+  color: #9ca3af;
+  line-height: 1.5;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 5px;
+  border-left: 2px solid rgba(34, 197, 94, 0.4);
+}
+
+/* ── G3.1 — Executor Real Controlado: Contrato Local de Execução Futura ── */
+
+.executorBlocoContractReady {
+  border-color: rgba(99, 102, 241, 0.4);
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.executorBadgeStatusContractReady {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(99, 102, 241, 0.15);
+  color: #a5b4fc;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+}
+
+.executorStatusRowContractReady {
+  border-color: rgba(99, 102, 241, 0.3);
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.executorStatusContractReadyDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #a5b4fc;
+  flex-shrink: 0;
+  animation: executorPulse 2s ease-in-out infinite;
+}
+
+.executorStatusContractReadyText {
+  font-size: 0.75rem;
+  color: #a5b4fc;
+  font-weight: 500;
+}
+
+.executorBtnPrepararContrato {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid rgba(99, 102, 241, 0.5);
+  background: rgba(99, 102, 241, 0.1);
+  color: #a5b4fc;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.executorBtnPrepararContrato:hover {
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.7);
+}
+
+.executorBtnContractReadyActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.08);
+  color: #a5b4fc;
+  cursor: default;
+}
+
+.executorContractPackage {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(99, 102, 241, 0.05);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.executorContractPackageLabel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #a5b4fc;
+}
+
+.executorContractRows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.executorContractRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.77rem;
+}
+
+.executorContractKey {
+  color: #9ca3af;
+  flex-shrink: 0;
+  min-width: 160px;
+  font-weight: 500;
+}
+
+.executorContractValue {
+  color: #d1d5db;
+  font-weight: 400;
+}
+
+.executorContractGuardrails {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.executorContractGuardrailsLabel {
+  font-size: 0.71rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #f59e0b;
+}
+
+.executorContractGuardrailsList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.executorContractGuardrailItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 0.76rem;
+  color: #d1d5db;
+  line-height: 1.4;
+}
+
+.executorContractGuardrailIcon {
+  color: #f59e0b;
+  font-weight: 700;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  margin-top: 1px;
+}
+
+.executorContractNotice {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #9ca3af;
+  line-height: 1.5;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 5px;
+  border-left: 2px solid rgba(99, 102, 241, 0.4);
+}
+
+.executorContractFutureScope {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #6b7280;
+  line-height: 1.5;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  font-style: italic;
+}
+
+/* ── G3.2 — Executor Real Controlado: Integração Inicial Controlada ── */
+
+.executorBlocoBridgeReady {
+  border-color: rgba(6, 182, 212, 0.4);
+  background: rgba(6, 182, 212, 0.04);
+}
+
+.executorBadgeStatusBridgeReady {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(6, 182, 212, 0.15);
+  color: #22d3ee;
+  border: 1px solid rgba(6, 182, 212, 0.35);
+}
+
+.executorStatusRowBridgeReady {
+  border-color: rgba(6, 182, 212, 0.3);
+  background: rgba(6, 182, 212, 0.04);
+}
+
+.executorStatusBridgeReadyDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #22d3ee;
+  flex-shrink: 0;
+  animation: executorPulse 2s ease-in-out infinite;
+}
+
+.executorStatusBridgeReadyText {
+  font-size: 0.75rem;
+  color: #22d3ee;
+  font-weight: 500;
+}
+
+.executorBtnPrepararBridge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid rgba(6, 182, 212, 0.5);
+  background: rgba(6, 182, 212, 0.1);
+  color: #22d3ee;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.executorBtnPrepararBridge:hover {
+  background: rgba(6, 182, 212, 0.18);
+  border-color: rgba(6, 182, 212, 0.7);
+}
+
+.executorBtnBridgeReadyActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid rgba(6, 182, 212, 0.35);
+  background: rgba(6, 182, 212, 0.08);
+  color: #22d3ee;
+  cursor: default;
+}
+
+.executorBridgePackage {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(6, 182, 212, 0.05);
+  border: 1px solid rgba(6, 182, 212, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.executorBridgePackageLabel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #22d3ee;
+}
+
+.executorBridgeRows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.executorBridgeRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.77rem;
+}
+
+.executorBridgeKey {
+  color: #9ca3af;
+  flex-shrink: 0;
+  min-width: 160px;
+  font-weight: 500;
+}
+
+.executorBridgeValue {
+  color: #d1d5db;
+  font-weight: 400;
+}
+
+.executorBridgeScopeSection {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.executorBridgeSupportedBlock,
+.executorBridgeUnsupportedBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.executorBridgeSupportedLabel {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #22d3ee;
+}
+
+.executorBridgeUnsupportedLabel {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+}
+
+.executorBridgeScopeList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.executorBridgeScopeItemSupported {
+  font-size: 0.75rem;
+  color: #22d3ee;
+  padding-left: 8px;
+}
+
+.executorBridgeScopeItemUnsupported {
+  font-size: 0.75rem;
+  color: #6b7280;
+  padding-left: 8px;
+}
+
+.executorBridgeGuardrails {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.executorBridgeGuardrailsLabel {
+  font-size: 0.71rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #0891b2;
+}
+
+.executorBridgeGuardrailsList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.executorBridgeGuardrailItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 0.76rem;
+  color: #d1d5db;
+  line-height: 1.4;
+}
+
+.executorBridgeGuardrailIcon {
+  color: #0891b2;
+  font-weight: 700;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  margin-top: 1px;
+}
+
+.executorBridgeNotice {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #9ca3af;
+  line-height: 1.5;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 5px;
+  border-left: 2px solid rgba(6, 182, 212, 0.4);
+}
+
+.executorBridgeOutOfScope {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #6b7280;
+  line-height: 1.5;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  font-style: italic;
+}
+
+/* ── G3.3 — Handshake Controlado ───────────────────────────────────────── */
+
+.executorBlocoHandshakeReady {
+  border-color: rgba(139, 92, 246, 0.4);
+  background: rgba(139, 92, 246, 0.04);
+}
+
+.executorBadgeStatusHandshakeReady {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+}
+
+.executorStatusRowHandshakeReady {
+  border-color: rgba(139, 92, 246, 0.3);
+  background: rgba(139, 92, 246, 0.04);
+}
+
+.executorStatusHandshakeReadyDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #a78bfa;
+  flex-shrink: 0;
+  animation: executorPulse 2s ease-in-out infinite;
+}
+
+.executorStatusHandshakeReadyText {
+  font-size: 0.75rem;
+  color: #a78bfa;
+  font-weight: 500;
+}
+
+.executorBtnPrepararHandshake {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid rgba(139, 92, 246, 0.5);
+  background: rgba(139, 92, 246, 0.1);
+  color: #a78bfa;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.executorBtnPrepararHandshake:hover {
+  background: rgba(139, 92, 246, 0.18);
+  border-color: rgba(139, 92, 246, 0.7);
+}
+
+.executorBtnHandshakeReadyActive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 7px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  background: rgba(139, 92, 246, 0.08);
+  color: #a78bfa;
+  cursor: default;
+}
+
+.executorHandshakePackage {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(139, 92, 246, 0.05);
+  border: 1px solid rgba(139, 92, 246, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.executorHandshakePackageLabel {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #a78bfa;
+}
+
+.executorHandshakeRows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.executorHandshakeRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 0.77rem;
+}
+
+.executorHandshakeKey {
+  color: #9ca3af;
+  flex-shrink: 0;
+  min-width: 170px;
+  font-weight: 500;
+}
+
+.executorHandshakeValue {
+  color: #d1d5db;
+  font-weight: 400;
+}
+
+.executorHandshakeAckSection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.executorHandshakeAckLabel {
+  font-size: 0.71rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #7c3aed;
+}
+
+.executorHandshakeAckList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.executorHandshakeAckItem {
+  font-size: 0.75rem;
+  color: #a78bfa;
+  padding-left: 8px;
+}
+
+.executorHandshakeAckNotice {
+  margin: 0;
+  font-size: 0.74rem;
+  color: #9ca3af;
+  line-height: 1.4;
+  font-style: italic;
+}
+
+.executorHandshakeGuardrails {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.executorHandshakeGuardrailsLabel {
+  font-size: 0.71rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6d28d9;
+}
+
+.executorHandshakeGuardrailsList {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.executorHandshakeGuardrailItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 0.76rem;
+  color: #d1d5db;
+  line-height: 1.4;
+}
+
+.executorHandshakeGuardrailIcon {
+  color: #6d28d9;
+  font-weight: 700;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  margin-top: 1px;
+}
+
+.executorHandshakeNotice {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #9ca3af;
+  line-height: 1.5;
+  padding: 6px 10px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 5px;
+  border-left: 2px solid rgba(139, 92, 246, 0.4);
+}
+
+.executorHandshakeOutOfScope {
+  margin: 0;
+  font-size: 0.72rem;
+  color: #6b7280;
+  line-height: 1.5;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 4px;
+  font-style: italic;
+}

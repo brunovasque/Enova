@@ -237,33 +237,36 @@ test("12. step() NÃO usa rawArr diretamente como arr (filtro obrigatório)", ()
 // ================================================================
 console.log("\n── SECTION C: renderCognitiveSpeech — hierarquia ──");
 
-test("13. Caminho 1: v2TakesFinal + cognitivePrefix → usa apenas o prefix cognitivo", () => {
-  // Verifica que o comentário e a lógica estão presentes
+test("13. Caminho ÚNICO: LLM real soberano → usa apenas o prefix cognitivo", () => {
+  // PR #550: Somente __speech_arbiter_source === "llm_real" é soberano
   assert.ok(
-    workerSrc.includes("Caminho 1: LLM real assumiu a fala → usa apenas a fala cognitiva"),
-    "Caminho 1 não encontrado em renderCognitiveSpeech"
+    workerSrc.includes("Caminho ÚNICO soberano: LLM real"),
+    "Caminho único LLM real não encontrado em renderCognitiveSpeech"
   );
   assert.ok(
-    workerSrc.includes("if (v2TakesFinal && cognitivePrefix) return [cognitivePrefix]"),
-    "Lógica do caminho 1 não encontrada"
-  );
-});
-
-test("14. Caminho 2: prefix sem takes_final → APENAS prefix, rawArr DESCARTADO", () => {
-  assert.ok(
-    workerSrc.includes("Caminho 2: prefix cognitivo sem takes_final → prefix É a fala completa, rawArr descartado"),
-    "Caminho 2 novo contrato não encontrado em renderCognitiveSpeech"
-  );
-  assert.ok(
-    workerSrc.includes("if (cognitivePrefix) return [cognitivePrefix]"),
-    "Lógica do caminho 2 (prefix only, rawArr descartado) não encontrada"
+    workerSrc.includes('arbiterSource === "llm_real"'),
+    "Lógica do caminho LLM real com arbiterSource não encontrada"
   );
 });
 
-test("15. Caminho 3: sem flags → buildMinimalCognitiveFallback (rawArr NUNCA exposto — TODOS os stages)", () => {
+test("14. Fallback extremo mínimo → tudo que não é LLM cai no mapa", () => {
+  // PR #550: Caminho 2 (explicit_fallback com prefix) e Caminho 3 (prefix>20) REMOVIDOS.
+  // Tudo que não é LLM → extreme_fallback via buildMinimalCognitiveFallback.
   assert.ok(
-    workerSrc.includes("Caminho 3: sem flags → fallback cognitivo mínimo (rawArr NUNCA exposto — TODOS os stages usam mapa)"),
-    "Caminho 3 contrato total não encontrado em renderCognitiveSpeech"
+    !workerSrc.includes('arbiterSource === "explicit_fallback"'),
+    "explicit_fallback path must be REMOVED"
+  );
+  assert.ok(
+    !workerSrc.includes("cognitivePrefix.length > 20"),
+    "prefix > 20 chars path must be REMOVED"
+  );
+});
+
+test("15. Heurística/resolver/prefix descartados — só mapa por stage", () => {
+  // PR #550: Heuristic prefix descartado. Fallback extremo mínimo via mapa.
+  assert.ok(
+    workerSrc.includes("extreme_fallback"),
+    "extreme_fallback contrato presente em renderCognitiveSpeech"
   );
 });
 
@@ -436,7 +439,7 @@ test("36. upsertState ainda existe (persistência preservada)", () => {
 test("37. modoHumanoRender ainda é chamado após renderCognitiveSpeech", () => {
   const idx = workerSrc.indexOf("renderCognitiveSpeech(st, currentStage, rawArr.filter(Boolean))");
   assert.ok(idx > 0, "renderCognitiveSpeech não encontrada em step()");
-  const afterRender = workerSrc.substring(idx, idx + 400);
+  const afterRender = workerSrc.substring(idx, idx + 800);
   assert.ok(
     afterRender.includes("modoHumanoRender(st, arr)"),
     "modoHumanoRender deve ser chamado após renderCognitiveSpeech"
@@ -597,11 +600,10 @@ test("51. BEHAVIORAL: 'oi' at inicio_programa — usa mapa cognitivo, rawArr NUN
   assert.ok(!result[0].includes("[texto mecânico"), "rawArr não exposto ao cliente");
   assert.ok(!result[0].startsWith("Anotei tudo aqui"), "Saudação pura não dispara overlap");
   assert.ok(result[0].includes("😊"), "Saída tem tom conversacional");
-  assert.strictEqual(_classifyRenderPath(st), "cognitive_fallback");
-  // Prova de intenção da fase: fala menciona MCMV ou análise
+  assert.strictEqual(_classifyRenderPath(st), "extreme_fallback");
   assert.ok(
-    _containsAny(result[0], ["mcmv", "analisar", "perfil"]),
-    "Intenção da fase (MCMV) preservada na saída cognitiva"
+    _containsAny(result[0], ["minha casa minha vida", "enova", "programa"]),
+    "Intenção da fase (programa) preservada na saída cognitiva"
   );
 });
 
@@ -639,8 +641,10 @@ test("53. BEHAVIORAL: 'oi, posso usar o meu fgts?' — overlap + fala cognitiva,
   );
 });
 
-// ─── Cenário 4: `sou casado` — Caminho 2, cognitive_heuristic, rawArr DESCARTADO ───
-test("54. BEHAVIORAL: 'sou casado' at estado_civil — Caminho 2, rawArr DESCARTADO, só prefix", () => {
+// ─── Cenário 4: `sou casado` — Sem LLM → fallback extremo mínimo ───
+test("54. BEHAVIORAL: 'sou casado' at estado_civil — prefix descartado, mapa cognitivo", () => {
+  // PR #550: Heuristic prefix é DESCARTADO — não é fala final pronta.
+  // Fala vem do mapa estático (extreme_fallback).
   const prefix = "Entendi! 👍 Seu casamento é civil no papel ou vocês vivem como união estável?";
   const st = _mkSt({
     fase_conversa: "estado_civil",
@@ -650,17 +654,10 @@ test("54. BEHAVIORAL: 'sou casado' at estado_civil — Caminho 2, rawArr DESCART
   });
   const rawArr = ["[mecânico — deve ser descartado]"];
   const result = _renderCognitiveSpeech(st, "estado_civil", rawArr);
-  // Caminho 2: APENAS o prefix, rawArr DESCARTADO
-  assert.strictEqual(result.length, 1, "Exatamente 1 elemento — só o prefix cognitivo");
-  assert.strictEqual(result[0], prefix, "Saída é exclusivamente o prefix cognitivo");
-  assert.ok(!result[0].includes("[mecânico"), "rawArr foi descartado");
-  assert.ok(!result[0].includes("Me conta:"), "Sem wrapper verniz");
-  // Intenção da fase preservada no prefix (contém a pergunta de casamento)
-  assert.ok(
-    _containsAny(result[0], ["casamento", "civil", "estável"]),
-    "Intenção da fase (estado civil) preservada no prefix"
-  );
-  assert.strictEqual(_classifyRenderPath(st), "cognitive_heuristic");
+  assert.strictEqual(result.length, 1, "Exatamente 1 elemento");
+  assert.ok(!result[0].includes("[mecânico"), "rawArr descartado");
+  // Fallback extremo: mapa por stage, não o prefix heurístico
+  assert.strictEqual(_classifyRenderPath(st), "extreme_fallback");
 });
 
 // ─── Cenário 5: `reset + oi enova` — Caminho 1, cognitive real ───
@@ -670,7 +667,8 @@ test("55. BEHAVIORAL: 'reset + oi enova' — Caminho 1, rawArr DESCARTADO", () =
     fase_conversa: "inicio_programa",
     last_user_text: "oi enova",
     __cognitive_reply_prefix: cogSpeech,
-    __cognitive_v2_takes_final: true
+    __cognitive_v2_takes_final: true,
+    __speech_arbiter_source: "llm_real"
   });
   const rawArr = ["[mechanical reset raw response — should be discarded]"];
   const result = _renderCognitiveSpeech(st, "inicio_programa", rawArr);
@@ -679,7 +677,7 @@ test("55. BEHAVIORAL: 'reset + oi enova' — Caminho 1, rawArr DESCARTADO", () =
   assert.strictEqual(result[0], cogSpeech, "Saída deve ser APENAS o prefix cognitivo");
   assert.ok(!result[0].includes("[mechanical"), "rawArr foi descartado");
   assert.ok(!result[0].includes("Me conta:"), "Sem verniz na saída cognitiva real");
-  assert.strictEqual(_classifyRenderPath(st), "cognitive_real");
+  assert.strictEqual(_classifyRenderPath(st), "llm_real");
 });
 
 // ─── Cenário 6: off-trail sem `?` — usa mapa cognitivo (rawArr ignorado) ───
@@ -704,10 +702,9 @@ test("56. BEHAVIORAL: off-trail sem ? at inicio_nome — usa mapa cognitivo, raw
   assert.strictEqual(ri.pergunta_paralela_detectada, false, "Sem ? → sem detecção de pergunta paralela");
 });
 
-// ─── Cenário 7: resposta de fase + pergunta paralela → Caminho 2, rawArr DESCARTADO ───
-test("57. BEHAVIORAL: resposta de fase + pergunta paralela — Caminho 2, rawArr DESCARTADO", () => {
-  // "sou solteiro, e posso comprar com minha irmã?" — 46 chars, ? presente
-  // O resolver cognitivo detectou "solteiro" e setou prefix completo
+// ─── Cenário 7: resposta de fase + pergunta paralela → prefix descartado, mapa ───
+test("57. BEHAVIORAL: resposta de fase + pergunta paralela — prefix descartado, mapa", () => {
+  // PR #550: Heuristic prefix é DESCARTADO — fala vem do mapa
   const prefix = "Perfeito 👌 E sobre renda... você pretende usar só sua renda ou quer somar com alguém?";
   const st = _mkSt({
     fase_conversa: "estado_civil",
@@ -717,17 +714,10 @@ test("57. BEHAVIORAL: resposta de fase + pergunta paralela — Caminho 2, rawArr
   });
   const rawArr = ["[mecânico — deve ser descartado]"];
   const result = _renderCognitiveSpeech(st, "estado_civil", rawArr);
-  // Caminho 2: APENAS o prefix, rawArr DESCARTADO
-  assert.strictEqual(result.length, 1, "Exatamente 1 elemento — só o prefix cognitivo");
-  assert.strictEqual(result[0], prefix, "Saída é exclusivamente o prefix cognitivo");
+  assert.strictEqual(result.length, 1, "Exatamente 1 elemento");
   assert.ok(!result[0].includes("[mecânico"), "rawArr descartado");
-  // Intenção da fase (renda) está preservada no prefix
-  assert.ok(result[0].includes("renda"), "Intenção da fase preservada no prefix");
-  assert.ok(!result[0].includes("Me conta:"), "Sem wrapper verniz no prefix");
-  assert.strictEqual(_classifyRenderPath(st), "cognitive_heuristic");
+  assert.strictEqual(_classifyRenderPath(st), "extreme_fallback");
 });
-
-// ─── Cenário 8: complemento `e também` — Caminho 3, rawArr ignorado, fala cognitiva ───
 test("58. BEHAVIORAL: complemento 'e também' at somar_renda_familiar — rawArr ignorado, fala cognitiva", () => {
   const input = "e também tenho uma filha dependente";
   const st = _mkSt({ fase_conversa: "somar_renda_familiar", last_user_text: input });
@@ -749,29 +739,29 @@ test("58. BEHAVIORAL: complemento 'e também' at somar_renda_familiar — rawArr
 });
 
 // ================================================================
-// SECTION J — classifyRenderPath: 3 classificações canônicas
+// SECTION J — classifyRenderPath: 2 classificações canônicas (PR #544)
 // ================================================================
 console.log("\n── SECTION J: classifyRenderPath — classificação da origem ──");
 
-test("59. classifyRenderPath: cognitive_real (v2TakesFinal=true + prefix)", () => {
-  const st = _mkSt({ __cognitive_reply_prefix: "fala cognitiva", __cognitive_v2_takes_final: true });
-  assert.strictEqual(_classifyRenderPath(st), "cognitive_real");
+test("59. classifyRenderPath: llm_real (arbiter_source=llm_real)", () => {
+  const st = _mkSt({ __speech_arbiter_source: "llm_real" });
+  assert.strictEqual(_classifyRenderPath(st), "llm_real");
 });
 
-test("60. classifyRenderPath: cognitive_heuristic (prefix sem takes_final)", () => {
-  const st = _mkSt({ __cognitive_reply_prefix: "fala heurística", __cognitive_v2_takes_final: false });
-  assert.strictEqual(_classifyRenderPath(st), "cognitive_heuristic");
+test("60. classifyRenderPath: extreme_fallback (arbiter_source=explicit_fallback → extreme)", () => {
+  const st = _mkSt({ __speech_arbiter_source: "explicit_fallback" });
+  assert.strictEqual(_classifyRenderPath(st), "extreme_fallback");
 });
 
-test("61. classifyRenderPath: cognitive_fallback (sem flags)", () => {
-  const st = _mkSt({ __cognitive_reply_prefix: null, __cognitive_v2_takes_final: false });
-  assert.strictEqual(_classifyRenderPath(st), "cognitive_fallback");
+test("61. classifyRenderPath: extreme_fallback (sem flags)", () => {
+  const st = _mkSt({ __speech_arbiter_source: null });
+  assert.strictEqual(_classifyRenderPath(st), "extreme_fallback");
 });
 
-test("62. classifyRenderPath: v2TakesFinal=true sem prefix → cognitive_fallback (prefix vazio)", () => {
-  // v2TakesFinal sozinho sem prefix não é suficiente para Caminho 1
-  const st = _mkSt({ __cognitive_reply_prefix: "", __cognitive_v2_takes_final: true });
-  assert.strictEqual(_classifyRenderPath(st), "cognitive_fallback");
+test("62. classifyRenderPath: extreme_fallback (arbiter_source undefined)", () => {
+  const st = _mkSt({});
+  delete st.__speech_arbiter_source;
+  assert.strictEqual(_classifyRenderPath(st), "extreme_fallback");
 });
 
 // ================================================================
@@ -848,7 +838,7 @@ test("67. BEHAVIORAL: ir_declarado — fala cognitiva do mapa, rawArr DESCARTADO
   );
   assert.ok(result[0].includes("😊"), "Tom conversacional presente");
   assert.strictEqual(result.length, 1, "Exatamente 1 linha cognitiva");
-  assert.strictEqual(_classifyRenderPath(st), "cognitive_fallback");
+  assert.strictEqual(_classifyRenderPath(st), "extreme_fallback");
 });
 
 // ─── Cenário L2: ctps_36 — gate final ───

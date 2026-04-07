@@ -1,0 +1,26 @@
+ANCHORS EXATOS — CORREÇÃO CIRÚRGICA
+=====================================
+
+PARTE A — NOME OFICIAL DO PROGRAMA
+
+Anchor 1: cognitive/src/final-speech-contract.js
+  - Linha ~45: MCMV_PATTERN + MCMV_PLACEHOLDER (novo)
+  - Linha ~185: replaceCasa() — placeholder protect/restore
+  - Linha ~314: containsCasaInsteadOfImovel() — exclui MCMV antes de testar
+
+Anchor 2: Enova worker.js
+  - Linha ~3770: sanitizeCognitiveReply() — placeholder protect/restore
+
+PARTE B — CONTENÇÃO STAGE-AWARE DO TOPO
+
+Anchor 3: cognitive/src/final-speech-contract.js
+  - Linha ~262: applyFinalSpeechContract(), bloco llmSovereign
+  - EXCEÇÃO adicionada: quando currentStage é inicio_programa/inicio/inicio_decisao,
+    stripFutureStageCollection é aplicado MESMO com llmSovereign=true
+
+Anchor 4: Enova worker.js (já existente, não alterado)
+  - Linha ~18913: TOPO_PREMATURE_COLLECTION regex
+  - Linha ~18920: _isTopoReplySemanticallySafe()
+  - Linha ~19081: first_after_reset.validate
+  - Linha ~19094: greeting_reentrada.validate
+  - Linha ~19134: ambiguous.validate

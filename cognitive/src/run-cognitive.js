@@ -3177,12 +3177,20 @@ function normalizeModelResponse({
       ? modelResponse.should_request_confirmation || conflicts.length > 0
       : heuristicResponse.should_request_confirmation || conflicts.length > 0;
 
+  // ── BLOCO 4 (PR #550): Post-LLM blindage ──
+  // Quando o LLM real dominou (speech_origin === "llm_real"), NÃO aplicar
+  // ensureReplyHasNextAction — isso pode colar segunda intenção indevida.
+  // Somente heuristic/fallback recebem action prompt (já que são suporte interno).
+  const finalReplyText = speechOrigin === "llm_real"
+    ? replyText
+    : ensureReplyHasNextAction(replyText, {
+        request,
+        pendingSlots,
+        suggestedNextSlot
+      });
+
   return {
-    reply_text: ensureReplyHasNextAction(replyText, {
-      request,
-      pendingSlots,
-      suggestedNextSlot
-    }),
+    reply_text: finalReplyText,
     speech_origin: speechOrigin,
     slots_detected: slotsDetected,
     pending_slots: pendingSlots,
@@ -3269,13 +3277,26 @@ export async function runReadOnlyCognitiveEngine(rawInput = {}, options = {}) {
   });
 
   // ── Etapa 6: Contrato global de fala final ──────────────────────────────
-  // Aplica o pós-processador de tom, proteção contra promessas e padronização
-  // sobre o reply_text final, ANTES da validação. Não altera mecânico.
-  response.reply_text = applyFinalSpeechContract(response.reply_text, {
-    currentStage: request.current_stage,
-    messageText: request.message_text,
-    empathySeed: (request.message_text || "").length
-  });
+  // BLOCO 4 (PR #550): Quando o LLM real dominou (speech_origin === "llm_real"),
+  // aplicar SOMENTE guardrails mínimos estritos (casa→imóvel, promessas proibidas).
+  // NÃO aplicar addEmpathyIfNeeded nem controlLength agressivo — isso reescreve semântica.
+  // Heuristic/fallback recebem o contrato completo normalmente.
+  if (response.speech_origin === "llm_real") {
+    // Guardrail mínimo: substituir "casa" por "imóvel" e bloquear promessas proibidas.
+    // NÃO reescrever tom, NÃO truncar, NÃO adicionar empatia.
+    response.reply_text = applyFinalSpeechContract(response.reply_text, {
+      currentStage: request.current_stage,
+      messageText: request.message_text,
+      empathySeed: (request.message_text || "").length,
+      llmSovereign: true  // flag para guardrail mínimo
+    });
+  } else {
+    response.reply_text = applyFinalSpeechContract(response.reply_text, {
+      currentStage: request.current_stage,
+      messageText: request.message_text,
+      empathySeed: (request.message_text || "").length
+    });
+  }
 
   const validation = validateReadOnlyCognitiveResponse(response);
 

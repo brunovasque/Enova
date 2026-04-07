@@ -172,12 +172,19 @@ async function step(env, st, messages, nextStage, options = {}) {
   // O mecânico permanece soberano em stage/gate/nextStage/persistência.
   const arr = renderCognitiveSpeech(st, currentStage, rawArr.filter(Boolean));
 
+  // ── BLOCO D: Blindagem pós-LLM ──
+  // Depois que o árbitro soberano decidiu a fala, nenhum helper pode reescrever
+  // a semântica. Apenas guardrail mínimo estrito é permitido.
+  const speechArbiterSource = st.__speech_arbiter_source || "extreme_fallback";
+
   // limpa flags transitórias para não vazar para próximas respostas
   st.__cognitive_reply_prefix = null;
   st.__cognitive_v2_takes_final = false;
   st.__round_intent = null;
+  st.__speech_arbiter_source = null;
 
-  // 🔥 AQUI: aplica modo humano (somente se ativo)
+  // 🔥 AQUI: aplica modo humano SOMENTE se modo humano MANUAL legítimo do painel
+  // (BLOCO F: modoHumanoRender não reescreve superfície cognitiva automática)
   const msgs = modoHumanoRender(st, arr);
   const replyText = msgs.join("\n");
 
@@ -2723,8 +2730,14 @@ async function maybeCognitiveShellForInformativo(env, st, userText, slotTopic) {
     const cogReply = sanitizeCognitiveReply(cognitive?.reply_text);
     const confidence = Number(cognitive?.confidence || 0);
     if (cogReply && cogReply.length > 30 && confidence >= COGNITIVE_V1_CONFIDENCE_MIN) {
-      st.__cognitive_reply_prefix = cogReply;
-      st.__cognitive_v2_takes_final = true;
+      // BLOCO 3 (PR #550): somente LLM real assume fala final
+      const engineUsedLlm = cognitive?.reason === "cognitive_v2";
+      if (engineUsedLlm) {
+        st.__cognitive_reply_prefix = cogReply;
+        st.__cognitive_v2_takes_final = true;
+        st.__speech_arbiter_source = "llm_real";
+      }
+      // Heurística → suporte interno apenas, não produz fala final
     }
   } catch (_e) {
     // Silent fallback — mecânico continua soberano
@@ -3754,7 +3767,11 @@ function shouldTriggerCognitiveAssist(stage, text) {
 function sanitizeCognitiveReply(replyText) {
   let text = String(replyText || "").trim();
   if (!text) return "Perfeito, te explico isso com calma. E pra seguir com segurança, me confirma a informação desta etapa, por favor.";
+  // Protege nome oficial "Minha Casa Minha Vida" antes do replace global
+  const mcmvPlaceholder = "\u200B__MCMV__\u200B";
+  text = text.replace(/Minha\s+Casa\s+Minha\s+Vida/gi, mcmvPlaceholder);
   text = text.replace(/\bcasa\b/gi, "imóvel");
+  text = text.replace(new RegExp(mcmvPlaceholder.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"), "g"), "Minha Casa Minha Vida");
   return text;
 }
 
@@ -3881,6 +3898,16 @@ function buildCognitiveFallback(stage) {
 // O mecânico continua soberano em stage/gate/nextStage/persistência.
 // Sem chamadas a LLM. Sem persistência. Sem mudança de gates.
 // Ref: schema/COGNITIVE_MIGRATION_CONTRACT.md — seção 3.2
+//
+// REGRA MESTRA DA SUPERFÍCIE (PR #550 — BLOCO 1+2+3):
+// Um único árbitro decide a fala final visível:
+//   1. LLM real quando disponível e válido (__speech_arbiter_source === "llm_real")
+//   2. Fallback extremo mínimo (mapa por stage) quando LLM não puder ser usado
+//   3. Mais nada.
+// Heurística, topo, resolver, reanchor e pós-processamento são suporte interno —
+// NUNCA produzem fala final pronta. NUNCA são soberanos da superfície.
+// REMOVIDO: "explicit_fallback" com heurística/resolver/prefix local.
+// REMOVIDO: critério "prefix > 20 chars".
 // ================================================================
 
 /**
@@ -4117,7 +4144,7 @@ function _renderCognitiveFromIntent(mechanicalSource, stage) {
 const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
   // ── topo ──
   ["inicio",                  "Oi! 😊 Pode falar, tô por aqui."],
-  ["inicio_programa",         "Oi! 😊 Vou analisar seu perfil pro MCMV. Pode começar?"],
+  ["inicio_programa",         "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Você já sabe como funciona ou prefere que eu explique rapidinho?"],
   ["inicio_nome",             "Pode me dizer seu nome completo? 😊"],
   ["inicio_nacionalidade",    "Você é brasileiro(a) nato(a)?"],
   ["inicio_rnm",              "Qual o número do seu Registro Nacional Migratório?"],
@@ -4189,55 +4216,64 @@ function buildMinimalCognitiveFallback(stage, rawArr, roundIntent) {
 }
 
 /**
- * renderCognitiveSpeech — Render cognitivo obrigatório.
+ * renderCognitiveSpeech — Árbitro soberano único da superfície visível.
  * TODA fala visível ao cliente deve sair desta função.
  * O mecânico permanece soberano em stage/gate/nextStage/persistência.
  *
- * Hierarquia:
- * 1. __cognitive_v2_takes_final + prefix → fala cognitiva real (LLM) — rawArr DESCARTADO
- * 2. prefix sem takes_final → prefix é a fala cognitiva completa — rawArr DESCARTADO
- * 3. sem flags → buildMinimalCognitiveFallback — usa mechanical_prompt_source do
- *    roundIntent como fonte de intenção, transforma em fala cognitiva.
- *    Mapa por stage é fallback de segurança. rawArr literal NUNCA exposto.
+ * HIERARQUIA SOBERANA (PR #550 — BLOCO 1+2):
+ *   1. LLM real (__speech_arbiter_source === "llm_real") — ÚNICO soberano.
+ *      Quando disponível e válido, a fala do LLM é a fala final. Ponto.
+ *   2. Fallback extremo mínimo — SOMENTE quando LLM não estiver disponível.
+ *      Fonte: _MINIMAL_FALLBACK_SPEECH_MAP (mapa estático por stage) ou
+ *      _renderCognitiveFromIntent (transformação de tom sem LLM).
+ *      Heurística, resolver e topo NÃO produzem fala final pronta.
+ *
+ * REMOVIDO (BLOCO 2): Caminho "prefix > 20 chars" — eliminado.
+ *   Tamanho de string não pode ser critério de soberania da superfície.
+ *
+ * REMOVIDO (BLOCO 1): explicit_fallback com prefix arbitrário — eliminado.
+ *   Heurística/resolver NÃO podem mais produzir fala final pronta.
+ *   Se não veio de LLM, cai direto no fallback extremo mínimo (mapa por stage).
  *
  * CONTRATO: rawArr como texto cru NUNCA chega ao cliente. Sem exceções.
- * O que chega é: LLM real, prefix heurístico, ou intenção mecânica renderizada cognitivamente.
  */
 function renderCognitiveSpeech(st, stage, rawArr) {
   const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
   const v2TakesFinal = st?.__cognitive_v2_takes_final === true;
+  const arbiterSource = st?.__speech_arbiter_source || null;
   const roundIntent = st?.__round_intent || null;
-  // Caminho 1: LLM real assumiu a fala → usa apenas a fala cognitiva, rawArr descartado
-  if (v2TakesFinal && cognitivePrefix) return [cognitivePrefix];
-  // Caminho 2: prefix cognitivo sem takes_final → prefix É a fala completa, rawArr descartado
-  // O prefix vem de resolver estruturado ou motor cognitivo e já contém a resposta completa.
-  if (cognitivePrefix) return [cognitivePrefix];
-  // Caminho 3: sem flags → fallback cognitivo mínimo (rawArr NUNCA exposto — TODOS os stages usam mapa)
+
+  // Caminho ÚNICO soberano: LLM real
+  // Somente quando o LLM real produziu a fala e marcou como "llm_real".
+  if (v2TakesFinal && cognitivePrefix && arbiterSource === "llm_real") {
+    return [cognitivePrefix];
+  }
+
+  // Tudo que não é LLM real → fallback extremo mínimo (mapa por stage).
+  // Heurística, resolver, topo, prefix local — NADA disso é soberano.
+  // O prefix (se existir) é DESCARTADO — foi suporte interno, não fala final.
+  st.__speech_arbiter_source = "extreme_fallback";
   return buildMinimalCognitiveFallback(stage, rawArr, roundIntent);
 }
 
 /**
  * classifyRenderPath — Classifica a origem da fala renderizada.
  *
- * Retorna uma das três classificações canônicas:
- *   "cognitive_real"      — LLM real assumiu a fala (__cognitive_v2_takes_final=true).
- *                           rawArr é DESCARTADO. A fala é 100% cognitiva.
- *   "cognitive_heuristic" — Heurístico/structured resolver pré-computou um prefix.
- *                           (__cognitive_reply_prefix set, __cognitive_v2_takes_final=false)
- *                           rawArr é DESCARTADO. Prefix é a fala completa.
- *   "cognitive_fallback"  — Nenhuma flag. buildMinimalCognitiveFallback é o caminho.
- *                           Primário: mechanical_prompt_source → fala cognitiva via _renderCognitiveFromIntent.
- *                           Fallback: _MINIMAL_FALLBACK_SPEECH_MAP por stage.
- *                           rawArr literal NUNCA exposto — sem exceções.
+ * Retorna uma das classificações canônicas do árbitro soberano:
+ *   "llm_real"          — LLM real assumiu a fala. Único soberano.
+ *   "extreme_fallback"  — Fallback extremo mínimo: _MINIMAL_FALLBACK_SPEECH_MAP
+ *                          ou _renderCognitiveFromIntent. Usado somente quando LLM
+ *                          não disponível ou falhou. Heurística/resolver/topo/prefix
+ *                          local NÃO são soberanos — tudo que não é LLM cai aqui.
  *
+ * REMOVIDO: "explicit_fallback" (era largo demais — permitia heurística disfarçada).
+ * REMOVIDO: "cognitive_heuristic" (heurística é suporte interno, não classificação).
  * Usado para telemetria e testes comportamentais. Não altera a fala.
  */
 function classifyRenderPath(st) {
-  const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
-  const v2TakesFinal = st?.__cognitive_v2_takes_final === true;
-  if (v2TakesFinal && cognitivePrefix) return "cognitive_real";
-  if (cognitivePrefix) return "cognitive_heuristic";
-  return "cognitive_fallback";
+  const arbiterSource = st?.__speech_arbiter_source || null;
+  if (arbiterSource === "llm_real") return "llm_real";
+  return "extreme_fallback";
 }
 
 // =============================================================
@@ -4298,6 +4334,13 @@ function adaptCognitiveV2Output(stage, v2Result) {
 
   const engineUsedLlm = v2Result.engine && v2Result.engine.llm_used === true;
   const speechOrigin = (v2Result.engine && v2Result.engine.speech_origin) || (engineUsedLlm ? "llm_real" : "heuristic_guidance");
+
+  // ── BLOCO 4 (PR #550): Post-LLM blindage ──
+  // Se o engine reporta heuristic_guidance ou fallback_mechanical, o reply_text
+  // NÃO pode ser usado como fala final pronta. Marcamos speech_origin honestamente
+  // para que o caller (runFunnel) saiba que NÃO deve promover para takes_final.
+  // Somente speech_origin === "llm_real" é elegível para soberania da superfície.
+
   const intent = hasSlots
     ? "cognitive_v2_slot_detected"
     : (resp.conflicts && resp.conflicts.length > 0)
@@ -9220,8 +9263,12 @@ try {
 // =============================================================
 function modoHumanoRender(st, arr) {
   try {
-    // Se não estiver ativado, retorna mensagens normais
+    // BLOCO F (PR #544): modo humano só reescreve superfície quando ativado
+    // MANUALMENTE pelo painel (modo_humano_manual === true).
+    // Se modo_humano foi ativado automaticamente (sem flag manual), NÃO reescreve.
+    // Isso impede que a superfície cognitiva automática seja contaminada.
     if (!st.modo_humano) return arr;
+    if (!st.modo_humano_manual) return arr;
 
     // Segurança: nunca aplicar modo humano em mensagens vazias
     if (!arr || arr.length === 0) return arr;
@@ -18862,6 +18909,40 @@ const CORRESPONDENTE_RETURN_MIN_CONFIDENCE_AUTO = 0.75;
 // NUNCA fica sem resposta.
 // ================================================================
 
+// ── Contenção stage-aware do topo ──────────────────────────────────────────
+// Padrões de coleta estrutural prematura — proibidos no topo (inicio_programa).
+// Se a resposta do LLM contiver qualquer desses padrões, ela é semanticamente
+// inadequada para a abertura e NÃO pode dominar como llm_real.
+// A contenção segura entra automaticamente via fallback.
+const TOPO_PREMATURE_COLLECTION = /\b(?:estado\s+civil|solteiro\(?a?\)?|casad[oa]|divorci|separad[oa]|vi[uú]v[oa]|uni[aã]o\s+est[aá]vel|nome\s+completo|qual\s+(?:[eé]\s+)?(?:o\s+)?seu\s+nome|nacionalidade|voc[eê]\s+[eé]\s+brasileir|brasileiro\(?a?\)?(?:\s+nat[oa])?|estrangeir[oa]?|regime\s+de\s+trabalho|CLT|aut[oô]nom[oa]|renda\s+mensal|sal[aá]rio|quanto\s+(?:voc[eê]\s+)?ganh|CTPS|carteira\s+de\s+trabalho|SPC|Serasa|restri[cç][aã]o\s+no|somar\s+renda|servidor\s+p[uú]blic|aposentad[oa])/i;
+
+/**
+ * TOPO_INSTITUTIONAL_TONE — Detecta tom institucional/técnico/burocrático
+ * que não é adequado para uma abertura humanizada no topo do funil.
+ * Rejeita termos frios, siglas internas e formulações burocráticas.
+ */
+const TOPO_INSTITUTIONAL_TONE = /\b(?:Cognitive\s+Engine|programas?\s+habitaciona(?:l|is)|MCMV\s*\/\s*CEF|CEF\s*\/\s*MCMV|processo\s+de\s+financiamento\s+habitacional|financiamento\s+habitacional|Caixa\s+Econ[oô]mica\s+Federal)\b/i;
+
+/**
+ * _isTopoReplySemanticallySafe — Valida que o reply NÃO puxa coleta estrutural
+ * prematura no topo (inicio_programa). Retorna true se a resposta é segura
+ * para uso como abertura; false se contém padrões de coleta futura.
+ */
+function _isTopoReplySemanticallySafe(reply) {
+  if (!reply || typeof reply !== "string") return false;
+  return !TOPO_PREMATURE_COLLECTION.test(reply);
+}
+
+/**
+ * _isTopoReplyToneSafe — Valida que o reply NÃO usa tom técnico/institucional
+ * na abertura do topo. Rejeita "Cognitive Engine", "programas habitacionais",
+ * "MCMV/CEF", "financiamento habitacional", etc.
+ */
+function _isTopoReplyToneSafe(reply) {
+  if (!reply || typeof reply !== "string") return false;
+  return !TOPO_INSTITUTIONAL_TONE.test(reply);
+}
+
 /**
  * TOPO_HAPPY_PATH_SPEECH — Mapa canônico de falas cognitivas por transição.
  *
@@ -18887,6 +18968,7 @@ function validateInicioProgramaChoiceSpeech(reply, { requirePresentation = false
   if (!text || text.length < 45 || !/\?/.test(text)) return false;
   if (TOPO_INICIO_PROGRAMA_FORBIDDEN_COLLECTION_RE.test(text)) return false;
   if (TOPO_INICIO_PROGRAMA_COLD_RE.test(text)) return false;
+  if (!_isTopoReplySemanticallySafe(text) || !_isTopoReplyToneSafe(text)) return false;
 
   const hasProgramAuthority =
     /\benova\b/.test(nt) &&
@@ -18914,6 +18996,91 @@ const TOPO_HAPPY_PATH_SPEECH = {
       "Me responde com *sim* (já sei) ou *não* (quero que explique)."
     ],
     validate: (reply) => reply && reply.length > 30 && /\?/.test(reply)
+  },
+
+  // ── inicio: abertura por base (primeira interação, sem opening) ──
+  "inicio:abertura_base": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "oi, quero saber sobre o programa",
+    fallback: [
+      "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida.",
+      "Posso te fazer algumas perguntas rápidas?"
+    ],
+    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
+  },
+
+  // ── inicio: reset/começar do zero dentro do inicio ──
+  "inicio:reset_iniciar": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "quero começar do zero",
+    fallback: [
+      "Perfeito, limpamos tudo 👌 Eu sou a Enova, assistente do Minha Casa Minha Vida.",
+      "Você já sabe como funciona ou prefere que eu explique?"
+    ],
+    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
+  },
+
+  // ── inicio: retomada (cliente voltou e já tinha progresso) ──
+  "inicio:retomada": {
+    cognitiveStage: "inicio_decisao",
+    cognitiveMessage: "oi, voltei",
+    fallback: [
+      "Oi! 👋 Quer continuar de onde paramos ou começar do zero?"
+    ],
+    validate: (reply) => reply && reply.length > 15 && /continuar|zero|parar/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── inicio: saudação normal ──
+  "inicio:saudacao": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "oi, tudo bem",
+    fallback: [
+      "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida.",
+      "Você já sabe como funciona ou prefere que eu explique?"
+    ],
+    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
+  },
+
+  // ── inicio: fallback (qualquer outra mensagem) ──
+  "inicio:fallback": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "oi",
+    fallback: [
+      "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida.",
+      "Você já sabe como funciona ou prefere que eu explique?"
+    ],
+    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
+  },
+
+  // ── inicio_decisao: resposta inválida (não é 1 ou 2) ──
+  "inicio_decisao:invalido": {
+    cognitiveStage: "inicio_decisao",
+    cognitiveMessage: "hmm, não entendi",
+    fallback: [
+      "Me diz: *1* pra continuar de onde paramos ou *2* pra começar do zero."
+    ],
+    validate: (reply) => reply && reply.length > 10 && /continuar|zero|1|2/i.test(reply)
+  },
+
+  // ── inicio_decisao: continuar ──
+  "inicio_decisao:continuar": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "quero continuar de onde parei",
+    fallback: [
+      "Perfeito! Vamos continuar de onde paramos 👍"
+    ],
+    validate: (reply) => reply && reply.length > 10
+  },
+
+  // ── inicio_decisao: reset ──
+  "inicio_decisao:reset": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "quero começar do zero",
+    fallback: [
+      "Prontinho! Limpamos tudo 👌 Eu sou a Enova, assistente do Minha Casa Minha Vida.",
+      "Você já sabe como funciona ou prefere que eu explique?"
+    ],
+    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
   },
 
   // ── inicio_programa: sim (já conhece) → avança para inicio_nome ──
@@ -19010,8 +19177,6 @@ const TOPO_HAPPY_PATH_SPEECH = {
     ],
     validate: (reply) => validateInicioProgramaChoiceSpeech(reply)
   },
-
-  // ── inicio_nome: nome aceito → avança para inicio_nacionalidade ──
   "inicio_nome:nome_aceito": {
     cognitiveStage: "inicio_nacionalidade",
     cognitiveMessage: "meu nome é Bruno",
@@ -19117,6 +19282,106 @@ const TOPO_HAPPY_PATH_SPEECH = {
       "*Solteiro(a)*, *casado(a) no civil*, *união estável*, *separado(a)*, *divorciado(a)* ou *viúvo(a)*?"
     ],
     validate: (reply) => reply && reply.length > 15 && /estado civil|solteiro|casad/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── inicio_nome: texto parece intenção/pedido, não nome ──
+  "inicio_nome:intent_not_name": {
+    cognitiveStage: "inicio_nome",
+    cognitiveMessage: "quero saber mais, mas meu nome...",
+    fallback: [
+      "Me confirma seu *nome completo*, por favor."
+    ],
+    validate: (reply) => reply && reply.length > 10 && /nome/i.test(reply)
+  },
+
+  // ── inicio_nome: nome vazio ou muito curto ──
+  "inicio_nome:nome_curto": {
+    cognitiveStage: "inicio_nome",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Me manda seu *nome completo*, por favor."
+    ],
+    validate: (reply) => reply && reply.length > 10 && /nome/i.test(reply)
+  },
+
+  // ── inicio_nome: resposta não parece nome válido ──
+  "inicio_nome:nome_invalido": {
+    cognitiveStage: "inicio_nome",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Me manda seu *nome completo*, por favor."
+    ],
+    validate: (reply) => reply && reply.length > 10 && /nome/i.test(reply)
+  },
+
+  // ── inicio_nacionalidade: fallback (não entendido) ──
+  "inicio_nacionalidade:fallback": {
+    cognitiveStage: "inicio_nacionalidade",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Você é *brasileiro(a)* ou *estrangeiro(a)*?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /brasileiro|estrangeir/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── inicio_rnm: não possui RNM (ineligível) ──
+  "inicio_rnm:nao_possui": {
+    cognitiveStage: "inicio_rnm",
+    cognitiveMessage: "não tenho RNM",
+    fallback: [
+      "O RNM indeterminado é obrigatório para o MCMV."
+    ],
+    validate: (reply) => reply && reply.length > 10 && /RNM|obrigat/i.test(reply)
+  },
+
+  // ── inicio_rnm: possui RNM → avança para validade ──
+  "inicio_rnm:possui": {
+    cognitiveStage: "inicio_rnm_validade",
+    cognitiveMessage: "sim, tenho RNM",
+    fallback: [
+      "Seu RNM é *com validade* ou *indeterminado*?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /validade|indeterminado/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── inicio_rnm: fallback (não entendido) ──
+  "inicio_rnm:fallback": {
+    cognitiveStage: "inicio_rnm",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Você possui *RNM*? Responda *sim* ou *não*."
+    ],
+    validate: (reply) => reply && reply.length > 10 && /RNM|sim|não|nao/i.test(reply)
+  },
+
+  // ── inicio_rnm_validade: validade definida (ineligível) ──
+  "inicio_rnm_validade:definida": {
+    cognitiveStage: "inicio_rnm_validade",
+    cognitiveMessage: "meu RNM tem validade definida",
+    fallback: [
+      "RNM com validade definida não se enquadra no MCMV."
+    ],
+    validate: (reply) => reply && reply.length > 10 && /RNM|validade|MCMV/i.test(reply)
+  },
+
+  // ── inicio_rnm_validade: indeterminado → avança para estado_civil ──
+  "inicio_rnm_validade:indeterminado": {
+    cognitiveStage: "estado_civil",
+    cognitiveMessage: "meu RNM é indeterminado",
+    fallback: [
+      "Qual é o seu estado civil?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /estado civil/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── inicio_rnm_validade: fallback (não entendido) ──
+  "inicio_rnm_validade:fallback": {
+    cognitiveStage: "inicio_rnm_validade",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Seu RNM é *com validade* ou *indeterminado*?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /validade|indeterminado/i.test(reply)
   }
 };
 
@@ -19189,15 +19454,68 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
 /**
  * setTopoHappyPathFlags — Configura st para que step() use o reply cognitivo como fala final.
  * Worker permanece soberano em stage/gate/nextStage.
+ *
+ * BLOCO 3 (PR #550): Somente LLM real (cognitive_real) vira árbitro soberano.
+ * heuristic_guidance e fallback_mechanical NÃO produzem fala final pronta.
+ * Eles são suporte interno — não setam prefix, não setam takes_final.
+ * Se o LLM não estiver disponível, a fala final vem do fallback extremo mínimo
+ * (mapa por stage) dentro de renderCognitiveSpeech.
  */
 function setTopoHappyPathFlags(st, happyResult) {
-  if (happyResult.source === "cognitive_real" || happyResult.source === "heuristic_guidance") {
+  if (happyResult.source === "cognitive_real") {
+    // LLM real → soberano da superfície
     st.__cognitive_reply_prefix = happyResult.speech[0];
     st.__cognitive_v2_takes_final = true;
+    st.__speech_arbiter_source = "llm_real";
   } else {
+    // heuristic_guidance / fallback_mechanical → NÃO produzem fala final pronta.
+    // Suporte interno apenas. Prefix e takes_final NÃO setados.
+    // A fala final será decidida pelo fallback extremo mínimo em renderCognitiveSpeech.
     st.__cognitive_reply_prefix = null;
     st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
   }
+}
+
+// ================================================================
+// ALIASES GENÉRICOS DE SPEECH — INFRAESTRUTURA (Fase 0)
+//
+// Thin delegates para as funções topo já provadas.
+// A lógica interna de getTopoHappyPathSpeech / setTopoHappyPathFlags
+// já é 100% stage-agnostic — apenas o nome carregava acoplamento ao topo.
+//
+// Estes aliases permitem que fases futuras (meio/gates/operacional)
+// chamem speech cognitivo sem referência ao topo no nome.
+//
+// CONTRATO:
+// - NENHUMA lógica nova. Delegates puros.
+// - getTopoHappyPathSpeech e setTopoHappyPathFlags continuam canônicos.
+// - HAPPY_PATH_SPEECH é a mesma referência que TOPO_HAPPY_PATH_SPEECH.
+// - Callsites existentes (topo) NÃO são alterados.
+// - Motor mecânico intacto: zero stage/gate/parser/nextStage/persistência.
+// ================================================================
+
+/**
+ * HAPPY_PATH_SPEECH — Mapa canônico de speech por transição.
+ * Mesma referência que TOPO_HAPPY_PATH_SPEECH (objeto compartilhado).
+ * Adicionar entries aqui é o mesmo que adicionar em TOPO_HAPPY_PATH_SPEECH.
+ */
+const HAPPY_PATH_SPEECH = TOPO_HAPPY_PATH_SPEECH;
+
+/**
+ * getHappyPathSpeech — Obtém fala cognitiva para qualquer transição do funil.
+ * Delegate puro para getTopoHappyPathSpeech (mesma assinatura, mesmo retorno).
+ */
+async function getHappyPathSpeech(env, transitionKey, st, overrides) {
+  return getTopoHappyPathSpeech(env, transitionKey, st, overrides);
+}
+
+/**
+ * setHappyPathFlags — Configura flags de fala no state para qualquer stage.
+ * Delegate puro para setTopoHappyPathFlags (mesma assinatura, mesmo efeito).
+ */
+function setHappyPathFlags(st, happyResult) {
+  return setTopoHappyPathFlags(st, happyResult);
 }
 
 // ================================================================
@@ -22528,12 +22846,9 @@ async function runFunnel(env, st, userText) {
 
     // ── SILÊNCIO PÓS-RESET ──
     // Pós-reset: Enova fica em silêncio até o cliente mandar a primeira mensagem.
-    // Marca _post_reset=true para que inicio_programa saiba tratar a primeira msg
-    // com cognitivo real em vez de bloco mecânico automático.
-    await upsertState(env, novoSt.wa_id, {
-      _post_reset: true
-    });
-    novoSt._post_reset = true;
+    // Detecção de "first after reset" usa colunas canônicas: fase_conversa === "inicio_programa"
+    // && last_user_text === null && last_processed_text === null (já garantido acima).
+    // Nenhuma coluna nova necessária.
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -22737,23 +23052,22 @@ async function runFunnel(env, st, userText) {
         // independente do modo (off/shadow/on) ou do caminho (LLM/heuristic/fallback).
         // Cobre: buildCognitiveFallback (no_llm_or_parse) que retorna still_needs=true.
         const _stillNeedsOriginal = cognitive.still_needs_original_answer === true;
-        // Condições de assunção da fala final (todas respeitam _stillNeedsOriginal):
-        //   1. V2 "on" com LLM real (cognitive_v2) → takes_final=true (se stage não precisa de resposta original)
-        //   2. V2 "on" com heurística útil (>30 chars) → takes_final=true (idem)
-        //   3. Qualquer modo: cognitivo respondeu explicitamente a pergunta do cliente
-        //      (answered=true + still_needs=false + reply>30) → takes_final=true
-        const _answeredSufficiently =
-          cognitive.answered_customer_question === true &&
-          !_stillNeedsOriginal &&
-          cognitiveReply.length > 30;
-        st.__cognitive_v2_takes_final = (
-          (v2OnWithLlm && !_stillNeedsOriginal) ||
-          (v2OnWithHeuristic && cognitiveReply.length > 30 && !_stillNeedsOriginal) ||
-          _answeredSufficiently
-        ) ? true : false;
+        // BLOCO 3 (PR #550): Somente LLM real pode assumir fala final.
+        // Heurística (v2OnWithHeuristic) NÃO pode mais assumir takes_final.
+        // _answeredSufficiently também só vale quando veio de LLM real.
+        //   1. V2 "on" com LLM real (cognitive_v2) → takes_final=true
+        //   2. Heurística → suporte interno apenas, NÃO takes_final
+        st.__cognitive_v2_takes_final = (v2OnWithLlm && !_stillNeedsOriginal) ? true : false;
+        // __speech_arbiter_source — somente LLM real é soberano
+        st.__speech_arbiter_source = (v2OnWithLlm && !_stillNeedsOriginal) ? "llm_real" : null;
+        // Se não é LLM real, limpa prefix — heurística não produz fala final
+        if (!v2OnWithLlm) {
+          st.__cognitive_reply_prefix = null;
+        }
       } else {
         st.__cognitive_reply_prefix = null;
         st.__cognitive_v2_takes_final = false;
+        st.__speech_arbiter_source = null;
       }
 
       const COGNITIVE_HEURISTIC_REASONS = new Set(["no_llm_or_parse", "cognitive_v2_heuristic"]);
@@ -23023,46 +23337,10 @@ case "inicio": {
 
   // ============================================================
   // (0) Abertura por base — primeira mensagem do lead
+  // LLM obrigatório: fala visível nasce do LLM. Fallback extremo mínimo se LLM falha.
   // ============================================================
   if (st.opening_used !== true) {
     const sourceType = (st.source_type || "fria").toLowerCase();
-
-    let openingMessages;
-    switch (sourceType) {
-      case "campanha":
-        openingMessages = [
-          "Oi, tudo bem? 😊",
-          "Eu sou a Enova, assistente virtual de pré-análise.",
-          "Vi que você demonstrou interesse em um imóvel pelo programa Minha Casa Minha Vida.",
-          "Posso te fazer algumas perguntas rápidas para te orientar da forma certa?"
-        ];
-        break;
-      case "morna":
-        openingMessages = [
-          "Oi, tudo bem? 😊",
-          "Eu sou a Enova, assistente virtual de pré-análise.",
-          "Estou entrando em contato para entender seu perfil e te orientar dentro do programa Minha Casa Minha Vida.",
-          "Posso te fazer algumas perguntas rápidas?"
-        ];
-        break;
-      case "lyx":
-        openingMessages = [
-          "Oi, tudo bem? 😊",
-          "Eu sou a Enova, assistente virtual de pré-análise.",
-          "Estou entrando em contato para entender seu perfil e te orientar da melhor forma dentro do Minha Casa Minha Vida.",
-          "Posso te fazer algumas perguntas rápidas?"
-        ];
-        break;
-      case "fria":
-      default:
-        openingMessages = [
-          "Oi, tudo bem? 😊",
-          "Eu sou a Enova, assistente virtual de pré-análise.",
-          "Estou entrando em contato para entender seu perfil e te orientar sobre a possibilidade de compra de imóvel pelo programa Minha Casa Minha Vida.",
-          "Posso te fazer algumas perguntas rápidas?"
-        ];
-        break;
-    }
 
     await upsertState(env, st.wa_id, {
       opening_used: true,
@@ -23072,6 +23350,15 @@ case "inicio": {
     st.opening_used = true;
     st.opening_variant = `base_opening:${sourceType}`;
 
+    // ── LLM OBRIGATÓRIO: abertura por base ──
+    const _aberturaMsg = sourceType === "campanha"
+      ? "oi, vi que demonstrei interesse em um imóvel pelo MCMV"
+      : "oi, quero saber sobre o programa minha casa minha vida";
+    const _aberturaSpeech = await getTopoHappyPathSpeech(env, "inicio:abertura_base", st, {
+      cognitiveMessage: _aberturaMsg
+    });
+    setTopoHappyPathFlags(st, _aberturaSpeech);
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -23079,10 +23366,11 @@ case "inicio": {
       next_stage: "inicio_programa",
       severity: "info",
       message: `Saindo da fase: inicio → inicio_programa (abertura por base: ${sourceType})`,
-      details: { source_type: sourceType, opening_variant: st.opening_variant }
+      details: { source_type: sourceType, opening_variant: st.opening_variant, speech_source: _aberturaSpeech.source }
     });
 
-    return step(env, st, openingMessages, "inicio_programa");
+    // Fallback extremo mínimo — só usado se LLM falhar tecnicamente.
+    return step(env, st, ["Oi! 😊 Eu sou a Enova, assistente do Minha Casa Minha Vida. Posso te ajudar?"], "inicio_programa");
   }
 
   // 🧼 Comando de reset / começar do zero
@@ -23119,16 +23407,17 @@ case "inicio": {
     // 🔥 CORREÇÃO: recarrega estado LIMPINHO
     const novoSt = await getState(env, st.wa_id);
 
-    // Inicia o programa corretamente
+    // ── LLM OBRIGATÓRIO: reset/iniciar ──
+    const _resetSpeech = await getTopoHappyPathSpeech(env, "inicio:reset_iniciar", novoSt, {
+      cognitiveMessage: userText || "quero começar do zero"
+    });
+    setTopoHappyPathFlags(novoSt, _resetSpeech);
+
+    // Fallback extremo mínimo — só usado se LLM falhar tecnicamente.
     return step(
       env,
       novoSt,
-      [
-        "Perfeito, limpamos tudo aqui pra você 👌",
-        "Eu sou a Enova 😊, assistente do programa Minha Casa Minha Vida.",
-        "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
-        "Me responde com *sim* (já sei) ou *não* (quero que explique)."
-      ],
+      ["Limpamos tudo 👌 Eu sou a Enova. Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique?"],
       "inicio_programa"
     );
   }
@@ -23144,6 +23433,12 @@ case "inicio": {
     !saudacao
   ) {
 
+    // ── LLM OBRIGATÓRIO: retomada ──
+    const _retomadaSpeech = await getTopoHappyPathSpeech(env, "inicio:retomada", st, {
+      cognitiveMessage: userText || "oi, voltei"
+    });
+    setTopoHappyPathFlags(st, _retomadaSpeech);
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -23151,17 +23446,14 @@ case "inicio": {
       next_stage: "inicio_decisao",
       severity: "info",
       message: "Saindo da fase: inicio → inicio_decisao (retomada)",
-      details: { userText }
+      details: { userText, speech_source: _retomadaSpeech.source }
     });
 
+    // Fallback extremo mínimo — só usado se LLM falhar tecnicamente.
     return step(
       env,
       st,
-      [
-        "Oi! 👋",
-        "Quer continuar de onde paramos ou prefere começar tudo do zero?",
-        "Digite:\n1 — Continuar\n2 — Começar do zero"
-      ],
+      ["Oi! 👋 Quer continuar de onde paramos ou começar do zero?"],
       "inicio_decisao"
     );
   }
@@ -23171,6 +23463,12 @@ case "inicio": {
   // ============================================================
   if (saudacao) {
 
+    // ── LLM OBRIGATÓRIO: saudação normal ──
+    const _saudacaoSpeech = await getTopoHappyPathSpeech(env, "inicio:saudacao", st, {
+      cognitiveMessage: userText || "oi, tudo bem"
+    });
+    setTopoHappyPathFlags(st, _saudacaoSpeech);
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -23178,25 +23476,29 @@ case "inicio": {
       next_stage: "inicio_programa",
       severity: "info",
       message: "Saindo da fase: inicio → inicio_programa (saudação)",
-      details: { userText }
+      details: { userText, speech_source: _saudacaoSpeech.source }
     });
 
+    // Fallback extremo mínimo — só usado se LLM falhar tecnicamente.
     return step(
       env,
       st,
-      [
-        "Oi! Tudo bem? 😊",
-        "Eu sou a Enova, assistente do programa Minha Casa Minha Vida.",
-        "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
-        "Me responde com *sim* (já sei) ou *não* (quero que explique)."
-      ],
+      ["Oi! 😊 Eu sou a Enova. Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique?"],
       "inicio_programa"
     );
   }
 
   // ============================================================
   // (4) Fallback — qualquer outra mensagem
+  // ── LLM OBRIGATÓRIO: fallback genérico ──
   // ============================================================
+  {
+    const _fallbackSpeech = await getTopoHappyPathSpeech(env, "inicio:fallback", st, {
+      cognitiveMessage: userText || "oi"
+    });
+    setTopoHappyPathFlags(st, _fallbackSpeech);
+  }
+
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
@@ -23207,16 +23509,11 @@ case "inicio": {
     details: { userText }
   });
 
+  // Fallback extremo mínimo — só usado se LLM falhar tecnicamente.
   return step(
     env,
     st,
-    [
-      "Perfeito 👌",
-      "Vamos começar certinho.",
-      "Eu sou a Enova, assistente do programa Minha Casa Minha Vida.",
-      "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
-      "Responde com *sim* (já sei) ou *não* (quero que explique)."
-    ],
+    ["Oi! 😊 Eu sou a Enova. Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique?"],
     "inicio_programa"
   );
 }
@@ -23245,6 +23542,12 @@ case "inicio_decisao": {
 
   // ❌ Cliente mandou algo nada a ver → pede novamente
   if (!opcao1 && !opcao2) {
+    // ── LLM OBRIGATÓRIO: resposta inválida ──
+    const _invalidSpeech = await getTopoHappyPathSpeech(env, "inicio_decisao:invalido", st, {
+      cognitiveMessage: userText || "hmm"
+    });
+    setTopoHappyPathFlags(st, _invalidSpeech);
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -23252,22 +23555,26 @@ case "inicio_decisao": {
       next_stage: "inicio_decisao",
       severity: "info",
       message: "inicio_decisao: resposta inválida",
-      details: { userText }
+      details: { userText, speech_source: _invalidSpeech.source }
     });
 
+    // Fallback extremo mínimo.
     return step(
       env,
       st,
-      [
-        "Só pra confirmar certinho… 😉",
-        "Digite:\n1 — Continuar de onde paramos\n2 — Começar tudo do zero"
-      ],
+      ["Me diz: *1* pra continuar ou *2* pra começar do zero."],
       "inicio_decisao"
     );
   }
 
   // 🟢 OPÇÃO 1 — Continuar
   if (opcao1) {
+    // ── LLM OBRIGATÓRIO: continuar ──
+    const _contSpeech = await getTopoHappyPathSpeech(env, "inicio_decisao:continuar", st, {
+      cognitiveMessage: "quero continuar de onde parei"
+    });
+    setTopoHappyPathFlags(st, _contSpeech);
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -23275,46 +23582,49 @@ case "inicio_decisao": {
       next_stage: st.fase_conversa || "inicio_programa",
       severity: "info",
       message: "inicio_decisao: cliente escolheu continuar",
-      details: { userText }
+      details: { userText, speech_source: _contSpeech.source }
     });
 
+    // Fallback extremo mínimo.
     return step(
       env,
       st,
-      [
-        "Perfeito! Vamos continuar de onde paramos 👍",
-      ],
+      ["Perfeito! Vamos continuar 👍"],
       st.fase_conversa || "inicio_programa"
     );
   }
 
   // 🔄 OPÇÃO 2 — Reset total
-await funnelTelemetry(env, {
-  wa_id: st.wa_id,
-  event: "exit_stage",
-  stage,
-  next_stage: "inicio_programa",
-  severity: "info",
-  message: "inicio_decisao: cliente pediu reset",
-  details: { userText }
-});
+  {
+    // ── LLM OBRIGATÓRIO: reset ──
+    const _resetSpeech = await getTopoHappyPathSpeech(env, "inicio_decisao:reset", st, {
+      cognitiveMessage: "quero começar do zero"
+    });
 
-await resetTotal(env, st.wa_id);
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "inicio_programa",
+      severity: "info",
+      message: "inicio_decisao: cliente pediu reset",
+      details: { userText, speech_source: _resetSpeech.source }
+    });
 
-// 🔥 CORREÇÃO ABSOLUTA: recarrega estado limpo
-const novoSt = await getState(env, st.wa_id);
+    await resetTotal(env, st.wa_id);
 
-return step(
-  env,
-  novoSt,
-  [
-    "Prontinho! Limpamos tudo e vamos começar do zero 👌",
-    "Eu sou a Enova 😊, assistente do programa Minha Casa Minha Vida.",
-    "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
-    "Me responde com *sim* (já sei) ou *não* (quero que explique)."
-  ],
-  "inicio_programa"
-);
+    // 🔥 CORREÇÃO ABSOLUTA: recarrega estado limpo
+    const novoSt = await getState(env, st.wa_id);
+    setTopoHappyPathFlags(novoSt, _resetSpeech);
+
+    // Fallback extremo mínimo.
+    return step(
+      env,
+      novoSt,
+      ["Limpamos tudo 👌 Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique?"],
+      "inicio_programa"
+    );
+  }
 }
 
 // --------------------------------------------------
@@ -23337,25 +23647,10 @@ case "inicio_programa": {
   const nt = normalizeText(userText || st.last_user_text || "");
   // Exemplos cobertos: "já sei como funciona", "pode explicar rapidinho", "não entendi direito"
 
-  // ── Pós-reset: limpa flag transitória e marca contexto local ──
-  const _isFirstAfterReset = st._post_reset === true;
-  if (_isFirstAfterReset) {
-    await upsertState(env, st.wa_id, { _post_reset: null });
-    st._post_reset = null;
-  }
-
-  // ── Pós-reset: tentar capturar nome plausível como candidato transitório ──
-  // Se o cliente já mandou um nome antes de inicio_nome, guarda sinal.
-  // Não captura saudações curtas ("Oi", "Olá", etc.) como nome.
-  const _ntGreetingGuard = /^(oi+|ola|olá|opa|eae|eai|fala|bom dia|boa tarde|boa noite|e ai|e aí)\b/i.test(nt) ||
-    /\b(quero comecar|quero começar|voltei|to de volta|tô de volta|vamos la|vamos lá)\b/i.test(nt);
-  if (_isFirstAfterReset && !st.name_candidate && !_ntGreetingGuard) {
-    const _nameProbe = resolveInicioNomeStructured(userText);
-    if (_nameProbe && _nameProbe.detected_answer === "name_candidate" && _nameProbe.payload?.extracted_name) {
-      st.name_candidate = _nameProbe.payload.extracted_name;
-      await upsertState(env, st.wa_id, { name_candidate: _nameProbe.payload.extracted_name });
-    }
-  }
+  // ── Pós-reset: detecta primeira mensagem após reset usando colunas canônicas ──
+  // Após reset: fase_conversa="inicio_programa", last_user_text=null, last_processed_text=null.
+  // Nenhuma coluna inventada necessária.
+  const _isFirstAfterReset = !st.last_user_text && !st.last_processed_text;
 
   // 🟢 DETECÇÃO DE "SIM"
   const sim = isYes(nt) ||
@@ -23412,9 +23707,12 @@ case "inicio_programa": {
   );
 
   // ✅ Pós-explicação: confirmação curta → avança para inicio_nome
+  // LLM OBRIGATÓRIO: fala visível nasce do LLM.
   if (_isPostExplConfirmation) {
     // ── TOPO HAPPY PATH MIGRATION: inicio_programa post-explanation confirmation ──
-    const _postExplSpeech = await getTopoHappyPathSpeech(env, "inicio_programa:post_expl_confirmation", st);
+    const _postExplSpeech = await getTopoHappyPathSpeech(env, "inicio_programa:post_expl_confirmation", st, {
+      cognitiveMessage: userText || "certo, entendi"
+    });
     setTopoHappyPathFlags(st, _postExplSpeech);
 
     await funnelTelemetry(env, {
@@ -23427,13 +23725,11 @@ case "inicio_programa": {
       details: { userText, postExplicacao: true, speech_source: _postExplSpeech.source }
     });
 
+    // Fallback extremo mínimo — só se LLM falhar.
     return step(
       env,
       st,
-      [
-        "Ótimo! Vou analisar sua situação pra ver quanto de subsídio você pode ter e como ficariam as condições.",
-        "Pra começar, qual o seu *nome completo*?"
-      ],
+      ["Ótimo! Qual o seu *nome completo*?"],
       "inicio_nome"
     );
   }
@@ -23445,16 +23741,6 @@ case "inicio_programa": {
     const _isGreetingOrReentry =
       /^(oi+|ola|olá|opa|eae|eai|fala|bom dia|boa tarde|boa noite|e ai|e aí)\b/i.test(nt) ||
       /\b(quero comecar|quero começar|voltei|to de volta|tô de volta|vamos la|vamos lá)\b/i.test(nt);
-
-    // ── Pós-reset: capturar nome plausível mesmo no bloco ambíguo ──
-    // Não captura saudações curtas ("Oi", "Olá", "Bom dia") como nome.
-    if (!st.name_candidate && !_isGreetingOrReentry) {
-      const _nameProbe = resolveInicioNomeStructured(userText);
-      if (_nameProbe && _nameProbe.detected_answer === "name_candidate" && _nameProbe.payload?.extracted_name) {
-        st.name_candidate = _nameProbe.payload.extracted_name;
-        await upsertState(env, st.wa_id, { name_candidate: _nameProbe.payload.extracted_name });
-      }
-    }
 
     // ── TOPO HAPPY PATH MIGRATION: ambiguous / greeting / first-after-reset ──
     // Pós-reset: usa speech key dedicada para primeira mensagem (cognitivo real + contexto do cliente).
@@ -23478,46 +23764,33 @@ case "inicio_programa": {
       }
     }
 
-    // Se greeting/reentry/first-after-reset e já tinha prefix cognitivo → confirma takes_final
-    if ((_isGreetingOrReentry || _isFirstAfterReset) && st.__cognitive_reply_prefix) {
+    // Se greeting/reentry/first-after-reset e já tinha prefix de LLM real → confirma takes_final
+    // BLOCO 3 (PR #550): Só promove se arbiter_source === "llm_real" (veio de setTopoHappyPathFlags/cognitive_real).
+    // Heuristic/resolver prefix NÃO promovido.
+    if ((_isGreetingOrReentry || _isFirstAfterReset) && st.__cognitive_reply_prefix && st.__speech_arbiter_source === "llm_real") {
       st.__cognitive_v2_takes_final = true;
     }
 
     // ── Resolvedor cognitivo estruturado como camada adicional (se cognitivo real falhou) ──
     // Pós-reset: bloqueia resolveTopoStructured como dominância de fala (retorna templates).
     if (!st.__cognitive_v2_takes_final && !_isFirstAfterReset) {
+      // BLOCO 3 (PR #550): resolver é suporte interno apenas — NÃO produz fala final.
+      // Classificação estruturada e safe_stage_signal são usados pelo parser/gate.
+      // A fala final vem do fallback extremo mínimo (mapa por stage).
       const _resolução = resolveTopoStructured("inicio_programa", userText);
-      if (_resolução && _resolução.reply_text) {
-        st.__cognitive_reply_prefix = _resolução.reply_text;
-        st.__cognitive_v2_takes_final = true;
-      }
+      // resolver signals consumed by stage logic below — NOT by speech.
     }
 
     // ── Pós-reset: fallback cognitivo dedicado — se LLM real não dominou ──
-    // Quando _isFirstAfterReset é true e nenhuma camada cognitiva assumiu takes_final
-    // (LLM falhou e heuristic_guidance foi bloqueado), usa o fallback dedicado de
-    // first-turn como fala final. A pergunta mecânica crua nunca domina esse turno.
-    if (_isFirstAfterReset && !st.__cognitive_v2_takes_final) {
-      const _firstResetCfg = TOPO_HAPPY_PATH_SPEECH["inicio_programa:first_after_reset"];
-      const _firstResetFallback = _firstResetCfg?.fallback;
-      if (_firstResetFallback && _firstResetFallback.length > 0) {
-        st.__cognitive_reply_prefix = _firstResetFallback.join("\n");
-        st.__cognitive_v2_takes_final = true;
-      }
-    }
+    // ── Pós-reset: fallback extremo mínimo via mapa por stage ──
+    // BLOCO 3 (PR #550): TOPO_HAPPY_PATH_SPEECH.fallback NÃO é mais soberano da fala.
+    // Se o LLM real não dominou, a fala final vem do mapa estático em
+    // renderCognitiveSpeech → buildMinimalCognitiveFallback.
+    // Nenhuma camada local produz fala final pronta.
 
-    // ── Greeting/reentrada: fallback cognitivo dedicado — se LLM real não dominou ──
-    // Quando _isGreetingOrReentry é true (não pós-reset) e nenhuma camada cognitiva
-    // assumiu takes_final, usa o fallback dedicado de greeting_reentrada como fala final.
-    // A pergunta mecânica crua nunca domina saudações iniciais puras.
-    if (_isGreetingOrReentry && !_isFirstAfterReset && !st.__cognitive_v2_takes_final) {
-      const _greetingCfg = TOPO_HAPPY_PATH_SPEECH["inicio_programa:greeting_reentrada"];
-      const _greetingFallback = _greetingCfg?.fallback;
-      if (_greetingFallback && _greetingFallback.length > 0) {
-        st.__cognitive_reply_prefix = _greetingFallback.join("\n");
-        st.__cognitive_v2_takes_final = true;
-      }
-    }
+    // ── Greeting/reentrada: mesma regra — fallback extremo mínimo via mapa ──
+    // BLOCO 3 (PR #550): Saudações/reentrada sem LLM → mapa por stage.
+    // TOPO_HAPPY_PATH_SPEECH.fallback NÃO é soberano.
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
@@ -23533,19 +23806,23 @@ case "inicio_programa": {
       details: {
         userText,
         first_after_reset: _isFirstAfterReset,
-        name_candidate: st.name_candidate || null,
         cognitive_takes_final: st.__cognitive_v2_takes_final || false,
         speech_source: st.__cognitive_v2_takes_final ? "cognitive_real" : "fallback_mechanical"
       }
     });
 
+    // ── LLM OBRIGATÓRIO no topo: fala visível nasce do LLM ──
+    // Quando LLM real é soberano (takes_final=true), step() descarta essas mensagens
+    // (renderCognitiveSpeech usa cognitivePrefix). Sem mudança nesse caminho.
+    //
+    // Quando LLM falha, step() recebe APENAS fallback extremo mínimo — curto e neutro.
+    // Nenhum texto manual roteirizado. Nenhum script multi-linha.
+    //
+    // Reversível: restaurar mensagens originais no step() abaixo.
     return step(
       env,
       st,
-      [
-        "Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho?",
-        "Me diz *sim* (já sei) ou *não* (me explica)."
-      ],
+      ["Oi! 😊 Eu sou a Enova. Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique?"],
       "inicio_programa"
     );
   }
@@ -23555,7 +23832,10 @@ case "inicio_programa": {
   //    O mecânico só avança quando o cliente confirma entendimento.
   if (nao) {
     // ── TOPO HAPPY PATH MIGRATION: inicio_programa:nao ──
-    const _naoSpeech = await getTopoHappyPathSpeech(env, "inicio_programa:nao", st);
+    // LLM OBRIGATÓRIO: explicação nasce do LLM. Mecânico preserva stage.
+    const _naoSpeech = await getTopoHappyPathSpeech(env, "inicio_programa:nao", st, {
+      cognitiveMessage: userText || "não sei, me explica"
+    });
     setTopoHappyPathFlags(st, _naoSpeech);
 
     await funnelTelemetry(env, {
@@ -23564,28 +23844,27 @@ case "inicio_programa": {
       stage,
       next_stage: "inicio_programa",
       severity: "info",
-      message: "inicio_programa: cliente pediu explicação — cognitivo real explica e permanece no stage",
+      message: "inicio_programa: cliente pediu explicação — LLM explica e permanece no stage",
       details: { userText, speech_source: _naoSpeech.source }
     });
 
+    // Fallback extremo mínimo — curto e neutro. Só se LLM falhar.
     return step(
       env,
       st,
-      [
-        "Perfeito, te explico rapidinho 😊",
-        "O Minha Casa Minha Vida é o programa do governo que ajuda na entrada e reduz a parcela do financiamento, conforme a renda e a faixa de cada família.",
-        "Eu vou analisar seu perfil e te mostrar exatamente quanto de subsídio você pode ter e como ficam as condições.",
-        "Tudo certo até aqui? Me diz *sim* pra gente seguir com a análise do seu perfil 😊"
-      ],
+      ["O Minha Casa Minha Vida ajuda na entrada e reduz a parcela conforme sua renda. Quer seguir com a análise? Me diz *sim*."],
       "inicio_programa"
     );
   }
 
   // ✅ JÁ CONHECE (direto ou pós-explicação com "sim"/"ok")
   // ── TOPO HAPPY PATH MIGRATION: inicio_programa:sim ──
+  // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico avança stage.
   {
     const _simKey = _postExplicacao ? "inicio_programa:sim_pos_explicacao" : "inicio_programa:sim";
-    const _simSpeech = await getTopoHappyPathSpeech(env, _simKey, st);
+    const _simSpeech = await getTopoHappyPathSpeech(env, _simKey, st, {
+      cognitiveMessage: _postExplicacao ? "entendi, pode seguir" : "sim, já sei como funciona"
+    });
     setTopoHappyPathFlags(st, _simSpeech);
 
     await funnelTelemetry(env, {
@@ -23600,26 +23879,11 @@ case "inicio_programa": {
       details: { userText, postExplicacao: _postExplicacao, speech_source: _simSpeech.source }
     });
 
-    if (_postExplicacao) {
-      return step(
-        env,
-        st,
-        [
-          "Ótimo! Vou analisar sua situação pra ver quanto de subsídio você pode ter e como ficariam as condições.",
-          "Pra começar, qual o seu *nome completo*?"
-        ],
-        "inicio_nome"
-      );
-    }
-
+    // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
     return step(
       env,
       st,
-      [
-        "Ótimo, então vamos direto ao ponto 😉",
-        "Vou analisar sua situação pra ver quanto de subsídio você pode ter e como ficariam as condições.",
-        "Pra começar, qual o seu *nome completo*?"
-      ],
+      ["Ótimo! Qual o seu *nome completo*?"],
       "inicio_nome"
     );
   }
@@ -23637,90 +23901,9 @@ case "inicio_nome": {
     message: "Entrando na fase: inicio_nome",
     details: {
       last_user_text: st.last_user_text || null,
-      funil_status: st.funil_status || null,
-      name_candidate: st.name_candidate || null
+      funil_status: st.funil_status || null
     }
   });
-
-  // ── Reaproveitamento de nome candidato já capturado antes do inicio_nome ──
-  // Se o cliente já mandou um nome plausível antes (ex: pós-reset), reutiliza
-  // sem pedir de novo de forma burocrática.
-  if (st.name_candidate) {
-    const _candidato = String(st.name_candidate).trim();
-    const _partesCand = _candidato.split(/\s+/).filter(p => p.length >= 2);
-    const _confiancaAlta = _partesCand.length >= 2 && _partesCand.length <= 6;
-    const _confiancaMedia = _partesCand.length === 1 && _candidato.length >= 2;
-
-    // Limpa candidato transitório do estado (já foi consumido)
-    await upsertState(env, st.wa_id, { name_candidate: null });
-    st.name_candidate = null;
-
-    if (_confiancaAlta) {
-      // ── Confiança alta: aceita direto, salva e avança ──
-      const _primeiroNomeCand = _partesCand[0];
-      await upsertState(env, st.wa_id, { nome: _candidato });
-
-      await funnelTelemetry(env, {
-        wa_id: st.wa_id,
-        event: "exit_stage",
-        stage,
-        next_stage: "inicio_nacionalidade",
-        severity: "info",
-        message: "inicio_nome: nome reaproveitado de sinal anterior (confiança alta) — avançando",
-        details: { nome: _candidato, primeiro_nome: _primeiroNomeCand, source: "name_candidate_high" }
-      });
-
-      const _reuseSpeech = await getTopoHappyPathSpeech(env, "inicio_nome:nome_reaproveitado", st, {
-        cognitiveMessage: `meu nome é ${_candidato}`,
-        fallback: [
-          `Perfeito, ${_primeiroNomeCand}! 👌`,
-          "Agora me diz: você é *brasileiro(a)* ou *estrangeiro(a)*?"
-        ]
-      });
-      setTopoHappyPathFlags(st, _reuseSpeech);
-
-      return step(
-        env,
-        st,
-        [
-          `Perfeito, ${_primeiroNomeCand}! 👌`,
-          "Agora me diz: você é *brasileiro(a)* ou *estrangeiro(a)*?"
-        ],
-        "inicio_nacionalidade"
-      );
-    }
-
-    if (_confiancaMedia) {
-      // ── Confiança média: confirma curto e fica em inicio_nome ──
-      const _confirmSpeech = await getTopoHappyPathSpeech(env, "inicio_nome:nome_confirmar_candidato", st, {
-        cognitiveMessage: `meu nome é ${_candidato}`,
-        fallback: [
-          `Seu nome é ${_candidato}? Me manda o *nome completo* pra eu registrar certinho 😊`
-        ]
-      });
-      setTopoHappyPathFlags(st, _confirmSpeech);
-
-      await funnelTelemetry(env, {
-        wa_id: st.wa_id,
-        event: "exit_stage",
-        stage,
-        next_stage: "inicio_nome",
-        severity: "info",
-        message: "inicio_nome: nome candidato com confiança média — confirmação curta",
-        details: { candidato: _candidato, source: "name_candidate_medium" }
-      });
-
-      return step(
-        env,
-        st,
-        [
-          `Seu nome é ${_candidato}? Me manda o *nome completo* pra eu registrar certinho 😊`
-        ],
-        "inicio_nome"
-      );
-    }
-    // ── Confiança baixa (fallthrough): ignora candidato, segue fluxo normal ──
-  }
 
   // Exemplos cobertos: "meu nome é Ana Maria", "sou João Pedro", "aqui é Carla Souza"
   // Texto bruto digitado pelo cliente
@@ -23782,18 +23965,21 @@ case "inicio_nome": {
       }
     });
 
-    if (_resolução && _resolução.reply_text) {
-      st.__cognitive_reply_prefix = _resolução.reply_text;
-      st.__cognitive_v2_takes_final = true;
-    }
+    // BLOCO 3 (PR #550): resolver é suporte interno — NÃO produz fala final pronta.
+    // Classificação estruturada disponível para telemetria/debug.
 
+    // ── TOPO HAPPY PATH MIGRATION: inicio_nome:intent_not_name ──
+    // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico permanece no stage.
+    const _intentSpeech = await getTopoHappyPathSpeech(env, "inicio_nome:intent_not_name", st, {
+      cognitiveMessage: userText || "quero saber mais"
+    });
+    setTopoHappyPathFlags(st, _intentSpeech);
+
+    // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
     return step(
       env,
       st,
-      [
-        "Entendi sua dúvida! Mas antes, me confirma só seu *nome completo*, por favor 😊",
-        "Pode mandar tipo: *Ana Silva*."
-      ],
+      ["Me confirma seu *nome completo*, por favor."],
       "inicio_nome"
     );
   }
@@ -23810,13 +23996,18 @@ case "inicio_nome": {
       details: { userText }
     });
 
+    // ── TOPO HAPPY PATH MIGRATION: inicio_nome:nome_curto ──
+    // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico permanece no stage.
+    const _curtoSpeech = await getTopoHappyPathSpeech(env, "inicio_nome:nome_curto", st, {
+      cognitiveMessage: userText || "hmm"
+    });
+    setTopoHappyPathFlags(st, _curtoSpeech);
+
+    // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
     return step(
       env,
       st,
-      [
-        "Opa, acho que não peguei certinho seu nome completo 😅",
-        "Me manda de novo, por favor, com *nome e sobrenome* (ex: Ana Silva)."
-      ],
+      ["Me manda seu *nome completo*, por favor."],
       "inicio_nome"
     );
   }
@@ -23836,13 +24027,18 @@ case "inicio_nome": {
       details: { userText, rawNome, partes }
     });
 
+    // ── TOPO HAPPY PATH MIGRATION: inicio_nome:nome_invalido ──
+    // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico permanece no stage.
+    const _invalidoSpeech = await getTopoHappyPathSpeech(env, "inicio_nome:nome_invalido", st, {
+      cognitiveMessage: userText || "hmm"
+    });
+    setTopoHappyPathFlags(st, _invalidoSpeech);
+
+    // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
     return step(
       env,
       st,
-      [
-        "Só pra ficar certinho aqui no sistema 😅",
-        "Me manda seu *nome completo*, tipo: *Ana Silva*."
-      ],
+      ["Me manda seu *nome completo*, por favor."],
       "inicio_nome"
     );
   }
@@ -23971,32 +24167,23 @@ case "inicio_nacionalidade": {
   // -------------------------------------------
   // ❓ Fallback — cognitivo real + resolvedor estruturado
   // -------------------------------------------
-  // ── TOPO HAPPY PATH MIGRATION: nacionalidade fallback ──
-  const _nacFallbackSpeech = await getTopoHappyPathSpeech(env, "inicio_programa:ambiguous", st, {
-    cognitiveMessage: userText || "hmm",
-    fallback: [
-      "Perdão 😅, não consegui entender.",
-      "Você é *brasileiro* ou *estrangeiro*?"
-    ]
+  // ── TOPO HAPPY PATH MIGRATION: inicio_nacionalidade:fallback ──
+  // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico permanece no stage.
+  const _nacFallbackSpeech = await getTopoHappyPathSpeech(env, "inicio_nacionalidade:fallback", st, {
+    cognitiveMessage: userText || "hmm"
   });
   // Resolver estruturado como camada adicional se cognitivo real falhou
   if (_nacFallbackSpeech.source !== "cognitive_real") {
     const _resolNac = resolveTopoStructured("inicio_nacionalidade", nt);
-    if (_resolNac && _resolNac.reply_text) {
-      st.__cognitive_reply_prefix = _resolNac.reply_text;
-      st.__cognitive_v2_takes_final = true;
-    }
-  } else {
-    setTopoHappyPathFlags(st, _nacFallbackSpeech);
+    // BLOCO 3 (PR #550): resolver é suporte interno — NÃO produz fala final pronta.
   }
+  setTopoHappyPathFlags(st, _nacFallbackSpeech);
 
+  // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
   return step(
     env,
     st,
-    [
-      "Perdão 😅, não consegui entender.",
-      "Você é *brasileiro* ou *estrangeiro*?"
-    ],
+    ["Você é *brasileiro(a)* ou *estrangeiro(a)*?"],
     "inicio_nacionalidade"
   );
 }
@@ -24033,14 +24220,18 @@ case "inicio_rnm": {
     st.funil_status = "ineligivel";
     st.fase_conversa = "fim_ineligivel";
 
+    // ── TOPO HAPPY PATH MIGRATION: inicio_rnm:nao_possui ──
+    // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico decide ineligibilidade.
+    const _rnmNaoSpeech = await getTopoHappyPathSpeech(env, "inicio_rnm:nao_possui", st, {
+      cognitiveMessage: "não tenho RNM"
+    });
+    setTopoHappyPathFlags(st, _rnmNaoSpeech);
+
+    // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
     return step(
       env,
       st,
-      [
-        "Entendi! 👀",
-        "Para financiar pelo Minha Casa Minha Vida é obrigatório ter o *RNM com prazo de validade por tempo indeterminado*.",
-        "Quando você tiver o RNM, posso te ajudar a fazer tudo certinho! 😊"
-      ],
+      ["O RNM indeterminado é obrigatório para o MCMV."],
       "fim_ineligivel"
     );
   }
@@ -24059,14 +24250,18 @@ case "inicio_rnm": {
     st.rnm_status = "possui";
     st.fase_conversa = "inicio_rnm_validade";
 
+    // ── TOPO HAPPY PATH MIGRATION: inicio_rnm:possui ──
+    // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico avança stage.
+    const _rnmSimSpeech = await getTopoHappyPathSpeech(env, "inicio_rnm:possui", st, {
+      cognitiveMessage: "sim, tenho RNM"
+    });
+    setTopoHappyPathFlags(st, _rnmSimSpeech);
+
+    // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
     return step(
       env,
       st,
-      [
-        "Perfeito! 🙌",
-        "Seu RNM é *com validade* ou *indeterminado*?",
-        "Responda: *valido* ou *indeterminado*."
-      ],
+      ["Seu RNM é *com validade* ou *indeterminado*?"],
       "inicio_rnm_validade"
     );
   }
@@ -24074,13 +24269,18 @@ case "inicio_rnm": {
   // -------------------------------------------
   // ❓ Fallback
   // -------------------------------------------
+  // ── TOPO HAPPY PATH MIGRATION: inicio_rnm:fallback ──
+  // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico permanece no stage.
+  const _rnmFallbackSpeech = await getTopoHappyPathSpeech(env, "inicio_rnm:fallback", st, {
+    cognitiveMessage: userText || "hmm"
+  });
+  setTopoHappyPathFlags(st, _rnmFallbackSpeech);
+
+  // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
   return step(
     env,
     st,
-    [
-      "Só preciso confirmar 🙂",
-      "Você possui *RNM*? Responda *sim* ou *não*."
-    ],
+    ["Você possui *RNM*? Responda *sim* ou *não*."],
     "inicio_rnm"
   );
 }
@@ -24117,14 +24317,18 @@ case "inicio_rnm_validade": {
     st.funil_status = "ineligivel";
     st.fase_conversa = "fim_ineligivel";
 
+    // ── TOPO HAPPY PATH MIGRATION: inicio_rnm_validade:definida ──
+    // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico decide ineligibilidade.
+    const _rnmDefSpeech = await getTopoHappyPathSpeech(env, "inicio_rnm_validade:definida", st, {
+      cognitiveMessage: "meu RNM tem validade definida"
+    });
+    setTopoHappyPathFlags(st, _rnmDefSpeech);
+
+    // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
     return step(
       env,
       st,
-      [
-        "Obrigado! 👌",
-        "Com *RNM de validade definida*, infelizmente você não se enquadra no Minha Casa Minha Vida atualmente.",
-        "Quando mudar para *indeterminado*, posso te ajudar imediatamente! 😊"
-      ],
+      ["RNM com validade definida não se enquadra no MCMV."],
       "fim_ineligivel"
     );
   }
@@ -24143,13 +24347,18 @@ case "inicio_rnm_validade": {
     st.rnm_validade = "indeterminado";
     st.fase_conversa = "estado_civil";
 
+    // ── TOPO HAPPY PATH MIGRATION: inicio_rnm_validade:indeterminado ──
+    // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico avança stage.
+    const _rnmIndetSpeech = await getTopoHappyPathSpeech(env, "inicio_rnm_validade:indeterminado", st, {
+      cognitiveMessage: "meu RNM é indeterminado"
+    });
+    setTopoHappyPathFlags(st, _rnmIndetSpeech);
+
+    // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
     return step(
       env,
       st,
-      [
-        "Ótimo! Vamos seguir então 😊",
-        "Qual é o seu estado civil?"
-      ],
+      ["Qual é o seu estado civil?"],
       "estado_civil"
     );
   }
@@ -24157,14 +24366,18 @@ case "inicio_rnm_validade": {
   // -------------------------------------------
   // ❓ Fallback
   // -------------------------------------------
+  // ── TOPO HAPPY PATH MIGRATION: inicio_rnm_validade:fallback ──
+  // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico permanece no stage.
+  const _rnmValFallbackSpeech = await getTopoHappyPathSpeech(env, "inicio_rnm_validade:fallback", st, {
+    cognitiveMessage: userText || "hmm"
+  });
+  setTopoHappyPathFlags(st, _rnmValFallbackSpeech);
+
+  // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
   return step(
     env,
     st,
-    [
-      "Só preciso confirmar rapidinho 🙂",
-      "Seu RNM possui prazo de validade com data definida ou por prazo *indeterminado* de validade?",
-      "Responda apenas: 👉 *com validade* ou *indeterminado*"
-    ],
+    ["Seu RNM é *com validade* ou *indeterminado*?"],
     "inicio_rnm_validade"
   );
 }
@@ -24407,21 +24620,17 @@ case "estado_civil": {
   // --------- NÃO ENTENDIDO ---------
 
   // ── TOPO HAPPY PATH MIGRATION: estado_civil:fallback ──
-  // Cognitivo real + resolvedor estruturado como camada adicional
+  // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico permanece no stage.
   const _ecFallbackSpeech = await getTopoHappyPathSpeech(env, "estado_civil:fallback", st, {
     cognitiveMessage: t || "hmm"
   });
 
-  if (_ecFallbackSpeech.source === "cognitive_real") {
-    setTopoHappyPathFlags(st, _ecFallbackSpeech);
-  } else {
+  if (_ecFallbackSpeech.source !== "cognitive_real") {
     // Resolvedor estruturado como camada adicional se cognitivo real falhou
     const _resolEstCivil = resolveTopoStructured("estado_civil", t);
-    if (_resolEstCivil && _resolEstCivil.reply_text) {
-      st.__cognitive_reply_prefix = _resolEstCivil.reply_text;
-      st.__cognitive_v2_takes_final = true;
-    }
+    // BLOCO 3 (PR #550): resolver é suporte interno — NÃO produz fala final pronta.
   }
+  setTopoHappyPathFlags(st, _ecFallbackSpeech);
 
   // 🟩 EXIT_STAGE (fallback permanece na mesma fase)
   await funnelTelemetry(env, {
@@ -24437,13 +24646,11 @@ case "estado_civil": {
     }
   });
 
+  // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
   return step(
     env,
     st,
-    [
-      "Pra te orientar certinho, me diz seu estado civil:",
-      "*Solteiro(a)*, *casado(a) no civil*, *união estável*, *separado(a)*, *divorciado(a)* ou *viúvo(a)*?"
-    ],
+    ["Me diz seu estado civil, por favor."],
     "estado_civil"
   );
 }
@@ -24563,10 +24770,7 @@ case "confirmar_casamento": {
 
   // ── Resolvedor cognitivo estruturado: classifica + gera fala indutiva ──
   const _resolConfCas = resolveTopoStructured("confirmar_casamento", t);
-  if (_resolConfCas && _resolConfCas.reply_text) {
-    st.__cognitive_reply_prefix = _resolConfCas.reply_text;
-    st.__cognitive_v2_takes_final = true;
-  }
+  // BLOCO 3 (PR #550): resolver é suporte interno — NÃO produz fala final pronta.
 
   // 🟩 EXIT_STAGE (fallback na mesma fase)
   await funnelTelemetry(env, {
@@ -24720,10 +24924,7 @@ case "financiamento_conjunto": {
 
   // ── Resolvedor cognitivo estruturado: classifica + gera fala indutiva ──
   const _resolFinConj = resolveTopoStructured("financiamento_conjunto", t);
-  if (_resolFinConj && _resolFinConj.reply_text) {
-    st.__cognitive_reply_prefix = _resolFinConj.reply_text;
-    st.__cognitive_v2_takes_final = true;
-  }
+  // BLOCO 3 (PR #550): resolver é suporte interno — NÃO produz fala final pronta.
 
   // 🟩 EXIT_STAGE (permanece na mesma fase)
   await funnelTelemetry(env, {

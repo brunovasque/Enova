@@ -22,9 +22,33 @@ import {
 import type { ExecutorPreparationStatus } from "../lib/enova-ia-preparation";
 import {
   buildPreExecutionPackage,
+  buildExecutionAuthorizationPackage,
   PRE_EXECUTION_NOT_YET_EXECUTED_NOTICE,
+  EXECUTION_AUTHORIZATION_NOTICE,
 } from "../lib/enova-ia-pre-execution";
-import type { PreExecutionPackage } from "../lib/enova-ia-pre-execution";
+import type { PreExecutionPackage, ExecutionAuthorizationPackage } from "../lib/enova-ia-pre-execution";
+import {
+  buildExecutionContract,
+  EXECUTION_CONTRACT_NOT_EXECUTED_NOTICE,
+  EXECUTION_CONTRACT_READY_LABEL,
+  FUTURE_SCOPE_NOTICE,
+} from "../lib/enova-ia-execution-contract";
+import type { ExecutionContract } from "../lib/enova-ia-execution-contract";
+import {
+  buildExecutionBridgePayload,
+  BRIDGE_NOT_EXECUTED_NOTICE,
+  BRIDGE_UNSUPPORTED_ACTION_TYPE_NOTICE,
+  BRIDGE_READY_LABEL,
+  BRIDGE_OUT_OF_SCOPE_NOTICE,
+} from "../lib/enova-ia-execution-bridge";
+import type { ExecutionBridgePayload } from "../lib/enova-ia-execution-bridge";
+import {
+  buildControlledExecutionHandshake,
+  HANDSHAKE_READY_LABEL,
+  HANDSHAKE_NOT_EXECUTED_NOTICE,
+  HANDSHAKE_OUT_OF_SCOPE_NOTICE,
+} from "../lib/enova-ia-execution-handshake";
+import type { ControlledExecutionHandshake } from "../lib/enova-ia-execution-handshake";
 
 const GARGALOS = [
   { tipo: "Documentação", descricao: "Leitura de gargalos virá da análise cognitiva global" },
@@ -328,27 +352,47 @@ const EXECUTOR_RISK_BADGE_CLASS: Record<EnovaIaActionDraft["risk_level"], string
 };
 
 const PREPARATION_STATUS_BADGE_CLASS: Record<ExecutorPreparationStatus, string> = {
-  draft:                         styles.executorBadgeStatusDraft,
-  review_ready:                  styles.executorBadgeStatusReviewReady,
-  approved_for_manual_execution: styles.executorBadgeStatusApproved,
-  pre_execution_ready:           styles.executorBadgeStatusPreExecutionReady,
-  discarded:                     styles.executorBadgeStatusDiscarded,
+  draft:                                styles.executorBadgeStatusDraft,
+  review_ready:                         styles.executorBadgeStatusReviewReady,
+  approved_for_manual_execution:        styles.executorBadgeStatusApproved,
+  pre_execution_ready:                  styles.executorBadgeStatusPreExecutionReady,
+  authorized_for_controlled_execution:  styles.executorBadgeStatusAuthorized,
+  execution_contract_ready:             styles.executorBadgeStatusContractReady,
+  execution_bridge_ready:               styles.executorBadgeStatusBridgeReady,
+  execution_handshake_ready:            styles.executorBadgeStatusHandshakeReady,
+  discarded:                            styles.executorBadgeStatusDiscarded,
 };
 
 function ExecutorAssistidoBloco({
   draft,
   status,
+  authPackage,
+  contractPackage,
+  bridgePackage,
+  handshakePackage,
   onRevisar,
   onDescartar,
   onAprovar,
   onMarcarPreExecucao,
+  onAutorizarExecucaoControlada,
+  onPrepararContratoExecucao,
+  onPrepararBridgeIntegracao,
+  onPrepararHandshakeControlado,
 }: {
   draft: EnovaIaActionDraft;
   status: ExecutorPreparationStatus;
+  authPackage: ExecutionAuthorizationPackage | null;
+  contractPackage: ExecutionContract | null;
+  bridgePackage: ExecutionBridgePayload | null;
+  handshakePackage: ControlledExecutionHandshake | null;
   onRevisar: () => void;
   onDescartar: () => void;
   onAprovar: () => void;
   onMarcarPreExecucao: () => void;
+  onAutorizarExecucaoControlada: () => void;
+  onPrepararContratoExecucao: () => void;
+  onPrepararBridgeIntegracao: () => void;
+  onPrepararHandshakeControlado: () => void;
 }) {
   // [G2.4] Use target_leads_detail when available, fall back to plain target_leads
   const hasDetail = draft.target_leads_detail && draft.target_leads_detail.length > 0;
@@ -364,6 +408,10 @@ function ExecutorAssistidoBloco({
     status === "approved_for_manual_execution" ? styles.executorBlocoApproved : "",
     status === "review_ready" ? styles.executorBlocoReviewReady : "",
     status === "pre_execution_ready" ? styles.executorBlocoPreExecutionReady : "",
+    status === "authorized_for_controlled_execution" ? styles.executorBlocoAuthorized : "",
+    status === "execution_contract_ready" ? styles.executorBlocoContractReady : "",
+    status === "execution_bridge_ready" ? styles.executorBlocoBridgeReady : "",
+    status === "execution_handshake_ready" ? styles.executorBlocoHandshakeReady : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -374,6 +422,10 @@ function ExecutorAssistidoBloco({
     status === "approved_for_manual_execution" ? styles.executorStatusRowApproved : "",
     status === "review_ready" ? styles.executorStatusRowReviewReady : "",
     status === "pre_execution_ready" ? styles.executorStatusRowPreExecution : "",
+    status === "authorized_for_controlled_execution" ? styles.executorStatusRowAuthorized : "",
+    status === "execution_contract_ready" ? styles.executorStatusRowContractReady : "",
+    status === "execution_bridge_ready" ? styles.executorStatusRowBridgeReady : "",
+    status === "execution_handshake_ready" ? styles.executorStatusRowHandshakeReady : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -498,10 +550,258 @@ function ExecutorAssistidoBloco({
           </div>
         )}
 
+        {/* [G2.6] Pacote de autorização final humana — visível apenas quando autorizado */}
+        {authPackage && (
+          <div className={styles.executorAuthPackage}>
+            <span className={styles.executorAuthPackageLabel}>
+              🔐 Autorização final humana
+            </span>
+            <div className={styles.executorAuthPackageRows}>
+              <div className={styles.executorAuthPackageRow}>
+                <span className={styles.executorAuthPackageKey}>Status</span>
+                <span className={styles.executorAuthPackageValue}>Autorizado para execução controlada futura</span>
+              </div>
+              <div className={styles.executorAuthPackageRow}>
+                <span className={styles.executorAuthPackageKey}>Autorizado por humano</span>
+                <span className={styles.executorAuthPackageValue}>Sim</span>
+              </div>
+              <div className={styles.executorAuthPackageRow}>
+                <span className={styles.executorAuthPackageKey}>Gesto final cumprido</span>
+                <span className={styles.executorAuthPackageValue}>Sim</span>
+              </div>
+              <div className={styles.executorAuthPackageRow}>
+                <span className={styles.executorAuthPackageKey}>Executado agora</span>
+                <span className={styles.executorAuthPackageValue}>Não — nenhuma execução ocorreu</span>
+              </div>
+              <div className={styles.executorAuthPackageRow}>
+                <span className={styles.executorAuthPackageKey}>Autorizado em</span>
+                <span className={styles.executorAuthPackageValue}>{authPackage.authorized_at_local}</span>
+              </div>
+            </div>
+            <p className={styles.executorAuthNotice}>
+              ⚠️ {EXECUTION_AUTHORIZATION_NOTICE}
+            </p>
+          </div>
+        )}
+
+        {/* [G3.1] Contrato local de execução futura — visível apenas quando contrato preparado */}
+        {contractPackage && (
+          <div className={styles.executorContractPackage}>
+            <span className={styles.executorContractPackageLabel}>
+              📋 {EXECUTION_CONTRACT_READY_LABEL}
+            </span>
+            <div className={styles.executorContractRows}>
+              <div className={styles.executorContractRow}>
+                <span className={styles.executorContractKey}>Autorizado</span>
+                <span className={styles.executorContractValue}>Sim</span>
+              </div>
+              <div className={styles.executorContractRow}>
+                <span className={styles.executorContractKey}>Pronto para executor real</span>
+                <span className={styles.executorContractValue}>Sim — aguardando próxima frente (G3.2+)</span>
+              </div>
+              <div className={styles.executorContractRow}>
+                <span className={styles.executorContractKey}>Executado</span>
+                <span className={styles.executorContractValue}>Não — nenhuma execução ocorreu</span>
+              </div>
+              <div className={styles.executorContractRow}>
+                <span className={styles.executorContractKey}>Status de execução</span>
+                <span className={styles.executorContractValue}>{contractPackage.execution_status}</span>
+              </div>
+              <div className={styles.executorContractRow}>
+                <span className={styles.executorContractKey}>Contrato preparado em</span>
+                <span className={styles.executorContractValue}>{contractPackage.contract_prepared_at_local}</span>
+              </div>
+            </div>
+            {/* Guardrails canônicos */}
+            <div className={styles.executorContractGuardrails}>
+              <span className={styles.executorContractGuardrailsLabel}>🛡️ Guardrails canônicos</span>
+              <ul className={styles.executorContractGuardrailsList}>
+                {contractPackage.execution_guardrails.map((g) => (
+                  <li key={g.id} className={styles.executorContractGuardrailItem}>
+                    <span className={styles.executorContractGuardrailIcon}>✗</span>
+                    <span>{g.rule}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <p className={styles.executorContractNotice}>
+              🔒 {EXECUTION_CONTRACT_NOT_EXECUTED_NOTICE}
+            </p>
+            <p className={styles.executorContractFutureScope}>
+              ℹ️ {FUTURE_SCOPE_NOTICE}
+            </p>
+          </div>
+        )}
+
+        {/* [G3.2] Bridge de integração inicial — visível apenas quando bridge preparada */}
+        {bridgePackage && (
+          <div className={styles.executorBridgePackage}>
+            <span className={styles.executorBridgePackageLabel}>
+              🌉 {BRIDGE_READY_LABEL}
+            </span>
+            <div className={styles.executorBridgeRows}>
+              <div className={styles.executorBridgeRow}>
+                <span className={styles.executorBridgeKey}>Contrato local</span>
+                <span className={styles.executorBridgeValue}>Pronto</span>
+              </div>
+              <div className={styles.executorBridgeRow}>
+                <span className={styles.executorBridgeKey}>Integração inicial</span>
+                <span className={styles.executorBridgeValue}>Preparada</span>
+              </div>
+              <div className={styles.executorBridgeRow}>
+                <span className={styles.executorBridgeKey}>Execução real</span>
+                <span className={styles.executorBridgeValue}>Não iniciada — depende de G4+</span>
+              </div>
+              <div className={styles.executorBridgeRow}>
+                <span className={styles.executorBridgeKey}>Tipo de ação</span>
+                <span className={styles.executorBridgeValue}>{bridgePackage.action_type}</span>
+              </div>
+              <div className={styles.executorBridgeRow}>
+                <span className={styles.executorBridgeKey}>Suportado nesta fase</span>
+                <span className={styles.executorBridgeValue}>
+                  {bridgePackage.action_type_supported ? "Sim ✓" : "Não — fora do subconjunto desta fase"}
+                </span>
+              </div>
+              <div className={styles.executorBridgeRow}>
+                <span className={styles.executorBridgeKey}>Bridge preparado em</span>
+                <span className={styles.executorBridgeValue}>{bridgePackage.bridge_prepared_at_local}</span>
+              </div>
+            </div>
+            {/* Tipos suportados / não suportados */}
+            <div className={styles.executorBridgeScopeSection}>
+              <div className={styles.executorBridgeSupportedBlock}>
+                <span className={styles.executorBridgeSupportedLabel}>✓ Suportado nesta fase</span>
+                <ul className={styles.executorBridgeScopeList}>
+                  {bridgePackage.supported_action_types.map((t) => (
+                    <li key={t} className={styles.executorBridgeScopeItemSupported}>{t}</li>
+                  ))}
+                </ul>
+              </div>
+              <div className={styles.executorBridgeUnsupportedBlock}>
+                <span className={styles.executorBridgeUnsupportedLabel}>✗ Não suportado (G4+)</span>
+                <ul className={styles.executorBridgeScopeList}>
+                  {bridgePackage.unsupported_action_types.map((t) => (
+                    <li key={t} className={styles.executorBridgeScopeItemUnsupported}>{t}</li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+            {/* Guardrails da bridge */}
+            <div className={styles.executorBridgeGuardrails}>
+              <span className={styles.executorBridgeGuardrailsLabel}>🛡️ Guardrails da bridge</span>
+              <ul className={styles.executorBridgeGuardrailsList}>
+                {bridgePackage.bridge_guardrails.map((g) => (
+                  <li key={g.id} className={styles.executorBridgeGuardrailItem}>
+                    <span className={styles.executorBridgeGuardrailIcon}>✗</span>
+                    <span>{g.rule}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <p className={styles.executorBridgeNotice}>
+              🔒 {bridgePackage.action_type_supported ? BRIDGE_NOT_EXECUTED_NOTICE : BRIDGE_UNSUPPORTED_ACTION_TYPE_NOTICE}
+            </p>
+            <p className={styles.executorBridgeOutOfScope}>
+              ℹ️ {BRIDGE_OUT_OF_SCOPE_NOTICE}
+            </p>
+          </div>
+        )}
+
+        {/* [G3.3] Handshake controlado — visível apenas quando handshake preparado */}
+        {handshakePackage && (
+          <div className={styles.executorHandshakePackage}>
+            <span className={styles.executorHandshakePackageLabel}>
+              🤝 {HANDSHAKE_READY_LABEL}
+            </span>
+            <div className={styles.executorHandshakeRows}>
+              <div className={styles.executorHandshakeRow}>
+                <span className={styles.executorHandshakeKey}>Bridge</span>
+                <span className={styles.executorHandshakeValue}>Pronta</span>
+              </div>
+              <div className={styles.executorHandshakeRow}>
+                <span className={styles.executorHandshakeKey}>Handshake</span>
+                <span className={styles.executorHandshakeValue}>Preparado</span>
+              </div>
+              <div className={styles.executorHandshakeRow}>
+                <span className={styles.executorHandshakeKey}>Execução real</span>
+                <span className={styles.executorHandshakeValue}>Ainda não iniciada</span>
+              </div>
+              <div className={styles.executorHandshakeRow}>
+                <span className={styles.executorHandshakeKey}>Ack real</span>
+                <span className={styles.executorHandshakeValue}>Ainda não recebido — aguarda G4+</span>
+              </div>
+              <div className={styles.executorHandshakeRow}>
+                <span className={styles.executorHandshakeKey}>Tipo suportado</span>
+                <span className={styles.executorHandshakeValue}>
+                  {handshakePackage.handshake_request.supported_action_type
+                    ? `${handshakePackage.handshake_request.action_type} ✓`
+                    : `${handshakePackage.handshake_request.action_type} — fora do subconjunto`}
+                </span>
+              </div>
+              <div className={styles.executorHandshakeRow}>
+                <span className={styles.executorHandshakeKey}>Handshake preparado em</span>
+                <span className={styles.executorHandshakeValue}>
+                  {handshakePackage.handshake_request.handshake_prepared_at_local}
+                </span>
+              </div>
+            </div>
+            {/* Ack mínimo esperado */}
+            <div className={styles.executorHandshakeAckSection}>
+              <span className={styles.executorHandshakeAckLabel}>📋 Ack mínimo esperado</span>
+              <ul className={styles.executorHandshakeAckList}>
+                {handshakePackage.handshake_request.expected_ack_fields.map((f) => (
+                  <li key={f} className={styles.executorHandshakeAckItem}>{f}</li>
+                ))}
+              </ul>
+              <p className={styles.executorHandshakeAckNotice}>
+                {handshakePackage.handshake_ack_model.ack_notice}
+              </p>
+            </div>
+            {/* Guardrails do handshake */}
+            <div className={styles.executorHandshakeGuardrails}>
+              <span className={styles.executorHandshakeGuardrailsLabel}>🛡️ Guardrails do handshake</span>
+              <ul className={styles.executorHandshakeGuardrailsList}>
+                {handshakePackage.handshake_guardrails.map((g) => (
+                  <li key={g.id} className={styles.executorHandshakeGuardrailItem}>
+                    <span className={styles.executorHandshakeGuardrailIcon}>✗</span>
+                    <span>{g.rule}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <p className={styles.executorHandshakeNotice}>
+              🔒 {HANDSHAKE_NOT_EXECUTED_NOTICE}
+            </p>
+            <p className={styles.executorHandshakeOutOfScope}>
+              ℹ️ {HANDSHAKE_OUT_OF_SCOPE_NOTICE}
+            </p>
+          </div>
+        )}
+
         {/* Status row — texto de apoio contextual por estado */}
         {status !== "discarded" && (
           <div className={statusRowClass}>
-            {status === "pre_execution_ready" ? (
+            {status === "execution_bridge_ready" ? (
+              <>
+                <span className={styles.executorStatusBridgeReadyDot} />
+                <span className={styles.executorStatusBridgeReadyText}>{supportText}</span>
+              </>
+            ) : status === "execution_handshake_ready" ? (
+              <>
+                <span className={styles.executorStatusHandshakeReadyDot} />
+                <span className={styles.executorStatusHandshakeReadyText}>{supportText}</span>
+              </>
+            ) : status === "execution_contract_ready" ? (
+              <>
+                <span className={styles.executorStatusContractReadyDot} />
+                <span className={styles.executorStatusContractReadyText}>{supportText}</span>
+              </>
+            ) : status === "authorized_for_controlled_execution" ? (
+              <>
+                <span className={styles.executorStatusAuthorizedDot} />
+                <span className={styles.executorStatusAuthorizedText}>{supportText}</span>
+              </>
+            ) : status === "pre_execution_ready" ? (
               <>
                 <span className={styles.executorStatusPreExecutionDot} />
                 <span className={styles.executorStatusPreExecutionText}>{supportText}</span>
@@ -526,11 +826,15 @@ function ExecutorAssistidoBloco({
         )}
 
         {/* Botões — coerentes com o estado atual
-            draft:                        Revisar ação | Descartar
-            review_ready:                 Aprovar preparo | Descartar
-            approved_for_manual_execution: Armar para pré-execução [G2.5]
-            pre_execution_ready:          badge estático armado [G2.5]
-            discarded:                    não renderizado (bloco ocultado no pai) */}
+            draft:                               Revisar ação | Descartar
+            review_ready:                        Aprovar preparo | Descartar
+            approved_for_manual_execution:       Armar para pré-execução [G2.5]
+            pre_execution_ready:                 Autorizar execução controlada futura [G2.6]
+            authorized_for_controlled_execution: Preparar contrato de execução [G3.1]
+            execution_contract_ready:            Preparar integração inicial [G3.2]
+            execution_bridge_ready:              Preparar handshake controlado [G3.3]
+            execution_handshake_ready:           badge estático handshake preparado [G3.3]
+            discarded:                           não renderizado (bloco ocultado no pai) */}
         {status === "draft" && (
           <div className={styles.executorButtons}>
             <button
@@ -590,6 +894,70 @@ function ExecutorAssistidoBloco({
           <div className={styles.executorButtons}>
             <span className={styles.executorBtnPreExecucaoActive}>
               🎯 Pronta para pré-execução assistida
+            </span>
+            <button
+              type="button"
+              className={styles.executorBtnAutorizarExecucao}
+              onClick={onAutorizarExecucaoControlada}
+              aria-label="Autorizar execução controlada futura"
+            >
+              🔐 Autorizar execução controlada futura
+            </button>
+          </div>
+        )}
+
+        {status === "authorized_for_controlled_execution" && (
+          <div className={styles.executorButtons}>
+            <span className={styles.executorBtnAuthorizedActive}>
+              🔐 Autorizado — execução controlada futura
+            </span>
+            <button
+              type="button"
+              className={styles.executorBtnPrepararContrato}
+              onClick={onPrepararContratoExecucao}
+              aria-label="Preparar contrato de execução"
+            >
+              📋 Preparar contrato de execução
+            </button>
+          </div>
+        )}
+
+        {status === "execution_contract_ready" && (
+          <div className={styles.executorButtons}>
+            <span className={styles.executorBtnContractReadyActive}>
+              📋 Contrato local preparado
+            </span>
+            <button
+              type="button"
+              className={styles.executorBtnPrepararBridge}
+              onClick={onPrepararBridgeIntegracao}
+              aria-label="Preparar integração inicial controlada"
+            >
+              🌉 Preparar integração inicial
+            </button>
+          </div>
+        )}
+
+        {status === "execution_bridge_ready" && (
+          <div className={styles.executorButtons}>
+            <span className={styles.executorBtnBridgeReadyActive}>
+              🌉 Integração inicial preparada
+            </span>
+            <button
+              type="button"
+              className={styles.executorBtnPrepararHandshake}
+              onClick={onPrepararHandshakeControlado}
+              aria-label="Preparar handshake controlado"
+            >
+              🤝 Preparar handshake controlado
+            </button>
+          </div>
+        )}
+
+        {status === "execution_handshake_ready" && (
+          <div className={styles.executorButtons}>
+            <span className={styles.executorBtnHandshakeReadyActive}>
+              🤝 Handshake controlado preparado — aguardando camada real (G4+)
             </span>
           </div>
         )}
@@ -678,6 +1046,10 @@ function ChatOperacionalSection({
   const listaRef = useRef<HTMLDivElement>(null);
   const [prepStatus, setPrepStatus] = useState<ExecutorPreparationStatus>(PREPARATION_INITIAL_STATUS);
   const [trackedDraftId, setTrackedDraftId] = useState<string | null>(null);
+  const [authPackage, setAuthPackage] = useState<ExecutionAuthorizationPackage | null>(null);
+  const [contractPackage, setContractPackage] = useState<ExecutionContract | null>(null);
+  const [bridgePackage, setBridgePackage] = useState<ExecutionBridgePayload | null>(null);
+  const [handshakePackage, setHandshakePackage] = useState<ControlledExecutionHandshake | null>(null);
 
   // Derive activeDraft from the most recent message that has an action_draft.
   // This ensures the executor block always reflects the latest conversation state,
@@ -695,6 +1067,10 @@ function ChatOperacionalSection({
     if (newId !== trackedDraftId) {
       setTrackedDraftId(newId);
       setPrepStatus(PREPARATION_INITIAL_STATUS);
+      setAuthPackage(null);
+      setContractPackage(null);
+      setBridgePackage(null);
+      setHandshakePackage(null);
     }
   }, [activeDraft, trackedDraftId]);
 
@@ -860,6 +1236,10 @@ function ChatOperacionalSection({
         <ExecutorAssistidoBloco
           draft={activeDraft}
           status={prepStatus}
+          authPackage={authPackage}
+          contractPackage={contractPackage}
+          bridgePackage={bridgePackage}
+          handshakePackage={handshakePackage}
           onRevisar={() => {
             const next = transitionPreparationStatus(prepStatus, "revisar");
             if (next) setPrepStatus(next);
@@ -875,6 +1255,35 @@ function ChatOperacionalSection({
           onMarcarPreExecucao={() => {
             const next = transitionPreparationStatus(prepStatus, "marcar_pre_execucao");
             if (next) setPrepStatus(next);
+          }}
+          onAutorizarExecucaoControlada={() => {
+            const next = transitionPreparationStatus(prepStatus, "autorizar_execucao_controlada");
+            if (next) {
+              setPrepStatus(next);
+              const preExec = buildPreExecutionPackage(activeDraft);
+              setAuthPackage(buildExecutionAuthorizationPackage(preExec));
+            }
+          }}
+          onPrepararContratoExecucao={() => {
+            const next = transitionPreparationStatus(prepStatus, "preparar_contrato_execucao");
+            if (next && authPackage) {
+              setPrepStatus(next);
+              setContractPackage(buildExecutionContract(authPackage, activeDraft));
+            }
+          }}
+          onPrepararBridgeIntegracao={() => {
+            const next = transitionPreparationStatus(prepStatus, "preparar_bridge_integracao");
+            if (next && contractPackage) {
+              setPrepStatus(next);
+              setBridgePackage(buildExecutionBridgePayload(contractPackage));
+            }
+          }}
+          onPrepararHandshakeControlado={() => {
+            const next = transitionPreparationStatus(prepStatus, "preparar_handshake_controlado");
+            if (next && bridgePackage) {
+              setPrepStatus(next);
+              setHandshakePackage(buildControlledExecutionHandshake(bridgePackage));
+            }
           }}
         />
       ) : (

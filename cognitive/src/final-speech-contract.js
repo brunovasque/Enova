@@ -147,6 +147,15 @@ function stripFutureStageCollection(reply, currentStage) {
   }
   // Clean up double spaces and orphan punctuation from stripping in one pass
   result = result.replace(/\s{2,}|\s+(?=[,.!?;:])/g, (m) => /\s+(?=[,.!?;:])/.test(m) ? "" : " ").trim();
+
+  // ── Fragment residual guard ──
+  // After stripping collection patterns, the result may end with a dangling
+  // preamble like "qual é o seu", "me diz o", "qual o seu" etc.
+  // Detect and remove trailing orphan sentence fragments.
+  result = result.replace(/(?:,\s*)?(?:qual\s+(?:[eé]\s+)?(?:o\s+)?seu\s*|me\s+(?:diz|conta|fala)\s+(?:o\s+)?seu?\s*|pra\s+come[cç]ar\s*[,:]?\s*|(?:e\s+)?(?:o|a|os|as)\s+seu[as]?\s*)$/i, "").trim();
+  // Clean trailing comma, colon, or dash left after fragment removal
+  result = result.replace(/[,;:\-–—]\s*$/, "").trim();
+
   return result;
 }
 

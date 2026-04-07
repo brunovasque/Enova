@@ -4140,7 +4140,7 @@ function _renderCognitiveFromIntent(mechanicalSource, stage) {
 const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
   // ── topo ──
   ["inicio",                  "Oi! 😊 Pode falar, tô por aqui."],
-  ["inicio_programa",         "Oi! 😊 Vou analisar seu perfil pro MCMV. Pode começar?"],
+  ["inicio_programa",         "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Você já sabe como funciona ou prefere que eu explique rapidinho?"],
   ["inicio_nome",             "Pode me dizer seu nome completo? 😊"],
   ["inicio_nacionalidade",    "Você é brasileiro(a) nato(a)?"],
   ["inicio_rnm",              "Qual o número do seu Registro Nacional Migratório?"],
@@ -18933,6 +18933,91 @@ const TOPO_HAPPY_PATH_SPEECH = {
     validate: (reply) => reply && reply.length > 30 && /\?/.test(reply)
   },
 
+  // ── inicio: abertura por base (primeira interação, sem opening) ──
+  "inicio:abertura_base": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "oi, quero saber sobre o programa",
+    fallback: [
+      "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida.",
+      "Posso te fazer algumas perguntas rápidas?"
+    ],
+    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
+  },
+
+  // ── inicio: reset/começar do zero dentro do inicio ──
+  "inicio:reset_iniciar": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "quero começar do zero",
+    fallback: [
+      "Perfeito, limpamos tudo 👌 Eu sou a Enova, assistente do MCMV.",
+      "Você já sabe como funciona ou prefere que eu explique?"
+    ],
+    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
+  },
+
+  // ── inicio: retomada (cliente voltou e já tinha progresso) ──
+  "inicio:retomada": {
+    cognitiveStage: "inicio_decisao",
+    cognitiveMessage: "oi, voltei",
+    fallback: [
+      "Oi! 👋 Quer continuar de onde paramos ou começar do zero?"
+    ],
+    validate: (reply) => reply && reply.length > 15 && /continuar|zero|parar/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── inicio: saudação normal ──
+  "inicio:saudacao": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "oi, tudo bem",
+    fallback: [
+      "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida.",
+      "Você já sabe como funciona ou prefere que eu explique?"
+    ],
+    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
+  },
+
+  // ── inicio: fallback (qualquer outra mensagem) ──
+  "inicio:fallback": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "oi",
+    fallback: [
+      "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida.",
+      "Você já sabe como funciona ou prefere que eu explique?"
+    ],
+    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
+  },
+
+  // ── inicio_decisao: resposta inválida (não é 1 ou 2) ──
+  "inicio_decisao:invalido": {
+    cognitiveStage: "inicio_decisao",
+    cognitiveMessage: "hmm, não entendi",
+    fallback: [
+      "Me diz: *1* pra continuar de onde paramos ou *2* pra começar do zero."
+    ],
+    validate: (reply) => reply && reply.length > 10 && /continuar|zero|1|2/i.test(reply)
+  },
+
+  // ── inicio_decisao: continuar ──
+  "inicio_decisao:continuar": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "quero continuar de onde parei",
+    fallback: [
+      "Perfeito! Vamos continuar de onde paramos 👍"
+    ],
+    validate: (reply) => reply && reply.length > 10
+  },
+
+  // ── inicio_decisao: reset ──
+  "inicio_decisao:reset": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "quero começar do zero",
+    fallback: [
+      "Prontinho! Limpamos tudo 👌 Eu sou a Enova, assistente do MCMV.",
+      "Você já sabe como funciona ou prefere que eu explique?"
+    ],
+    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
+  },
+
   // ── inicio_programa: sim (já conhece) → avança para inicio_nome ──
   "inicio_programa:sim": {
     cognitiveStage: "inicio_nome",
@@ -23055,46 +23140,10 @@ case "inicio": {
 
   // ============================================================
   // (0) Abertura por base — primeira mensagem do lead
+  // LLM obrigatório: fala visível nasce do LLM. Fallback extremo mínimo se LLM falha.
   // ============================================================
   if (st.opening_used !== true) {
     const sourceType = (st.source_type || "fria").toLowerCase();
-
-    let openingMessages;
-    switch (sourceType) {
-      case "campanha":
-        openingMessages = [
-          "Oi, tudo bem? 😊",
-          "Eu sou a Enova, assistente virtual de pré-análise.",
-          "Vi que você demonstrou interesse em um imóvel pelo programa Minha Casa Minha Vida.",
-          "Posso te fazer algumas perguntas rápidas para te orientar da forma certa?"
-        ];
-        break;
-      case "morna":
-        openingMessages = [
-          "Oi, tudo bem? 😊",
-          "Eu sou a Enova, assistente virtual de pré-análise.",
-          "Estou entrando em contato para entender seu perfil e te orientar dentro do programa Minha Casa Minha Vida.",
-          "Posso te fazer algumas perguntas rápidas?"
-        ];
-        break;
-      case "lyx":
-        openingMessages = [
-          "Oi, tudo bem? 😊",
-          "Eu sou a Enova, assistente virtual de pré-análise.",
-          "Estou entrando em contato para entender seu perfil e te orientar da melhor forma dentro do Minha Casa Minha Vida.",
-          "Posso te fazer algumas perguntas rápidas?"
-        ];
-        break;
-      case "fria":
-      default:
-        openingMessages = [
-          "Oi, tudo bem? 😊",
-          "Eu sou a Enova, assistente virtual de pré-análise.",
-          "Estou entrando em contato para entender seu perfil e te orientar sobre a possibilidade de compra de imóvel pelo programa Minha Casa Minha Vida.",
-          "Posso te fazer algumas perguntas rápidas?"
-        ];
-        break;
-    }
 
     await upsertState(env, st.wa_id, {
       opening_used: true,
@@ -23104,6 +23153,15 @@ case "inicio": {
     st.opening_used = true;
     st.opening_variant = `base_opening:${sourceType}`;
 
+    // ── LLM OBRIGATÓRIO: abertura por base ──
+    const _aberturaMsg = sourceType === "campanha"
+      ? "oi, vi que demonstrei interesse em um imóvel pelo MCMV"
+      : "oi, quero saber sobre o programa minha casa minha vida";
+    const _aberturaSpeech = await getTopoHappyPathSpeech(env, "inicio:abertura_base", st, {
+      cognitiveMessage: _aberturaMsg
+    });
+    setTopoHappyPathFlags(st, _aberturaSpeech);
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -23111,10 +23169,11 @@ case "inicio": {
       next_stage: "inicio_programa",
       severity: "info",
       message: `Saindo da fase: inicio → inicio_programa (abertura por base: ${sourceType})`,
-      details: { source_type: sourceType, opening_variant: st.opening_variant }
+      details: { source_type: sourceType, opening_variant: st.opening_variant, speech_source: _aberturaSpeech.source }
     });
 
-    return step(env, st, openingMessages, "inicio_programa");
+    // Fallback extremo mínimo — só usado se LLM falhar tecnicamente.
+    return step(env, st, ["Oi! 😊 Eu sou a Enova, assistente do MCMV. Posso te ajudar?"], "inicio_programa");
   }
 
   // 🧼 Comando de reset / começar do zero
@@ -23151,16 +23210,17 @@ case "inicio": {
     // 🔥 CORREÇÃO: recarrega estado LIMPINHO
     const novoSt = await getState(env, st.wa_id);
 
-    // Inicia o programa corretamente
+    // ── LLM OBRIGATÓRIO: reset/iniciar ──
+    const _resetSpeech = await getTopoHappyPathSpeech(env, "inicio:reset_iniciar", novoSt, {
+      cognitiveMessage: userText || "quero começar do zero"
+    });
+    setTopoHappyPathFlags(novoSt, _resetSpeech);
+
+    // Fallback extremo mínimo — só usado se LLM falhar tecnicamente.
     return step(
       env,
       novoSt,
-      [
-        "Perfeito, limpamos tudo aqui pra você 👌",
-        "Eu sou a Enova 😊, assistente do programa Minha Casa Minha Vida.",
-        "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
-        "Me responde com *sim* (já sei) ou *não* (quero que explique)."
-      ],
+      ["Limpamos tudo 👌 Eu sou a Enova. Você já sabe como funciona o MCMV ou prefere que eu explique?"],
       "inicio_programa"
     );
   }
@@ -23176,6 +23236,12 @@ case "inicio": {
     !saudacao
   ) {
 
+    // ── LLM OBRIGATÓRIO: retomada ──
+    const _retomadaSpeech = await getTopoHappyPathSpeech(env, "inicio:retomada", st, {
+      cognitiveMessage: userText || "oi, voltei"
+    });
+    setTopoHappyPathFlags(st, _retomadaSpeech);
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -23183,17 +23249,14 @@ case "inicio": {
       next_stage: "inicio_decisao",
       severity: "info",
       message: "Saindo da fase: inicio → inicio_decisao (retomada)",
-      details: { userText }
+      details: { userText, speech_source: _retomadaSpeech.source }
     });
 
+    // Fallback extremo mínimo — só usado se LLM falhar tecnicamente.
     return step(
       env,
       st,
-      [
-        "Oi! 👋",
-        "Quer continuar de onde paramos ou prefere começar tudo do zero?",
-        "Digite:\n1 — Continuar\n2 — Começar do zero"
-      ],
+      ["Oi! 👋 Quer continuar de onde paramos ou começar do zero?"],
       "inicio_decisao"
     );
   }
@@ -23203,6 +23266,12 @@ case "inicio": {
   // ============================================================
   if (saudacao) {
 
+    // ── LLM OBRIGATÓRIO: saudação normal ──
+    const _saudacaoSpeech = await getTopoHappyPathSpeech(env, "inicio:saudacao", st, {
+      cognitiveMessage: userText || "oi, tudo bem"
+    });
+    setTopoHappyPathFlags(st, _saudacaoSpeech);
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -23210,25 +23279,29 @@ case "inicio": {
       next_stage: "inicio_programa",
       severity: "info",
       message: "Saindo da fase: inicio → inicio_programa (saudação)",
-      details: { userText }
+      details: { userText, speech_source: _saudacaoSpeech.source }
     });
 
+    // Fallback extremo mínimo — só usado se LLM falhar tecnicamente.
     return step(
       env,
       st,
-      [
-        "Oi! Tudo bem? 😊",
-        "Eu sou a Enova, assistente do programa Minha Casa Minha Vida.",
-        "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
-        "Me responde com *sim* (já sei) ou *não* (quero que explique)."
-      ],
+      ["Oi! 😊 Eu sou a Enova. Você já sabe como funciona o MCMV ou prefere que eu explique?"],
       "inicio_programa"
     );
   }
 
   // ============================================================
   // (4) Fallback — qualquer outra mensagem
+  // ── LLM OBRIGATÓRIO: fallback genérico ──
   // ============================================================
+  {
+    const _fallbackSpeech = await getTopoHappyPathSpeech(env, "inicio:fallback", st, {
+      cognitiveMessage: userText || "oi"
+    });
+    setTopoHappyPathFlags(st, _fallbackSpeech);
+  }
+
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
     event: "exit_stage",
@@ -23239,16 +23312,11 @@ case "inicio": {
     details: { userText }
   });
 
+  // Fallback extremo mínimo — só usado se LLM falhar tecnicamente.
   return step(
     env,
     st,
-    [
-      "Perfeito 👌",
-      "Vamos começar certinho.",
-      "Eu sou a Enova, assistente do programa Minha Casa Minha Vida.",
-      "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
-      "Responde com *sim* (já sei) ou *não* (quero que explique)."
-    ],
+    ["Oi! 😊 Eu sou a Enova. Você já sabe como funciona o MCMV ou prefere que eu explique?"],
     "inicio_programa"
   );
 }
@@ -23277,6 +23345,12 @@ case "inicio_decisao": {
 
   // ❌ Cliente mandou algo nada a ver → pede novamente
   if (!opcao1 && !opcao2) {
+    // ── LLM OBRIGATÓRIO: resposta inválida ──
+    const _invalidSpeech = await getTopoHappyPathSpeech(env, "inicio_decisao:invalido", st, {
+      cognitiveMessage: userText || "hmm"
+    });
+    setTopoHappyPathFlags(st, _invalidSpeech);
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -23284,22 +23358,26 @@ case "inicio_decisao": {
       next_stage: "inicio_decisao",
       severity: "info",
       message: "inicio_decisao: resposta inválida",
-      details: { userText }
+      details: { userText, speech_source: _invalidSpeech.source }
     });
 
+    // Fallback extremo mínimo.
     return step(
       env,
       st,
-      [
-        "Só pra confirmar certinho… 😉",
-        "Digite:\n1 — Continuar de onde paramos\n2 — Começar tudo do zero"
-      ],
+      ["Me diz: *1* pra continuar ou *2* pra começar do zero."],
       "inicio_decisao"
     );
   }
 
   // 🟢 OPÇÃO 1 — Continuar
   if (opcao1) {
+    // ── LLM OBRIGATÓRIO: continuar ──
+    const _contSpeech = await getTopoHappyPathSpeech(env, "inicio_decisao:continuar", st, {
+      cognitiveMessage: "quero continuar de onde parei"
+    });
+    setTopoHappyPathFlags(st, _contSpeech);
+
     await funnelTelemetry(env, {
       wa_id: st.wa_id,
       event: "exit_stage",
@@ -23307,46 +23385,49 @@ case "inicio_decisao": {
       next_stage: st.fase_conversa || "inicio_programa",
       severity: "info",
       message: "inicio_decisao: cliente escolheu continuar",
-      details: { userText }
+      details: { userText, speech_source: _contSpeech.source }
     });
 
+    // Fallback extremo mínimo.
     return step(
       env,
       st,
-      [
-        "Perfeito! Vamos continuar de onde paramos 👍",
-      ],
+      ["Perfeito! Vamos continuar 👍"],
       st.fase_conversa || "inicio_programa"
     );
   }
 
   // 🔄 OPÇÃO 2 — Reset total
-await funnelTelemetry(env, {
-  wa_id: st.wa_id,
-  event: "exit_stage",
-  stage,
-  next_stage: "inicio_programa",
-  severity: "info",
-  message: "inicio_decisao: cliente pediu reset",
-  details: { userText }
-});
+  {
+    // ── LLM OBRIGATÓRIO: reset ──
+    const _resetSpeech = await getTopoHappyPathSpeech(env, "inicio_decisao:reset", st, {
+      cognitiveMessage: "quero começar do zero"
+    });
 
-await resetTotal(env, st.wa_id);
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "inicio_programa",
+      severity: "info",
+      message: "inicio_decisao: cliente pediu reset",
+      details: { userText, speech_source: _resetSpeech.source }
+    });
 
-// 🔥 CORREÇÃO ABSOLUTA: recarrega estado limpo
-const novoSt = await getState(env, st.wa_id);
+    await resetTotal(env, st.wa_id);
 
-return step(
-  env,
-  novoSt,
-  [
-    "Prontinho! Limpamos tudo e vamos começar do zero 👌",
-    "Eu sou a Enova 😊, assistente do programa Minha Casa Minha Vida.",
-    "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
-    "Me responde com *sim* (já sei) ou *não* (quero que explique)."
-  ],
-  "inicio_programa"
-);
+    // 🔥 CORREÇÃO ABSOLUTA: recarrega estado limpo
+    const novoSt = await getState(env, st.wa_id);
+    setTopoHappyPathFlags(novoSt, _resetSpeech);
+
+    // Fallback extremo mínimo.
+    return step(
+      env,
+      novoSt,
+      ["Limpamos tudo 👌 Você já sabe como funciona o MCMV ou prefere que eu explique?"],
+      "inicio_programa"
+    );
+  }
 }
 
 // --------------------------------------------------
@@ -23444,9 +23525,12 @@ case "inicio_programa": {
   );
 
   // ✅ Pós-explicação: confirmação curta → avança para inicio_nome
+  // LLM OBRIGATÓRIO: fala visível nasce do LLM.
   if (_isPostExplConfirmation) {
     // ── TOPO HAPPY PATH MIGRATION: inicio_programa post-explanation confirmation ──
-    const _postExplSpeech = await getTopoHappyPathSpeech(env, "inicio_programa:post_expl_confirmation", st);
+    const _postExplSpeech = await getTopoHappyPathSpeech(env, "inicio_programa:post_expl_confirmation", st, {
+      cognitiveMessage: userText || "certo, entendi"
+    });
     setTopoHappyPathFlags(st, _postExplSpeech);
 
     await funnelTelemetry(env, {
@@ -23459,13 +23543,11 @@ case "inicio_programa": {
       details: { userText, postExplicacao: true, speech_source: _postExplSpeech.source }
     });
 
+    // Fallback extremo mínimo — só se LLM falhar.
     return step(
       env,
       st,
-      [
-        "Ótimo! Vou analisar sua situação pra ver quanto de subsídio você pode ter e como ficariam as condições.",
-        "Pra começar, qual o seu *nome completo*?"
-      ],
+      ["Ótimo! Qual o seu *nome completo*?"],
       "inicio_nome"
     );
   }
@@ -23558,13 +23640,18 @@ case "inicio_programa": {
       }
     });
 
+    // ── LLM OBRIGATÓRIO no topo: fala visível nasce do LLM ──
+    // Quando LLM real é soberano (takes_final=true), step() descarta essas mensagens
+    // (renderCognitiveSpeech usa cognitivePrefix). Sem mudança nesse caminho.
+    //
+    // Quando LLM falha, step() recebe APENAS fallback extremo mínimo — curto e neutro.
+    // Nenhum texto manual roteirizado. Nenhum script multi-linha.
+    //
+    // Reversível: restaurar mensagens originais no step() abaixo.
     return step(
       env,
       st,
-      [
-        "Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho?",
-        "Me diz *sim* (já sei) ou *não* (me explica)."
-      ],
+      ["Oi! 😊 Eu sou a Enova. Você já sabe como funciona o MCMV ou prefere que eu explique?"],
       "inicio_programa"
     );
   }
@@ -23574,7 +23661,10 @@ case "inicio_programa": {
   //    O mecânico só avança quando o cliente confirma entendimento.
   if (nao) {
     // ── TOPO HAPPY PATH MIGRATION: inicio_programa:nao ──
-    const _naoSpeech = await getTopoHappyPathSpeech(env, "inicio_programa:nao", st);
+    // LLM OBRIGATÓRIO: explicação nasce do LLM. Mecânico preserva stage.
+    const _naoSpeech = await getTopoHappyPathSpeech(env, "inicio_programa:nao", st, {
+      cognitiveMessage: userText || "não sei, me explica"
+    });
     setTopoHappyPathFlags(st, _naoSpeech);
 
     await funnelTelemetry(env, {
@@ -23583,28 +23673,27 @@ case "inicio_programa": {
       stage,
       next_stage: "inicio_programa",
       severity: "info",
-      message: "inicio_programa: cliente pediu explicação — cognitivo real explica e permanece no stage",
+      message: "inicio_programa: cliente pediu explicação — LLM explica e permanece no stage",
       details: { userText, speech_source: _naoSpeech.source }
     });
 
+    // Fallback extremo mínimo — curto e neutro. Só se LLM falhar.
     return step(
       env,
       st,
-      [
-        "Perfeito, te explico rapidinho 😊",
-        "O Minha Casa Minha Vida é o programa do governo que ajuda na entrada e reduz a parcela do financiamento, conforme a renda e a faixa de cada família.",
-        "Eu vou analisar seu perfil e te mostrar exatamente quanto de subsídio você pode ter e como ficam as condições.",
-        "Tudo certo até aqui? Me diz *sim* pra gente seguir com a análise do seu perfil 😊"
-      ],
+      ["O MCMV ajuda na entrada e reduz a parcela conforme sua renda. Quer seguir com a análise? Me diz *sim*."],
       "inicio_programa"
     );
   }
 
   // ✅ JÁ CONHECE (direto ou pós-explicação com "sim"/"ok")
   // ── TOPO HAPPY PATH MIGRATION: inicio_programa:sim ──
+  // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico avança stage.
   {
     const _simKey = _postExplicacao ? "inicio_programa:sim_pos_explicacao" : "inicio_programa:sim";
-    const _simSpeech = await getTopoHappyPathSpeech(env, _simKey, st);
+    const _simSpeech = await getTopoHappyPathSpeech(env, _simKey, st, {
+      cognitiveMessage: _postExplicacao ? "entendi, pode seguir" : "sim, já sei como funciona"
+    });
     setTopoHappyPathFlags(st, _simSpeech);
 
     await funnelTelemetry(env, {
@@ -23619,26 +23708,11 @@ case "inicio_programa": {
       details: { userText, postExplicacao: _postExplicacao, speech_source: _simSpeech.source }
     });
 
-    if (_postExplicacao) {
-      return step(
-        env,
-        st,
-        [
-          "Ótimo! Vou analisar sua situação pra ver quanto de subsídio você pode ter e como ficariam as condições.",
-          "Pra começar, qual o seu *nome completo*?"
-        ],
-        "inicio_nome"
-      );
-    }
-
+    // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
     return step(
       env,
       st,
-      [
-        "Ótimo, então vamos direto ao ponto 😉",
-        "Vou analisar sua situação pra ver quanto de subsídio você pode ter e como ficariam as condições.",
-        "Pra começar, qual o seu *nome completo*?"
-      ],
+      ["Ótimo! Qual o seu *nome completo*?"],
       "inicio_nome"
     );
   }

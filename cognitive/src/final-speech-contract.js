@@ -238,11 +238,20 @@ export function applyFinalSpeechContract(reply, context = {}) {
 
   let result = reply;
 
-  // 1. Substituir "casa" por "imóvel"
+  // 1. Substituir "casa" por "imóvel" — guardrail mínimo (aplica sempre)
   result = replaceCasa(result);
 
-  // 2. Bloquear/ajustar promessas proibidas
+  // 2. Bloquear/ajustar promessas proibidas — guardrail mínimo (aplica sempre)
   result = replaceForbiddenPromises(result);
+
+  // ── BLOCO 4 (PR #550): Quando LLM é soberano, parar aqui. ──
+  // Guardrails mínimos aplicados acima. NÃO reescrever semântica:
+  // - NÃO adicionar empatia (altera tom)
+  // - NÃO truncar agressivamente (perde conteúdo)
+  // - NÃO strip future stage (pode alterar perguntas legítimas do LLM)
+  if (context.llmSovereign === true) {
+    return normalizeWhitespace(result);
+  }
 
   // 2.5 Stage discipline: strip future-stage collection questions (ONE-STAGE-ONLY)
   result = stripFutureStageCollection(result, context.currentStage);

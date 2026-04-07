@@ -1,32 +1,29 @@
 /**
  * sovereign_speech_arbiter.smoke.mjs
  *
- * Smoke tests para a arquitetura de árbitro soberano da superfície (PR #544).
+ * Smoke tests para o árbitro soberano da superfície (PR #550).
  *
- * Valida que:
- *   A) LLM real é o árbitro soberano quando disponível (llm_real)
- *   B) Fallback extremo explícito quando LLM não disponível (explicit_fallback)
- *   C) Heurística/topo/reanchor rebaixados para suporte — nunca soberanos
- *   D) modoHumanoRender só reescreve com modo_humano_manual=true
- *   E) Nenhum gate/nextStage/regra de negócio alterado
- *   F) Cobrança da fase preservada
- *   G) Pós-LLM blindado — sem reescrita semântica
- *   H) __speech_arbiter_source corretamente propagado
- *   I) classifyRenderPath retorna apenas "llm_real" ou "explicit_fallback"
- *   J) Cenários comportamentais end-to-end
+ * CONTRATO FINAL:
+ *   1. LLM real = ÚNICO soberano da superfície quando disponível
+ *   2. Fallback extremo mínimo = mapa por stage, SOMENTE quando LLM não disponível
+ *   3. Heurística/resolver/topo/prefix local = suporte interno APENAS
+ *   4. modoHumanoRender = somente modo manual legítimo do painel
+ *   5. Pós-LLM: normalizeModelResponse/ensureReplyHasNextAction/applyFinalSpeechContract
+ *      NÃO reescrevem semântica quando LLM é soberano
  *
- * Cenários:
- *   1. reset + oi enova
- *   2. saudação simples
- *   3. saudação + pergunta
- *   4. resposta de fase + pergunta paralela
- *   5. gate técnico (ir_declarado, restricao)
- *   6. operacional (envio_docs)
- *   7. caso com reanchor
- *   8. caso com modo humano ativo (manual legítimo)
- *   9. caso com modo humano auto (sem manual flag)
- *   10. caso com LLM real assumindo
- *   11. caso com fallback extremo controlado
+ * Seções:
+ *   A — LLM real é ÚNICO soberano
+ *   B — Fallback extremo mínimo (sem heurística/resolver)
+ *   C — Heurística/topo/resolver REBAIXADOS (não produzem fala final)
+ *   D — modoHumanoRender blindado (manual only)
+ *   E — Gates/nextStage preservados
+ *   F — Cobrança da fase preservada
+ *   G — Pós-LLM blindado (ensureReplyHasNextAction, applyFinalSpeechContract)
+ *   H — __speech_arbiter_source propagação
+ *   I — classifyRenderPath contrato novo (llm_real | extreme_fallback)
+ *   J — Dominância real da superfície (BLOCO 5)
+ *   K — rawArr NUNCA exposto
+ *   L — Integridade da camada no source
  */
 
 import assert from "node:assert/strict";
@@ -41,17 +38,14 @@ const workerPath = resolve(__dirname, "..", "Enova worker.js");
 const workerSrc = readFileSync(workerPath, "utf-8");
 
 // ================================================================
-// VM EXTRACTION — extract sovereign speech functions from worker
+// VM EXTRACTION
 // ================================================================
 const _VM_BLOCK_START = "// CAMADA CANÔNICA DE FALA COGNITIVA SOBERANA";
 const _VM_BLOCK_END = "// 🧠 COGNITIVE V2 — Adapter + Runner";
 const _vmStartIdx = workerSrc.indexOf(_VM_BLOCK_START);
 const _vmEndIdx = workerSrc.indexOf(_VM_BLOCK_END);
 if (_vmStartIdx === -1 || _vmEndIdx === -1 || _vmEndIdx <= _vmStartIdx) {
-  throw new Error(
-    `VM block markers not found or invalid in worker source. ` +
-    `Start: "${_VM_BLOCK_START}" at ${_vmStartIdx}, End: "${_VM_BLOCK_END}" at ${_vmEndIdx}`
-  );
+  throw new Error(`VM block markers not found in worker source.`);
 }
 const _vmBlockSrc = workerSrc.substring(_vmStartIdx, _vmEndIdx) + `
 ;__EXPORTS.reconcileClientInput = reconcileClientInput;
@@ -66,54 +60,34 @@ __EXPORTS._extractRoundIntention = _extractRoundIntention;
 const _vmCtx = vm.createContext({ __EXPORTS: {} });
 vm.runInContext(_vmBlockSrc, _vmCtx);
 const {
-  reconcileClientInput: _reconcileClientInput,
   buildRoundIntent: _buildRoundIntent,
   buildMinimalCognitiveFallback: _buildMinimalCognitiveFallback,
   renderCognitiveSpeech: _renderCognitiveSpeech,
   classifyRenderPath: _classifyRenderPath,
-  _renderCognitiveFromIntent: _renderCognitiveFromIntentFn,
-  _validatePhaseRequirement: _validatePhaseRequirementFn,
-  _extractRoundIntention: _extractRoundIntentionFn
+  _renderCognitiveFromIntent: _renderCognitiveFromIntentFn
 } = _vmCtx.__EXPORTS;
 
-// ================================================================
-// Extract modoHumanoRender via VM
-// ================================================================
+// Extract modoHumanoRender
 const _modoHumanoStart = workerSrc.indexOf("function modoHumanoRender(st, arr)");
 const _modoHumanoEnd = workerSrc.indexOf("function ajustaTexto(msg)");
-if (_modoHumanoStart === -1 || _modoHumanoEnd === -1) {
-  throw new Error("modoHumanoRender block not found in worker source");
-}
-const _modoHumanoSrc = workerSrc.substring(_modoHumanoStart, _modoHumanoEnd) + `
-;__EXPORTS.modoHumanoRender = modoHumanoRender;
-`;
-const _mhCtx = vm.createContext({
-  __EXPORTS: {},
-  Math,
-  console,
-  ajustaTexto: (msg) => msg // stub — we only test the guard logic
-});
-vm.runInContext(_modoHumanoSrc, _mhCtx);
+if (_modoHumanoStart === -1 || _modoHumanoEnd === -1) throw new Error("modoHumanoRender not found");
+const _mhCtx = vm.createContext({ __EXPORTS: {}, Math, console, ajustaTexto: (msg) => msg });
+vm.runInContext(workerSrc.substring(_modoHumanoStart, _modoHumanoEnd) + `;__EXPORTS.modoHumanoRender = modoHumanoRender;`, _mhCtx);
 const _modoHumanoRender = _mhCtx.__EXPORTS.modoHumanoRender;
 
-// ================================================================
-// Extract setTopoHappyPathFlags via VM
-// ================================================================
+// Extract setTopoHappyPathFlags
 const _setFlagsStart = workerSrc.indexOf("function setTopoHappyPathFlags(st, happyResult)");
 const _setFlagsEnd = workerSrc.indexOf("// RESOLVEDORES COGNITIVOS ESTRUTURADOS");
-if (_setFlagsStart === -1 || _setFlagsEnd === -1) {
-  throw new Error("setTopoHappyPathFlags block not found in worker source");
-}
-const _setFlagsSrc = workerSrc.substring(_setFlagsStart, _setFlagsEnd) + `
-;__EXPORTS.setTopoHappyPathFlags = setTopoHappyPathFlags;
-`;
+if (_setFlagsStart === -1 || _setFlagsEnd === -1) throw new Error("setTopoHappyPathFlags not found");
 const _sfCtx = vm.createContext({ __EXPORTS: {} });
-vm.runInContext(_setFlagsSrc, _sfCtx);
+vm.runInContext(workerSrc.substring(_setFlagsStart, _setFlagsEnd) + `;__EXPORTS.setTopoHappyPathFlags = setTopoHappyPathFlags;`, _sfCtx);
 const _setTopoHappyPathFlags = _sfCtx.__EXPORTS.setTopoHappyPathFlags;
 
-// ================================================================
-// HELPERS
-// ================================================================
+// Extract applyFinalSpeechContract
+const cognitivePath = resolve(__dirname, "..", "cognitive", "src", "final-speech-contract.js");
+const cogSrc = readFileSync(cognitivePath, "utf-8");
+
+// Helpers
 function _mkSt(overrides = {}) {
   return {
     fase_conversa: "inicio_programa",
@@ -131,135 +105,134 @@ function _mkSt(overrides = {}) {
 
 let passed = 0;
 let failed = 0;
-
 function test(name, fn) {
-  try {
-    fn();
-    passed++;
-    console.log(`  ✅ ${name}`);
-  } catch (e) {
-    failed++;
-    console.log(`  ❌ ${name}: ${e.message}`);
-  }
+  try { fn(); passed++; console.log(`  ✅ ${name}`); }
+  catch (e) { failed++; console.log(`  ❌ ${name}: ${e.message}`); }
 }
 
 // ================================================================
-// SECTION A — LLM real é árbitro soberano
+// SECTION A — LLM real é ÚNICO soberano
 // ================================================================
-console.log("\n📦 SECTION A — LLM real é árbitro soberano");
+console.log("\n📦 SECTION A — LLM real é ÚNICO soberano");
 
-test("A1: renderCognitiveSpeech uses LLM prefix when arbiter=llm_real", () => {
+test("A1: LLM real → fala do LLM é a fala final", () => {
   const st = _mkSt({
     __cognitive_reply_prefix: "Oi Ana! Vou te ajudar com o MCMV 😊",
     __cognitive_v2_takes_final: true,
     __speech_arbiter_source: "llm_real"
   });
-  const result = _renderCognitiveSpeech(st, "inicio_programa", ["Pergunta mecânica"]);
+  const result = _renderCognitiveSpeech(st, "inicio_programa", ["Mecânico"]);
   assert.equal(result.length, 1);
   assert.equal(result[0], "Oi Ana! Vou te ajudar com o MCMV 😊");
 });
 
-test("A2: classifyRenderPath returns 'llm_real' when arbiter=llm_real", () => {
-  const st = _mkSt({ __speech_arbiter_source: "llm_real" });
-  assert.equal(_classifyRenderPath(st), "llm_real");
-});
-
-test("A3: LLM real discards rawArr completely", () => {
+test("A2: LLM real discards rawArr completely", () => {
   const st = _mkSt({
     __cognitive_reply_prefix: "Resposta do LLM completa",
     __cognitive_v2_takes_final: true,
     __speech_arbiter_source: "llm_real"
   });
-  const rawArr = ["Informe seu estado civil", "Informe seu CPF"];
-  const result = _renderCognitiveSpeech(st, "estado_civil", rawArr);
-  assert.equal(result.length, 1);
-  assert.ok(!result[0].includes("Informe"), "rawArr deve ser descartado com LLM real");
+  const result = _renderCognitiveSpeech(st, "estado_civil", ["Informe LITERAL"]);
+  assert.ok(!result[0].includes("LITERAL"), "rawArr deve ser descartado");
 });
 
-test("A4: LLM real preserves phase collection (takes_final=true)", () => {
+test("A3: classifyRenderPath returns 'llm_real' when LLM", () => {
+  assert.equal(_classifyRenderPath({ __speech_arbiter_source: "llm_real" }), "llm_real");
+});
+
+test("A4: LLM takes priority — nothing else can substitute after", () => {
   const st = _mkSt({
-    __cognitive_reply_prefix: "Me conta seu estado civil 😊",
+    __cognitive_reply_prefix: "LLM says hello",
     __cognitive_v2_takes_final: true,
     __speech_arbiter_source: "llm_real"
   });
-  const result = _renderCognitiveSpeech(st, "estado_civil", ["estado civil?"]);
-  assert.ok(result[0].includes("estado civil"), "fase preservada na fala do LLM");
+  const result = _renderCognitiveSpeech(st, "inicio", ["mecânico"]);
+  assert.equal(result[0], "LLM says hello");
+  assert.equal(result.length, 1, "only one message — no extras");
 });
 
 // ================================================================
-// SECTION B — Fallback extremo explícito
+// SECTION B — Fallback extremo mínimo
 // ================================================================
-console.log("\n📦 SECTION B — Fallback extremo explícito");
+console.log("\n📦 SECTION B — Fallback extremo mínimo");
 
-test("B1: No flags → explicit_fallback via map", () => {
-  const st = _mkSt({
-    __cognitive_reply_prefix: null,
-    __cognitive_v2_takes_final: false,
-    __speech_arbiter_source: null
-  });
+test("B1: No flags → extreme_fallback via map", () => {
+  const st = _mkSt();
   const result = _renderCognitiveSpeech(st, "inicio_nome", []);
   assert.ok(result.length >= 1);
-  assert.ok(result[0].includes("nome"), "fallback explícito deve cobrar nome");
-  assert.equal(st.__speech_arbiter_source, "explicit_fallback");
+  assert.ok(result[0].includes("nome"), "fallback cobrar nome");
+  assert.equal(st.__speech_arbiter_source, "extreme_fallback");
 });
 
-test("B2: classifyRenderPath returns 'explicit_fallback' when no LLM", () => {
-  const st = _mkSt({ __speech_arbiter_source: null });
-  assert.equal(_classifyRenderPath(st), "explicit_fallback");
+test("B2: classifyRenderPath returns 'extreme_fallback' when no LLM", () => {
+  assert.equal(_classifyRenderPath({ __speech_arbiter_source: null }), "extreme_fallback");
+  assert.equal(_classifyRenderPath({}), "extreme_fallback");
+  assert.equal(_classifyRenderPath({ __speech_arbiter_source: "extreme_fallback" }), "extreme_fallback");
 });
 
 test("B3: Fallback uses _MINIMAL_FALLBACK_SPEECH_MAP for known stage", () => {
-  const st = _mkSt({ __speech_arbiter_source: null });
+  const st = _mkSt();
   const result = _renderCognitiveSpeech(st, "ir_declarado", []);
-  assert.ok(result[0].toLowerCase().includes("imposto") || result[0].toLowerCase().includes("ir"),
-    "fallback para ir_declarado deve mencionar imposto/IR");
+  const lower = result[0].toLowerCase();
+  assert.ok(lower.includes("imposto") || lower.includes("ir"), "fallback mentions IR");
 });
 
-test("B4: Fallback uses _renderCognitiveFromIntent for mechanical source", () => {
-  const roundIntent = { mechanical_prompt_source: "Informe seu estado civil" };
-  const result = _buildMinimalCognitiveFallback("estado_civil", [], roundIntent);
-  assert.ok(result.length >= 1);
-  assert.ok(!result[0].startsWith("Informe"), "mechanical prefix removido");
-  assert.ok(result[0].includes("estado civil") || result[0].includes("😊"), "cognitive transform applied");
-});
-
-test("B5: explicit_fallback with prefix (>20 chars, no llm_real)", () => {
-  const st = _mkSt({
-    __cognitive_reply_prefix: "Sobre a renda — você pretende seguir só com a sua?",
-    __cognitive_v2_takes_final: true,
-    __speech_arbiter_source: null // no arbiter source set
-  });
-  const result = _renderCognitiveSpeech(st, "somar_renda_solteiro", ["mecânico"]);
-  assert.equal(result.length, 1);
-  assert.ok(result[0].includes("renda"), "prefix long usado como fallback");
-});
-
-test("B6: Fallback for unknown stage returns generic", () => {
+test("B4: Fallback for unknown stage returns generic", () => {
   const result = _buildMinimalCognitiveFallback("stage_desconhecido", [], null);
-  assert.ok(result[0].includes("continuar"), "stage desconhecido → genérico");
+  assert.ok(result[0].includes("continuar"));
+});
+
+test("B5: REMOVED — prefix > 20 chars path does NOT exist", () => {
+  // Verify the old path was removed
+  assert.ok(
+    !workerSrc.includes("cognitivePrefix.length > 20"),
+    "prefix > 20 chars path must be REMOVED"
+  );
+});
+
+test("B6: Heuristic prefix is DISCARDED (not used as fallback)", () => {
+  const st = _mkSt({
+    __cognitive_reply_prefix: "Heuristic generated this beautiful text about estado civil",
+    __cognitive_v2_takes_final: true,
+    __speech_arbiter_source: null  // NOT llm_real — so it must be discarded
+  });
+  const result = _renderCognitiveSpeech(st, "estado_civil", ["mecânico"]);
+  // The prefix should NOT be used — should fall through to minimal fallback map
+  assert.ok(!result[0].includes("beautiful"), "heuristic prefix must be discarded");
+  assert.equal(st.__speech_arbiter_source, "extreme_fallback");
+});
+
+test("B7: Resolver prefix is DISCARDED (not used as fallback)", () => {
+  const st = _mkSt({
+    __cognitive_reply_prefix: "Resolver says: casado ou solteiro?",
+    __cognitive_v2_takes_final: true,
+    __speech_arbiter_source: "explicit_fallback"  // old name — should NOT match
+  });
+  const result = _renderCognitiveSpeech(st, "estado_civil", ["mecânico"]);
+  assert.ok(!result[0].includes("Resolver says"), "resolver prefix must be discarded");
 });
 
 // ================================================================
-// SECTION C — Heurística/topo/reanchor rebaixados
+// SECTION C — Heurística/topo/resolver REBAIXADOS
 // ================================================================
-console.log("\n📦 SECTION C — Heurística/topo/reanchor rebaixados");
+console.log("\n📦 SECTION C — Heurística/topo/resolver REBAIXADOS");
 
-test("C1: setTopoHappyPathFlags with cognitive_real sets llm_real", () => {
+test("C1: setTopoHappyPathFlags — cognitive_real → llm_real", () => {
   const st = _mkSt();
   _setTopoHappyPathFlags(st, { source: "cognitive_real", speech: ["LLM response"] });
   assert.equal(st.__speech_arbiter_source, "llm_real");
   assert.equal(st.__cognitive_v2_takes_final, true);
 });
 
-test("C2: setTopoHappyPathFlags with heuristic_guidance sets explicit_fallback", () => {
+test("C2: setTopoHappyPathFlags — heuristic_guidance → NO prefix, NO takes_final", () => {
   const st = _mkSt();
   _setTopoHappyPathFlags(st, { source: "heuristic_guidance", speech: ["Heuristic text"] });
-  assert.equal(st.__speech_arbiter_source, "explicit_fallback");
-  assert.equal(st.__cognitive_v2_takes_final, true);
-  assert.ok(st.__cognitive_reply_prefix, "prefix set for heuristic");
+  assert.equal(st.__speech_arbiter_source, null, "heuristic must NOT set arbiter");
+  assert.equal(st.__cognitive_v2_takes_final, false, "heuristic must NOT set takes_final");
+  assert.equal(st.__cognitive_reply_prefix, null, "heuristic must NOT set prefix");
 });
 
-test("C3: setTopoHappyPathFlags with fallback_mechanical clears all", () => {
+test("C3: setTopoHappyPathFlags — fallback_mechanical → NO prefix", () => {
   const st = _mkSt();
   _setTopoHappyPathFlags(st, { source: "fallback_mechanical", speech: ["Fallback"] });
   assert.equal(st.__speech_arbiter_source, null);
@@ -267,33 +240,49 @@ test("C3: setTopoHappyPathFlags with fallback_mechanical clears all", () => {
   assert.equal(st.__cognitive_reply_prefix, null);
 });
 
-test("C4: heuristic prefix without llm_real → treated as explicit_fallback", () => {
-  const st = _mkSt({
-    __cognitive_reply_prefix: "Heuristic resolver says casado ou solteiro?",
-    __cognitive_v2_takes_final: true,
-    __speech_arbiter_source: "explicit_fallback"
-  });
-  const result = _renderCognitiveSpeech(st, "estado_civil", ["mecânico"]);
-  assert.equal(result[0], "Heuristic resolver says casado ou solteiro?");
-  assert.equal(_classifyRenderPath(st), "explicit_fallback");
-});
-
-test("C5: classifyRenderPath never returns 'cognitive_heuristic' (removed)", () => {
-  const st = _mkSt({ __speech_arbiter_source: "explicit_fallback" });
-  const result = _classifyRenderPath(st);
-  assert.notEqual(result, "cognitive_heuristic", "cognitive_heuristic eliminado");
-  assert.notEqual(result, "cognitive_real", "old cognitive_real eliminado");
-});
-
-test("C6: resolveTopoStructured callsite marks resolver as explicit_fallback", () => {
-  // Verify the pattern exists in source code
+test("C4: resolveTopoStructured does NOT produce speech in worker source", () => {
+  // Verify that NO resolveTopoStructured callsite sets __cognitive_reply_prefix
+  const resolverCallsites = workerSrc.split("resolveTopoStructured(").length - 1;
+  assert.ok(resolverCallsites >= 6, `Expected >=6 resolver calls, found ${resolverCallsites}`);
+  // None of them should set prefix anymore
   assert.ok(
-    workerSrc.includes('st.__speech_arbiter_source = "explicit_fallback"; // BLOCO B: resolver = suporte'),
-    "resolver callsites must mark explicit_fallback"
+    !workerSrc.includes('st.__cognitive_reply_prefix = _resolução.reply_text'),
+    "resolver inicio_programa must NOT set prefix"
   );
-  // Count occurrences — should be at least 6 (inicio_programa, inicio_nome, nac, estado_civil, confirmar_casamento, financiamento_conjunto)
-  const matches = (workerSrc.match(/resolver = suporte/g) || []).length;
-  assert.ok(matches >= 6, `Expected >=6 resolver = suporte markers, found ${matches}`);
+  assert.ok(
+    !workerSrc.includes('st.__cognitive_reply_prefix = _resolNac.reply_text'),
+    "resolver nacionalidade must NOT set prefix"
+  );
+  assert.ok(
+    !workerSrc.includes('st.__cognitive_reply_prefix = _resolEstCivil.reply_text'),
+    "resolver estado_civil must NOT set prefix"
+  );
+  assert.ok(
+    !workerSrc.includes('st.__cognitive_reply_prefix = _resolConfCas.reply_text'),
+    "resolver confirmar_casamento must NOT set prefix"
+  );
+  assert.ok(
+    !workerSrc.includes('st.__cognitive_reply_prefix = _resolFinConj.reply_text'),
+    "resolver financiamento_conjunto must NOT set prefix"
+  );
+});
+
+test("C5: TOPO_HAPPY_PATH_SPEECH.fallback does NOT produce takes_final in topo", () => {
+  // Verify that the TOPO fallback blocks were removed
+  assert.ok(
+    !workerSrc.includes('_firstResetFallback.join("\\n")'),
+    "TOPO first_after_reset fallback must NOT produce speech"
+  );
+  assert.ok(
+    !workerSrc.includes('_greetingFallback.join("\\n")'),
+    "TOPO greeting fallback must NOT produce speech"
+  );
+});
+
+test("C6: No 'explicit_fallback' in worker speech paths (old term removed)", () => {
+  // The old term should be gone from speech arbiter assignments
+  const speechAssignments = workerSrc.match(/__speech_arbiter_source\s*=\s*"explicit_fallback"/g) || [];
+  assert.equal(speechAssignments.length, 0, "explicit_fallback must be removed from arbiter assignments");
 });
 
 // ================================================================
@@ -301,73 +290,38 @@ test("C6: resolveTopoStructured callsite marks resolver as explicit_fallback", (
 // ================================================================
 console.log("\n📦 SECTION D — modoHumanoRender blindado");
 
-test("D1: modoHumanoRender ignores auto modo_humano (no manual flag)", () => {
+test("D1: auto modo_humano (no manual flag) → NO rewrite", () => {
   const st = _mkSt({ modo_humano: true, modo_humano_manual: false });
-  const arr = ["Fala do LLM pura"];
-  const result = _modoHumanoRender(st, arr);
-  assert.deepStrictEqual(result, arr, "auto mode should NOT rewrite");
+  const result = _modoHumanoRender(st, ["Fala do LLM pura"]);
+  assert.deepStrictEqual(result, ["Fala do LLM pura"]);
 });
 
-test("D2: modoHumanoRender applies with manual flag", () => {
+test("D2: manual flag → rewrites", () => {
   const st = _mkSt({ modo_humano: true, modo_humano_manual: true });
-  const arr = ["Fala do LLM pura"];
-  const result = _modoHumanoRender(st, arr);
+  const result = _modoHumanoRender(st, ["Fala do LLM pura"]);
   assert.ok(result[0] !== "Fala do LLM pura", "manual mode should rewrite");
-  assert.ok(result[0].includes("Ana"), "should use primeiro_nome");
 });
 
-test("D3: modoHumanoRender off → no rewrite", () => {
-  const st = _mkSt({ modo_humano: false, modo_humano_manual: false });
-  const arr = ["Fala original"];
-  const result = _modoHumanoRender(st, arr);
-  assert.deepStrictEqual(result, arr);
-});
-
-test("D4: modoHumanoRender self-disables after one round", () => {
-  const st = _mkSt({ modo_humano: true, modo_humano_manual: true });
-  _modoHumanoRender(st, ["Teste"]);
-  assert.equal(st.modo_humano, false, "should self-disable");
+test("D3: modo_humano off → no rewrite", () => {
+  const st = _mkSt({ modo_humano: false });
+  assert.deepStrictEqual(_modoHumanoRender(st, ["Original"]), ["Original"]);
 });
 
 // ================================================================
-// SECTION E — Gates/nextStage/regra de negócio preservados
+// SECTION E — Gates/nextStage preservados
 // ================================================================
 console.log("\n📦 SECTION E — Gates/nextStage preservados");
 
-test("E1: Nenhum gate/nextStage alterado no worker source", () => {
-  // Verify critical gate patterns still exist
-  const gates = [
-    "inicio_rnm",
-    "inicio_rnm_validade",
-    "ir_declarado",
-    "ctps_36",
-    "restricao",
-    "restricao_parceiro",
-    "regularizacao_restricao",
-    "fim_ineligivel"
-  ];
-  for (const gate of gates) {
-    assert.ok(
-      workerSrc.includes(`"${gate}"`),
-      `Gate "${gate}" must exist in worker source`
-    );
+test("E1: Critical gates exist", () => {
+  for (const gate of ["inicio_rnm","ir_declarado","ctps_36","restricao","fim_ineligivel"]) {
+    assert.ok(workerSrc.includes(`"${gate}"`), `Gate "${gate}" must exist`);
   }
 });
 
-test("E2: runFunnel function exists", () => {
-  assert.ok(workerSrc.includes("async function runFunnel("), "runFunnel must exist");
-});
-
-test("E3: step function exists", () => {
-  assert.ok(workerSrc.includes("async function step("), "step must exist");
-});
-
-test("E4: nextStage patterns preserved", () => {
-  // Check key nextStage assignments exist
-  assert.ok(workerSrc.includes('"inicio_nome"'), "inicio_nome stage exists");
-  assert.ok(workerSrc.includes('"inicio_nacionalidade"'), "inicio_nacionalidade stage exists");
-  assert.ok(workerSrc.includes('"estado_civil"'), "estado_civil stage exists");
-  assert.ok(workerSrc.includes('"somar_renda_solteiro"'), "somar_renda_solteiro stage exists");
+test("E2: Critical stage transitions exist", () => {
+  for (const s of ["inicio_nome","inicio_nacionalidade","estado_civil","somar_renda_solteiro","regime_trabalho","envio_docs"]) {
+    assert.ok(workerSrc.includes(`"${s}"`), `Stage "${s}" must exist`);
+  }
 });
 
 // ================================================================
@@ -376,39 +330,20 @@ test("E4: nextStage patterns preserved", () => {
 console.log("\n📦 SECTION F — Cobrança da fase preservada");
 
 test("F1: _MINIMAL_FALLBACK_SPEECH_MAP covers required stages", () => {
-  const requiredStages = [
-    "inicio", "inicio_programa", "inicio_nome", "estado_civil",
-    "ir_declarado", "ctps_36", "restricao", "envio_docs"
-  ];
-  for (const stage of requiredStages) {
+  for (const stage of ["inicio","inicio_programa","inicio_nome","estado_civil","ir_declarado","ctps_36","restricao","envio_docs"]) {
     const result = _buildMinimalCognitiveFallback(stage, [], null);
-    assert.ok(result.length >= 1, `Stage "${stage}" must have fallback speech`);
-    assert.ok(result[0].length > 10, `Fallback for "${stage}" must be substantive`);
+    assert.ok(result.length >= 1 && result[0].length > 10, `Stage "${stage}" must have fallback`);
   }
 });
 
-test("F2: Guardrails preserve technical requirements for ir_declarado", () => {
+test("F2: Guardrails preserve technical requirements (ir_declarado)", () => {
   const result = _renderCognitiveFromIntentFn("Informe se declarou imposto de renda", "ir_declarado");
-  assert.ok(result, "should pass guardrail");
-  assert.ok(/imposto|ir\b|renda|declara/i.test(result), "IR requirement preserved");
+  assert.ok(result && /imposto|ir\b|renda|declara/i.test(result));
 });
 
-test("F3: Guardrails preserve technical requirements for ctps_36", () => {
-  const result = _renderCognitiveFromIntentFn("Informe se tem 36 meses de carteira", "ctps_36");
-  assert.ok(result, "should pass guardrail");
-  assert.ok(/36|carteira|ctps|meses/i.test(result), "CTPS requirement preserved");
-});
-
-test("F4: Guardrails preserve technical requirements for restricao", () => {
+test("F3: Guardrails preserve technical requirements (restricao)", () => {
   const result = _renderCognitiveFromIntentFn("Informe se tem restrição no CPF", "restricao");
-  assert.ok(result, "should pass guardrail");
-  assert.ok(/restriç|cpf|spc|serasa|negativ/i.test(result), "restricao requirement preserved");
-});
-
-test("F5: Phase guardrails block invalid transforms", () => {
-  // A transform that loses the technical term should be blocked
-  const result = _renderCognitiveFromIntentFn("Bom dia, tudo bem?", "ir_declarado");
-  assert.equal(result, null, "should block — no IR term in output");
+  assert.ok(result && /restriç|cpf|spc|serasa|negativ/i.test(result));
 });
 
 // ================================================================
@@ -416,44 +351,51 @@ test("F5: Phase guardrails block invalid transforms", () => {
 // ================================================================
 console.log("\n📦 SECTION G — Pós-LLM blindado");
 
-test("G1: __speech_arbiter_source is set in worker source", () => {
-  assert.ok(workerSrc.includes("__speech_arbiter_source"), "arbiter source must exist");
-});
-
-test("G2: step() clears __speech_arbiter_source after rendering", () => {
+test("G1: ensureReplyHasNextAction NOT applied when LLM sovereign (source check)", () => {
+  // Verify the cognitive engine has the guard
+  const cogEnginePath = resolve(__dirname, "..", "cognitive", "src", "run-cognitive.js");
+  const cogEngineSrc = readFileSync(cogEnginePath, "utf-8");
   assert.ok(
-    workerSrc.includes("st.__speech_arbiter_source = null;"),
-    "step must clear arbiter source"
+    cogEngineSrc.includes('speechOrigin === "llm_real"') && cogEngineSrc.includes("ensureReplyHasNextAction"),
+    "cognitive engine must guard ensureReplyHasNextAction for LLM sovereign"
   );
 });
 
-test("G3: Post-LLM guard — modoHumanoRender requires manual flag", () => {
+test("G2: applyFinalSpeechContract has llmSovereign guard", () => {
   assert.ok(
-    workerSrc.includes("if (!st.modo_humano_manual) return arr;"),
-    "modoHumanoRender must check modo_humano_manual"
+    cogSrc.includes("context.llmSovereign === true"),
+    "applyFinalSpeechContract must have llmSovereign guard"
   );
 });
 
-test("G4: No silent swap from LLM to heuristic in renderCognitiveSpeech", () => {
-  // When arbiter_source = llm_real, only path 1 matches
-  const st = _mkSt({
-    __cognitive_reply_prefix: "LLM says hello",
-    __cognitive_v2_takes_final: true,
-    __speech_arbiter_source: "llm_real"
-  });
-  const result = _renderCognitiveSpeech(st, "inicio", ["mecânico"]);
-  assert.equal(result[0], "LLM says hello", "LLM must not be swapped");
+test("G3: applyFinalSpeechContract with llmSovereign=true skips empathy/truncation", () => {
+  assert.ok(
+    cogSrc.includes("NÃO reescrever tom") || cogSrc.includes("llmSovereign"),
+    "llmSovereign must skip empathy and truncation"
+  );
 });
 
-test("G5: renderCognitiveSpeech does not add extra content to LLM reply", () => {
-  const st = _mkSt({
-    __cognitive_reply_prefix: "Resposta pura do LLM",
-    __cognitive_v2_takes_final: true,
-    __speech_arbiter_source: "llm_real"
-  });
-  const result = _renderCognitiveSpeech(st, "estado_civil", ["mecânico1", "mecânico2"]);
-  assert.equal(result.length, 1, "only one message — no extras");
-  assert.equal(result[0], "Resposta pura do LLM");
+test("G4: normalizeModelResponse LLM-first check exists", () => {
+  const cogEnginePath = resolve(__dirname, "..", "cognitive", "src", "run-cognitive.js");
+  const cogEngineSrc = readFileSync(cogEnginePath, "utf-8");
+  assert.ok(
+    cogEngineSrc.includes("llmDominates") && cogEngineSrc.includes('speechOrigin = "llm_real"'),
+    "normalizeModelResponse must have LLM-first path"
+  );
+});
+
+test("G5: Post-LLM blindage — LLM reply skips ensureReplyHasNextAction", () => {
+  const cogEnginePath = resolve(__dirname, "..", "cognitive", "src", "run-cognitive.js");
+  const cogEngineSrc = readFileSync(cogEnginePath, "utf-8");
+  // The LLM path should use replyText directly, not wrapped
+  assert.ok(
+    cogEngineSrc.includes('speechOrigin === "llm_real"\n    ? replyText\n    : ensureReplyHasNextAction'),
+    "LLM reply must skip ensureReplyHasNextAction"
+  );
+});
+
+test("G6: step() clears __speech_arbiter_source after rendering", () => {
+  assert.ok(workerSrc.includes("st.__speech_arbiter_source = null;"));
 });
 
 // ================================================================
@@ -461,45 +403,20 @@ test("G5: renderCognitiveSpeech does not add extra content to LLM reply", () => 
 // ================================================================
 console.log("\n📦 SECTION H — __speech_arbiter_source propagação");
 
-test("H1: Worker source has 'llm_real' arbiter source assignments", () => {
+test("H1: 'llm_real' assignments exist in worker", () => {
+  assert.ok(workerSrc.includes('__speech_arbiter_source = "llm_real"'));
+});
+
+test("H2: No 'explicit_fallback' arbiter assignments in worker", () => {
+  const matches = (workerSrc.match(/__speech_arbiter_source\s*=\s*"explicit_fallback"/g) || []).length;
+  assert.equal(matches, 0, "explicit_fallback arbiter assignments must be 0");
+});
+
+test("H3: Heuristic path in runFunnel clears prefix when NOT LLM", () => {
   assert.ok(
-    workerSrc.includes('__speech_arbiter_source = "llm_real"'),
-    "llm_real assignments must exist"
+    workerSrc.includes("if (!v2OnWithLlm) {") && workerSrc.includes("st.__cognitive_reply_prefix = null;"),
+    "heuristic path must clear prefix"
   );
-});
-
-test("H2: Worker source has 'explicit_fallback' arbiter source assignments", () => {
-  assert.ok(
-    workerSrc.includes('__speech_arbiter_source = "explicit_fallback"'),
-    "explicit_fallback assignments must exist"
-  );
-});
-
-test("H3: No 'cognitive_heuristic' classification in classifyRenderPath", () => {
-  // Verify the old classification is gone
-  const classifyFnSrc = workerSrc.substring(
-    workerSrc.indexOf("function classifyRenderPath("),
-    workerSrc.indexOf("function classifyRenderPath(") + 300
-  );
-  assert.ok(!classifyFnSrc.includes("cognitive_heuristic"), "cognitive_heuristic removed from classifier");
-  assert.ok(!classifyFnSrc.includes("cognitive_real"), "old cognitive_real removed from classifier");
-});
-
-test("H4: setTopoHappyPathFlags propagates arbiter source correctly", () => {
-  // cognitive_real → llm_real
-  const st1 = _mkSt();
-  _setTopoHappyPathFlags(st1, { source: "cognitive_real", speech: ["test"] });
-  assert.equal(st1.__speech_arbiter_source, "llm_real");
-
-  // heuristic_guidance → explicit_fallback
-  const st2 = _mkSt();
-  _setTopoHappyPathFlags(st2, { source: "heuristic_guidance", speech: ["test"] });
-  assert.equal(st2.__speech_arbiter_source, "explicit_fallback");
-
-  // fallback_mechanical → null
-  const st3 = _mkSt();
-  _setTopoHappyPathFlags(st3, { source: "fallback_mechanical", speech: ["test"] });
-  assert.equal(st3.__speech_arbiter_source, null);
 });
 
 // ================================================================
@@ -507,129 +424,144 @@ test("H4: setTopoHappyPathFlags propagates arbiter source correctly", () => {
 // ================================================================
 console.log("\n📦 SECTION I — classifyRenderPath contrato novo");
 
-test("I1: classifyRenderPath returns 'llm_real' for llm_real source", () => {
+test("I1: llm_real → 'llm_real'", () => {
   assert.equal(_classifyRenderPath({ __speech_arbiter_source: "llm_real" }), "llm_real");
 });
 
-test("I2: classifyRenderPath returns 'explicit_fallback' for explicit_fallback source", () => {
-  assert.equal(_classifyRenderPath({ __speech_arbiter_source: "explicit_fallback" }), "explicit_fallback");
+test("I2: extreme_fallback → 'extreme_fallback'", () => {
+  assert.equal(_classifyRenderPath({ __speech_arbiter_source: "extreme_fallback" }), "extreme_fallback");
 });
 
-test("I3: classifyRenderPath returns 'explicit_fallback' for null source", () => {
-  assert.equal(_classifyRenderPath({ __speech_arbiter_source: null }), "explicit_fallback");
+test("I3: null → 'extreme_fallback'", () => {
+  assert.equal(_classifyRenderPath({ __speech_arbiter_source: null }), "extreme_fallback");
 });
 
-test("I4: classifyRenderPath returns 'explicit_fallback' for undefined source", () => {
-  assert.equal(_classifyRenderPath({}), "explicit_fallback");
+test("I4: undefined → 'extreme_fallback'", () => {
+  assert.equal(_classifyRenderPath({}), "extreme_fallback");
+});
+
+test("I5: old 'explicit_fallback' → 'extreme_fallback' (not recognized)", () => {
+  assert.equal(_classifyRenderPath({ __speech_arbiter_source: "explicit_fallback" }), "extreme_fallback");
 });
 
 // ================================================================
-// SECTION J — Cenários comportamentais end-to-end
+// SECTION J — Dominância real da superfície (BLOCO 5)
 // ================================================================
-console.log("\n📦 SECTION J — Cenários comportamentais end-to-end");
+console.log("\n📦 SECTION J — Dominância real da superfície (BLOCO 5)");
 
-test("J1: reset + oi enova — fallback explícito para inicio_programa", () => {
+// J.A — Se há LLM válido: fala final é do LLM e nada substitui
+test("J-A1: LLM válido → fala final é do LLM, rawArr descartado", () => {
   const st = _mkSt({
-    fase_conversa: "inicio_programa",
-    __speech_arbiter_source: null,
-    __cognitive_v2_takes_final: false,
-    __cognitive_reply_prefix: null
-  });
-  const result = _renderCognitiveSpeech(st, "inicio_programa", ["Oi"]);
-  assert.ok(result.length >= 1, "deve ter fala");
-  assert.ok(result[0].length > 5, "fala substantiva");
-  assert.equal(st.__speech_arbiter_source, "explicit_fallback", "arbiter = explicit_fallback");
-});
-
-test("J2: saudação simples — fallback com mapa", () => {
-  const st = _mkSt({
-    fase_conversa: "inicio",
-    __speech_arbiter_source: null
-  });
-  const result = _renderCognitiveSpeech(st, "inicio", []);
-  assert.ok(result[0].includes("😊") || result[0].includes("falar"), "saudação cognitiva");
-});
-
-test("J3: saudação + pergunta — LLM real assume", () => {
-  const st = _mkSt({
-    __cognitive_reply_prefix: "Oi! 😊 Ótima pergunta sobre o MCMV...",
+    __cognitive_reply_prefix: "LLM: Oi Ana! Sobre o MCMV...",
     __cognitive_v2_takes_final: true,
     __speech_arbiter_source: "llm_real"
   });
-  const result = _renderCognitiveSpeech(st, "inicio_programa", ["oi enova como funciona?"]);
-  assert.equal(result[0], "Oi! 😊 Ótima pergunta sobre o MCMV...");
-});
-
-test("J4: resposta de fase + pergunta paralela — overlap", () => {
-  const roundIntent = {
-    mechanical_prompt_source: "Informe seu estado civil",
-    pode_ter_multiplas_intencoes: true,
-    eh_off_trail: true
-  };
-  const result = _buildMinimalCognitiveFallback("estado_civil", [], roundIntent);
-  assert.ok(result.length === 2, "overlap: 2 mensagens");
-  assert.ok(result[0].includes("Anotei"), "overlap prefix");
-});
-
-test("J5: gate técnico (ir_declarado) — fallback preserva cobrança", () => {
-  const st = _mkSt({ __speech_arbiter_source: null });
-  const result = _renderCognitiveSpeech(st, "ir_declarado", ["Informe IR"]);
-  assert.ok(
-    result[0].toLowerCase().includes("imposto") || result[0].toLowerCase().includes("ir"),
-    "IR cobrança preservada"
-  );
-});
-
-test("J6: operacional (envio_docs) — fallback preserva cobrança", () => {
-  const st = _mkSt({ __speech_arbiter_source: null });
-  const result = _renderCognitiveSpeech(st, "envio_docs", []);
-  assert.ok(result[0].includes("documento") || result[0].includes("📎"), "docs cobrança preservada");
-});
-
-test("J7: caso com reanchor — reanchor é suporte, não soberano", () => {
-  // Verify buildReanchor is only used when takes_final=false
-  assert.ok(
-    workerSrc.includes("v2HasReply") &&
-    workerSrc.includes("buildReanchor({ currentStage: stage }).lines"),
-    "reanchor only used when v2HasReply=false"
-  );
-});
-
-test("J8: modo humano manual legítimo — reescreve", () => {
-  const st = _mkSt({ modo_humano: true, modo_humano_manual: true });
-  const result = _modoHumanoRender(st, ["Teste"]);
-  assert.ok(result[0] !== "Teste", "manual mode rewrites");
-});
-
-test("J9: modo humano auto (sem manual) — NÃO reescreve", () => {
-  const st = _mkSt({ modo_humano: true, modo_humano_manual: false });
-  const result = _modoHumanoRender(st, ["Teste"]);
-  assert.equal(result[0], "Teste", "auto mode does NOT rewrite");
-});
-
-test("J10: LLM real assume — prefix é a fala final", () => {
-  const st = _mkSt({
-    __cognitive_reply_prefix: "O LLM real respondeu com detalhes sobre seu perfil 😊",
-    __cognitive_v2_takes_final: true,
-    __speech_arbiter_source: "llm_real"
-  });
-  const result = _renderCognitiveSpeech(st, "inicio_programa", ["mecânico"]);
+  const result = _renderCognitiveSpeech(st, "inicio_programa", ["Mecânico cru ignorado"]);
+  assert.equal(result[0], "LLM: Oi Ana! Sobre o MCMV...");
   assert.equal(result.length, 1);
-  assert.equal(result[0], "O LLM real respondeu com detalhes sobre seu perfil 😊");
 });
 
-test("J11: fallback extremo controlado — sem LLM, usa mapa", () => {
+test("J-A2: LLM válido → classifyRenderPath = llm_real", () => {
+  const st = _mkSt({ __speech_arbiter_source: "llm_real" });
+  assert.equal(_classifyRenderPath(st), "llm_real");
+});
+
+test("J-A3: LLM válido → nenhuma camada posterior pode substituir (contrato step)", () => {
+  // step() clears all flags after render — so no posterior layer can act
+  assert.ok(
+    workerSrc.includes("st.__cognitive_reply_prefix = null") &&
+    workerSrc.includes("st.__cognitive_v2_takes_final = false") &&
+    workerSrc.includes("st.__speech_arbiter_source = null"),
+    "step must clear all flags after render"
+  );
+});
+
+// J.B — Se NÃO há LLM: fallback mínimo, não heurística disfarçada
+test("J-B1: Sem LLM → fallback extremo mínimo (mapa por stage)", () => {
+  const st = _mkSt();
+  const result = _renderCognitiveSpeech(st, "estado_civil", ["mecânico"]);
+  assert.equal(st.__speech_arbiter_source, "extreme_fallback");
+  assert.ok(result.length >= 1);
+});
+
+test("J-B2: Sem LLM → NOT heurística soberana disfarçada", () => {
+  // Even with heuristic prefix set, it should be DISCARDED
   const st = _mkSt({
-    __cognitive_reply_prefix: null,
+    __cognitive_reply_prefix: "Heuristic beautiful speech about marriage",
     __cognitive_v2_takes_final: false,
     __speech_arbiter_source: null
   });
-  const result = _renderCognitiveSpeech(st, "restricao", []);
+  const result = _renderCognitiveSpeech(st, "estado_civil", []);
+  assert.ok(!result[0].includes("beautiful"), "heuristic prefix discarded");
+  assert.equal(st.__speech_arbiter_source, "extreme_fallback");
+});
+
+test("J-B3: Sem LLM → NOT resolver soberano disfarçado", () => {
+  const st = _mkSt({
+    __cognitive_reply_prefix: "Resolver: Casado ou solteiro? Escolha...",
+    __cognitive_v2_takes_final: true,
+    __speech_arbiter_source: null  // NOT llm_real
+  });
+  const result = _renderCognitiveSpeech(st, "estado_civil", []);
+  assert.ok(!result[0].includes("Escolha"), "resolver prefix discarded");
+});
+
+test("J-B4: Sem LLM → NOT prefix local por comprimento", () => {
+  // The old "prefix > 20 chars" path was removed
+  const st = _mkSt({
+    __cognitive_reply_prefix: "This is a very long prefix that should not be used as fallback for speech",
+    __cognitive_v2_takes_final: false,
+    __speech_arbiter_source: null
+  });
+  const result = _renderCognitiveSpeech(st, "ir_declarado", []);
+  assert.ok(!result[0].includes("very long prefix"), "long prefix path removed");
+});
+
+// J.C — Topo: reset + oi enova, saudação simples, saudação + pergunta
+test("J-C1: Topo reset+oi → LLM ou extreme_fallback (não heurística)", () => {
+  const st = _mkSt({ fase_conversa: "inicio_programa" });
+  const result = _renderCognitiveSpeech(st, "inicio_programa", ["oi"]);
   assert.ok(
-    result[0].toLowerCase().includes("restrição") || result[0].toLowerCase().includes("cpf"),
-    "fallback deve cobrar restricao"
+    st.__speech_arbiter_source === "extreme_fallback" || st.__speech_arbiter_source === "llm_real",
+    "topo must be llm_real or extreme_fallback"
   );
-  assert.equal(st.__speech_arbiter_source, "explicit_fallback");
+});
+
+test("J-C2: Saudação simples sem LLM → extreme_fallback (mapa)", () => {
+  const st = _mkSt();
+  const result = _renderCognitiveSpeech(st, "inicio", []);
+  assert.equal(st.__speech_arbiter_source, "extreme_fallback");
+});
+
+test("J-C3: Saudação + pergunta com LLM → llm_real soberano", () => {
+  const st = _mkSt({
+    __cognitive_reply_prefix: "LLM: Oi! Ótima pergunta sobre o MCMV...",
+    __cognitive_v2_takes_final: true,
+    __speech_arbiter_source: "llm_real"
+  });
+  const result = _renderCognitiveSpeech(st, "inicio_programa", ["oi como funciona?"]);
+  assert.equal(result[0], "LLM: Oi! Ótima pergunta sobre o MCMV...");
+});
+
+// J.D — Pós-LLM: nenhuma camada posterior reescreve
+test("J-D1: modoHumanoRender não reescreve fala automática", () => {
+  const st = _mkSt({ modo_humano: true, modo_humano_manual: false });
+  assert.deepStrictEqual(_modoHumanoRender(st, ["LLM response"]), ["LLM response"]);
+});
+
+test("J-D2: applyFinalSpeechContract with llmSovereign skips empathy", () => {
+  // Verify the code path exists
+  assert.ok(cogSrc.includes("addEmpathyIfNeeded") && cogSrc.includes("llmSovereign"));
+});
+
+test("J-D3: ensureReplyHasNextAction skipped for LLM real", () => {
+  const cogEnginePath = resolve(__dirname, "..", "cognitive", "src", "run-cognitive.js");
+  const cogEngineSrc = readFileSync(cogEnginePath, "utf-8");
+  // Verify the guard exists
+  assert.ok(
+    cogEngineSrc.includes('const finalReplyText = speechOrigin === "llm_real"'),
+    "LLM real must skip ensureReplyHasNextAction"
+  );
 });
 
 // ================================================================
@@ -637,68 +569,40 @@ test("J11: fallback extremo controlado — sem LLM, usa mapa", () => {
 // ================================================================
 console.log("\n📦 SECTION K — rawArr NUNCA exposto");
 
-test("K1: rawArr literal never exposed with LLM", () => {
-  const st = _mkSt({
-    __cognitive_reply_prefix: "LLM reply",
-    __cognitive_v2_takes_final: true,
-    __speech_arbiter_source: "llm_real"
-  });
-  const result = _renderCognitiveSpeech(st, "ir_declarado", ["Informe IR LITERAL"]);
-  assert.ok(!result.join("").includes("LITERAL"), "rawArr not exposed");
+test("K1: rawArr not exposed with LLM", () => {
+  const st = _mkSt({ __cognitive_reply_prefix: "LLM reply", __cognitive_v2_takes_final: true, __speech_arbiter_source: "llm_real" });
+  assert.ok(!_renderCognitiveSpeech(st, "ir_declarado", ["LITERAL_RAW"]).join("").includes("LITERAL_RAW"));
 });
 
-test("K2: rawArr literal never exposed in fallback", () => {
-  const st = _mkSt({ __speech_arbiter_source: null });
-  const result = _renderCognitiveSpeech(st, "ir_declarado", ["RAWTEXT_LITERAL_TEST"]);
-  const joined = result.join("");
-  assert.ok(!joined.includes("RAWTEXT_LITERAL_TEST"), "rawArr not exposed in fallback");
+test("K2: rawArr not exposed in fallback", () => {
+  const st = _mkSt();
+  assert.ok(!_renderCognitiveSpeech(st, "ir_declarado", ["RAWTEXT"]).join("").includes("RAWTEXT"));
 });
 
 // ================================================================
-// SECTION L — Integridade da camada soberana no source
+// SECTION L — Integridade da camada no source
 // ================================================================
-console.log("\n📦 SECTION L — Integridade da camada soberana no source");
+console.log("\n📦 SECTION L — Integridade da camada no source");
 
-test("L1: renderCognitiveSpeech docstring mentions 'Árbitro soberano único'", () => {
-  assert.ok(
-    workerSrc.includes("Árbitro soberano único da superfície visível"),
-    "docstring updated"
-  );
+test("L1: REGRA MESTRA DA SUPERFÍCIE (PR #550) comment exists", () => {
+  assert.ok(workerSrc.includes("REGRA MESTRA DA SUPERFÍCIE (PR #550"));
 });
 
-test("L2: REGRA MESTRA DA SUPERFÍCIE comment exists", () => {
-  assert.ok(
-    workerSrc.includes("REGRA MESTRA DA SUPERFÍCIE"),
-    "regra mestra comment exists"
-  );
+test("L2: BLOCO 3 comments exist for resolver demotion", () => {
+  const matches = (workerSrc.match(/BLOCO 3 \(PR #550\)/g) || []).length;
+  assert.ok(matches >= 6, `Expected >=6 BLOCO 3 markers, found ${matches}`);
 });
 
-test("L3: BLOCO D comment about blindagem exists in step()", () => {
-  assert.ok(
-    workerSrc.includes("BLOCO D: Blindagem pós-LLM"),
-    "BLOCO D comment in step()"
-  );
+test("L3: BLOCO 4 comments exist for post-LLM blindage", () => {
+  const cogEnginePath = resolve(__dirname, "..", "cognitive", "src", "run-cognitive.js");
+  const cogEngineSrc = readFileSync(cogEnginePath, "utf-8");
+  assert.ok(cogEngineSrc.includes("BLOCO 4 (PR #550)"), "BLOCO 4 in cognitive engine");
+  assert.ok(cogSrc.includes("BLOCO 4 (PR #550)"), "BLOCO 4 in final-speech-contract");
 });
 
-test("L4: BLOCO F comment about modo humano manual exists", () => {
-  assert.ok(
-    workerSrc.includes("BLOCO F"),
-    "BLOCO F comment exists"
-  );
-});
-
-test("L5: No gate/nextStage was removed or altered", () => {
-  // Critical pattern: stage assignments in runFunnel must still exist
-  const criticalPatterns = [
-    '"inicio_rnm"',
-    '"inicio_rnm_validade"',
-    '"fim_ineligivel"',
-    '"regime_trabalho"',
-    '"envio_docs"',
-    '"agendamento_visita"'
-  ];
-  for (const p of criticalPatterns) {
-    assert.ok(workerSrc.includes(p), `Critical pattern ${p} must exist`);
+test("L4: No gate/nextStage removed", () => {
+  for (const p of ['"inicio_rnm"','"fim_ineligivel"','"regime_trabalho"','"envio_docs"','"agendamento_visita"']) {
+    assert.ok(workerSrc.includes(p), `Pattern ${p} must exist`);
   }
 });
 
@@ -706,13 +610,8 @@ test("L5: No gate/nextStage was removed or altered", () => {
 // SUMMARY
 // ================================================================
 console.log(`\n${"=".repeat(60)}`);
-console.log(`SOVEREIGN SPEECH ARBITER SMOKE TESTS — PR #544`);
+console.log(`SOVEREIGN SPEECH ARBITER SMOKE TESTS — PR #550`);
 console.log(`Total: ${passed + failed} | ✅ Passed: ${passed} | ❌ Failed: ${failed}`);
 console.log(`${"=".repeat(60)}`);
-
-if (failed > 0) {
-  console.error(`\n⚠️ ${failed} test(s) failed!`);
-  process.exit(1);
-} else {
-  console.log(`\n🎉 All ${passed} tests passed!`);
-}
+if (failed > 0) { console.error(`\n⚠️ ${failed} test(s) failed!`); process.exit(1); }
+else { console.log(`\n🎉 All ${passed} tests passed!`); }

@@ -18914,7 +18914,14 @@ const CORRESPONDENTE_RETURN_MIN_CONFIDENCE_AUTO = 0.75;
 // Se a resposta do LLM contiver qualquer desses padrões, ela é semanticamente
 // inadequada para a abertura e NÃO pode dominar como llm_real.
 // A contenção segura entra automaticamente via fallback.
-const TOPO_PREMATURE_COLLECTION = /\b(?:estado\s+civil|solteiro\(?a?\)?|casad[oa]|divorci|separad[oa]|vi[uú]v[oa]|uni[aã]o\s+est[aá]vel|nome\s+completo|qual\s+(?:[eé]\s+)?(?:o\s+)?seu\s+nome|nacionalidade|voc[eê]\s+[eé]\s+brasileir|brasileiro\(?a?\)?(?:\s+nat[oa])?|estrangeir[oa]?|regime\s+de\s+trabalho|CLT|aut[oô]nom[oa]|renda\s+mensal|sal[aá]rio|quanto\s+(?:voc[eê]\s+)?ganh|CTPS|carteira\s+de\s+trabalho|SPC|Serasa|restri[cç][aã]o\s+no)/i;
+const TOPO_PREMATURE_COLLECTION = /\b(?:estado\s+civil|solteiro\(?a?\)?|casad[oa]|divorci|separad[oa]|vi[uú]v[oa]|uni[aã]o\s+est[aá]vel|nome\s+completo|qual\s+(?:[eé]\s+)?(?:o\s+)?seu\s+nome|nacionalidade|voc[eê]\s+[eé]\s+brasileir|brasileiro\(?a?\)?(?:\s+nat[oa])?|estrangeir[oa]?|regime\s+de\s+trabalho|CLT|aut[oô]nom[oa]|renda\s+mensal|sal[aá]rio|quanto\s+(?:voc[eê]\s+)?ganh|CTPS|carteira\s+de\s+trabalho|SPC|Serasa|restri[cç][aã]o\s+no|somar\s+renda|servidor\s+p[uú]blic|aposentad[oa])/i;
+
+/**
+ * TOPO_INSTITUTIONAL_TONE — Detecta tom institucional/técnico/burocrático
+ * que não é adequado para uma abertura humanizada no topo do funil.
+ * Rejeita termos frios, siglas internas e formulações burocráticas.
+ */
+const TOPO_INSTITUTIONAL_TONE = /\b(?:Cognitive\s+Engine|programas?\s+habitaciona(?:l|is)|MCMV\s*\/\s*CEF|CEF\s*\/\s*MCMV|processo\s+de\s+financiamento\s+habitacional|financiamento\s+habitacional|Caixa\s+Econ[oô]mica\s+Federal)\b/i;
 
 /**
  * _isTopoReplySemanticallySafe — Valida que o reply NÃO puxa coleta estrutural
@@ -18924,6 +18931,16 @@ const TOPO_PREMATURE_COLLECTION = /\b(?:estado\s+civil|solteiro\(?a?\)?|casad[oa
 function _isTopoReplySemanticallySafe(reply) {
   if (!reply || typeof reply !== "string") return false;
   return !TOPO_PREMATURE_COLLECTION.test(reply);
+}
+
+/**
+ * _isTopoReplyToneSafe — Valida que o reply NÃO usa tom técnico/institucional
+ * na abertura do topo. Rejeita "Cognitive Engine", "programas habitacionais",
+ * "MCMV/CEF", "financiamento habitacional", etc.
+ */
+function _isTopoReplyToneSafe(reply) {
+  if (!reply || typeof reply !== "string") return false;
+  return !TOPO_INSTITUTIONAL_TONE.test(reply);
 }
 
 /**
@@ -18970,7 +18987,7 @@ const TOPO_HAPPY_PATH_SPEECH = {
     cognitiveStage: "inicio_programa",
     cognitiveMessage: "quero começar do zero",
     fallback: [
-      "Perfeito, limpamos tudo 👌 Eu sou a Enova, assistente do MCMV.",
+      "Perfeito, limpamos tudo 👌 Eu sou a Enova, assistente do Minha Casa Minha Vida.",
       "Você já sabe como funciona ou prefere que eu explique?"
     ],
     validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
@@ -19033,7 +19050,7 @@ const TOPO_HAPPY_PATH_SPEECH = {
     cognitiveStage: "inicio_programa",
     cognitiveMessage: "quero começar do zero",
     fallback: [
-      "Prontinho! Limpamos tudo 👌 Eu sou a Enova, assistente do MCMV.",
+      "Prontinho! Limpamos tudo 👌 Eu sou a Enova, assistente do Minha Casa Minha Vida.",
       "Você já sabe como funciona ou prefere que eu explique?"
     ],
     validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
@@ -19082,7 +19099,7 @@ const TOPO_HAPPY_PATH_SPEECH = {
       "Você já sabe como funciona ou prefere que eu explique rapidinho?",
       "Me diz *sim* (já sei) ou *não* (me explica)."
     ],
-    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply) && _isTopoReplySemanticallySafe(reply)
+    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply) && _isTopoReplySemanticallySafe(reply) && _isTopoReplyToneSafe(reply)
   },
 
   // ── inicio_programa: saudação/reentrada (greeting puro, não pós-reset) ──
@@ -19095,7 +19112,7 @@ const TOPO_HAPPY_PATH_SPEECH = {
       "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
       "Me responde com *sim* (já sei) ou *não* (quero que explique)."
     ],
-    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply) && _isTopoReplySemanticallySafe(reply)
+    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply) && _isTopoReplySemanticallySafe(reply) && _isTopoReplyToneSafe(reply)
   },
 
   // ── inicio_nome: nome reaproveitado de sinal anterior (confiança alta) ──
@@ -19135,10 +19152,8 @@ const TOPO_HAPPY_PATH_SPEECH = {
       "Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho?",
       "Me diz *sim* (já sei) ou *não* (me explica)."
     ],
-    validate: (reply) => reply && reply.length > 20 && /sim|não|nao|funciona|programa/i.test(reply) && /\?/.test(reply) && _isTopoReplySemanticallySafe(reply)
+    validate: (reply) => reply && reply.length > 20 && /sim|não|nao|funciona|programa/i.test(reply) && /\?/.test(reply) && _isTopoReplySemanticallySafe(reply) && _isTopoReplyToneSafe(reply)
   },
-
-  // ── inicio_nome: nome aceito → avança para inicio_nacionalidade ──
   "inicio_nome:nome_aceito": {
     cognitiveStage: "inicio_nacionalidade",
     cognitiveMessage: "meu nome é Bruno",
@@ -23332,7 +23347,7 @@ case "inicio": {
     });
 
     // Fallback extremo mínimo — só usado se LLM falhar tecnicamente.
-    return step(env, st, ["Oi! 😊 Eu sou a Enova, assistente do MCMV. Posso te ajudar?"], "inicio_programa");
+    return step(env, st, ["Oi! 😊 Eu sou a Enova, assistente do Minha Casa Minha Vida. Posso te ajudar?"], "inicio_programa");
   }
 
   // 🧼 Comando de reset / começar do zero
@@ -23379,7 +23394,7 @@ case "inicio": {
     return step(
       env,
       novoSt,
-      ["Limpamos tudo 👌 Eu sou a Enova. Você já sabe como funciona o MCMV ou prefere que eu explique?"],
+      ["Limpamos tudo 👌 Eu sou a Enova. Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique?"],
       "inicio_programa"
     );
   }
@@ -23445,7 +23460,7 @@ case "inicio": {
     return step(
       env,
       st,
-      ["Oi! 😊 Eu sou a Enova. Você já sabe como funciona o MCMV ou prefere que eu explique?"],
+      ["Oi! 😊 Eu sou a Enova. Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique?"],
       "inicio_programa"
     );
   }
@@ -23475,7 +23490,7 @@ case "inicio": {
   return step(
     env,
     st,
-    ["Oi! 😊 Eu sou a Enova. Você já sabe como funciona o MCMV ou prefere que eu explique?"],
+    ["Oi! 😊 Eu sou a Enova. Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique?"],
     "inicio_programa"
   );
 }
@@ -23583,7 +23598,7 @@ case "inicio_decisao": {
     return step(
       env,
       novoSt,
-      ["Limpamos tudo 👌 Você já sabe como funciona o MCMV ou prefere que eu explique?"],
+      ["Limpamos tudo 👌 Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique?"],
       "inicio_programa"
     );
   }
@@ -23784,7 +23799,7 @@ case "inicio_programa": {
     return step(
       env,
       st,
-      ["Oi! 😊 Eu sou a Enova. Você já sabe como funciona o MCMV ou prefere que eu explique?"],
+      ["Oi! 😊 Eu sou a Enova. Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique?"],
       "inicio_programa"
     );
   }
@@ -23814,7 +23829,7 @@ case "inicio_programa": {
     return step(
       env,
       st,
-      ["O MCMV ajuda na entrada e reduz a parcela conforme sua renda. Quer seguir com a análise? Me diz *sim*."],
+      ["O Minha Casa Minha Vida ajuda na entrada e reduz a parcela conforme sua renda. Quer seguir com a análise? Me diz *sim*."],
       "inicio_programa"
     );
   }

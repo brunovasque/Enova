@@ -602,8 +602,8 @@ test("51. BEHAVIORAL: 'oi' at inicio_programa — usa mapa cognitivo, rawArr NUN
   assert.ok(result[0].includes("😊"), "Saída tem tom conversacional");
   assert.strictEqual(_classifyRenderPath(st), "extreme_fallback");
   assert.ok(
-    _containsAny(result[0], ["mcmv", "analisar", "perfil"]),
-    "Intenção da fase (MCMV) preservada na saída cognitiva"
+    _containsAny(result[0], ["minha casa minha vida", "enova", "programa"]),
+    "Intenção da fase (programa) preservada na saída cognitiva"
   );
 });
 

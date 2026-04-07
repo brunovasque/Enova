@@ -4140,7 +4140,7 @@ function _renderCognitiveFromIntent(mechanicalSource, stage) {
 const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
   // ── topo ──
   ["inicio",                  "Oi! 😊 Pode falar, tô por aqui."],
-  ["inicio_programa",         "Oi! 😊 Vou analisar seu perfil pro MCMV. Pode começar?"],
+  ["inicio_programa",         "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Você já sabe como funciona ou prefere que eu explique rapidinho?"],
   ["inicio_nome",             "Pode me dizer seu nome completo? 😊"],
   ["inicio_nacionalidade",    "Você é brasileiro(a) nato(a)?"],
   ["inicio_rnm",              "Qual o número do seu Registro Nacional Migratório?"],
@@ -23558,13 +23558,30 @@ case "inicio_programa": {
       }
     });
 
+    // ── PATCH CIRÚRGICO: desacoplar superfície de fala concorrente no topo ──
+    // Quando LLM real é soberano (takes_final=true), step() descarta essas mensagens
+    // (renderCognitiveSpeech usa cognitivePrefix). Sem mudança nesse caminho.
+    //
+    // Quando LLM falha, essas mensagens viram material de fallback via
+    // buildMinimalCognitiveFallback → _renderCognitiveFromIntent (primeira parte).
+    // ANTES: pergunta estrutural "Você já conhece..." → fallback mecânico no greeting.
+    // AGORA: para saudação/reset, mensagem natural (greeting + introdução + pergunta)
+    //        em bloco único → fallback humanizado.
+    //
+    // Reversível: remover condicional abaixo e restaurar mensagens originais.
+    const _ambFallbackMsgs = (_isFirstAfterReset || _isGreetingOrReentry)
+      ? [
+          "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Você já sabe como funciona ou prefere que eu explique rapidinho? Me diz *sim* (já sei) ou *não* (me explica)."
+        ]
+      : [
+          "Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho?",
+          "Me diz *sim* (já sei) ou *não* (me explica)."
+        ];
+
     return step(
       env,
       st,
-      [
-        "Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho?",
-        "Me diz *sim* (já sei) ou *não* (me explica)."
-      ],
+      _ambFallbackMsgs,
       "inicio_programa"
     );
   }

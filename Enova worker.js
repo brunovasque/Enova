@@ -172,12 +172,19 @@ async function step(env, st, messages, nextStage, options = {}) {
   // O mecânico permanece soberano em stage/gate/nextStage/persistência.
   const arr = renderCognitiveSpeech(st, currentStage, rawArr.filter(Boolean));
 
+  // ── BLOCO D: Blindagem pós-LLM ──
+  // Depois que o árbitro soberano decidiu a fala, nenhum helper pode reescrever
+  // a semântica. Apenas guardrail mínimo estrito é permitido.
+  const speechArbiterSource = st.__speech_arbiter_source || "explicit_fallback";
+
   // limpa flags transitórias para não vazar para próximas respostas
   st.__cognitive_reply_prefix = null;
   st.__cognitive_v2_takes_final = false;
   st.__round_intent = null;
+  st.__speech_arbiter_source = null;
 
-  // 🔥 AQUI: aplica modo humano (somente se ativo)
+  // 🔥 AQUI: aplica modo humano SOMENTE se modo humano MANUAL legítimo do painel
+  // (BLOCO F: modoHumanoRender não reescreve superfície cognitiva automática)
   const msgs = modoHumanoRender(st, arr);
   const replyText = msgs.join("\n");
 
@@ -2725,6 +2732,9 @@ async function maybeCognitiveShellForInformativo(env, st, userText, slotTopic) {
     if (cogReply && cogReply.length > 30 && confidence >= COGNITIVE_V1_CONFIDENCE_MIN) {
       st.__cognitive_reply_prefix = cogReply;
       st.__cognitive_v2_takes_final = true;
+      // BLOCO A: arbiter source based on actual engine origin
+      const engineUsedLlm = cognitive?.reason === "cognitive_v2";
+      st.__speech_arbiter_source = engineUsedLlm ? "llm_real" : "explicit_fallback";
     }
   } catch (_e) {
     // Silent fallback — mecânico continua soberano
@@ -3881,6 +3891,14 @@ function buildCognitiveFallback(stage) {
 // O mecânico continua soberano em stage/gate/nextStage/persistência.
 // Sem chamadas a LLM. Sem persistência. Sem mudança de gates.
 // Ref: schema/COGNITIVE_MIGRATION_CONTRACT.md — seção 3.2
+//
+// REGRA MESTRA DA SUPERFÍCIE (PR #544):
+// Um único árbitro decide a fala final visível:
+//   1. LLM real quando disponível e válido (__cognitive_v2_takes_final + __speech_arbiter_source === "llm_real")
+//   2. Fallback extremo explícito quando LLM não puder ser usado
+//   3. Mais nada.
+// Heurística, topo, reanchor e pós-processamento são suporte interno —
+// nunca árbitros da fala visível final.
 // ================================================================
 
 /**
@@ -4189,55 +4207,67 @@ function buildMinimalCognitiveFallback(stage, rawArr, roundIntent) {
 }
 
 /**
- * renderCognitiveSpeech — Render cognitivo obrigatório.
+ * renderCognitiveSpeech — Árbitro soberano único da superfície visível.
  * TODA fala visível ao cliente deve sair desta função.
  * O mecânico permanece soberano em stage/gate/nextStage/persistência.
  *
- * Hierarquia:
- * 1. __cognitive_v2_takes_final + prefix → fala cognitiva real (LLM) — rawArr DESCARTADO
- * 2. prefix sem takes_final → prefix é a fala cognitiva completa — rawArr DESCARTADO
- * 3. sem flags → buildMinimalCognitiveFallback — usa mechanical_prompt_source do
- *    roundIntent como fonte de intenção, transforma em fala cognitiva.
- *    Mapa por stage é fallback de segurança. rawArr literal NUNCA exposto.
+ * HIERARQUIA SOBERANA (PR #544):
+ * 1. LLM real quando disponível e válido
+ *    (__cognitive_v2_takes_final=true + __speech_arbiter_source === "llm_real")
+ * 2. Fallback extremo explícito — quando LLM não estiver disponível ou falhar.
+ *    Inclui:  _MINIMAL_FALLBACK_SPEECH_MAP (por stage),
+ *             _renderCognitiveFromIntent (transformação de tom, sem LLM).
+ *    __speech_arbiter_source será "explicit_fallback".
+ * 3. Mais nada. Heurística, topo, reanchor e pós-processamento não arbitram.
  *
  * CONTRATO: rawArr como texto cru NUNCA chega ao cliente. Sem exceções.
- * O que chega é: LLM real, prefix heurístico, ou intenção mecânica renderizada cognitivamente.
  */
 function renderCognitiveSpeech(st, stage, rawArr) {
   const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
   const v2TakesFinal = st?.__cognitive_v2_takes_final === true;
+  const arbiterSource = st?.__speech_arbiter_source || null;
   const roundIntent = st?.__round_intent || null;
-  // Caminho 1: LLM real assumiu a fala → usa apenas a fala cognitiva, rawArr descartado
-  if (v2TakesFinal && cognitivePrefix) return [cognitivePrefix];
-  // Caminho 2: prefix cognitivo sem takes_final → prefix É a fala completa, rawArr descartado
-  // O prefix vem de resolver estruturado ou motor cognitivo e já contém a resposta completa.
-  if (cognitivePrefix) return [cognitivePrefix];
-  // Caminho 3: sem flags → fallback cognitivo mínimo (rawArr NUNCA exposto — TODOS os stages usam mapa)
+
+  // Caminho 1: LLM real soberano — fala do LLM assume a superfície integralmente
+  if (v2TakesFinal && cognitivePrefix && arbiterSource === "llm_real") {
+    return [cognitivePrefix];
+  }
+
+  // Caminho 2: fallback explícito com prefix — heurística/resolver gerou prefix como
+  // suporte, mas __speech_arbiter_source não é "llm_real". Aceitar prefix como fallback
+  // explícito somente se marcado como "explicit_fallback".
+  if (v2TakesFinal && cognitivePrefix && arbiterSource === "explicit_fallback") {
+    return [cognitivePrefix];
+  }
+
+  // Caminho 3: prefix sem takes_final — prefix é suporte interno, não árbitro.
+  // Se existir prefix substancial (>20 chars), usar como fallback explícito.
+  if (cognitivePrefix && cognitivePrefix.length > 20) {
+    // Marcar source para telemetria honesta
+    st.__speech_arbiter_source = st.__speech_arbiter_source || "explicit_fallback";
+    return [cognitivePrefix];
+  }
+
+  // Caminho 4: sem flags → fallback extremo explícito via mapa/renderIntent
+  st.__speech_arbiter_source = "explicit_fallback";
   return buildMinimalCognitiveFallback(stage, rawArr, roundIntent);
 }
 
 /**
  * classifyRenderPath — Classifica a origem da fala renderizada.
  *
- * Retorna uma das três classificações canônicas:
- *   "cognitive_real"      — LLM real assumiu a fala (__cognitive_v2_takes_final=true).
- *                           rawArr é DESCARTADO. A fala é 100% cognitiva.
- *   "cognitive_heuristic" — Heurístico/structured resolver pré-computou um prefix.
- *                           (__cognitive_reply_prefix set, __cognitive_v2_takes_final=false)
- *                           rawArr é DESCARTADO. Prefix é a fala completa.
- *   "cognitive_fallback"  — Nenhuma flag. buildMinimalCognitiveFallback é o caminho.
- *                           Primário: mechanical_prompt_source → fala cognitiva via _renderCognitiveFromIntent.
- *                           Fallback: _MINIMAL_FALLBACK_SPEECH_MAP por stage.
- *                           rawArr literal NUNCA exposto — sem exceções.
+ * Retorna uma das classificações canônicas do árbitro soberano:
+ *   "llm_real"           — LLM real assumiu a fala. Árbitro soberano.
+ *   "explicit_fallback"  — Fallback extremo explícito: mapa por stage ou renderIntent.
+ *                           Usado quando LLM não disponível ou falhou.
  *
+ * Não existe mais "cognitive_heuristic" como caminho soberano — heurística é suporte interno.
  * Usado para telemetria e testes comportamentais. Não altera a fala.
  */
 function classifyRenderPath(st) {
-  const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
-  const v2TakesFinal = st?.__cognitive_v2_takes_final === true;
-  if (v2TakesFinal && cognitivePrefix) return "cognitive_real";
-  if (cognitivePrefix) return "cognitive_heuristic";
-  return "cognitive_fallback";
+  const arbiterSource = st?.__speech_arbiter_source || null;
+  if (arbiterSource === "llm_real") return "llm_real";
+  return "explicit_fallback";
 }
 
 // =============================================================
@@ -9220,8 +9250,12 @@ try {
 // =============================================================
 function modoHumanoRender(st, arr) {
   try {
-    // Se não estiver ativado, retorna mensagens normais
+    // BLOCO F (PR #544): modo humano só reescreve superfície quando ativado
+    // MANUALMENTE pelo painel (modo_humano_manual === true).
+    // Se modo_humano foi ativado automaticamente (sem flag manual), NÃO reescreve.
+    // Isso impede que a superfície cognitiva automática seja contaminada.
     if (!st.modo_humano) return arr;
+    if (!st.modo_humano_manual) return arr;
 
     // Segurança: nunca aplicar modo humano em mensagens vazias
     if (!arr || arr.length === 0) return arr;
@@ -19167,14 +19201,26 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
 /**
  * setTopoHappyPathFlags — Configura st para que step() use o reply cognitivo como fala final.
  * Worker permanece soberano em stage/gate/nextStage.
+ *
+ * BLOCO B (PR #544): Somente LLM real (cognitive_real) vira árbitro soberano.
+ * heuristic_guidance é rebaixada para suporte interno: gera prefix mas
+ * __speech_arbiter_source é "explicit_fallback", não "llm_real".
+ * fallback_mechanical fica sem prefix.
  */
 function setTopoHappyPathFlags(st, happyResult) {
-  if (happyResult.source === "cognitive_real" || happyResult.source === "heuristic_guidance") {
+  if (happyResult.source === "cognitive_real") {
     st.__cognitive_reply_prefix = happyResult.speech[0];
     st.__cognitive_v2_takes_final = true;
+    st.__speech_arbiter_source = "llm_real";
+  } else if (happyResult.source === "heuristic_guidance") {
+    // Heuristic como suporte — prefix disponível mas NÃO soberano
+    st.__cognitive_reply_prefix = happyResult.speech[0];
+    st.__cognitive_v2_takes_final = true;
+    st.__speech_arbiter_source = "explicit_fallback";
   } else {
     st.__cognitive_reply_prefix = null;
     st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
   }
 }
 
@@ -22729,9 +22775,13 @@ async function runFunnel(env, st, userText) {
           (v2OnWithHeuristic && cognitiveReply.length > 30 && !_stillNeedsOriginal) ||
           _answeredSufficiently
         ) ? true : false;
+        // BLOCO A (PR #544): __speech_arbiter_source — quem realmente decidiu a fala
+        // LLM real → "llm_real"; heurística → "explicit_fallback" (suporte, não soberana)
+        st.__speech_arbiter_source = v2OnWithLlm ? "llm_real" : "explicit_fallback";
       } else {
         st.__cognitive_reply_prefix = null;
         st.__cognitive_v2_takes_final = false;
+        st.__speech_arbiter_source = null;
       }
 
       const COGNITIVE_HEURISTIC_REASONS = new Set(["no_llm_or_parse", "cognitive_v2_heuristic"]);
@@ -23457,8 +23507,10 @@ case "inicio_programa": {
     }
 
     // Se greeting/reentry/first-after-reset e já tinha prefix cognitivo → confirma takes_final
+    // Preserve arbiter source if already set (from setTopoHappyPathFlags)
     if ((_isGreetingOrReentry || _isFirstAfterReset) && st.__cognitive_reply_prefix) {
       st.__cognitive_v2_takes_final = true;
+      if (!st.__speech_arbiter_source) st.__speech_arbiter_source = "explicit_fallback";
     }
 
     // ── Resolvedor cognitivo estruturado como camada adicional (se cognitivo real falhou) ──
@@ -23468,6 +23520,7 @@ case "inicio_programa": {
       if (_resolução && _resolução.reply_text) {
         st.__cognitive_reply_prefix = _resolução.reply_text;
         st.__cognitive_v2_takes_final = true;
+        st.__speech_arbiter_source = "explicit_fallback"; // BLOCO B: resolver = suporte, não soberano
       }
     }
 
@@ -23481,6 +23534,7 @@ case "inicio_programa": {
       if (_firstResetFallback && _firstResetFallback.length > 0) {
         st.__cognitive_reply_prefix = _firstResetFallback.join("\n");
         st.__cognitive_v2_takes_final = true;
+        st.__speech_arbiter_source = "explicit_fallback"; // BLOCO B: TOPO fallback = explícito, não soberano
       }
     }
 
@@ -23494,6 +23548,7 @@ case "inicio_programa": {
       if (_greetingFallback && _greetingFallback.length > 0) {
         st.__cognitive_reply_prefix = _greetingFallback.join("\n");
         st.__cognitive_v2_takes_final = true;
+        st.__speech_arbiter_source = "explicit_fallback"; // BLOCO B: TOPO fallback = explícito, não soberano
       }
     }
 
@@ -23763,6 +23818,7 @@ case "inicio_nome": {
     if (_resolução && _resolução.reply_text) {
       st.__cognitive_reply_prefix = _resolução.reply_text;
       st.__cognitive_v2_takes_final = true;
+      st.__speech_arbiter_source = "explicit_fallback"; // BLOCO B: resolver = suporte
     }
 
     return step(
@@ -23963,6 +24019,7 @@ case "inicio_nacionalidade": {
     if (_resolNac && _resolNac.reply_text) {
       st.__cognitive_reply_prefix = _resolNac.reply_text;
       st.__cognitive_v2_takes_final = true;
+      st.__speech_arbiter_source = "explicit_fallback"; // BLOCO B: resolver = suporte
     }
   } else {
     setTopoHappyPathFlags(st, _nacFallbackSpeech);
@@ -24398,6 +24455,7 @@ case "estado_civil": {
     if (_resolEstCivil && _resolEstCivil.reply_text) {
       st.__cognitive_reply_prefix = _resolEstCivil.reply_text;
       st.__cognitive_v2_takes_final = true;
+      st.__speech_arbiter_source = "explicit_fallback"; // BLOCO B: resolver = suporte
     }
   }
 
@@ -24544,6 +24602,7 @@ case "confirmar_casamento": {
   if (_resolConfCas && _resolConfCas.reply_text) {
     st.__cognitive_reply_prefix = _resolConfCas.reply_text;
     st.__cognitive_v2_takes_final = true;
+    st.__speech_arbiter_source = "explicit_fallback"; // BLOCO B: resolver = suporte
   }
 
   // 🟩 EXIT_STAGE (fallback na mesma fase)
@@ -24701,6 +24760,7 @@ case "financiamento_conjunto": {
   if (_resolFinConj && _resolFinConj.reply_text) {
     st.__cognitive_reply_prefix = _resolFinConj.reply_text;
     st.__cognitive_v2_takes_final = true;
+    st.__speech_arbiter_source = "explicit_fallback"; // BLOCO B: resolver = suporte
   }
 
   // 🟩 EXIT_STAGE (permanece na mesma fase)

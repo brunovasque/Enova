@@ -3767,7 +3767,11 @@ function shouldTriggerCognitiveAssist(stage, text) {
 function sanitizeCognitiveReply(replyText) {
   let text = String(replyText || "").trim();
   if (!text) return "Perfeito, te explico isso com calma. E pra seguir com segurança, me confirma a informação desta etapa, por favor.";
+  // Protege nome oficial "Minha Casa Minha Vida" antes do replace global
+  const mcmvPlaceholder = "\u200B__MCMV__\u200B";
+  text = text.replace(/Minha\s+Casa\s+Minha\s+Vida/gi, mcmvPlaceholder);
   text = text.replace(/\bcasa\b/gi, "imóvel");
+  text = text.replace(new RegExp(mcmvPlaceholder.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"), "g"), "Minha Casa Minha Vida");
   return text;
 }
 

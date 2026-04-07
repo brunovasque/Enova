@@ -44,6 +44,12 @@ const FORBIDDEN_PROMISE_PATTERNS = Object.freeze([
 // Captura "casa" isolada, mas não em "casado/casada/casamento/casal"
 const CASA_PATTERN = /\bcasa\b(?!d[oa]s?|ment|l\b|is\b)/gi;
 
+// ── Blindagem do nome oficial do programa ──────────────────────────────────
+// "Minha Casa Minha Vida" é nome próprio e NÃO deve sofrer replace para "imóvel".
+const MCMV_PATTERN = /Minha\s+Casa\s+Minha\s+Vida/gi;
+const MCMV_PLACEHOLDER = "\u200B__MCMV__\u200B";
+const MCMV_RESTORE_PATTERN = new RegExp(MCMV_PLACEHOLDER.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"), "g");
+
 // ── Controle de tamanho ────────────────────────────────────────────────────
 // 400 para coleta/conversação WhatsApp; 600 para stages operacionais (docs/visita/correspondente)
 // onde listas de documentos legitimamente precisam de mais espaço.
@@ -179,7 +185,12 @@ function replaceForbiddenPromises(text) {
 }
 
 function replaceCasa(text) {
-  return text.replace(CASA_PATTERN, "imóvel");
+  // Protege nome oficial "Minha Casa Minha Vida" antes do replace global
+  let result = text.replace(MCMV_PATTERN, MCMV_PLACEHOLDER);
+  result = result.replace(CASA_PATTERN, "imóvel");
+  // Restaura nome oficial
+  result = result.replace(MCMV_RESTORE_PATTERN, "Minha Casa Minha Vida");
+  return result;
 }
 
 function controlLength(text, maxLen) {
@@ -249,7 +260,13 @@ export function applyFinalSpeechContract(reply, context = {}) {
   // - NÃO adicionar empatia (altera tom)
   // - NÃO truncar agressivamente (perde conteúdo)
   // - NÃO strip future stage (pode alterar perguntas legítimas do LLM)
+  // EXCEÇÃO: no topo (inicio_programa), mesmo LLM soberano NÃO pode puxar
+  // coleta estrutural prematura — aplica stripFutureStageCollection.
   if (context.llmSovereign === true) {
+    const currentStage = String(context.currentStage || "").toLowerCase().trim();
+    if (currentStage === "inicio_programa" || currentStage === "inicio" || currentStage === "inicio_decisao") {
+      result = stripFutureStageCollection(result, context.currentStage);
+    }
     return normalizeWhitespace(result);
   }
 
@@ -297,9 +314,10 @@ export function hasForbiddenPromise(text) {
  */
 export function containsCasaInsteadOfImovel(text) {
   if (!text || typeof text !== "string") return false;
-  // Create fresh RegExp to avoid lastIndex mutation on shared pattern
+  // Remove nome oficial do programa antes de verificar
+  const cleaned = text.replace(MCMV_PATTERN, "");
   const fresh = new RegExp(CASA_PATTERN.source, CASA_PATTERN.flags);
-  return fresh.test(text);
+  return fresh.test(cleaned);
 }
 
 /**

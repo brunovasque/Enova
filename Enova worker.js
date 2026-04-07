@@ -19223,6 +19223,106 @@ const TOPO_HAPPY_PATH_SPEECH = {
       "*Solteiro(a)*, *casado(a) no civil*, *união estável*, *separado(a)*, *divorciado(a)* ou *viúvo(a)*?"
     ],
     validate: (reply) => reply && reply.length > 15 && /estado civil|solteiro|casad/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── inicio_nome: texto parece intenção/pedido, não nome ──
+  "inicio_nome:intent_not_name": {
+    cognitiveStage: "inicio_nome",
+    cognitiveMessage: "quero saber mais, mas meu nome...",
+    fallback: [
+      "Me confirma seu *nome completo*, por favor."
+    ],
+    validate: (reply) => reply && reply.length > 10 && /nome/i.test(reply)
+  },
+
+  // ── inicio_nome: nome vazio ou muito curto ──
+  "inicio_nome:nome_curto": {
+    cognitiveStage: "inicio_nome",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Me manda seu *nome completo*, por favor."
+    ],
+    validate: (reply) => reply && reply.length > 10 && /nome/i.test(reply)
+  },
+
+  // ── inicio_nome: resposta não parece nome válido ──
+  "inicio_nome:nome_invalido": {
+    cognitiveStage: "inicio_nome",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Me manda seu *nome completo*, por favor."
+    ],
+    validate: (reply) => reply && reply.length > 10 && /nome/i.test(reply)
+  },
+
+  // ── inicio_nacionalidade: fallback (não entendido) ──
+  "inicio_nacionalidade:fallback": {
+    cognitiveStage: "inicio_nacionalidade",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Você é *brasileiro(a)* ou *estrangeiro(a)*?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /brasileiro|estrangeir/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── inicio_rnm: não possui RNM (ineligível) ──
+  "inicio_rnm:nao_possui": {
+    cognitiveStage: "inicio_rnm",
+    cognitiveMessage: "não tenho RNM",
+    fallback: [
+      "O RNM indeterminado é obrigatório para o MCMV."
+    ],
+    validate: (reply) => reply && reply.length > 10 && /RNM|obrigat/i.test(reply)
+  },
+
+  // ── inicio_rnm: possui RNM → avança para validade ──
+  "inicio_rnm:possui": {
+    cognitiveStage: "inicio_rnm_validade",
+    cognitiveMessage: "sim, tenho RNM",
+    fallback: [
+      "Seu RNM é *com validade* ou *indeterminado*?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /validade|indeterminado/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── inicio_rnm: fallback (não entendido) ──
+  "inicio_rnm:fallback": {
+    cognitiveStage: "inicio_rnm",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Você possui *RNM*? Responda *sim* ou *não*."
+    ],
+    validate: (reply) => reply && reply.length > 10 && /RNM|sim|não|nao/i.test(reply)
+  },
+
+  // ── inicio_rnm_validade: validade definida (ineligível) ──
+  "inicio_rnm_validade:definida": {
+    cognitiveStage: "inicio_rnm_validade",
+    cognitiveMessage: "meu RNM tem validade definida",
+    fallback: [
+      "RNM com validade definida não se enquadra no MCMV."
+    ],
+    validate: (reply) => reply && reply.length > 10 && /RNM|validade|MCMV/i.test(reply)
+  },
+
+  // ── inicio_rnm_validade: indeterminado → avança para estado_civil ──
+  "inicio_rnm_validade:indeterminado": {
+    cognitiveStage: "estado_civil",
+    cognitiveMessage: "meu RNM é indeterminado",
+    fallback: [
+      "Qual é o seu estado civil?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /estado civil/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── inicio_rnm_validade: fallback (não entendido) ──
+  "inicio_rnm_validade:fallback": {
+    cognitiveStage: "inicio_rnm_validade",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Seu RNM é *com validade* ou *indeterminado*?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /validade|indeterminado/i.test(reply)
   }
 };
 
@@ -23809,13 +23909,18 @@ case "inicio_nome": {
     // BLOCO 3 (PR #550): resolver é suporte interno — NÃO produz fala final pronta.
     // Classificação estruturada disponível para telemetria/debug.
 
+    // ── TOPO HAPPY PATH MIGRATION: inicio_nome:intent_not_name ──
+    // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico permanece no stage.
+    const _intentSpeech = await getTopoHappyPathSpeech(env, "inicio_nome:intent_not_name", st, {
+      cognitiveMessage: userText || "quero saber mais"
+    });
+    setTopoHappyPathFlags(st, _intentSpeech);
+
+    // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
     return step(
       env,
       st,
-      [
-        "Entendi sua dúvida! Mas antes, me confirma só seu *nome completo*, por favor 😊",
-        "Pode mandar tipo: *Ana Silva*."
-      ],
+      ["Me confirma seu *nome completo*, por favor."],
       "inicio_nome"
     );
   }
@@ -23832,13 +23937,18 @@ case "inicio_nome": {
       details: { userText }
     });
 
+    // ── TOPO HAPPY PATH MIGRATION: inicio_nome:nome_curto ──
+    // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico permanece no stage.
+    const _curtoSpeech = await getTopoHappyPathSpeech(env, "inicio_nome:nome_curto", st, {
+      cognitiveMessage: userText || "hmm"
+    });
+    setTopoHappyPathFlags(st, _curtoSpeech);
+
+    // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
     return step(
       env,
       st,
-      [
-        "Opa, acho que não peguei certinho seu nome completo 😅",
-        "Me manda de novo, por favor, com *nome e sobrenome* (ex: Ana Silva)."
-      ],
+      ["Me manda seu *nome completo*, por favor."],
       "inicio_nome"
     );
   }
@@ -23858,13 +23968,18 @@ case "inicio_nome": {
       details: { userText, rawNome, partes }
     });
 
+    // ── TOPO HAPPY PATH MIGRATION: inicio_nome:nome_invalido ──
+    // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico permanece no stage.
+    const _invalidoSpeech = await getTopoHappyPathSpeech(env, "inicio_nome:nome_invalido", st, {
+      cognitiveMessage: userText || "hmm"
+    });
+    setTopoHappyPathFlags(st, _invalidoSpeech);
+
+    // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
     return step(
       env,
       st,
-      [
-        "Só pra ficar certinho aqui no sistema 😅",
-        "Me manda seu *nome completo*, tipo: *Ana Silva*."
-      ],
+      ["Me manda seu *nome completo*, por favor."],
       "inicio_nome"
     );
   }
@@ -23993,29 +24108,23 @@ case "inicio_nacionalidade": {
   // -------------------------------------------
   // ❓ Fallback — cognitivo real + resolvedor estruturado
   // -------------------------------------------
-  // ── TOPO HAPPY PATH MIGRATION: nacionalidade fallback ──
-  const _nacFallbackSpeech = await getTopoHappyPathSpeech(env, "inicio_programa:ambiguous", st, {
-    cognitiveMessage: userText || "hmm",
-    fallback: [
-      "Perdão 😅, não consegui entender.",
-      "Você é *brasileiro* ou *estrangeiro*?"
-    ]
+  // ── TOPO HAPPY PATH MIGRATION: inicio_nacionalidade:fallback ──
+  // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico permanece no stage.
+  const _nacFallbackSpeech = await getTopoHappyPathSpeech(env, "inicio_nacionalidade:fallback", st, {
+    cognitiveMessage: userText || "hmm"
   });
   // Resolver estruturado como camada adicional se cognitivo real falhou
   if (_nacFallbackSpeech.source !== "cognitive_real") {
     const _resolNac = resolveTopoStructured("inicio_nacionalidade", nt);
     // BLOCO 3 (PR #550): resolver é suporte interno — NÃO produz fala final pronta.
-  } else {
-    setTopoHappyPathFlags(st, _nacFallbackSpeech);
   }
+  setTopoHappyPathFlags(st, _nacFallbackSpeech);
 
+  // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
   return step(
     env,
     st,
-    [
-      "Perdão 😅, não consegui entender.",
-      "Você é *brasileiro* ou *estrangeiro*?"
-    ],
+    ["Você é *brasileiro(a)* ou *estrangeiro(a)*?"],
     "inicio_nacionalidade"
   );
 }
@@ -24052,14 +24161,18 @@ case "inicio_rnm": {
     st.funil_status = "ineligivel";
     st.fase_conversa = "fim_ineligivel";
 
+    // ── TOPO HAPPY PATH MIGRATION: inicio_rnm:nao_possui ──
+    // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico decide ineligibilidade.
+    const _rnmNaoSpeech = await getTopoHappyPathSpeech(env, "inicio_rnm:nao_possui", st, {
+      cognitiveMessage: "não tenho RNM"
+    });
+    setTopoHappyPathFlags(st, _rnmNaoSpeech);
+
+    // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
     return step(
       env,
       st,
-      [
-        "Entendi! 👀",
-        "Para financiar pelo Minha Casa Minha Vida é obrigatório ter o *RNM com prazo de validade por tempo indeterminado*.",
-        "Quando você tiver o RNM, posso te ajudar a fazer tudo certinho! 😊"
-      ],
+      ["O RNM indeterminado é obrigatório para o MCMV."],
       "fim_ineligivel"
     );
   }
@@ -24078,14 +24191,18 @@ case "inicio_rnm": {
     st.rnm_status = "possui";
     st.fase_conversa = "inicio_rnm_validade";
 
+    // ── TOPO HAPPY PATH MIGRATION: inicio_rnm:possui ──
+    // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico avança stage.
+    const _rnmSimSpeech = await getTopoHappyPathSpeech(env, "inicio_rnm:possui", st, {
+      cognitiveMessage: "sim, tenho RNM"
+    });
+    setTopoHappyPathFlags(st, _rnmSimSpeech);
+
+    // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
     return step(
       env,
       st,
-      [
-        "Perfeito! 🙌",
-        "Seu RNM é *com validade* ou *indeterminado*?",
-        "Responda: *valido* ou *indeterminado*."
-      ],
+      ["Seu RNM é *com validade* ou *indeterminado*?"],
       "inicio_rnm_validade"
     );
   }
@@ -24093,13 +24210,18 @@ case "inicio_rnm": {
   // -------------------------------------------
   // ❓ Fallback
   // -------------------------------------------
+  // ── TOPO HAPPY PATH MIGRATION: inicio_rnm:fallback ──
+  // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico permanece no stage.
+  const _rnmFallbackSpeech = await getTopoHappyPathSpeech(env, "inicio_rnm:fallback", st, {
+    cognitiveMessage: userText || "hmm"
+  });
+  setTopoHappyPathFlags(st, _rnmFallbackSpeech);
+
+  // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
   return step(
     env,
     st,
-    [
-      "Só preciso confirmar 🙂",
-      "Você possui *RNM*? Responda *sim* ou *não*."
-    ],
+    ["Você possui *RNM*? Responda *sim* ou *não*."],
     "inicio_rnm"
   );
 }
@@ -24136,14 +24258,18 @@ case "inicio_rnm_validade": {
     st.funil_status = "ineligivel";
     st.fase_conversa = "fim_ineligivel";
 
+    // ── TOPO HAPPY PATH MIGRATION: inicio_rnm_validade:definida ──
+    // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico decide ineligibilidade.
+    const _rnmDefSpeech = await getTopoHappyPathSpeech(env, "inicio_rnm_validade:definida", st, {
+      cognitiveMessage: "meu RNM tem validade definida"
+    });
+    setTopoHappyPathFlags(st, _rnmDefSpeech);
+
+    // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
     return step(
       env,
       st,
-      [
-        "Obrigado! 👌",
-        "Com *RNM de validade definida*, infelizmente você não se enquadra no Minha Casa Minha Vida atualmente.",
-        "Quando mudar para *indeterminado*, posso te ajudar imediatamente! 😊"
-      ],
+      ["RNM com validade definida não se enquadra no MCMV."],
       "fim_ineligivel"
     );
   }
@@ -24162,13 +24288,18 @@ case "inicio_rnm_validade": {
     st.rnm_validade = "indeterminado";
     st.fase_conversa = "estado_civil";
 
+    // ── TOPO HAPPY PATH MIGRATION: inicio_rnm_validade:indeterminado ──
+    // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico avança stage.
+    const _rnmIndetSpeech = await getTopoHappyPathSpeech(env, "inicio_rnm_validade:indeterminado", st, {
+      cognitiveMessage: "meu RNM é indeterminado"
+    });
+    setTopoHappyPathFlags(st, _rnmIndetSpeech);
+
+    // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
     return step(
       env,
       st,
-      [
-        "Ótimo! Vamos seguir então 😊",
-        "Qual é o seu estado civil?"
-      ],
+      ["Qual é o seu estado civil?"],
       "estado_civil"
     );
   }
@@ -24176,14 +24307,18 @@ case "inicio_rnm_validade": {
   // -------------------------------------------
   // ❓ Fallback
   // -------------------------------------------
+  // ── TOPO HAPPY PATH MIGRATION: inicio_rnm_validade:fallback ──
+  // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico permanece no stage.
+  const _rnmValFallbackSpeech = await getTopoHappyPathSpeech(env, "inicio_rnm_validade:fallback", st, {
+    cognitiveMessage: userText || "hmm"
+  });
+  setTopoHappyPathFlags(st, _rnmValFallbackSpeech);
+
+  // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
   return step(
     env,
     st,
-    [
-      "Só preciso confirmar rapidinho 🙂",
-      "Seu RNM possui prazo de validade com data definida ou por prazo *indeterminado* de validade?",
-      "Responda apenas: 👉 *com validade* ou *indeterminado*"
-    ],
+    ["Seu RNM é *com validade* ou *indeterminado*?"],
     "inicio_rnm_validade"
   );
 }
@@ -24426,18 +24561,17 @@ case "estado_civil": {
   // --------- NÃO ENTENDIDO ---------
 
   // ── TOPO HAPPY PATH MIGRATION: estado_civil:fallback ──
-  // Cognitivo real + resolvedor estruturado como camada adicional
+  // LLM OBRIGATÓRIO: fala visível nasce do LLM. Mecânico permanece no stage.
   const _ecFallbackSpeech = await getTopoHappyPathSpeech(env, "estado_civil:fallback", st, {
     cognitiveMessage: t || "hmm"
   });
 
-  if (_ecFallbackSpeech.source === "cognitive_real") {
-    setTopoHappyPathFlags(st, _ecFallbackSpeech);
-  } else {
+  if (_ecFallbackSpeech.source !== "cognitive_real") {
     // Resolvedor estruturado como camada adicional se cognitivo real falhou
     const _resolEstCivil = resolveTopoStructured("estado_civil", t);
     // BLOCO 3 (PR #550): resolver é suporte interno — NÃO produz fala final pronta.
   }
+  setTopoHappyPathFlags(st, _ecFallbackSpeech);
 
   // 🟩 EXIT_STAGE (fallback permanece na mesma fase)
   await funnelTelemetry(env, {
@@ -24453,13 +24587,11 @@ case "estado_civil": {
     }
   });
 
+  // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
   return step(
     env,
     st,
-    [
-      "Pra te orientar certinho, me diz seu estado civil:",
-      "*Solteiro(a)*, *casado(a) no civil*, *união estável*, *separado(a)*, *divorciado(a)* ou *viúvo(a)*?"
-    ],
+    ["Me diz seu estado civil, por favor."],
     "estado_civil"
   );
 }

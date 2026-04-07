@@ -37,6 +37,14 @@
  * 28. rejects reply mentioning "viúvo/viúva"
  * 29. accepts reply that mentions "programa" and asks "já sabe como funciona?"
  * 30. accepts reply that is warm greeting + Enova intro + simple path
+ * 31. rejects reply with "salário" collection
+ * 32. rejects reply with "estrangeiro" collection
+ * 33. rejects reply with "qual é o seu nome"
+ * 34. rejects reply with "autônoma" collection
+ * 35. rejects reply with "separado" mention
+ * 36. null/empty/undefined replies are not safe
+ * 37. all 3 validators reject null/empty/short replies
+ * 38. regex does not match "Minha Casa" (word casa in program name)
  */
 
 import assert from "node:assert/strict";

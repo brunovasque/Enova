@@ -3,9 +3,9 @@
  *
  * Smoke tests for reset/topo cognitive surface fix.
  * Validates:
- *   A) SILENT reset — no auto-speech, _post_reset flag set
+ *   A) SILENT reset — no auto-speech, post-reset detected via canonical columns
  *   B) After reset, first message from client gets cognitive-only response
- *   C) Name candidate capture and reuse before inicio_nome
+ *   C) No non-canonical columns persisted (name_candidate, _post_reset removed)
  *
  * Scenarios:
  *  1. reset + "oi"     → cognitive takes final, no mechanical reprompt
@@ -23,19 +23,19 @@
  * 13. stage/nextStage preserved after cognitive takes final
  * 14. cognitive engine produces useful reply for greeting at inicio_programa
  * 15. SILENT reset: no messages sent (silence)
- * 16. SILENT reset: _post_reset cleared after first message
+ * 16. SILENT reset: post-reset detected via canonical columns (last_user_text/last_processed_text null)
  * 17. First msg after reset: greeting + cognitive prefix → takes_final
  * 18. First msg after reset: stage preserved
- * 19. First msg after reset: non-greeting "Bruno Vasques" → takes_final
+ * 19. First msg after reset: non-greeting also gets cognitive
  * 20. Normal inicio (no reset) → no regression
  * 21. Silent reset: no impact on docs/correspondente/visita
- * 22. "Bruno Vasques" → detected as name_candidate
- * 23. "meu nome é Ana Silva" → detected as name_candidate
+ * 22. "Bruno Vasques" → detected by resolveInicioNomeStructured (pure resolver)
+ * 23. "meu nome é Ana Silva" → detected by resolveInicioNomeStructured (pure resolver)
  * 24. "Oi" → handled by greeting detection, not name capture
- * 25. "me explica" → NOT a name_candidate
- * 26. inicio_nome reuse: high confidence → accepts direct
- * 27. inicio_nome reuse: medium confidence → confirms short
- * 28. inicio_nome reuse: no candidate → normal flow
+ * 25. "me explica" → NOT a name candidate
+ * 26. No name_candidate column persisted to Supabase
+ * 27. No _post_reset column persisted to Supabase
+ * 28. inicio_nome normal flow unchanged (no name_candidate dependency)
  */
 
 import assert from "node:assert/strict";
@@ -236,19 +236,19 @@ await asyncTest('14. Cognitive engine returns useful reply for "oi" at inicio_pr
 
 // =======================================================================
 // SILENT RESET — Tests 15-19
-// Validates that reset returns silence (no auto-speech) and sets _post_reset flag.
+// Validates that reset returns silence (no auto-speech).
+// Post-reset detection uses canonical columns: last_user_text=null, last_processed_text=null.
 // First user message after reset gets cognitive real treatment.
 // =======================================================================
 
-// ── Simulates the NEW silent reset handler ──
+// ── Simulates the silent reset handler (canonical columns only) ──
 function simulateSilentReset() {
   const novoSt = {
     fase_conversa: "inicio_programa",
     last_user_text: null,
     last_processed_text: null,
     last_message_id: null,
-    last_message_id_prev: null,
-    _post_reset: true
+    last_message_id_prev: null
   };
   return novoSt;
 }
@@ -257,34 +257,35 @@ function simulateSilentReset() {
 await asyncTest('15. SILENT reset: no messages sent after reset (silence)', async () => {
   const novoSt = simulateSilentReset();
   // Reset handler returns without calling step() — no messages assembled
-  assert.strictEqual(novoSt._post_reset, true, "_post_reset flag must be set");
+  // Post-reset detected via canonical columns (no _post_reset flag)
+  assert.strictEqual(novoSt.last_user_text, null, "last_user_text must be null after reset");
+  assert.strictEqual(novoSt.last_processed_text, null, "last_processed_text must be null after reset");
   assert.strictEqual(novoSt.fase_conversa, "inicio_programa", "stage must be inicio_programa");
   // No cognitive flags set (no speech at all)
   assert.strictEqual(novoSt.__cognitive_reply_prefix, undefined, "no cognitive prefix");
   assert.strictEqual(novoSt.__cognitive_v2_takes_final, undefined, "no takes_final");
 });
 
-// ===== 16. SILENT reset: _post_reset flag consumed on first message =====
-await asyncTest('16. SILENT reset: _post_reset cleared after first message detection', async () => {
+// ===== 16. SILENT reset: post-reset detected via canonical columns =====
+await asyncTest('16. SILENT reset: post-reset detected via canonical columns', async () => {
   const novoSt = simulateSilentReset();
-  // Simulates inicio_programa entry detecting _post_reset
-  const isFirstAfterReset = novoSt._post_reset === true;
-  assert.ok(isFirstAfterReset, "should detect first-after-reset");
-  novoSt._post_reset = null; // mirrors the worker clear
-  assert.strictEqual(novoSt._post_reset, null, "flag cleared after consumption");
+  // Detection uses canonical columns instead of _post_reset
+  const isFirstAfterReset = !novoSt.last_user_text && !novoSt.last_processed_text;
+  assert.ok(isFirstAfterReset, "should detect first-after-reset via canonical columns");
+  // No need to clear a flag — detection is stateless from canonical columns
 });
 
 // ===== 17. First message after reset: cognitive takes final for greeting =====
 await asyncTest('17. First msg after reset: "oi" + LLM cognitive prefix → cognitive takes final', async () => {
   const st = {
     fase_conversa: "inicio_programa",
-    _post_reset: true,
+    last_user_text: null,
+    last_processed_text: null,
     __cognitive_reply_prefix: COGNITIVE_GREETING_REPLY,
     __cognitive_v2_takes_final: false,
     __speech_arbiter_source: "llm_real"  // PR #550: promotion requires llm_real
   };
-  const isFirstAfterReset = st._post_reset === true;
-  st._post_reset = null;
+  const isFirstAfterReset = !st.last_user_text && !st.last_processed_text;
 
   const nt = normalizeText("oi");
   const _isGreetingOrReentry = isGreetingOrReentry(nt);
@@ -312,14 +313,14 @@ await asyncTest('18. First msg after reset: stage preserved as inicio_programa',
 await asyncTest('19. First msg after reset: non-greeting "Bruno Vasques" + LLM prefix → cognitive takes final', async () => {
   const st = {
     fase_conversa: "inicio_programa",
-    _post_reset: true,
+    last_user_text: null,
+    last_processed_text: null,
     __cognitive_reply_prefix: "Oi, Bruno Vasques! Que bom ter você aqui 😊 Você já sabe como funciona o MCMV?",
     __cognitive_v2_takes_final: false,
     __speech_arbiter_source: "llm_real"  // PR #550: promotion requires llm_real
   };
 
-  const isFirstAfterReset = st._post_reset === true;
-  st._post_reset = null;
+  const isFirstAfterReset = !st.last_user_text && !st.last_processed_text;
 
   // PR #550: only promote if arbiter_source === "llm_real"
   if (isFirstAfterReset && st.__cognitive_reply_prefix && st.__speech_arbiter_source === "llm_real") {
@@ -352,19 +353,19 @@ await asyncTest('20. Normal inicio_programa entry (no reset) → mechanical mess
 // ===== 21. Silent reset: no impact on docs/correspondente/visita =====
 await asyncTest('21. Silent reset: docs/correspondente/visita stages unaffected', async () => {
   const docsSt = { fase_conversa: "envio_docs" };
-  assert.strictEqual(docsSt._post_reset, undefined, "envio_docs has no _post_reset flag");
   assert.strictEqual(docsSt.__cognitive_reply_prefix, undefined, "envio_docs has no cognitive prefix");
 
   const visitaSt = { fase_conversa: "agendamento_visita" };
-  assert.strictEqual(visitaSt._post_reset, undefined, "agendamento_visita has no _post_reset");
+  assert.strictEqual(visitaSt.__cognitive_reply_prefix, undefined, "agendamento_visita has no cognitive prefix");
 
   const corrSt = { fase_conversa: "aguardando_retorno_correspondente" };
-  assert.strictEqual(corrSt._post_reset, undefined, "correspondente has no _post_reset");
+  assert.strictEqual(corrSt.__cognitive_reply_prefix, undefined, "correspondente has no cognitive prefix");
 });
 
 // =======================================================================
-// NAME CANDIDATE REUSE — Tests 22-28
-// Validates name_candidate capture in inicio_programa and reuse in inicio_nome.
+// SCHEMA COMPLIANCE — Tests 22-28
+// Validates that no non-canonical columns are persisted to Supabase.
+// resolveInicioNomeStructured is a pure resolver (classification only, no persistence).
 // =======================================================================
 
 // ── Mirrors resolveInicioNomeStructured name extraction (simplified) ──
@@ -389,16 +390,16 @@ function extractNameCandidate(rawText) {
   return { extracted_name: candidate, parts };
 }
 
-// ===== 22. "Bruno Vasques" → captured as name_candidate =====
-await asyncTest('22. "Bruno Vasques" → detected as plausible name_candidate', async () => {
+// ===== 22. "Bruno Vasques" → detected by resolver (pure classification, no persistence) =====
+await asyncTest('22. "Bruno Vasques" → detected by resolver (pure, no Supabase write)', async () => {
   const result = extractNameCandidate("Bruno Vasques");
   assert.ok(result, "should extract a name candidate");
   assert.strictEqual(result.extracted_name, "Bruno Vasques");
   assert.strictEqual(result.parts.length, 2, "two parts = high confidence");
 });
 
-// ===== 23. "meu nome é Ana Silva" → captured as name_candidate =====
-await asyncTest('23. "meu nome é Ana Silva" → detected as name_candidate', async () => {
+// ===== 23. "meu nome é Ana Silva" → detected by resolver (pure, no persistence) =====
+await asyncTest('23. "meu nome é Ana Silva" → detected by resolver (pure, no Supabase write)', async () => {
   const result = extractNameCandidate("meu nome é Ana Silva");
   assert.ok(result, "should extract a name candidate");
   assert.strictEqual(result.extracted_name, "Ana Silva");
@@ -406,42 +407,42 @@ await asyncTest('23. "meu nome é Ana Silva" → detected as name_candidate', as
 
 // ===== 24. "Oi" → greeting handled before name capture (sim/nao/greeting path) =====
 await asyncTest('24. "Oi" → handled by greeting detection, not name capture path', async () => {
-  // "Oi" is NOT sim/nao, but IS a greeting → caught by greeting branch first.
-  // The name probe may extract it, but inicio_programa handles greetings before probing names.
   const nt = normalizeText("Oi");
   const _isGreeting = isGreetingOrReentry(nt);
   assert.ok(_isGreeting, "Oi should be caught as greeting before name probe");
 });
 
-// ===== 25. "me explica" → NOT captured as name_candidate (intent guard) =====
-await asyncTest('25. "me explica" → NOT a name_candidate (intent phrase)', async () => {
+// ===== 25. "me explica" → NOT a name candidate (intent guard) =====
+await asyncTest('25. "me explica" → NOT a name candidate (intent phrase)', async () => {
   const result = extractNameCandidate("me explica");
   assert.strictEqual(result, null, "explanation request should not be name candidate");
 });
 
-// ===== 26. inicio_nome reuse: high confidence → accepts direct =====
-await asyncTest('26. inicio_nome: name_candidate "Bruno Vasques" (2 parts) → high confidence accept', async () => {
-  const candidato = "Bruno Vasques";
-  const partes = candidato.split(/\s+/).filter(p => p.length >= 2);
-  const confiancaAlta = partes.length >= 2 && partes.length <= 6;
-  assert.ok(confiancaAlta, "2 parts should be high confidence");
-  assert.strictEqual(partes[0], "Bruno", "first name extracted correctly");
+// ===== 26. No name_candidate column persisted to Supabase =====
+await asyncTest('26. Worker does NOT persist name_candidate to Supabase', async () => {
+  // Verify no upsertState call writes name_candidate
+  const workerSrc = (await import("node:fs")).readFileSync(
+    new URL("../Enova worker.js", import.meta.url), "utf-8"
+  );
+  const upsertNameCandidate = /upsertState\([^)]*\{[^}]*name_candidate/g.test(workerSrc);
+  assert.ok(!upsertNameCandidate, "upsertState must NOT write name_candidate (non-canonical column)");
 });
 
-// ===== 27. inicio_nome reuse: medium confidence → confirms short =====
-await asyncTest('27. inicio_nome: name_candidate "Bruno" (1 part) → medium confidence confirm', async () => {
-  const candidato = "Bruno";
-  const partes = candidato.split(/\s+/).filter(p => p.length >= 2);
-  const confiancaAlta = partes.length >= 2 && partes.length <= 6;
-  const confiancaMedia = partes.length === 1 && candidato.length >= 2;
-  assert.ok(!confiancaAlta, "1 part should NOT be high confidence");
-  assert.ok(confiancaMedia, "1 part with >=2 chars should be medium confidence");
+// ===== 27. No _post_reset column persisted to Supabase =====
+await asyncTest('27. Worker does NOT persist _post_reset to Supabase', async () => {
+  const workerSrc = (await import("node:fs")).readFileSync(
+    new URL("../Enova worker.js", import.meta.url), "utf-8"
+  );
+  const upsertPostReset = /upsertState\([^)]*\{[^}]*_post_reset/g.test(workerSrc);
+  assert.ok(!upsertPostReset, "upsertState must NOT write _post_reset (non-canonical column)");
 });
 
-// ===== 28. inicio_nome reuse: no candidate → normal flow =====
-await asyncTest('28. inicio_nome: no name_candidate → normal flow unchanged', async () => {
-  const st = { fase_conversa: "inicio_nome", name_candidate: null };
-  assert.ok(!st.name_candidate, "no candidate means normal flow");
+// ===== 28. inicio_nome normal flow unchanged (no name_candidate dependency) =====
+await asyncTest('28. inicio_nome: normal flow unchanged (no name_candidate dependency)', async () => {
+  const st = { fase_conversa: "inicio_nome" };
+  // No name_candidate field at all — inicio_nome proceeds with normal name capture
+  assert.strictEqual(st.name_candidate, undefined, "no name_candidate field exists");
+  assert.strictEqual(st.fase_conversa, "inicio_nome", "stage is inicio_nome");
 });
 
 // =======================================================================

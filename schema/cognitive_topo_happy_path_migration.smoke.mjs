@@ -158,8 +158,10 @@ console.log("\n── Happy path integration anchors ──");
 await asyncTest("5. reset is silent — first speech happens at inicio_programa:first_after_reset", async () => {
   assert.ok(workerSrc.includes('"inicio_programa:first_after_reset"'),
     "inicio_programa must reference first_after_reset speech key for post-reset cognitive");
-  assert.ok(workerSrc.includes('_post_reset'),
-    "reset handler must set _post_reset flag for silent reset");
+  // Post-reset detection uses canonical columns (last_user_text/last_processed_text null)
+  // instead of invented _post_reset flag. No non-canonical columns persisted.
+  assert.ok(!workerSrc.includes('upsertState(env, novoSt.wa_id, {\n      _post_reset'),
+    "reset handler must NOT persist _post_reset to Supabase (non-canonical column)");
 });
 
 await asyncTest("6. inicio_programa:sim calls getTopoHappyPathSpeech", async () => {

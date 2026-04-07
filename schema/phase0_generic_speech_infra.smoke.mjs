@@ -288,8 +288,7 @@ test("D04 — classifyRenderPath anything else → extreme_fallback", () => {
 // SECTION E — _MINIMAL_FALLBACK_SPEECH_MAP intacto
 // ================================================================
 
-test("E01 — _MINIMAL_FALLBACK_SPEECH_MAP has 30 entries (topo+meio+gates+operacional)", () => {
-  // The map has exactly 30 entries as of PR #550/551
+test("E01 — _MINIMAL_FALLBACK_SPEECH_MAP has ≥28 entries (topo+meio+gates+operacional)", () => {
   assert.ok(_fallbackMap.size >= 28, `expected ≥28 entries, got ${_fallbackMap.size}`);
 });
 
@@ -362,13 +361,13 @@ test("F01 — TOPO_HAPPY_PATH_SPEECH has all expected keys", () => {
 });
 
 test("F02 — TOPO_HAPPY_PATH_SPEECH unchanged (no keys removed)", () => {
-  // Verify all 28 expected keys present
+  // Verify all expected keys present
   let count = 0;
   for (const key of _expectedTopoKeys) {
     if (_mapBlockSrc.includes(`"${key}"`)) count++;
   }
   assert.equal(count, _expectedTopoKeys.length,
-    `Expected ${_expectedTopoKeys.length} keys, found ${count}`);
+    `Expected all ${_expectedTopoKeys.length} keys, found ${count}`);
 });
 
 // ================================================================

@@ -1,0 +1,63 @@
+WORKFLOW_ACK
+
+1) SUMMARY
+Correção cirúrgica de 2 problemas no topo do funil:
+- Nome oficial "Minha Casa Minha Vida" sendo contaminado por regra "casa"→"imóvel"
+- Topo aceitando coleta estrutural prematura via LLM soberano
+
+2) DIAGNÓSTICO CONFIRMADO
+- replaceCasa() em final-speech-contract.js e sanitizeCognitiveReply() em worker.js
+  ambos faziam replace global de "casa" sem exceção para nome próprio
+- applyFinalSpeechContract com llmSovereign=true pulava stripFutureStageCollection,
+  permitindo LLM soberano no topo incluir perguntas de estado civil, renda, etc.
+
+3) ANCHORS EXATOS
+- cognitive/src/final-speech-contract.js: replaceCasa(), containsCasaInsteadOfImovel(), applyFinalSpeechContract()
+- Enova worker.js: sanitizeCognitiveReply()
+
+4) PONTO CORRIGIDO PARA NOME OFICIAL
+- replaceCasa(): protege "Minha Casa Minha Vida" com placeholder antes do replace
+- sanitizeCognitiveReply(): mesmo padrão de proteção
+- containsCasaInsteadOfImovel(): remove MCMV antes de verificar
+
+5) PONTO CORRIGIDO PARA ACEITAÇÃO/CONTENÇÃO DO TOPO
+- applyFinalSpeechContract(): quando llmSovereign=true E stage é topo (inicio_programa/inicio/inicio_decisao),
+  aplica stripFutureStageCollection antes de retornar
+
+6) O QUE FOI ALTERADO
+- cognitive/src/final-speech-contract.js: 3 edits
+- Enova worker.js: 1 edit
+- schema/cognitive_topo_programa_name_containment.smoke.mjs: novo (25 testes)
+- correcao_topo_programa_summary.txt: novo
+- correcao_topo_programa_anchors.txt: novo
+- correcao_topo_programa_final.txt: novo
+
+7) O QUE FOI PRESERVADO
+- parser/gate/nextStage intactos
+- persistência intacta
+- fechamento/encerramento intacto
+- composição/renda/regime/IR intactos
+- docs/correspondente/visita intactos
+- Fase 2+ intacta
+- motor mecânico intacto
+- TOPO_PREMATURE_COLLECTION + _isTopoReplySemanticallySafe intactos
+- TOPO_HAPPY_PATH_SPEECH intacto
+
+8) PR/Branch/Commit/Rollback
+- Branch: copilot/fix-trademark-name-and-header-acceptance
+- Rollback: git revert <commit-hash>
+
+9) SMOKE TESTS
+- 25 testes novos em cognitive_topo_programa_name_containment.smoke.mjs: ALL PASSED
+- 64 testes existentes em cognitive_etapa6_final_speech_contract.smoke.mjs: ALL PASSED
+- 38 testes existentes em cognitive_topo_acceptance_containment.smoke.mjs: ALL PASSED
+- 58 testes existentes em sovereign_speech_arbiter.smoke.mjs: ALL PASSED
+- 37 testes existentes em cognitive_stage_discipline.smoke.mjs: ALL PASSED
+
+10) PROVAS
+- Confirmação: git remote -v e git rev-parse HEAD a serem verificados após push
+
+11) CONFIRMAÇÃO
+A correção ficou RESTRITA ao topo + nome oficial do programa.
+Não tocou no motor mecânico, parser, gate, nextStage, persistência,
+fechamento, composição, renda, regime, IR, docs, correspondente, visita, ou Fase 2+.

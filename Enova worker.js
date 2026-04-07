@@ -18876,6 +18876,32 @@ const CORRESPONDENTE_RETURN_MIN_CONFIDENCE_AUTO = 0.75;
  * Se o reply for válido → substitui a fala mecânica.
  * Se falhar → fallback mecânico entra automaticamente.
  */
+const TOPO_INICIO_PROGRAMA_FORBIDDEN_COLLECTION_RE =
+  /\b(?:estado civil|solteir[oa]?|casad[oa]?|uni[aã]o est[aá]vel|divorciad[oa]?|separad[oa]?|vi[uú]v[oa]?|nome completo|nome e sobrenome|qual (?:e|é) o seu nome|nacionalidade|brasileir[oa]?|estrangeir[oa]?|rnm|renda|sal[aá]rio|clt|aut[oô]nom[oa]?|servidor[oa]?|aposentad[oa]?|ctps|cpf|rg|documentos?|comprovante|restri[cç][aã]o)\b/i;
+const TOPO_INICIO_PROGRAMA_COLD_RE =
+  /\b(?:prezado cliente|caro cliente|formul[aá]rio|triagem|dados cadastrais|protocolo|preencha|cadastro)\b/i;
+
+function validateInicioProgramaChoiceSpeech(reply, { requirePresentation = false } = {}) {
+  const text = String(reply || "").trim();
+  const nt = normalizeText(text);
+  if (!text || text.length < 45 || !/\?/.test(text)) return false;
+  if (TOPO_INICIO_PROGRAMA_FORBIDDEN_COLLECTION_RE.test(text)) return false;
+  if (TOPO_INICIO_PROGRAMA_COLD_RE.test(text)) return false;
+
+  const hasProgramAuthority =
+    /\benova\b/.test(nt) &&
+    /\b(?:minha casa minha vida|mcmv|programa)\b/.test(nt);
+  const hasHumanOpening =
+    /\b(?:oi|ola|bom dia|boa tarde|boa noite|te ajudar|ajudo|ajudar|entender|caminho)\b/.test(nt);
+  const hasPositiveChoice =
+    /\b(?:ja sabe|ja conhece|conhece|sabe como|sabe como funciona|sabe como o programa funciona)\b/.test(nt);
+  const hasExplanationChoice =
+    /\b(?:prefere|quer|quer que eu|quer que te|explico|explique|explicar|te explique|eu explique)\b/.test(nt);
+
+  if (requirePresentation && (!hasProgramAuthority || !hasHumanOpening)) return false;
+  return hasPositiveChoice && hasExplanationChoice;
+}
+
 const TOPO_HAPPY_PATH_SPEECH = {
   // ── reset / abertura ──
   "reset:abertura": {
@@ -18929,11 +18955,10 @@ const TOPO_HAPPY_PATH_SPEECH = {
     cognitiveStage: "inicio_programa",
     cognitiveMessage: "oi",
     fallback: [
-      "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida.",
-      "Você já sabe como funciona ou prefere que eu explique rapidinho?",
-      "Me diz *sim* (já sei) ou *não* (me explica)."
+      "Oi! Eu sou a Enova e vou te ajudar a entender seu caminho no Minha Casa Minha Vida.",
+      "Antes de seguir, me conta uma coisa: você já conhece como o programa funciona ou quer que eu te explique rapidinho?"
     ],
-    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
+    validate: (reply) => validateInicioProgramaChoiceSpeech(reply, { requirePresentation: true })
   },
 
   // ── inicio_programa: saudação/reentrada (greeting puro, não pós-reset) ──
@@ -18941,12 +18966,10 @@ const TOPO_HAPPY_PATH_SPEECH = {
     cognitiveStage: "inicio_programa",
     cognitiveMessage: "oi",
     fallback: [
-      "Oi! Tudo bem? 😊",
-      "Eu sou a Enova, assistente do programa Minha Casa Minha Vida.",
-      "Você já sabe como funciona o programa ou prefere que eu explique rapidinho antes?",
-      "Me responde com *sim* (já sei) ou *não* (quero que explique)."
+      "Oi! Eu sou a Enova e vou te ajudar a entender seu caminho no Minha Casa Minha Vida.",
+      "Antes de seguir, me conta uma coisa: você já conhece como o programa funciona ou quer que eu te explique rapidinho?"
     ],
-    validate: (reply) => reply && reply.length > 20 && /\?/.test(reply)
+    validate: (reply) => validateInicioProgramaChoiceSpeech(reply, { requirePresentation: true })
   },
 
   // ── inicio_nome: nome reaproveitado de sinal anterior (confiança alta) ──
@@ -18983,10 +19006,9 @@ const TOPO_HAPPY_PATH_SPEECH = {
     cognitiveStage: "inicio_programa",
     cognitiveMessage: "hmm",
     fallback: [
-      "Você já conhece como o programa Minha Casa Minha Vida funciona ou prefere que eu te explique rapidinho?",
-      "Me diz *sim* (já sei) ou *não* (me explica)."
+      "Você já conhece como o Minha Casa Minha Vida funciona ou quer que eu te explique rapidinho?"
     ],
-    validate: (reply) => reply && reply.length > 20 && /sim|não|nao|funciona|programa/i.test(reply) && /\?/.test(reply)
+    validate: (reply) => validateInicioProgramaChoiceSpeech(reply)
   },
 
   // ── inicio_nome: nome aceito → avança para inicio_nacionalidade ──

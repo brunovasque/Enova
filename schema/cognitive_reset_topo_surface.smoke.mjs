@@ -424,7 +424,7 @@ await asyncTest('26. Worker does NOT persist name_candidate to Supabase', async 
   const workerSrc = (await import("node:fs")).readFileSync(
     new URL("../Enova worker.js", import.meta.url), "utf-8"
   );
-  const upsertNameCandidate = /upsertState\([^)]*\{[^}]*name_candidate/g.test(workerSrc);
+  const upsertNameCandidate = /upsertState\([^)]*\{[^}]*name_candidate/.test(workerSrc);
   assert.ok(!upsertNameCandidate, "upsertState must NOT write name_candidate (non-canonical column)");
 });
 
@@ -433,7 +433,7 @@ await asyncTest('27. Worker does NOT persist _post_reset to Supabase', async () 
   const workerSrc = (await import("node:fs")).readFileSync(
     new URL("../Enova worker.js", import.meta.url), "utf-8"
   );
-  const upsertPostReset = /upsertState\([^)]*\{[^}]*_post_reset/g.test(workerSrc);
+  const upsertPostReset = /upsertState\([^)]*\{[^}]*_post_reset/.test(workerSrc);
   assert.ok(!upsertPostReset, "upsertState must NOT write _post_reset (non-canonical column)");
 });
 

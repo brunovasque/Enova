@@ -48,6 +48,7 @@ const CASA_PATTERN = /\bcasa\b(?!d[oa]s?|ment|l\b|is\b)/gi;
 // "Minha Casa Minha Vida" é nome próprio e NÃO deve sofrer replace para "imóvel".
 const MCMV_PATTERN = /Minha\s+Casa\s+Minha\s+Vida/gi;
 const MCMV_PLACEHOLDER = "\u200B__MCMV__\u200B";
+const MCMV_RESTORE_PATTERN = new RegExp(MCMV_PLACEHOLDER.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"), "g");
 
 // ── Controle de tamanho ────────────────────────────────────────────────────
 // 400 para coleta/conversação WhatsApp; 600 para stages operacionais (docs/visita/correspondente)
@@ -188,7 +189,7 @@ function replaceCasa(text) {
   let result = text.replace(MCMV_PATTERN, MCMV_PLACEHOLDER);
   result = result.replace(CASA_PATTERN, "imóvel");
   // Restaura nome oficial
-  result = result.replace(new RegExp(MCMV_PLACEHOLDER.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"), "g"), "Minha Casa Minha Vida");
+  result = result.replace(MCMV_RESTORE_PATTERN, "Minha Casa Minha Vida");
   return result;
 }
 

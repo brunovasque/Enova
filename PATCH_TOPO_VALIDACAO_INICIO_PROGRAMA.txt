@@ -1,0 +1,29 @@
+Data/hora: 2026-04-07T19:38:25.2416209-03:00
+Branch: copilot/implementacao-fase-estrutural-again
+Commit tecnico do patch: 64211f513df1c1fb5df720d7f4d07332a2d22e4e
+
+Arquivos alterados:
+- Enova worker.js
+- schema/cognitive_topo_inicio_programa_validation.smoke.mjs
+
+Resumo tecnico curto:
+Patch cirurgico no topo de inicio_programa para endurecer a validacao de fala cognitiva em first_after_reset, greeting_reentrada e ambiguous. A nova validacao exige abertura/apresentacao humana, autoridade Enova/MCMV quando aplicavel, escolha semanticamente compativel com o parser atual ("ja conhece/ja sabe" versus "quer explicacao") e bloqueia coleta futura de nome, estado civil, nacionalidade, renda, documentos e termos frios/institucionais. O parser, gates, stage, nextStage, persistencia e modo humano nao foram alterados.
+
+Smokes executados:
+- node --check "Enova worker.js" -> passou
+- node schema/cognitive_topo_inicio_programa_validation.smoke.mjs -> passou
+- node schema/cognitive_reset_topo_surface.smoke.mjs -> passou
+- node schema/cognitive_inicio_programa_resolution.smoke.mjs -> passou
+- node schema/cognitive_topo_happy_path_migration.smoke.mjs -> passou
+- node schema/cognitive_topo_trigger.smoke.mjs -> passou
+
+Observacao de teste:
+- node schema/manual_mode_bypass_worker.smoke.mjs foi executado e falhou por erro do proprio smoke/mock: writesByWaId[...] nao e array, apos registrar manual_mode_bypass. O patch nao alterou modo humano; a preservacao do hook modoHumanoRender(st, arr) foi coberta no smoke novo.
+
+Riscos residuais:
+- O LLM ainda pode produzir fala invalida, mas agora first_after_reset/greeting_reentrada/ambiguous rejeitam falas que nao fecham na escolha esperada ou que puxam coleta futura.
+- O fallback extremo continua existindo para falha de fala cognitiva aceitavel.
+- A validacao e propositalmente mais restritiva para o topo; respostas criativas que nao mencionem a escolha parseavel devem ser rejeitadas.
+
+Rollback exato:
+- Para reverter o patch tecnico de codigo/teste: git revert 64211f513df1c1fb5df720d7f4d07332a2d22e4e

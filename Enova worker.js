@@ -30,6 +30,7 @@ import {
   adaptLegacyToCanonical,
   validateSignal,
   buildSeparationTelemetry,
+  buildCognitiveInput,
   getStageGoal,
   getAllowedSignalsForStage
 } from "./cognitive/src/cognitive-contract.js";
@@ -251,13 +252,30 @@ async function step(env, st, messages, nextStage, options = {}) {
     _stepSepTelemetry.surface_equal_reply_text = speechArbiterSource === "llm_real"
       ? (_outputSurface === _llmResponseForTelemetry)
       : null;
+
+    // ── PASSO 2 TELEMETRIA OBRIGATÓRIA ──
+    // Campos obrigatórios para provar redução de arbitragem do worker.
+    const _renderPathUsed = st.__render_path_used || "unknown";
+    const _isTopoStage = (currentStage === "inicio" || currentStage === "inicio_decisao" || currentStage === "inicio_programa");
+    _stepSepTelemetry.cognitive_path_used = (speechArbiterSource === "llm_real");
+    _stepSepTelemetry.legacy_topo_path_used = (_isTopoStage && speechArbiterSource !== "llm_real");
+    _stepSepTelemetry.worker_conversational_override_used = (speechArbiterSource === "llm_real")
+      ? (_outputSurface !== _llmResponseForTelemetry)
+      : false;
+    _stepSepTelemetry.render_path_used = _renderPathUsed;
+    _stepSepTelemetry.nextStage = nextStage || null;
+    _stepSepTelemetry.contract_final_changed_reply = (speechArbiterSource === "llm_real")
+      ? (_outputSurface !== _llmResponseForTelemetry)
+      : false;
+    _stepSepTelemetry.topo_special_case_used = (_isTopoStage && _renderPathUsed === "topo_sealed_bucket_static");
+
     await telemetry(env, {
       wa_id: st.wa_id,
       event: "step_separation_proof",
       stage: currentStage,
       next_stage: nextStage || null,
       severity: "info",
-      message: "Prova de separação no step() — surface vs reply_text",
+      message: "Prova de separação no step() — surface vs reply_text — Passo 2",
       details: _stepSepTelemetry
     });
   } catch (_stepSepErr) { /* telemetry must never break the flow */ }
@@ -267,6 +285,7 @@ async function step(env, st, messages, nextStage, options = {}) {
   st.__cognitive_v2_takes_final = false;
   st.__round_intent = null;
   st.__speech_arbiter_source = null;
+  st.__render_path_used = null;
 
   // 🔥 AQUI: aplica modo humano SOMENTE se modo humano MANUAL legítimo do painel
   // (BLOCO F: modoHumanoRender não reescreve superfície cognitiva automática)
@@ -4421,9 +4440,16 @@ function renderCognitiveSpeech(st, stage, rawArr) {
   const arbiterSource = st?.__speech_arbiter_source || null;
   const roundIntent = st?.__round_intent || null;
 
-  // Caminho ÚNICO soberano: LLM real
+  // ── PASSO 2: renderCognitiveSpeech como pass-through honesto ──
+  // Caminho cognitivo canônico é o PRINCIPAL. renderCognitiveSpeech repassa a fala
+  // aprovada pelo cognitivo sem decisão conversacional paralela.
+  // Apenas classifica a rota para telemetria.
+
+  // Caminho ÚNICO soberano: LLM real (caminho cognitivo canônico principal)
   // Somente quando o LLM real produziu a fala e marcou como "llm_real".
   if (v2TakesFinal && cognitivePrefix && arbiterSource === "llm_real") {
+    // ── PASSO 2 TELEMETRIA: prova que cognitive path é principal ──
+    st.__render_path_used = "cognitive_canonical";
     return [cognitivePrefix];
   }
 
@@ -4435,6 +4461,7 @@ function renderCognitiveSpeech(st, stage, rawArr) {
     const _staticReply = _TOPO_BUCKET_STATIC_REPLIES[_bucket] || _TOPO_BUCKET_STATIC_REPLIES.unknown_topo;
     st.__speech_arbiter_source = "topo_sealed_bucket_static";
     st.__topo_mechanical_surface_blocked = true;
+    st.__render_path_used = "topo_sealed_bucket_static";
     return [_staticReply];
   }
 
@@ -4442,6 +4469,7 @@ function renderCognitiveSpeech(st, stage, rawArr) {
   // Heurística, resolver, topo, prefix local — NADA disso é soberano.
   // O prefix (se existir) é DESCARTADO — foi suporte interno, não fala final.
   st.__speech_arbiter_source = "extreme_fallback";
+  st.__render_path_used = "extreme_fallback";
   return buildMinimalCognitiveFallback(stage, rawArr, roundIntent);
 }
 
@@ -4568,13 +4596,19 @@ async function runCognitiveV2WithAdapter(env, stage, userText, st) {
     // BLOCO 11: processo_enviado_correspondente para prontidão do pacote
     if (st.processo_enviado_correspondente != null) knownSlots.processo_enviado_correspondente = { value: st.processo_enviado_correspondente };
 
-    const rawInput = {
+    // ── PASSO 2: Caminho cognitivo canônico formalizado ──
+    // Usa buildCognitiveInput para garantir shape canônico estável.
+    // Worker monta contexto do stage → cognitivo recebe contrato formal.
+    const rawInput = buildCognitiveInput({
       current_stage: stage,
       message_text: String(userText || ""),
       known_slots: knownSlots,
-      pending_slots: [],
+      goal_of_current_stage: getStageGoal(stage),
+      forbidden_topics_for_stage: [],
+      allowed_signals_for_stage: getAllowedSignalsForStage(stage),
+      normative_context: [],
       recent_messages: []
-    };
+    });
 
     const { apiKey } = getOpenAIConfig(env);
     const options = {
@@ -23748,12 +23782,22 @@ async function runFunnel(env, st, userText) {
             advance_allowed: compatibleSignal && !lowConfidence,
             advance_block_reason: !compatibleSignal ? "signal_incompatible" : lowConfidence ? "low_confidence" : null
           });
+
+          // ── PASSO 2 TELEMETRIA OBRIGATÓRIA — COGNITIVE ASSIST block ──
+          _sepTelemetry.cognitive_path_used = Boolean(st.__cognitive_v2_takes_final);
+          _sepTelemetry.legacy_topo_path_used = false;
+          _sepTelemetry.worker_conversational_override_used = false;
+          _sepTelemetry.signal_from_cognitive = _canonicalSignal;
+          _sepTelemetry.signal_validation_result = signalValidation.reason;
+          _sepTelemetry.contract_final_changed_reply = false;
+          _sepTelemetry.topo_special_case_used = _isTopoStage && _topoContractBypassed;
+
           await telemetry(env, {
             wa_id: st.wa_id,
             event: "worker_cognitive_separation",
             stage,
             severity: "info",
-            message: "Prova de separação de responsabilidades worker ↔ cognitivo",
+            message: "Prova de separação de responsabilidades worker ↔ cognitivo — Passo 2",
             details: _sepTelemetry
           });
         } catch (_sepErr) { /* telemetry must never break the flow */ }

@@ -42,6 +42,9 @@ function safeSlice(value, maxLen = 500) {
   } catch (_) { return ""; }
 }
 
+/** Minimum cognitive confidence to consider a signal plausible */
+const MIN_COGNITIVE_CONFIDENCE_THRESHOLD = 0.5;
+
 /** Safe JSON — never throws */
 function safeStringify(value) {
   try { return JSON.stringify(value); } catch (_) { return "{}"; }
@@ -126,7 +129,7 @@ function computeStageSymptoms({
       computeStageDiff(stageBefore, stageAfter, reaskTriggered, stageLocked);
     const did_reask = Boolean(reaskTriggered);
     const hasPlausibleSignal =
-      Boolean(cognitiveSignal) && Number(cognitiveConfidence ?? 0) >= 0.5;
+      Boolean(cognitiveSignal) && Number(cognitiveConfidence ?? 0) >= MIN_COGNITIVE_CONFIDENCE_THRESHOLD;
     const plausible_answer_without_advance = hasPlausibleSignal && !did_stage_advance;
     const override_suspected_sym =
       Boolean(overrideSuspected) ||

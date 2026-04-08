@@ -7,21 +7,13 @@ import styles from "./dossie.module.css";
 import { fetchDossieDataAction } from "./actions";
 import type { DossieData, DocItem } from "./actions";
 
-// ── Links operacionais fixos (config, não é dado de negócio) ──
-const LINKS_OPERACIONAIS = [
-  { titulo: "Simulador Habitacional", desc: "Caixa Econômica Federal", url: "https://habitacao.caixa.gov.br/simulador" },
-  { titulo: "Portal do Correspondente", desc: "Enova Banking", url: "#" },
-  { titulo: "Consulta FGTS", desc: "Extrato e Saldo", url: "https://www.fgts.gov.br" },
-  { titulo: "CadÚnico", desc: "Consulta de Cadastro", url: "https://meucadunico.cidadania.gov.br" },
-  { titulo: "Certidão Negativa", desc: "Receita Federal", url: "https://servicos.receita.fazenda.gov.br" },
-  { titulo: "Consulta Matrícula", desc: "Cartório de Registro", url: "#" },
-];
-
 // ── Helpers de apresentação ──
 
-function formatBRL(value: number | null): string {
+function formatBRL(value: number | string | null): string {
   if (value === null || value === undefined) return "Não informado";
-  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
+  const num = typeof value === "string" ? parseFloat(value) : value;
+  if (!Number.isFinite(num)) return "Não informado";
+  return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(num);
 }
 
 function formatDate(dateStr: string | null): string {
@@ -31,6 +23,8 @@ function formatDate(dateStr: string | null): string {
       day: "2-digit",
       month: "2-digit",
       year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     }).format(new Date(dateStr));
   } catch {
     return "Não informado";
@@ -50,7 +44,7 @@ function formatFaseConversa(fase: string | null): string {
 }
 
 function formatStatusAnalise(status: string | null): string {
-  if (!status) return "Em Análise";
+  if (!status) return "—";
   const labels: Record<string, string> = {
     DOCS_PENDING: "Docs Pendentes",
     DOCS_READY: "Docs Prontos",
@@ -65,14 +59,24 @@ function formatStatusAnalise(status: string | null): string {
   return labels[status] ?? status;
 }
 
-function formatStatusAtencao(status: string | null): string {
-  if (!status) return "Normal";
-  const labels: Record<string, string> = {
-    ON_TIME: "Normal",
-    DUE_SOON: "Atenção",
-    OVERDUE: "Alta",
-  };
-  return labels[status] ?? status;
+function boolLabel(value: boolean | null): string {
+  if (value === true) return "Sim";
+  if (value === false) return "Não";
+  return "Não informado";
+}
+
+function restrictionLabel(value: string | null): string {
+  if (!value) return "Não informado";
+  const v = value.toLowerCase().trim();
+  if (v === "sim" || v === "true" || v === "com_restricao") return "Com restrição";
+  if (v === "nao" || v === "não" || v === "false" || v === "sem_restricao") return "Sem restrição";
+  return value.replace(/_/g, " ");
+}
+
+function hasRestriction(value: string | null): boolean {
+  if (!value) return false;
+  const v = value.toLowerCase().trim();
+  return v === "sim" || v === "true" || v === "com_restricao";
 }
 
 function docTipoLabel(tipo: string | null): string {
@@ -122,6 +126,18 @@ function participantLabel(participante: string | null): string {
   return labels[participante] ?? participante;
 }
 
+function papelLabel(papel: string | null): string {
+  if (!papel) return "—";
+  const labels: Record<string, string> = {
+    titular: "Titular",
+    conjuge: "Cônjuge",
+    parceiro: "Parceiro(a)",
+    familiar: "Familiar",
+    companheiro: "Companheiro(a)",
+  };
+  return labels[papel.toLowerCase()] ?? papel.replace(/_/g, " ");
+}
+
 function buildTitulo(data: DossieData): string {
   const programa = data.faixa_renda_programa ?? data.parceiro_analise;
   if (programa) return `Financiamento Habitacional — ${programa}`;
@@ -129,14 +145,12 @@ function buildTitulo(data: DossieData): string {
 }
 
 function buildInstrucoes(data: DossieData): string[] {
-  // Usa retorno_correspondente_bruto/motivo se disponível
   if (data.retorno_correspondente_bruto) {
     return [data.retorno_correspondente_bruto];
   }
   if (data.motivo_retorno_analise) {
     return [data.motivo_retorno_analise];
   }
-  // Gera instruções a partir dos documentos pendentes reais
   const pendentes = data.docs_itens_pendentes ?? data.docs_faltantes ?? [];
   const instrucoes: string[] = [];
   if (pendentes.length > 0) {
@@ -156,21 +170,6 @@ function buildInstrucoes(data: DossieData): string[] {
   return instrucoes;
 }
 
-function buildTags(data: DossieData): string[] {
-  const tags: string[] = [];
-  if (data.faixa_renda_programa) tags.push(data.faixa_renda_programa);
-  if (data.composicao_pessoa === "casal" || data.composicao_pessoa?.includes("parceiro")) {
-    tags.push("Composição de Renda");
-  }
-  const rendaRef = data.renda_total_para_fluxo ?? data.renda_total_analise ?? data.renda_familiar_analise;
-  if (rendaRef && rendaRef > 0) tags.push("Renda Comprovada");
-  if (data.retorno_correspondente_status === "aprovado") tags.push("Aprovado");
-  if (data.aguardando_retorno_correspondente) tags.push("Aguardando Retorno");
-  if (data.processo_enviado_correspondente) tags.push("Enviado ao Correspondente");
-  if (tags.length === 0) tags.push("Financiamento Habitacional");
-  return tags;
-}
-
 function buildResumo(data: DossieData): string {
   if (data.dossie_resumo) return data.dossie_resumo;
   if (data.resumo_perfil_analise) return data.resumo_perfil_analise;
@@ -178,7 +177,47 @@ function buildResumo(data: DossieData): string {
   return "Aguardando atualização do resumo do caso.";
 }
 
-// Icons como componentes inline
+// ── Derive helpers ──
+
+function deriveTipoProcesso(data: DossieData): string {
+  const c = data.composicao_pessoa?.toLowerCase();
+  if (!c) return "Solo";
+  if (c === "solo" || c === "solteiro" || c === "individual") return "Solo";
+  if (c === "casal" || c === "conjuge" || c.includes("parceiro")) return "Conjunto";
+  if (c.includes("familiar") || c.includes("familia")) return "Composição familiar";
+  return c.replace(/_/g, " ");
+}
+
+function deriveParticipantesTotal(data: DossieData): number {
+  const c = data.composicao_pessoa?.toLowerCase();
+  if (!c || c === "solo" || c === "solteiro" || c === "individual") return 1;
+  if (c === "casal" || c === "conjuge" || c.includes("parceiro")) return 2;
+  return 1;
+}
+
+function derivePendenciasTotal(data: DossieData): number {
+  const pendentes = data.docs_itens_pendentes?.length ?? 0;
+  const faltantes = data.docs_faltantes?.length ?? 0;
+  return pendentes + faltantes;
+}
+
+function deriveProntoPreAnalise(data: DossieData): boolean {
+  return data.docs_status === "completo";
+}
+
+function deriveRendaTotal(data: DossieData): number | null {
+  if (data.renda_total_para_fluxo !== null) return data.renda_total_para_fluxo;
+  if (data.renda_total_analise !== null) return data.renda_total_analise;
+  if (data.renda_familiar_analise !== null) return data.renda_familiar_analise;
+  if (data.renda !== null) {
+    const parsed = parseFloat(data.renda);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+// ── SVG Icons ──
+
 const CheckCircleIcon = () => (
   <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -188,12 +227,6 @@ const CheckCircleIcon = () => (
 const FileTextIcon = () => (
   <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-  </svg>
-);
-
-const ClipboardIcon = () => (
-  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
   </svg>
 );
 
@@ -215,21 +248,15 @@ const ClockIcon = () => (
   </svg>
 );
 
-const LinkIcon = () => (
-  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-  </svg>
-);
-
 const ListIcon = () => (
   <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
   </svg>
 );
 
-const TagIcon = () => (
+const UsersIcon = () => (
   <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+    <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
   </svg>
 );
 
@@ -296,7 +323,7 @@ function NoWaIdState() {
           <div style={{ display: "flex", gap: "12px", justifyContent: "center", alignItems: "center" }}>
             <input
               type="text"
-              placeholder="Ex: 5511999990000"
+              placeholder="Ex: 5541997780518"
               value={inputVal}
               onChange={(e) => setInputVal(e.target.value)}
               style={{
@@ -333,33 +360,38 @@ function NoWaIdState() {
 
 function DossieContent({ data }: { data: DossieData }) {
   const titulo = buildTitulo(data);
-  const status = formatStatusAnalise(data.status_analise) || formatFaseConversa(data.fase_conversa);
-  const prioridade = formatStatusAtencao(data.status_atencao);
   const protocolo = data.pre_cadastro_numero ?? data.wa_id;
-  const correspondente = data.correspondente_retorno ?? data.corr_lock_correspondente_wa_id ?? "Não informado";
-  const abertura = formatDate(data.created_at);
-  const prazo = data.prazo_proxima_acao ? formatDate(data.prazo_proxima_acao) : (data.data_retorno_analise ? formatDate(data.data_retorno_analise) : "Aguardando atualização");
   const resumo = buildResumo(data);
-  const tags = buildTags(data);
   const instrucoes = buildInstrucoes(data);
-
-  const rendaRef = data.renda_total_analise ?? data.renda_familiar_analise ?? data.renda_total_para_fluxo;
-  const nivelRisco = data.faixa_perfil_analise ?? data.nivel_risco_reserva ?? "Não informado";
+  const rendaTotal = deriveRendaTotal(data);
+  const pendenciasTotal = derivePendenciasTotal(data);
+  const participantesTotal = deriveParticipantesTotal(data);
+  const prontoPreAnalise = deriveProntoPreAnalise(data);
 
   const docsRecebidos: DocItem[] = data.docs_itens_recebidos ?? [];
-  const docsPendentes: DocItem[] = data.docs_itens_pendentes ?? data.docs_faltantes ?? [];
+  const docsPendentes: DocItem[] = [
+    ...(data.docs_itens_pendentes ?? []),
+    ...(data.docs_faltantes ?? []),
+  ];
 
-  const badgeStatusClass = (() => {
-    if (!data.status_analise) return styles.badgeAnalise;
-    if (data.status_analise.startsWith("APPROVED")) return styles.badgeAprovado;
-    if (data.status_analise.startsWith("REJECTED")) return styles.badgeReprovado;
+  // Badge helpers for hero
+  const corrPubBadgeClass = (() => {
+    if (!data.corr_publicacao_status) return styles.badgeAnalise;
+    if (data.corr_publicacao_status === "publicado") return styles.badgeAprovado;
     return styles.badgeAnalise;
   })();
 
-  const badgePrioClass =
-    data.status_atencao === "OVERDUE" ? styles.badgePrioridade
-    : data.status_atencao === "DUE_SOON" ? styles.badgeMedia
-    : styles.badgeAprovado;
+  const retornoBadgeClass = (() => {
+    if (!data.retorno_correspondente_status) return styles.badgeAnalise;
+    if (data.retorno_correspondente_status === "aprovado") return styles.badgeAprovado;
+    if (data.retorno_correspondente_status === "reprovado") return styles.badgeReprovado;
+    return styles.badgeMedia;
+  })();
+
+  // Fallback parceiro: show partner section when partner fields exist
+  const hasFallbackParceiro =
+    data.renda_parceiro !== null ||
+    data.ctps_36_parceiro !== null;
 
   return (
     <div className={styles.container}>
@@ -389,50 +421,111 @@ function DossieContent({ data }: { data: DossieData }) {
 
       {/* Main Content */}
       <main className={styles.main}>
-        {/* Hero Card */}
+        {/* ── SECTION 1: Capa do pré-cadastro ── */}
         <section className={styles.heroCard}>
           <div className={styles.heroHeader}>
             <div className={styles.heroTitleGroup}>
               <span className={styles.heroProtocol}>Protocolo {protocolo}</span>
               <h2 className={styles.heroTitle}>{titulo}</h2>
-              <p className={styles.heroSubtitle}>{data.fase_conversa ? formatFaseConversa(data.fase_conversa) : "Aguardando atualização"}</p>
+              <p className={styles.heroSubtitle}>
+                {data.nome ?? "Cliente"} · {formatFaseConversa(data.fase_conversa)}
+              </p>
             </div>
             <div className={styles.heroBadges}>
-              <span className={`${styles.badge} ${badgeStatusClass}`}>{status}</span>
-              <span className={`${styles.badge} ${badgePrioClass}`}>Prioridade {prioridade}</span>
+              {data.corr_publicacao_status && (
+                <span className={`${styles.badge} ${corrPubBadgeClass}`}>
+                  {data.corr_publicacao_status}
+                </span>
+              )}
+              {data.retorno_correspondente_status && (
+                <span className={`${styles.badge} ${retornoBadgeClass}`}>
+                  Retorno: {data.retorno_correspondente_status}
+                </span>
+              )}
+              {data.aguardando_retorno_correspondente && (
+                <span className={`${styles.badge} ${styles.badgeMedia}`}>
+                  Aguardando Retorno
+                </span>
+              )}
             </div>
           </div>
 
           <div className={styles.heroGrid}>
             <div className={styles.heroGridItem}>
+              <span className={styles.heroGridLabel}>Referência</span>
+              <span className={styles.heroGridValue}>{data.faixa_renda_programa ?? data.parceiro_analise ?? "—"}</span>
+            </div>
+            <div className={styles.heroGridItem}>
               <span className={styles.heroGridLabel}>Cliente</span>
               <span className={styles.heroGridValue}>{data.nome ?? "Não informado"}</span>
             </div>
             <div className={styles.heroGridItem}>
-              <span className={styles.heroGridLabel}>Correspondente</span>
-              <span className={styles.heroGridValue}>{correspondente}</span>
+              <span className={styles.heroGridLabel}>Pré-cadastro</span>
+              <span className={styles.heroGridValue}>{data.pre_cadastro_numero ?? "—"}</span>
             </div>
             <div className={styles.heroGridItem}>
-              <span className={styles.heroGridLabel}>Base / Origem</span>
-              <span className={styles.heroGridValue}>{data.current_base ?? "Não informado"}</span>
+              <span className={styles.heroGridLabel}>Lock Correspondente</span>
+              <span className={styles.heroGridValue}>{data.corr_lock_correspondente_wa_id ?? "Não atribuído"}</span>
             </div>
             <div className={styles.heroGridItem}>
-              <span className={styles.heroGridLabel}>Abertura / Prazo</span>
-              <span className={styles.heroGridValue}>{abertura} — {prazo}</span>
+              <span className={styles.heroGridLabel}>Status</span>
+              <span className={styles.heroGridValue}>{formatStatusAnalise(data.status_analise)}</span>
+            </div>
+            <div className={styles.heroGridItem}>
+              <span className={styles.heroGridLabel}>Gerado em</span>
+              <span className={styles.heroGridValue}>{formatDate(data.created_at)}</span>
             </div>
           </div>
         </section>
 
-        {/* Resumo do Caso */}
+        {/* ── SECTION 2: Resumo Executivo ── */}
         <section className={styles.sectionCard}>
           <div className={styles.sectionHeader}>
             <div className={styles.sectionIcon}><FileTextIcon /></div>
-            <h3 className={styles.sectionTitle}>Resumo do Caso</h3>
+            <h3 className={styles.sectionTitle}>Resumo Executivo</h3>
           </div>
-          <p className={styles.resumoText}>{resumo}</p>
+
+          {/* Metrics row */}
+          <div className={styles.resumoMetrics}>
+            <div className={styles.metricItem}>
+              <span className={styles.metricLabel}>Pronto para pré-análise</span>
+              <span className={`${styles.metricValue} ${prontoPreAnalise ? styles.metricPositive : styles.metricWarning}`}>
+                {prontoPreAnalise ? "Sim" : "Não"}
+              </span>
+            </div>
+            <div className={styles.metricItem}>
+              <span className={styles.metricLabel}>Status documental</span>
+              <span className={`${styles.metricValue} ${data.docs_status === "completo" ? styles.metricPositive : styles.metricNeutral}`}>
+                {data.docs_status ?? "—"}
+              </span>
+            </div>
+            <div className={styles.metricItem}>
+              <span className={styles.metricLabel}>Pendências totais</span>
+              <span className={`${styles.metricValue} ${pendenciasTotal === 0 ? styles.metricPositive : styles.metricWarning}`}>
+                {pendenciasTotal}
+              </span>
+            </div>
+            <div className={styles.metricItem}>
+              <span className={styles.metricLabel}>Renda total</span>
+              <span className={`${styles.metricValue} ${styles.metricNeutral}`}>
+                {formatBRL(rendaTotal)}
+              </span>
+            </div>
+            <div className={styles.metricItem}>
+              <span className={styles.metricLabel}>Participantes totais</span>
+              <span className={`${styles.metricValue} ${styles.metricNeutral}`}>
+                {participantesTotal}
+              </span>
+            </div>
+          </div>
+
+          {/* Full resumo text */}
+          <div className={styles.resumoTextBlock}>
+            <p className={styles.resumoText}>{resumo}</p>
+          </div>
         </section>
 
-        {/* Perfil Técnico Consolidado */}
+        {/* ── SECTION 3: Perfil Técnico Consolidado ── */}
         <section className={styles.sectionCard}>
           <div className={styles.sectionHeader}>
             <div className={styles.sectionIcon}><ChartIcon /></div>
@@ -440,61 +533,87 @@ function DossieContent({ data }: { data: DossieData }) {
           </div>
           <div className={styles.perfilGrid}>
             <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Nº do Processo / wa_id</span>
-              <span className={styles.perfilValue}>{data.pre_cadastro_numero ?? data.wa_id}</span>
+              <span className={styles.perfilLabel}>Nome</span>
+              <span className={styles.perfilValue}>{data.nome ?? "Não informado"}</span>
             </div>
             <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Instituição</span>
-              <span className={styles.perfilValue}>Aguardando atualização</span>
+              <span className={styles.perfilLabel}>Estado civil</span>
+              <span className={styles.perfilValue}>{data.estado_civil ?? "Não informado"}</span>
             </div>
             <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Programa</span>
-              <span className={styles.perfilValue}>{data.faixa_renda_programa ?? data.parceiro_analise ?? "Não informado"}</span>
+              <span className={styles.perfilLabel}>Tipo de processo</span>
+              <span className={styles.perfilValue}>{deriveTipoProcesso(data)}</span>
             </div>
             <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Valor do Imóvel (Ticket)</span>
-              <span className={styles.perfilValue}>{formatBRL(data.ticket_desejado_analise)}</span>
+              <span className={styles.perfilLabel}>Renda</span>
+              <span className={styles.perfilValue}>{formatBRL(data.renda ?? rendaTotal)}</span>
             </div>
             <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Valor do Financiamento</span>
-              <span className={styles.perfilValue}>{formatBRL(data.valor_financiamento_aprovado)}</span>
+              <span className={styles.perfilLabel}>Composição</span>
+              <span className={styles.perfilValue}>{data.composicao_pessoa ?? "Não informado"}</span>
             </div>
             <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Subsídio Estimado</span>
-              <span className={styles.perfilValue}>{formatBRL(data.valor_subsidio_aprovado)}</span>
+              <span className={styles.perfilLabel}>Regime de trabalho</span>
+              <span className={styles.perfilValue}>{data.regime_trabalho ?? "Não informado"}</span>
             </div>
             <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Renda Mensal Familiar</span>
-              <span className={styles.perfilValue}>{formatBRL(rendaRef)}</span>
+              <span className={styles.perfilLabel}>CTPS ≥ 36m</span>
+              <span className={styles.perfilValue}>{boolLabel(data.ctps_36)}</span>
             </div>
             <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Parcela Estimada</span>
-              <span className={styles.perfilValue}>{formatBRL(data.valor_parcela_informada)}</span>
+              <span className={styles.perfilLabel}>Dependente</span>
+              <span className={styles.perfilValue}>{boolLabel(data.dependente)}</span>
             </div>
             <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Taxa de Juros</span>
-              <span className={styles.perfilValue}>Aguardando atualização</span>
+              <span className={styles.perfilLabel}>Restrição</span>
+              <span className={styles.perfilValue}>{restrictionLabel(data.restricao)}</span>
             </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Prazo</span>
-              <span className={styles.perfilValue}>Aguardando atualização</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Nível de Risco / Faixa</span>
-              <span className={styles.perfilValue}>{nivelRisco}</span>
-            </div>
+            {data.regularizacao_restricao && (
+              <div className={styles.perfilItem}>
+                <span className={styles.perfilLabel}>Regularização restrição</span>
+                <span className={styles.perfilValue}>{data.regularizacao_restricao}</span>
+              </div>
+            )}
+            {data.somar_renda !== null && (
+              <div className={styles.perfilItem}>
+                <span className={styles.perfilLabel}>Somar renda</span>
+                <span className={styles.perfilValue}>{boolLabel(data.somar_renda)}</span>
+              </div>
+            )}
+            {data.nacionalidade && (
+              <div className={styles.perfilItem}>
+                <span className={styles.perfilLabel}>Nacionalidade</span>
+                <span className={styles.perfilValue}>{data.nacionalidade}</span>
+              </div>
+            )}
           </div>
-          <div className={styles.perfilTags}>
-            {tags.map((tag, index) => (
-              <span key={index} className={styles.perfilTag}>
-                <TagIcon />
-                {tag}
-              </span>
-            ))}
-          </div>
+
+          {/* Fallback parceiro */}
+          {hasFallbackParceiro && (
+            <div className={styles.participantesSection}>
+              <div className={styles.participantesTitle}>
+                <UsersIcon />
+                Parceiro(a)
+              </div>
+              <div className={styles.perfilGrid}>
+                {data.renda_parceiro !== null && (
+                  <div className={styles.perfilItem}>
+                    <span className={styles.perfilLabel}>Renda parceiro</span>
+                    <span className={styles.perfilValue}>{formatBRL(data.renda_parceiro)}</span>
+                  </div>
+                )}
+                {data.ctps_36_parceiro !== null && (
+                  <div className={styles.perfilItem}>
+                    <span className={styles.perfilLabel}>CTPS ≥ 36m parceiro</span>
+                    <span className={styles.perfilValue}>{boolLabel(data.ctps_36_parceiro)}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </section>
 
-        {/* Documentos Recebidos */}
+        {/* ── SECTION 4: Documentos (two cards) ── */}
         <section className={styles.sectionCard}>
           <div className={styles.sectionHeader}>
             <div className={styles.sectionIcon}><DocumentIcon /></div>
@@ -506,7 +625,7 @@ function DossieContent({ data }: { data: DossieData }) {
             <table className={styles.docTable}>
               <thead>
                 <tr>
-                  <th>Documento</th>
+                  <th>Tipo</th>
                   <th>Participante</th>
                 </tr>
               </thead>
@@ -529,7 +648,6 @@ function DossieContent({ data }: { data: DossieData }) {
           )}
         </section>
 
-        {/* Documentos Pendentes */}
         <section className={styles.sectionCard}>
           <div className={styles.sectionHeader}>
             <div className={styles.sectionIcon}><ClockIcon /></div>
@@ -538,48 +656,82 @@ function DossieContent({ data }: { data: DossieData }) {
           {docsPendentes.length === 0 ? (
             <p style={{ color: "#6b7c93", padding: "12px 0" }}>Nenhum documento pendente. Pasta completa.</p>
           ) : (
-            <div className={styles.pendentesList}>
-              {docsPendentes.map((doc, index) => (
-                <div key={index} className={styles.pendenteItem}>
-                  <div className={styles.pendenteInfo}>
-                    <div className={styles.pendenteIcon}><ClipboardIcon /></div>
-                    <div className={styles.pendenteTexts}>
-                      <span className={styles.pendenteName}>{buildDocLabel(doc)}</span>
-                      <span className={styles.pendentePrazo}>Prazo: {prazo}</span>
-                    </div>
-                  </div>
-                  <span className={`${styles.badge} ${styles.badgePrioridade}`}>Pendente</span>
-                </div>
-              ))}
-            </div>
+            <table className={styles.docTable}>
+              <thead>
+                <tr>
+                  <th>Tipo</th>
+                  <th>Participante</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {docsPendentes.map((doc, index) => (
+                  <tr key={index}>
+                    <td>
+                      <div className={styles.docName}>
+                        <div className={styles.docIcon}>
+                          <DocumentIcon />
+                        </div>
+                        {docTipoLabel(doc.tipo)}
+                      </div>
+                    </td>
+                    <td>{participantLabel(doc.participante)}</td>
+                    <td>
+                      <span className={`${styles.badge} ${styles.badgePrioridade}`}>Pendente</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
         </section>
 
-        {/* Links Operacionais */}
-        <section className={styles.sectionCard}>
-          <div className={styles.sectionHeader}>
-            <div className={styles.sectionIcon}><LinkIcon /></div>
-            <h3 className={styles.sectionTitle}>Links Operacionais</h3>
-          </div>
-          <div className={styles.linksGrid}>
-            {LINKS_OPERACIONAIS.map((link, index) => (
-              <a key={index} href={link.url} className={styles.linkCard} target="_blank" rel="noopener noreferrer">
-                <div className={styles.linkIcon}><LinkIcon /></div>
-                <div className={styles.linkTexts}>
-                  <span className={styles.linkTitle}>{link.titulo}</span>
-                  <span className={styles.linkDesc}>{link.desc}</span>
-                </div>
-              </a>
-            ))}
-          </div>
-        </section>
-
-        {/* Instruções de Retorno */}
+        {/* ── SECTION 5: Instrução / Estado de Retorno do Correspondente ── */}
         <section className={styles.sectionCard}>
           <div className={styles.sectionHeader}>
             <div className={styles.sectionIcon}><ListIcon /></div>
-            <h3 className={styles.sectionTitle}>Instruções de Retorno ao Correspondente</h3>
+            <h3 className={styles.sectionTitle}>Instrução / Estado de Retorno do Correspondente</h3>
           </div>
+
+          {/* Retorno flags */}
+          <div className={styles.retornoFlags}>
+            <div className={styles.retornoFlagItem}>
+              <span className={styles.retornoFlagLabel}>Retorno correspondente</span>
+              <span className={styles.retornoFlagValue}>
+                {data.retorno_correspondente_status ? (
+                  <span className={`${styles.badge} ${retornoBadgeClass}`}>
+                    {data.retorno_correspondente_status}
+                  </span>
+                ) : (
+                  "—"
+                )}
+              </span>
+            </div>
+            <div className={styles.retornoFlagItem}>
+              <span className={styles.retornoFlagLabel}>Motivo</span>
+              <span className={styles.retornoFlagValue}>
+                {data.retorno_correspondente_motivo ?? data.motivo_retorno_analise ?? "—"}
+              </span>
+            </div>
+            <div className={styles.retornoFlagItem}>
+              <span className={styles.retornoFlagLabel}>Valor financiamento</span>
+              <span className={styles.retornoFlagValue}>
+                {formatBRL(data.valor_financiamento_aprovado)}
+              </span>
+            </div>
+            <div className={styles.retornoFlagItem}>
+              <span className={styles.retornoFlagLabel}>Subsídio federal</span>
+              <span className={styles.retornoFlagValue}>
+                {formatBRL(data.valor_subsidio_aprovado)}
+              </span>
+            </div>
+            <div className={styles.retornoFlagItem}>
+              <span className={styles.retornoFlagLabel}>Pendências</span>
+              <span className={styles.retornoFlagValue}>{pendenciasTotal}</span>
+            </div>
+          </div>
+
+          {/* Instrução operacional */}
           <div className={styles.instrucoesList}>
             {instrucoes.map((instrucao, index) => (
               <div key={index} className={styles.instrucaoItem}>

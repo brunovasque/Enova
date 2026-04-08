@@ -2,8 +2,9 @@
 
 // ============================================================
 // Dossiê do Correspondente — Server Action
-// Escopo: leitura consolidada de crm_leads_v1 + enova_state + enova_attendance_meta
-// Padrão: segue exatamente o mesmo padrão de crm/actions.ts e atendimento/actions.ts
+// Escopo: leitura consolidada de enova_state + crm_leads_v1 + enova_attendance_meta
+// Replica EXATAMENTE o contrato do dossiê real do sistema
+// (buildCorrespondenteDossierPayloadFromCanonical → buildCorrespondenteEntryCoverHtml)
 // Sem criar endpoint HTTP novo. Sem alterar backend canônico.
 // ============================================================
 
@@ -13,11 +14,11 @@ export type DocItem = {
 };
 
 export type DossieData = {
-  // Identificação
+  // Identificação (meta do dossiê real)
   wa_id: string;
   pre_cadastro_numero: string | null;
 
-  // Dados do cliente (via crm_leads_v1 / enova_state)
+  // Dados do cliente (enova_state — fonte canônica)
   nome: string | null;
   fase_conversa: string | null;
   funil_status: string | null;
@@ -30,8 +31,20 @@ export type DossieData = {
   dossie_resumo: string | null;
   created_at: string | null;
 
-  // Campos correspondente (enova_state)
+  // Perfil técnico consolidado (enova_state — campos do dossiê real)
+  renda: string | null;
+  renda_parceiro: string | null;
+  somar_renda: boolean | null;
+  ctps_36: boolean | null;
+  ctps_36_parceiro: boolean | null;
+  dependente: boolean | null;
+  dependentes_qtd: number | null;
+  restricao: string | null;
+  regularizacao_restricao: string | null;
+
+  // Correspondente (enova_state)
   corr_lock_correspondente_wa_id: string | null;
+  corr_publicacao_status: string | null;
   processo_enviado_correspondente: boolean | null;
   aguardando_retorno_correspondente: boolean | null;
   retorno_correspondente_status: string | null;
@@ -133,8 +146,8 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
   const headers = buildHeaders(serviceRoleKey);
 
   try {
-    // ── 1. enova_state — fonte canônica do funil e docs ──
-    // Campos não cobertos pelas views consolidadas (crm_leads_v1, enova_attendance_v1)
+    // ── 1. enova_state — fonte canônica do funil, perfil técnico e docs ──
+    // Busca pela chave primária real do caso: wa_id do lead
     const stateFields = [
       "wa_id",
       "nome",
@@ -149,12 +162,25 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
       "nacionalidade",
       "dossie_resumo",
       "created_at",
+      // Perfil técnico (dossiê real)
+      "renda",
+      "renda_parceiro",
+      "somar_renda",
+      "ctps_36",
+      "ctps_36_parceiro",
+      "dependente",
+      "dependentes_qtd",
+      "restricao",
+      "regularizacao_restricao",
+      // Correspondente
       "corr_lock_correspondente_wa_id",
+      "corr_publicacao_status",
       "processo_enviado_correspondente",
       "aguardando_retorno_correspondente",
       "retorno_correspondente_status",
       "retorno_correspondente_motivo",
       "retorno_correspondente_bruto",
+      // Docs
       "docs_status",
       "docs_itens_recebidos",
       "docs_itens_pendentes",
@@ -257,7 +283,7 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
         Array.isArray(attRows) && attRows.length > 0 ? attRows[0] : null;
     }
 
-    // ── Consolidar resposta ──
+    // ── Consolidar resposta (replica contrato real do dossiê) ──
     const data: DossieData = {
       wa_id: trimmedId,
       pre_cadastro_numero: safeString(stateRow.pre_cadastro_numero),
@@ -274,37 +300,38 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
       dossie_resumo: safeString(stateRow.dossie_resumo),
       created_at: safeString(stateRow.created_at),
 
-      corr_lock_correspondente_wa_id: safeString(
-        stateRow.corr_lock_correspondente_wa_id,
-      ),
-      processo_enviado_correspondente: safeBool(
-        stateRow.processo_enviado_correspondente,
-      ),
-      aguardando_retorno_correspondente: safeBool(
-        stateRow.aguardando_retorno_correspondente,
-      ),
-      retorno_correspondente_status: safeString(
-        stateRow.retorno_correspondente_status,
-      ),
-      retorno_correspondente_motivo: safeString(
-        stateRow.retorno_correspondente_motivo,
-      ),
-      retorno_correspondente_bruto: safeString(
-        stateRow.retorno_correspondente_bruto,
-      ),
+      // Perfil técnico
+      renda: safeString(stateRow.renda),
+      renda_parceiro: safeString(stateRow.renda_parceiro),
+      somar_renda: safeBool(stateRow.somar_renda),
+      ctps_36: safeBool(stateRow.ctps_36),
+      ctps_36_parceiro: safeBool(stateRow.ctps_36_parceiro),
+      dependente: safeBool(stateRow.dependente),
+      dependentes_qtd: safeNumber(stateRow.dependentes_qtd),
+      restricao: safeString(stateRow.restricao),
+      regularizacao_restricao: safeString(stateRow.regularizacao_restricao),
 
+      // Correspondente
+      corr_lock_correspondente_wa_id: safeString(stateRow.corr_lock_correspondente_wa_id),
+      corr_publicacao_status: safeString(stateRow.corr_publicacao_status),
+      processo_enviado_correspondente: safeBool(stateRow.processo_enviado_correspondente),
+      aguardando_retorno_correspondente: safeBool(stateRow.aguardando_retorno_correspondente),
+      retorno_correspondente_status: safeString(stateRow.retorno_correspondente_status),
+      retorno_correspondente_motivo: safeString(stateRow.retorno_correspondente_motivo),
+      retorno_correspondente_bruto: safeString(stateRow.retorno_correspondente_bruto),
+
+      // Docs
       docs_status: safeString(stateRow.docs_status),
       docs_itens_recebidos: safeArray<DocItem>(stateRow.docs_itens_recebidos),
       docs_itens_pendentes: safeArray<DocItem>(stateRow.docs_itens_pendentes),
       docs_faltantes: safeArray<DocItem>(stateRow.docs_faltantes),
 
+      // CRM
       correspondente_retorno: safeString(crmRow?.correspondente_retorno),
       status_analise: safeString(crmRow?.status_analise),
       resumo_retorno_analise: safeString(crmRow?.resumo_retorno_analise),
       motivo_retorno_analise: safeString(crmRow?.motivo_retorno_analise),
-      valor_financiamento_aprovado: safeNumber(
-        crmRow?.valor_financiamento_aprovado,
-      ),
+      valor_financiamento_aprovado: safeNumber(crmRow?.valor_financiamento_aprovado),
       valor_subsidio_aprovado: safeNumber(crmRow?.valor_subsidio_aprovado),
       valor_entrada_informada: safeNumber(crmRow?.valor_entrada_informada),
       valor_parcela_informada: safeNumber(crmRow?.valor_parcela_informada),
@@ -319,6 +346,7 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
       data_retorno_analise: safeString(crmRow?.data_retorno_analise),
       parceiro_analise: safeString(crmRow?.parceiro_analise),
 
+      // Operational
       status_atencao: safeString(attendanceRow?.attention_status),
       prazo_proxima_acao: safeString(attendanceRow?.enova_next_action_due_at),
       proxima_acao: safeString(attendanceRow?.enova_next_action_label),

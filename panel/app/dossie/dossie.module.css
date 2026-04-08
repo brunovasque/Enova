@@ -537,18 +537,190 @@
   line-height: 1.5;
 }
 
+/* Resumo Metrics */
+.resumoMetrics {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 14px;
+  margin-bottom: 20px;
+}
+
+.metricItem {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  text-align: center;
+}
+
+.metricLabel {
+  font-size: 0.7rem;
+  color: #6b7c93;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.metricValue {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.metricPositive {
+  color: #4ade80;
+}
+
+.metricNeutral {
+  color: #e6edf3;
+}
+
+.metricWarning {
+  color: #fbbf24;
+}
+
+.resumoTextBlock {
+  padding-top: 4px;
+}
+
+/* Participantes Section */
+.participantesSection {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.participantesTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #e6edf3;
+  margin-bottom: 16px;
+}
+
+.participantesTitle svg {
+  width: 18px;
+  height: 18px;
+  color: #2dd4bf;
+}
+
+.participantesGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+}
+
+.participanteCard {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px;
+  padding: 18px;
+}
+
+.participanteHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.participantePapel {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #2dd4bf;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.participanteId {
+  font-size: 0.75rem;
+  color: #6b7c93;
+  font-family: monospace;
+}
+
+.participanteGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.participanteField {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.participanteFieldLabel {
+  font-size: 0.7rem;
+  color: #6b7c93;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.participanteFieldValue {
+  font-size: 0.85rem;
+  color: #e6edf3;
+  font-weight: 500;
+}
+
+/* Retorno Flags */
+.retornoFlags {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.retornoFlagItem {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.retornoFlagLabel {
+  font-size: 0.7rem;
+  color: #6b7c93;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 500;
+}
+
+.retornoFlagValue {
+  font-size: 0.9rem;
+  color: #e6edf3;
+  font-weight: 500;
+}
+
 /* Responsive */
 @media (max-width: 900px) {
   .heroGrid {
     grid-template-columns: repeat(2, 1fr);
   }
   
-  .linksGrid {
-    grid-template-columns: repeat(2, 1fr);
+  .resumoMetrics {
+    grid-template-columns: repeat(3, 1fr);
   }
   
   .perfilGrid {
     grid-template-columns: 1fr;
+  }
+  
+  .participantesGrid {
+    grid-template-columns: 1fr;
+  }
+  
+  .retornoFlags {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
@@ -577,8 +749,8 @@
     grid-template-columns: 1fr;
   }
   
-  .linksGrid {
-    grid-template-columns: 1fr;
+  .resumoMetrics {
+    grid-template-columns: repeat(2, 1fr);
   }
   
   .heroTitle {
@@ -588,5 +760,9 @@
   .docTable th:nth-child(3),
   .docTable td:nth-child(3) {
     display: none;
+  }
+  
+  .retornoFlags {
+    grid-template-columns: 1fr;
   }
 }

@@ -19018,9 +19018,9 @@ const TOP_SEALED_MAX_RETRIES = 2;
 // Permite provar se inputs distintos estão caindo no mesmo bucket de resposta.
 // Buckets obrigatórios: greeting, identity, how_it_works, program_choice, unknown_topo
 const _TOPO_INTENT_BUCKETS = Object.freeze([
-  { key: "greeting",        re: /^(oi+|ola|olá|opa|eae|eai|e ai|e aí|fala|bom dia|boa tarde|boa noite)\b/i },
-  { key: "identity",        re: /\b(quem [eé] voc[eê]|quem [eé] a enova|voc[eê] [eé] quem|quem\b.*\bvoc[eê]|o que [eé] voc[eê]|o que voc[eê] [eé])\b/i },
-  { key: "how_it_works",    re: /\b(como funciona|explica|me explica|n[aã]o.*me explica|o que [eé]|como [eé]|que [eé] isso|como que funciona|funciona como)\b/i },
+  { key: "greeting",        re: /^(oi+|ol[aá]|opa|eae|eai|e ai|e a[ií]|fala|bom dia|boa tarde|boa noite)(?:\b|$|\s)/i },
+  { key: "identity",        re: /(?:quem [eé] voc[eê]|quem [eé] a enova|voc[eê] [eé] quem|quem\b.*\bvoc[eê]|o que [eé] voc[eê]|o que voc[eê] [eé]|quem vc [eé]|quem [eé] vc)/i },
+  { key: "how_it_works",    re: /(?:como funciona|explica|me explica|n[aã]o.*me explica|como [eé]|que [eé] isso|como que funciona|funciona como)/i },
   { key: "program_choice",  re: /\b(j[aá] sei|j[aá] conhe[cç]o|sei sim|conhe[cç]o|n[aã]o sei|n[aã]o conhe[cç]o|quero saber|quero entender)\b/i },
   { key: "restart",         re: /\b(quero come[cç]ar|come[cç]ar de novo|come[cç]ar do zero|resetar|reset|voltei|to de volta)\b/i },
   { key: "affirmative",     re: /^(sim|s|ss|claro|pode|bora|vamos)\b/i },
@@ -19044,7 +19044,7 @@ function _classifyTopoIntentBucket(userText) {
 const _TOPO_BUCKET_STATIC_REPLIES = Object.freeze({
   greeting:       "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Posso te ajudar a entender se você se enquadra. Você já sabe como funciona ou quer que eu te explique?",
   identity:       "Eu sou a Enova, uma assistente virtual especializada no programa Minha Casa Minha Vida 😊 Estou aqui pra te ajudar a entender suas condições e te guiar no processo. Você já sabe como funciona ou quer que eu te explique?",
-  how_it_works:   "O Minha Casa Minha Vida é um programa do governo que ajuda na entrada e reduz a parcela do financiamento, de acordo com a renda da família 😊 Eu vou analisar seu perfil e mostrar quanto de subsídio você pode ter. Quer seguir com a análise? Me diz *sim* pra gente começar.",
+  how_it_works:   "O Minha Casa Minha Vida é um programa do governo que ajuda na entrada e reduz a parcela do financiamento, de acordo com a faixa da família 😊 Eu vou analisar seu perfil e mostrar quanto de subsídio você pode ter. Quer seguir com a análise? Me diz *sim* pra gente começar.",
   program_choice: "Você já sabe como funciona o Minha Casa Minha Vida ou quer que eu te explique rapidinho? 😊",
   unknown_topo:   "Oi! 😊 Eu sou a Enova, assistente do Minha Casa Minha Vida. Posso te ajudar? Você já sabe como funciona o programa ou prefere que eu explique?"
 });

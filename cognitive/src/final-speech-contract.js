@@ -329,7 +329,6 @@ export function applyFinalSpeechContract(reply, context = {}) {
   // Guardrails leves (casa→imóvel, promessas proibidas) podem alterar tokens
   // específicos mas NUNCA reescrevem semântica. Rastreamos se a resposta mudou
   // para provar que o contrato final não destrói reply_text no caminho normal.
-  const _afterGuardrails = result;
   const _guardrailsChangedReply = (result !== reply);
 
   // ── BLOCO 4 (PR #550): Quando LLM é soberano, parar aqui. ──

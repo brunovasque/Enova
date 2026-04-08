@@ -213,7 +213,7 @@ const STAGE_GOALS = Object.freeze({
 // When the topo bucket is known, the goal is more specific than the generic
 // inicio_programa goal. This prevents how_it_works from collapsing with greeting.
 const INICIO_PROGRAMA_BUCKET_GOALS = Object.freeze({
-  greeting: "Saudação acolhedora: apresente-se como Enova, assistente do Minha Casa Minha Vida. Pergunte se o cliente já sabe como funciona ou quer explicação.",
+  greeting: "Saudação acolhedora: apresente-se como Enova, assistente do Minha Casa Minha Vida. Pergunte se o cliente já sabe como funciona ou quer explicação. REGRA DE VARIAÇÃO: varie o tom e a forma da saudação a cada interação — use abordagens diferentes (calorosa, leve, direta, simpática, curiosa). NÃO repita a mesma estrutura fixa de abertura. Seja natural e humana, como uma pessoa real que cumprimenta de formas diferentes a cada vez. Mantenha curto (2-3 frases no máximo).",
   identity: "O cliente perguntou quem você é. Explique que você é a Enova, assistente virtual do Minha Casa Minha Vida. NÃO repita saudação de boas-vindas.",
   how_it_works: "O cliente pediu explicação do programa. EXPLIQUE o Minha Casa Minha Vida: programa do governo que oferece subsídio na entrada e parcela reduzida conforme renda familiar. Mencione benefícios reais (subsídio, faixas, parcela). NÃO pergunte 'já sabe como funciona?' — ele já disse que quer explicação. Ao final, pergunte se quer seguir com a análise.",
   program_choice: "Pergunte ao cliente se já sabe como funciona o Minha Casa Minha Vida ou se quer explicação.",

@@ -438,6 +438,7 @@ function normalizeRequest(input = {}) {
         ? cloneJson(knownSlotsRaw)
         : {},
     pending_slots: Array.isArray(pendingSlotsRaw) ? [...pendingSlotsRaw] : [],
+    goal_of_current_stage: String(input?.goal_of_current_stage || context?.goal_of_current_stage || ""),
     recent_messages: Array.isArray(recentMessagesRaw)
       ? recentMessagesRaw.map((entry) => {
           if (typeof entry === "string") return { role: "user", text: entry };
@@ -2166,9 +2167,15 @@ function buildTopoFunilGuidance(request) {
     if (/(?:como funciona|explic[ao]|explique|me explic[ao]|me explique|n[aã]o.*me explic[ao]|n[aã]o.*me explique|como [eé]|que [eé] isso|como que funciona|funciona como)/i.test(normalizedMessage)) {
       return "O Minha Casa Minha Vida é um programa do governo federal que oferece subsídio na entrada do imóvel e reduz a parcela do financiamento, de acordo com a renda da família 😊 Vou analisar seu perfil e mostrar exatamente quanto de subsídio você pode ter. Quer seguir com a análise? Me diz *sim* pra gente começar.";
     }
-    // Saudação curta / reentrada (inclui pós-reset) — resposta humana + reancoragem
-    if (GREETING_TOPO.test(normalizedMessage) || REENTRY_TOPO.test(normalizedMessage)) {
+    // Saudação curta / reentrada (inclui pós-reset) — delegar ao LLM para variação cognitiva
+    // Não retornar hardcoded para greeting: o LLM vai gerar com goal_of_current_stage variado.
+    // Apenas REENTRY_TOPO mantém resposta fixa (não é greeting puro).
+    if (REENTRY_TOPO.test(normalizedMessage) && !GREETING_TOPO.test(normalizedMessage)) {
       return "Oi! Fico feliz em te ajudar 😊 Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique rapidinho? Responda *sim* (já sei) ou *não* (explica).";
+    }
+    // Greeting puro: retorna null para delegar ao LLM cognitivo com variação
+    if (GREETING_TOPO.test(normalizedMessage)) {
+      return null;
     }
     if (/\bestrangeiro|estrang[ei]\b/.test(normalizedMessage)) {
       return "Estrangeiro pode participar, desde que tenha RNM com prazo indeterminado.";
@@ -2883,7 +2890,8 @@ function buildOpenAIUserPrompt(request, analysis, normativeContext) {
       message_text: request.message_text,
       history: request.recent_messages,
       known_slots: request.known_slots,
-      pending_slots: request.pending_slots
+      pending_slots: request.pending_slots,
+      goal_of_current_stage: request.goal_of_current_stage || null
     },
     slot_contract: COGNITIVE_SLOT_CONTRACT,
     slot_dependencies: COGNITIVE_SLOT_DEPENDENCIES,

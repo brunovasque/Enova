@@ -19548,7 +19548,7 @@ function _isTopoBucketReplyCompatible(bucket, reply) {
 function _getTopoBucketRetryInstruction(bucket) {
   switch (bucket) {
     case "greeting":
-      return "Responda APENAS com uma saudação calorosa e acolhedora. NÃO pergunte nome, estado civil, renda ou qualquer dado pessoal. Apresente-se como Enova e pergunte se o cliente já sabe como funciona o Minha Casa Minha Vida ou quer explicação.";
+      return "Responda APENAS com uma saudação calorosa e acolhedora. NÃO pergunte nome, estado civil, renda ou qualquer dado pessoal. Apresente-se como Enova e pergunte se o cliente já sabe como funciona o Minha Casa Minha Vida ou quer explicação. Use uma abordagem DIFERENTE da tentativa anterior — varie o tom e a estrutura da saudação.";
     case "identity":
       return "O cliente perguntou quem você é. Responda APENAS explicando que você é a Enova, assistente virtual do programa Minha Casa Minha Vida. NÃO repita a saudação de boas-vindas. NÃO pergunte nome, estado civil, renda ou qualquer dado pessoal.";
     case "how_it_works":
@@ -19574,6 +19574,35 @@ function _replyTemplateFingerprint(reply) {
     .replace(/\s+/g, " ")
     .substring(0, 60);
   return nt || "empty";
+}
+
+// ── Greeting short memory: detect reuse of same opening ─────────────────────
+// Computes a normalized signature of a greeting reply (first 80 chars, stripped of emoji/punctuation).
+// Used to detect when the LLM is producing the same greeting structure repeatedly.
+function _greetingSignature(reply) {
+  if (!reply || typeof reply !== "string") return "";
+  return String(reply).trim().toLowerCase()
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FEFF}]/gu, "")
+    .replace(/[^\w\sáéíóúâêôãõçà]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .substring(0, 80);
+}
+
+// Check if a greeting reply is too similar to a recent one stored in state.
+// Returns true if detected as reuse (same signature).
+function _isGreetingReuse(reply, st) {
+  if (!st || !st.__topo_recent_greeting_sig) return false;
+  const currentSig = _greetingSignature(reply);
+  if (!currentSig) return false;
+  return currentSig === st.__topo_recent_greeting_sig;
+}
+
+// Store the greeting signature for future reuse detection.
+// Only stores the signature, not the full reply text — minimal state.
+function _storeGreetingSignature(reply, st) {
+  if (!st || !reply) return;
+  st.__topo_recent_greeting_sig = _greetingSignature(reply);
 }
 
 const TOPO_INICIO_PROGRAMA_FORBIDDEN_COLLECTION_RE =
@@ -20045,6 +20074,9 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
   let _replySemanticClass = null;
   let _howItWorksExplanationPresent = false;
   let _reusedOpeningShell = false;
+  let _greetingReuseDetected = false;
+  let _greetingVariantKey = null;
+  let _recentOpeningMatched = false;
   const _maxRetries = _isSealed ? TOP_SEALED_MAX_RETRIES : 0;
 
   for (let attempt = 0; attempt <= _maxRetries; attempt++) {
@@ -20057,7 +20089,15 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
       // This ensures the cognitive engine receives a goal that matches the bucket,
       // preventing how_it_works from collapsing with greeting/program_choice.
       const _previousGoalOverride = st.__topo_bucket_goal_override;
-      st.__topo_bucket_goal_override = getStageGoal(config.cognitiveStage, _topoBucket);
+      let _bucketGoal = getStageGoal(config.cognitiveStage, _topoBucket);
+
+      // ── Greeting variation: inject recent greeting avoidance into LLM goal ──
+      if (_topoBucket === "greeting" && st.__topo_recent_greeting_sig) {
+        _bucketGoal += " IMPORTANTE: sua última saudação começava com '" +
+          (st.__topo_recent_greeting_sig || "").substring(0, 40) +
+          "'. Use uma abertura DIFERENTE desta vez.";
+      }
+      st.__topo_bucket_goal_override = _bucketGoal;
 
       const cogResult = await runCognitiveV2WithAdapter(
         env,
@@ -20078,6 +20118,13 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
       _replySemanticClass = _classifyReplySemanticClass(replyText);
       _reusedOpeningShell = _isOpeningShellReuse(replyText);
       _howItWorksExplanationPresent = _topoBucket === "how_it_works" && _replySemanticClass === "explanation";
+
+      // ── Greeting reuse detection ──
+      if (_topoBucket === "greeting" && replyText) {
+        _greetingVariantKey = _greetingSignature(replyText);
+        _recentOpeningMatched = _isGreetingReuse(replyText, st);
+        _greetingReuseDetected = _recentOpeningMatched;
+      }
 
       // Valida reply: confiança mínima + validação contextual
       if (
@@ -20102,6 +20149,26 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
           continue; // retry with bucket instruction
         }
 
+        // ── Greeting reuse incompatibility: retry if same greeting as last time ──
+        if (_isSealed && _topoBucket === "greeting" && _recentOpeningMatched && attempt < _maxRetries) {
+          _retryCount++;
+          _retryReason = "greeting_reuse_detected";
+          console.log(JSON.stringify({
+            _tag: "TOPO_GREETING_REUSE_RETRY",
+            attempt,
+            bucket: _topoBucket,
+            reply_snippet: replyText.slice(0, 100),
+            recent_sig: (st.__topo_recent_greeting_sig || "").substring(0, 40),
+            current_sig: (_greetingVariantKey || "").substring(0, 40)
+          }));
+          continue;
+        }
+
+        // ── Store greeting signature for future reuse detection ──
+        if (_topoBucket === "greeting") {
+          _storeGreetingSignature(replyText, st);
+        }
+
         const source = rawOrigin === "llm_real" ? "cognitive_real"
           : rawOrigin === "heuristic_guidance" ? "heuristic_guidance"
           : "fallback_mechanical";
@@ -20116,7 +20183,10 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
           _topo_reply_semantic_class: _replySemanticClass,
           _topo_bucket_incompatible: _bucketIncompatible,
           _topo_how_it_works_explanation_present: _howItWorksExplanationPresent,
-          _topo_reused_opening_shell: _reusedOpeningShell
+          _topo_reused_opening_shell: _reusedOpeningShell,
+          _topo_greeting_variant_key: _greetingVariantKey,
+          _topo_greeting_reuse_detected: _greetingReuseDetected,
+          _topo_recent_opening_matched: _recentOpeningMatched
         };
       }
 
@@ -20147,6 +20217,10 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
       retry_reason: _retryReason,
       last_reply_snippet: (_lastReply || "").slice(0, 100)
     }));
+    // ── Store greeting signature even on static fallback ──
+    if (_topoBucket === "greeting") {
+      _storeGreetingSignature(staticReply, st);
+    }
     return {
       speech: [staticReply],
       source: "cognitive_real", // surface cognitiva do bucket, não mecânica
@@ -20158,7 +20232,10 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
       _topo_reply_semantic_class: _classifyReplySemanticClass(staticReply),
       _topo_bucket_incompatible: _bucketIncompatible,
       _topo_how_it_works_explanation_present: _topoBucket === "how_it_works" && _classifyReplySemanticClass(staticReply) === "explanation",
-      _topo_reused_opening_shell: false // static replies are pre-validated
+      _topo_reused_opening_shell: false, // static replies are pre-validated
+      _topo_greeting_variant_key: _topoBucket === "greeting" ? _greetingSignature(staticReply) : null,
+      _topo_greeting_reuse_detected: _greetingReuseDetected,
+      _topo_recent_opening_matched: _recentOpeningMatched
     };
   }
 
@@ -20193,6 +20270,10 @@ function setTopoHappyPathFlags(st, happyResult) {
     st.__topo_bucket_incompatible = happyResult._topo_bucket_incompatible || false;
     st.__topo_how_it_works_explanation_present = happyResult._topo_how_it_works_explanation_present || false;
     st.__topo_reused_opening_shell = happyResult._topo_reused_opening_shell || false;
+    // ── Greeting variation telemetry fields ──
+    st.__topo_greeting_variant_key = happyResult._topo_greeting_variant_key || null;
+    st.__topo_greeting_reuse_detected = happyResult._topo_greeting_reuse_detected || false;
+    st.__topo_recent_opening_matched = happyResult._topo_recent_opening_matched || false;
     return;
   }
 
@@ -24268,6 +24349,10 @@ if (querIncluirP3Global) {
         topo_bucket_incompatible: happyResult?._topo_bucket_incompatible || false,
         topo_how_it_works_explanation_present: happyResult?._topo_how_it_works_explanation_present || false,
         topo_reused_opening_shell: happyResult?._topo_reused_opening_shell || false,
+        topo_greeting_variant_key: happyResult?._topo_greeting_variant_key || st.__topo_greeting_variant_key || null,
+        topo_greeting_reuse_detected: happyResult?._topo_greeting_reuse_detected || st.__topo_greeting_reuse_detected || false,
+        topo_greeting_retry_reason: happyResult?._topo_retry_reason || null,
+        topo_recent_opening_matched: happyResult?._topo_recent_opening_matched || st.__topo_recent_opening_matched || false,
         surface_sent_to_customer: _surfaceSent,
         surface_equal_reply_text: _surfaceEqualReplyText,
         topo_surface_source: happyResult?._topo_surface_source || st.__topo_surface_source || "unknown",

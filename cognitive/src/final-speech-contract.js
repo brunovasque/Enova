@@ -325,6 +325,13 @@ export function applyFinalSpeechContract(reply, context = {}) {
   // 2. Bloquear/ajustar promessas proibidas — guardrail mínimo (aplica sempre)
   result = replaceForbiddenPromises(result);
 
+  // ── PASSO 2: Rastreio de mudança destrutiva no contrato final ──
+  // Guardrails leves (casa→imóvel, promessas proibidas) podem alterar tokens
+  // específicos mas NUNCA reescrevem semântica. Rastreamos se a resposta mudou
+  // para provar que o contrato final não destrói reply_text no caminho normal.
+  const _afterGuardrails = result;
+  const _guardrailsChangedReply = (result !== reply);
+
   // ── BLOCO 4 (PR #550): Quando LLM é soberano, parar aqui. ──
   // Guardrails mínimos aplicados acima. NÃO reescrever semântica:
   // - NÃO adicionar empatia (altera tom)
@@ -352,6 +359,7 @@ export function applyFinalSpeechContract(reply, context = {}) {
         reply_after_guardrails: result.slice(0, 500),
         strip_skipped: true,
         topo_sealed: true,
+        contract_final_changed_reply: _guardrailsChangedReply,
         currentStage
       }));
       return normalizeWhitespace(result);
@@ -378,6 +386,7 @@ export function applyFinalSpeechContract(reply, context = {}) {
         strip_changed: _stripChanged,
         strip_returned_safe_minimum: _returnedSafeMinimum,
         integrity_failed: _integrityFailed,
+        contract_final_changed_reply: _stripChanged || _guardrailsChangedReply,
         llmSovereign: true,
         currentStage
       }));
@@ -386,6 +395,15 @@ export function applyFinalSpeechContract(reply, context = {}) {
         return TOPO_SAFE_MINIMUM;
       }
     }
+
+    // ── PASSO 2 TELEMETRIA: contrato final não-destrutivo no caminho llm_real ──
+    console.log(JSON.stringify({
+      _tag: "FINAL_CONTRACT_LLM_SOVEREIGN_PASSTHROUGH",
+      contract_final_changed_reply: _guardrailsChangedReply,
+      guardrails_only: true,
+      llmSovereign: true,
+      currentStage: String(context.currentStage || "").toLowerCase().trim()
+    }));
     return normalizeWhitespace(result);
   }
 

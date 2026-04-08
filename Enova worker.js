@@ -19024,18 +19024,7 @@ function _replyTemplateFingerprint(reply) {
     .substring(0, 60);
   return nt || "empty";
 }
- *
- * Cada chave é uma transição happy-path (ex: "inicio_programa:sim").
- * O valor é um objeto com:
- *   - cognitiveStage: stage a passar para o cognitive engine
- *   - cognitiveMessage: mensagem contextual a passar como input do cliente
- *   - fallback: array de strings mecânicas (safety net)
- *   - validate(reply): função que valida se o reply cognitivo é usável
- *
- * O cognitivo real (runCognitiveV2WithAdapter) é chamado com esses parâmetros.
- * Se o reply for válido → substitui a fala mecânica.
- * Se falhar → fallback mecânico entra automaticamente.
- */
+
 const TOPO_INICIO_PROGRAMA_FORBIDDEN_COLLECTION_RE =
   /\b(?:estado civil|solteir[oa]?|casad[oa]?|uni[aã]o est[aá]vel|divorciad[oa]?|separad[oa]?|vi[uú]v[oa]?|nome completo|nome e sobrenome|qual (?:e|é) o seu nome|nacionalidade|brasileir[oa]?|estrangeir[oa]?|rnm|renda|sal[aá]rio|clt|aut[oô]nom[oa]?|servidor[oa]?|aposentad[oa]?|ctps|cpf|rg|documentos?|comprovante|restri[cç][aã]o)\b/i;
 const TOPO_INICIO_PROGRAMA_COLD_RE =

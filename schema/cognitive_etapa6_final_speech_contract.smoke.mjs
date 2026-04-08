@@ -86,9 +86,12 @@ test("1.4 — múltiplas ocorrências de 'casa'", () => {
 });
 
 test("1.5 — containsCasaInsteadOfImovel detecta 'casa'", () => {
-  assert.ok(containsCasaInsteadOfImovel("Comprar uma casa própria"));
+  // "casa própria" é expressão idiomática protegida — NÃO deve ser flagged
+  assert.ok(!containsCasaInsteadOfImovel("Comprar uma casa própria"));
   assert.ok(!containsCasaInsteadOfImovel("Comprar um imóvel próprio"));
   assert.ok(!containsCasaInsteadOfImovel("Você é casado?"));
+  // "casa" genérica (sem "própria") DEVE ser flagged
+  assert.ok(containsCasaInsteadOfImovel("Comprar uma casa"));
 });
 
 // ---------------------------------------------------------------------------
@@ -328,10 +331,12 @@ test("8.1 — resposta de topo não contém promessa", () => {
   assert.ok(!hasForbiddenPromise(result), `Promessa em topo: ${result}`);
 });
 
-test("8.2 — resposta de topo com 'casa' é corrigida", () => {
+test("8.2 — resposta de topo com 'casa própria' preserva expressão idiomática", () => {
   const reply = "Quer saber como financiar uma casa própria?";
   const result = applyFinalSpeechContract(reply, { currentStage: "inicio" });
-  assert.ok(result.includes("imóvel"), `Topo não substituiu 'casa': ${result}`);
+  // "casa própria" é expressão idiomática protegida — deve ser preservada
+  assert.ok(result.includes("casa própria"), `Deveria preservar 'casa própria': ${result}`);
+  assert.ok(!result.includes("imóvel própria"), `Não deveria gerar 'imóvel própria': ${result}`);
 });
 
 test("8.3 — resposta de topo com coleta prematura é invalidada para TOPO_SAFE_MINIMUM", () => {

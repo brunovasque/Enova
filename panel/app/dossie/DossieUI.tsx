@@ -75,6 +75,36 @@ function formatStatusAtencao(status: string | null): string {
   return labels[status] ?? status;
 }
 
+function formatBool(value: boolean | null): string {
+  if (value === null || value === undefined) return "—";
+  return value ? "Sim" : "Não";
+}
+
+function formatDocsStatus(status: string | null): string {
+  if (!status) return "—";
+  const labels: Record<string, string> = {
+    pendente: "Pendente",
+    completo: "Completo",
+    incompleto: "Incompleto",
+    enviado: "Enviado",
+    em_analise: "Em Análise",
+    ajuste_requerido: "Ajuste Requerido",
+  };
+  return labels[status.toLowerCase()] ?? status.replace(/_/g, " ");
+}
+
+function formatFunilStatus(status: string | null): string {
+  if (!status) return "—";
+  const labels: Record<string, string> = {
+    aprovado_correspondente: "Aprovado pelo Correspondente",
+    reprovado_correspondente: "Reprovado pelo Correspondente",
+    pendente_correspondente: "Pendente com Correspondente",
+    aprovado_funil: "Aprovado no Funil",
+    reprovado_funil: "Reprovado no Funil",
+  };
+  return labels[status] ?? status.replace(/_/g, " ");
+}
+
 function docTipoLabel(tipo: string | null): string {
   if (!tipo) return "Documento";
   const labels: Record<string, string> = {
@@ -420,6 +450,24 @@ function DossieContent({ data }: { data: DossieData }) {
               <span className={styles.heroGridLabel}>Abertura / Prazo</span>
               <span className={styles.heroGridValue}>{abertura} — {prazo}</span>
             </div>
+            <div className={styles.heroGridItem}>
+              <span className={styles.heroGridLabel}>Status Documental</span>
+              <span className={styles.heroGridValue}>{data.docs_status ? formatDocsStatus(data.docs_status) : "—"}</span>
+            </div>
+            <div className={styles.heroGridItem}>
+              <span className={styles.heroGridLabel}>Pendências</span>
+              <span className={styles.heroGridValue}>
+                {docsPendentes.length > 0 ? `${docsPendentes.length} pendente(s)` : "Pasta completa"}
+              </span>
+            </div>
+            <div className={styles.heroGridItem}>
+              <span className={styles.heroGridLabel}>Status do Funil</span>
+              <span className={styles.heroGridValue}>{data.funil_status ? formatFunilStatus(data.funil_status) : "—"}</span>
+            </div>
+            <div className={styles.heroGridItem}>
+              <span className={styles.heroGridLabel}>Próxima Ação</span>
+              <span className={styles.heroGridValue}>{data.proxima_acao ?? "—"}</span>
+            </div>
           </div>
         </section>
 
@@ -484,6 +532,61 @@ function DossieContent({ data }: { data: DossieData }) {
               <span className={styles.perfilValue}>{nivelRisco}</span>
             </div>
           </div>
+
+          {/* Sinais do Funil — Perfil Parcial Confirmado */}
+          <div className={styles.perfilGrid}>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Estado Civil</span>
+              <span className={styles.perfilValue}>{data.estado_civil ?? "—"}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Regime de Trabalho</span>
+              <span className={styles.perfilValue}>{data.regime_trabalho ?? "—"}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Composição</span>
+              <span className={styles.perfilValue}>{data.composicao_pessoa ?? "—"}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Somar Renda</span>
+              <span className={styles.perfilValue}>{formatBool(data.somar_renda)}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>IR Declarado</span>
+              <span className={styles.perfilValue}>{formatBool(data.ir_declarado)}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>CTPS 36 meses</span>
+              <span className={styles.perfilValue}>{formatBool(data.ctps_36)}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Restrição</span>
+              <span className={data.restricao ? styles.perfilValueDanger : styles.perfilValue}>
+                {formatBool(data.restricao)}
+              </span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Dependentes</span>
+              <span className={styles.perfilValue}>{data.dependentes_qtd !== null ? String(data.dependentes_qtd) : "—"}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Nacionalidade</span>
+              <span className={styles.perfilValue}>{data.nacionalidade ?? "—"}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Score de Perfil</span>
+              <span className={styles.perfilValue}>{data.score_perfil_analise !== null ? String(data.score_perfil_analise) : "—"}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Envio à Análise</span>
+              <span className={styles.perfilValue}>{data.data_envio_analise ? formatDate(data.data_envio_analise) : "—"}</span>
+            </div>
+            <div className={styles.perfilItem}>
+              <span className={styles.perfilLabel}>Retorno da Análise</span>
+              <span className={styles.perfilValue}>{data.data_retorno_analise ? formatDate(data.data_retorno_analise) : "—"}</span>
+            </div>
+          </div>
+
           <div className={styles.perfilTags}>
             {tags.map((tag, index) => (
               <span key={index} className={styles.perfilTag}>

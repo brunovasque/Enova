@@ -64,6 +64,13 @@ export type DossieData = {
   data_retorno_analise: string | null;
   parceiro_analise: string | null;
 
+  // Sinais do funil (enova_state — perfil parcial confirmado)
+  ctps_36: boolean | null;
+  restricao: boolean | null;
+  dependentes_qtd: number | null;
+  ir_declarado: boolean | null;
+  somar_renda: boolean | null;
+
   // Operational (enova_attendance_meta)
   status_atencao: string | null;
   prazo_proxima_acao: string | null;
@@ -115,12 +122,54 @@ async function readJson<T>(response: Response): Promise<T | null> {
   return JSON.parse(text) as T;
 }
 
+// ── wa_id normalization ──
+
+/**
+ * Returns a list of candidate wa_ids derived from the raw user input.
+ *
+ * Handles the three most common lookup failures in production:
+ *   1. Formatting characters (spaces, dashes, parentheses) — stripped to digits.
+ *   2. Missing Brazilian country code (55) — prepended when input is ≤ 11 digits.
+ *   3. Optional 9th digit in BR mobile numbers — both 12-digit and 13-digit
+ *      variants are included so either DB format matches.
+ */
+function buildWaIdCandidates(raw: string): string[] {
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return [];
+
+  const set = new Set<string>();
+  set.add(digits);
+
+  // When no country code is present, try with Brazil prefix 55
+  if (!digits.startsWith("55") && digits.length <= 11) {
+    set.add(`55${digits}`);
+  }
+
+  // BR 9-digit flex: 55 + DDD(2) + [9] + number(8)
+  //   13-digit variant → also try 12-digit (remove leading 9 after DDD)
+  //   12-digit variant → also try 13-digit (insert leading 9 after DDD)
+  for (const c of Array.from(set)) {
+    if (c.startsWith("55") && c.length === 13 && c[4] === "9") {
+      set.add(`${c.slice(0, 4)}${c.slice(5)}`);
+    } else if (c.startsWith("55") && c.length === 12) {
+      set.add(`${c.slice(0, 4)}9${c.slice(4)}`);
+    }
+  }
+
+  return Array.from(set);
+}
+
 // ── Main server action ──
 
 export async function fetchDossieDataAction(waId: string): Promise<DossieResponse> {
   const trimmedId = (waId || "").trim();
   if (!trimmedId) {
     return { ok: false, data: null, error: "wa_id obrigatório" };
+  }
+
+  const candidates = buildWaIdCandidates(trimmedId);
+  if (candidates.length === 0) {
+    return { ok: false, data: null, error: "wa_id inválido" };
   }
 
   const missingEnvs = REQUIRED_ENVS.filter((k) => !process.env[k]);
@@ -159,11 +208,24 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
       "docs_itens_recebidos",
       "docs_itens_pendentes",
       "docs_faltantes",
+      // Sinais do funil (perfil parcial confirmado — mesmos campos de enova_attendance_v1)
+      "ctps_36",
+      "restricao",
+      "dependentes_qtd",
+      "ir_declarado",
+      "somar_renda",
     ].join(",");
 
     const stateEndpoint = new URL("/rest/v1/enova_state", supabaseUrl);
     stateEndpoint.searchParams.set("select", stateFields);
-    stateEndpoint.searchParams.set("wa_id", `eq.${trimmedId}`);
+    if (candidates.length === 1) {
+      stateEndpoint.searchParams.set("wa_id", `eq.${candidates[0]}`);
+    } else {
+      stateEndpoint.searchParams.set(
+        "or",
+        `(${candidates.map((c) => `wa_id.eq.${c}`).join(",")})`,
+      );
+    }
     stateEndpoint.searchParams.set("limit", "1");
 
     const stateRes = await fetch(stateEndpoint.toString(), {
@@ -186,6 +248,12 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
       Array.isArray(stateRows) && stateRows.length > 0 ? stateRows[0] : null;
 
     if (!stateRow) {
+      return { ok: false, data: null, error: "lead não encontrado" };
+    }
+
+    // Use the wa_id exactly as stored in enova_state for all subsequent queries
+    const resolvedWaId = safeString(stateRow.wa_id);
+    if (!resolvedWaId) {
       return { ok: false, data: null, error: "lead não encontrado" };
     }
 
@@ -215,7 +283,7 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
 
     const crmEndpoint = new URL("/rest/v1/crm_leads_v1", supabaseUrl);
     crmEndpoint.searchParams.set("select", crmFields);
-    crmEndpoint.searchParams.set("wa_id", `eq.${trimmedId}`);
+    crmEndpoint.searchParams.set("wa_id", `eq.${resolvedWaId}`);
     crmEndpoint.searchParams.set("limit", "1");
 
     let crmRow: Record<string, unknown> | null = null;
@@ -242,7 +310,7 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
 
     const attendanceEndpoint = new URL("/rest/v1/enova_attendance_meta", supabaseUrl);
     attendanceEndpoint.searchParams.set("select", attendanceFields);
-    attendanceEndpoint.searchParams.set("wa_id", `eq.${trimmedId}`);
+    attendanceEndpoint.searchParams.set("wa_id", `eq.${resolvedWaId}`);
     attendanceEndpoint.searchParams.set("limit", "1");
 
     let attendanceRow: Record<string, unknown> | null = null;
@@ -259,7 +327,7 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
 
     // ── Consolidar resposta ──
     const data: DossieData = {
-      wa_id: trimmedId,
+      wa_id: resolvedWaId,
       pre_cadastro_numero: safeString(stateRow.pre_cadastro_numero),
 
       nome: safeString(stateRow.nome),
@@ -297,6 +365,12 @@ export async function fetchDossieDataAction(waId: string): Promise<DossieRespons
       docs_itens_recebidos: safeArray<DocItem>(stateRow.docs_itens_recebidos),
       docs_itens_pendentes: safeArray<DocItem>(stateRow.docs_itens_pendentes),
       docs_faltantes: safeArray<DocItem>(stateRow.docs_faltantes),
+
+      ctps_36: safeBool(stateRow.ctps_36),
+      restricao: safeBool(stateRow.restricao),
+      dependentes_qtd: safeNumber(stateRow.dependentes_qtd),
+      ir_declarado: safeBool(stateRow.ir_declarado),
+      somar_renda: safeBool(stateRow.somar_renda),
 
       correspondente_retorno: safeString(crmRow?.correspondente_retorno),
       status_analise: safeString(crmRow?.status_analise),

@@ -40,7 +40,7 @@ function test(name, fn) {
 const _TOPO_INTENT_BUCKETS = Object.freeze([
   { key: "greeting",        re: /^(oi+|ol[aá]|opa|eae|eai|e ai|e a[ií]|fala|bom dia|boa tarde|boa noite)(?:\b|$|\s)/i },
   { key: "identity",        re: /(?:quem [eé] voc[eê]|quem [eé] a enova|voc[eê] [eé] quem|quem\b.*\bvoc[eê]|o que [eé] voc[eê]|o que voc[eê] [eé]|quem vc [eé]|quem [eé] vc)/i },
-  { key: "how_it_works",    re: /(?:como funciona|explic[aeo]|explique|me explic[aeo]|me explique|n[aã]o.*me explic[aeo]|n[aã]o.*me explique|como [eé]|que [eé] isso|como que funciona|funciona como)/i },
+  { key: "how_it_works",    re: /(?:como funciona|explic[ao]|explique|me explic[ao]|me explique|n[aã]o.*me explic[ao]|n[aã]o.*me explique|como [eé]|que [eé] isso|como que funciona|funciona como)/i },
   { key: "program_choice",  re: /\b(j[aá] sei|j[aá] conhe[cç]o|sei sim|conhe[cç]o|n[aã]o sei|n[aã]o conhe[cç]o|quero saber|quero entender)\b/i },
   { key: "restart",         re: /\b(quero come[cç]ar|come[cç]ar de novo|come[cç]ar do zero|resetar|reset|voltei|to de volta)\b/i },
   { key: "affirmative",     re: /^(sim|s|ss|claro|pode|bora|vamos)\b/i },

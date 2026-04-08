@@ -2163,7 +2163,7 @@ function buildTopoFunilGuidance(request) {
   if (stage === "inicio_programa") {
     // ── how_it_works: cliente pediu explicação do programa ──
     // DEVE explicar, NÃO re-perguntar "já sabe como funciona?"
-    if (/(?:como funciona|explic[aeo]|explique|me explic[aeo]|me explique|n[aã]o.*me explic[aeo]|n[aã]o.*me explique|como [eé]|que [eé] isso|como que funciona|funciona como)/i.test(normalizedMessage)) {
+    if (/(?:como funciona|explic[ao]|explique|me explic[ao]|me explique|n[aã]o.*me explic[ao]|n[aã]o.*me explique|como [eé]|que [eé] isso|como que funciona|funciona como)/i.test(normalizedMessage)) {
       return "O Minha Casa Minha Vida é um programa do governo federal que oferece subsídio na entrada do imóvel e reduz a parcela do financiamento, de acordo com a renda da família 😊 Vou analisar seu perfil e mostrar exatamente quanto de subsídio você pode ter. Quer seguir com a análise? Me diz *sim* pra gente começar.";
     }
     // Saudação curta / reentrada (inclui pós-reset) — resposta humana + reancoragem

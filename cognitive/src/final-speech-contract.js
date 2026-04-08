@@ -163,6 +163,37 @@ function stripFutureStageCollection(reply, currentStage) {
   const forbidden = STAGE_FORBIDDEN_PATTERNS[group];
   if (!forbidden || !forbidden.length) return reply;
 
+  // ── FASE 2: Detect which patterns hit BEFORE stripping ──
+  // Needed for topo invalidation decision and telemetry.
+  const hitKeys = [];
+  for (const patternKey of forbidden) {
+    const regex = COLLECTION_PATTERNS[patternKey];
+    if (!regex) continue;
+    regex.lastIndex = 0;
+    if (regex.test(reply)) {
+      hitKeys.push(patternKey);
+    }
+  }
+
+  // ── FASE 2 (Topo): coleta futura detectada → invalidar inteiro ──────────
+  // No topo, proibido strip parcial que gera fragmento corrompido como
+  // "qual é o seu Isso nos ajuda..." ou "gostaria de saber seu Isso".
+  // Se qualquer pattern de coleta futura bate, toda a fala vira TOPO_SAFE_MINIMUM.
+  // Isso cobre explicitamente: estado_civil, regime_trabalho, renda,
+  // composicao, ctps, restricao.
+  if (group === "topo" && hitKeys.length > 0) {
+    console.log(JSON.stringify({
+      _tag: "TOPO_STRIP_INVALIDATION",
+      reply_before_strip: reply.slice(0, 500),
+      strip_pattern_keys_hit: hitKeys,
+      strip_changed: true,
+      strip_returned_safe_minimum: true,
+      currentStage: stage
+    }));
+    return TOPO_SAFE_MINIMUM;
+  }
+
+  // Non-topo stages: strip cirúrgico (comportamento existente preservado)
   let result = reply;
   for (const patternKey of forbidden) {
     const regex = COLLECTION_PATTERNS[patternKey];
@@ -181,26 +212,6 @@ function stripFutureStageCollection(reply, currentStage) {
   result = result.replace(TRAILING_FRAGMENT_PATTERN, "").trim();
   // Clean trailing comma, colon, or dash left after fragment removal
   result = result.replace(TRAILING_ORPHAN_PUNCTUATION, "").trim();
-
-  // ── Integrity guard for topo ──
-  // If stripping destroyed the reply for a topo stage (result too short,
-  // empty, ends mid-word/mid-phrase, or still has trailing fragment),
-  // INVALIDATE the whole reply and return safe minimum.
-  // Proibido: devolver fragmento truncado parcial no topo.
-  if (group === "topo") {
-    if (!result || result.length < MIN_TOPO_REPLY_LENGTH || /\b\w{1,3}$/.test(result)) {
-      return TOPO_SAFE_MINIMUM;
-    }
-    // Extra guard: if the reply still matches a trailing fragment pattern after stripping,
-    // or doesn't end with sentence-ending punctuation, invalidate entirely.
-    if (TRAILING_FRAGMENT_PATTERN.test(result) || !/[.!?](?:\s*😊|✨|👌|💛|🇧🇷)?\s*$/.test(result)) {
-      // Check: at least has one complete sentence (ends with punctuation somewhere)
-      const lastSentEnd = Math.max(result.lastIndexOf(". "), result.lastIndexOf("? "), result.lastIndexOf("! "), result.lastIndexOf("."), result.lastIndexOf("?"), result.lastIndexOf("!"));
-      if (lastSentEnd < 10) {
-        return TOPO_SAFE_MINIMUM;
-      }
-    }
-  }
 
   return result;
 }
@@ -326,13 +337,31 @@ export function applyFinalSpeechContract(reply, context = {}) {
   if (context.llmSovereign === true) {
     const currentStage = String(context.currentStage || "").toLowerCase().trim();
     if (currentStage === "inicio_programa" || currentStage === "inicio" || currentStage === "inicio_decisao") {
+      const _replyBeforeStrip = result;
       result = stripFutureStageCollection(result, context.currentStage);
+      const _stripChanged = result !== _replyBeforeStrip;
+      const _returnedSafeMinimum = result === TOPO_SAFE_MINIMUM;
       // Item 3: se stripFutureStageCollection devolveu TOPO_SAFE_MINIMUM,
       // significa que a fala original foi invalidada. Manter o fallback seguro.
       // Adicionalmente: se o resultado é um fragmento truncado (sem pontuação final
       // ou muito curto), invalidar inteira e retornar null para que o caller use fallback.
       const _normalized = normalizeWhitespace(result);
-      if (_normalized.length < MIN_TOPO_REPLY_LENGTH || TRAILING_FRAGMENT_PATTERN.test(_normalized)) {
+      const _integrityFailed = _normalized.length < MIN_TOPO_REPLY_LENGTH || TRAILING_FRAGMENT_PATTERN.test(_normalized);
+
+      // ── Telemetria do contrato final no topo ──
+      console.log(JSON.stringify({
+        _tag: "TOPO_FINAL_CONTRACT_TELEMETRY",
+        reply_before_contract: reply.slice(0, 500),
+        reply_before_strip: _replyBeforeStrip.slice(0, 500),
+        reply_after_strip: result.slice(0, 500),
+        strip_changed: _stripChanged,
+        strip_returned_safe_minimum: _returnedSafeMinimum,
+        integrity_failed: _integrityFailed,
+        llmSovereign: true,
+        currentStage
+      }));
+
+      if (_integrityFailed) {
         return TOPO_SAFE_MINIMUM;
       }
     }
@@ -422,3 +451,6 @@ export const CONTRACT_CONFIG = Object.freeze({
   EMOTIONAL_PATTERNS_COUNT: EMOTIONAL_PATTERNS.length,
   EMPATHY_PREFIXES_COUNT: EMPATHY_PREFIXES.length
 });
+
+// ── Constantes exportadas para smoke tests de strip/topo ──────────────────
+export { COLLECTION_PATTERNS, TOPO_SAFE_MINIMUM, STAGE_TO_GROUP, STAGE_FORBIDDEN_PATTERNS };

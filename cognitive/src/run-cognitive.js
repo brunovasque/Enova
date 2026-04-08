@@ -271,7 +271,14 @@ const REPLY_TEXT_REPLACEMENTS = Object.freeze([
   [/\bmodo read-only\b/gi, ""],
   [/\bneste teste isolado\b/gi, ""],
   [/\bleitura estruturada do cognitivo\b/gi, "leitura do seu caso"],
-  [/\bleitura cognitiva\b/gi, "leitura do seu caso"]
+  [/\bleitura cognitiva\b/gi, "leitura do seu caso"],
+  // ── Blindagem de identidade interna (PR #560) ──
+  [/\bEnova\s+Cognitive\s+Engine\b/gi, "Enova"],
+  [/\bCognitive\s+Engine\b/gi, "atendimento"],
+  [/\bread[- ]only\b/gi, ""],
+  [/\bMCMV\s*\/\s*CEF\b/gi, "Minha Casa Minha Vida"],
+  [/\bCEF\s*\/\s*MCMV\b/gi, "Minha Casa Minha Vida"],
+  [/\bphase[_ ]?\d+[_ ]?read[_ ]?only\b/gi, ""]
 ]);
 const SLOT_LABELS = Object.freeze({
   estado_civil: "estado civil",
@@ -3047,7 +3054,7 @@ function buildHeuristicResponse(request, analysis, conflictList) {
     consultiveNotes.push("A resposta concentrou múltiplos slots; revisar a ordem canônica apenas fora do fluxo real.");
   }
   if (suggestedNextSlot) {
-    consultiveNotes.push(`Próximo slot sugerido em modo read-only: ${suggestedNextSlot}.`);
+    consultiveNotes.push(`Próximo slot sugerido: ${suggestedNextSlot}.`);
   }
   consultiveNotes.push("Runner isolado: sem write oficial, sem Meta real e sem alteração de stage.");
 
@@ -3125,7 +3132,7 @@ function normalizeModelResponse({
   const consultiveNotes = uniqueStringArray([
     ...heuristicResponse.consultive_notes,
     ...(Array.isArray(modelResponse.consultive_notes) ? modelResponse.consultive_notes : []),
-    llmUsed ? `Modelo cognitivo read-only utilizado: ${request.current_stage}.` : null
+    llmUsed ? `Modelo consultivo utilizado: ${request.current_stage}.` : null
   ]);
   const parsedReplyText = sanitizeReplyText(modelResponse.reply_text);
   const hasParsedReplyText = parsedReplyText && parsedReplyText.trim().length > 0;

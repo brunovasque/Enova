@@ -4599,11 +4599,14 @@ async function runCognitiveV2WithAdapter(env, stage, userText, st) {
     // ── PASSO 2: Caminho cognitivo canônico formalizado ──
     // Usa buildCognitiveInput para garantir shape canônico estável.
     // Worker monta contexto do stage → cognitivo recebe contrato formal.
+    // Bucket-aware goal: se __topo_bucket_override estiver setado, usa goal específico do bucket
+    const _bucketOverride = st.__topo_bucket_goal_override || null;
+    const _stageGoal = _bucketOverride || getStageGoal(stage);
     const rawInput = buildCognitiveInput({
       current_stage: stage,
       message_text: String(userText || ""),
       known_slots: knownSlots,
-      goal_of_current_stage: getStageGoal(stage),
+      goal_of_current_stage: _stageGoal,
       forbidden_topics_for_stage: [],
       allowed_signals_for_stage: getAllowedSignalsForStage(stage),
       normative_context: [],
@@ -19357,6 +19360,48 @@ function _isTopoReplyToneSafe(reply) {
   return !TOPO_INSTITUTIONAL_TONE.test(reply);
 }
 
+// ── TOPO_OPENING_SHELL_REUSE — Detecta "casca de abertura" reutilizada ─────
+// Uma resposta que re-pergunta "já sabe / já conhece / quer que eu explique?"
+// SEM realmente explicar o programa é considerada "opening shell reuse".
+// Isso é INCOMPATÍVEL com o bucket how_it_works, que deve EXPLICAR.
+const TOPO_OPENING_SHELL_REUSE = /\b(?:j[aá]\s+sabe\s+como\s+funciona|j[aá]\s+conhece\s+como\s+funciona|voc[eê]\s+j[aá]\s+(?:sabe|conhece)|quer\s+que\s+(?:eu\s+)?(?:te\s+)?explique|posso\s+explicar|prefere\s+que\s+(?:eu\s+)?explique|quer\s+que\s+eu\s+te\s+explique|quer\s+saber\s+como\s+funciona)\b/i;
+
+/**
+ * _isOpeningShellReuse — Detecta se a reply reutiliza a casca de abertura
+ * (re-pergunta se o cliente sabe/quer explicação) SEM realmente explicar.
+ * Retorna true se a reply é "opening shell reuse" (incompatível com how_it_works).
+ */
+function _isOpeningShellReuse(reply) {
+  if (!reply || typeof reply !== "string") return false;
+  // Se contém padrão de re-pergunta E NÃO contém explicação real do programa
+  const hasShellPattern = TOPO_OPENING_SHELL_REUSE.test(reply);
+  if (!hasShellPattern) return false;
+  // Verificar se há conteúdo explicativo real (programa, subsídio, parcela, etc.)
+  const hasExplanation = /\b(?:governo|subs[ií]dio|parcela|entrada|financiamento|faixa|reduz|ajuda\s+na\s+entrada|an[aá]lise)\b/i.test(reply);
+  // Se tem shell pattern mas NÃO tem explicação real → é reuso de casca
+  return !hasExplanation;
+}
+
+/**
+ * _classifyReplySemanticClass — Classifica a classe semântica da reply.
+ * Retorna: "explanation", "greeting_shell", "identity", "choice_question", "mixed", "other"
+ */
+function _classifyReplySemanticClass(reply) {
+  if (!reply || typeof reply !== "string") return "other";
+  const nt = reply.toLowerCase();
+  const hasExplanation = /\b(?:governo|subs[ií]dio|parcela|entrada|financiamento|faixa|reduz|ajuda\s+na\s+entrada|an[aá]lise|renda)\b/i.test(nt);
+  const hasShellPattern = TOPO_OPENING_SHELL_REUSE.test(reply);
+  const hasGreeting = /\b(?:oi|ol[aá]|bem[- ]?vind|ajudar|ajudo|por aqui)\b/i.test(nt);
+  const hasIdentity = /\b(?:sou\s+a?\s*enova|assistente\s+virtual)\b/i.test(nt);
+  if (hasExplanation && !hasShellPattern) return "explanation";
+  if (hasExplanation && hasShellPattern) return "mixed";
+  if (hasIdentity && !hasExplanation) return "identity";
+  if (hasShellPattern && !hasExplanation) return "greeting_shell";
+  if (hasGreeting && !hasExplanation) return "greeting_shell";
+  if (/\?/.test(reply) && !hasExplanation) return "choice_question";
+  return "other";
+}
+
 // ── TOP_SEALED_MODE — Zona selada do topo ──────────────────────────────────
 // A partir deste patch, o mecânico no topo NÃO FALA. Ele só:
 //   identifica stage, classifica bucket, valida avanço, calcula nextStage,
@@ -19423,9 +19468,19 @@ function _isTopoBucketReplyCompatible(bucket, reply) {
       if (!/\b(enova|assistente|virtual|programa|minha casa)\b/i.test(nt)) return false;
       return true;
     case "how_it_works":
-      // how_it_works deve explicar o programa, NÃO puxar nome/estado civil/renda
+      // how_it_works deve EXPLICAR o programa, NÃO puxar nome/estado civil/renda
       if (TOPO_PREMATURE_COLLECTION.test(reply)) return false;
-      if (!/\b(programa|governo|subs[ií]dio|financiamento|parcela|renda|entrada|minha casa)\b/i.test(nt)) return false;
+      // DEVE conter vocabulário explicativo real do programa
+      if (!/\b(programa|governo|subs[ií]dio|financiamento|parcela|entrada|minha casa)\b/i.test(nt)) return false;
+      // REGRA DURA: NÃO pode reutilizar casca de abertura (re-perguntar sem explicar)
+      if (_isOpeningShellReuse(reply)) return false;
+      // DEVE ter comprimento mínimo de explicação (>80 chars = mais que uma pergunta curta)
+      if (reply.length < 80) return false;
+      // Classificação semântica: deve ser "explanation" ou "mixed", nunca "greeting_shell"
+      {
+        const _semClass = _classifyReplySemanticClass(reply);
+        if (_semClass === "greeting_shell" || _semClass === "choice_question") return false;
+      }
       return true;
     case "program_choice":
       // program_choice deve ter pergunta de escolha (sim/não, conhece/explica)
@@ -19448,7 +19503,13 @@ function _getTopoBucketRetryInstruction(bucket) {
     case "identity":
       return "O cliente perguntou quem você é. Responda APENAS explicando que você é a Enova, assistente virtual do programa Minha Casa Minha Vida. NÃO repita a saudação de boas-vindas. NÃO pergunte nome, estado civil, renda ou qualquer dado pessoal.";
     case "how_it_works":
-      return "O cliente quer saber como funciona o programa. Explique brevemente o Minha Casa Minha Vida: programa do governo que ajuda na entrada e reduz parcela conforme a renda. NÃO pergunte nome, estado civil, renda ou qualquer dado pessoal. Pergunte se quer seguir com a análise.";
+      return "O cliente pediu EXPLICAÇÃO do programa. Você DEVE explicar o Minha Casa Minha Vida de forma consultiva: " +
+        "é um programa do governo federal que oferece subsídio na entrada e reduz a parcela do financiamento conforme a renda familiar. " +
+        "Explique benefícios reais (subsídio, parcela reduzida, faixas de renda). " +
+        "NÃO pergunte 'você já sabe como funciona?' ou 'quer que eu explique?'. Isso já foi perguntado. " +
+        "NÃO repita a saudação ou abertura. NÃO faça coleta de dados (nome, estado civil, renda). " +
+        "Ao final, pergunte se quer seguir com a análise do perfil. " +
+        "A resposta DEVE ter pelo menos 80 caracteres e conter explicação real do programa.";
     case "program_choice":
       return "Pergunte ao cliente se já sabe como funciona o Minha Casa Minha Vida ou se quer explicação. NÃO pergunte nome, estado civil, renda ou qualquer dado pessoal.";
     default:
@@ -19931,6 +19992,10 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
   let _retryCount = 0;
   let _retryReason = null;
   let _lastReply = null;
+  let _bucketIncompatible = false;
+  let _replySemanticClass = null;
+  let _howItWorksExplanationPresent = false;
+  let _reusedOpeningShell = false;
   const _maxRetries = _isSealed ? TOP_SEALED_MAX_RETRIES : 0;
 
   for (let attempt = 0; attempt <= _maxRetries; attempt++) {
@@ -19939,6 +20004,12 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
         ? (overrides?.cognitiveMessage || config.cognitiveMessage)
         : `[INSTRUÇÃO DE RETRY #${attempt}] ${_getTopoBucketRetryInstruction(_topoBucket)} Mensagem original do cliente: "${overrides?.cognitiveMessage || config.cognitiveMessage}"`;
 
+      // ── Bucket-aware goal: inject specific goal for the detected bucket ──
+      // This ensures the cognitive engine receives a goal that matches the bucket,
+      // preventing how_it_works from collapsing with greeting/program_choice.
+      const _previousGoalOverride = st.__topo_bucket_goal_override;
+      st.__topo_bucket_goal_override = getStageGoal(config.cognitiveStage, _topoBucket);
+
       const cogResult = await runCognitiveV2WithAdapter(
         env,
         config.cognitiveStage,
@@ -19946,10 +20017,18 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
         st
       );
 
+      // Restore previous goal override
+      st.__topo_bucket_goal_override = _previousGoalOverride;
+
       const replyText = sanitizeCognitiveReply(cogResult?.reply_text);
       const confidence = Number(cogResult?.confidence || 0);
       const rawOrigin = cogResult?.speech_origin || "fallback_mechanical";
       _lastReply = replyText;
+
+      // ── Telemetry: classify reply for bucket separation proof ──
+      _replySemanticClass = _classifyReplySemanticClass(replyText);
+      _reusedOpeningShell = _isOpeningShellReuse(replyText);
+      _howItWorksExplanationPresent = _topoBucket === "how_it_works" && _replySemanticClass === "explanation";
 
       // Valida reply: confiança mínima + validação contextual
       if (
@@ -19960,13 +20039,16 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
         // ── TOP_SEALED_MODE: validação de bucket ──
         if (_isSealed && !_isTopoBucketReplyCompatible(_topoBucket, replyText)) {
           _retryCount++;
+          _bucketIncompatible = true;
           _retryReason = `bucket_incompatible:${_topoBucket}`;
           console.log(JSON.stringify({
             _tag: "TOPO_SEALED_BUCKET_RETRY",
             attempt,
             bucket: _topoBucket,
             reply_snippet: replyText.slice(0, 100),
-            reason: _retryReason
+            reason: _retryReason,
+            semantic_class: _replySemanticClass,
+            reused_opening_shell: _reusedOpeningShell
           }));
           continue; // retry with bucket instruction
         }
@@ -19981,7 +20063,11 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
           _topo_bucket: _topoBucket,
           _topo_retry_count: _retryCount,
           _topo_retry_reason: _retryReason,
-          _topo_surface_source: "llm_real"
+          _topo_surface_source: "llm_real",
+          _topo_reply_semantic_class: _replySemanticClass,
+          _topo_bucket_incompatible: _bucketIncompatible,
+          _topo_how_it_works_explanation_present: _howItWorksExplanationPresent,
+          _topo_reused_opening_shell: _reusedOpeningShell
         };
       }
 
@@ -20019,7 +20105,11 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
       _topo_bucket: _topoBucket,
       _topo_retry_count: _retryCount,
       _topo_retry_reason: _retryReason,
-      _topo_surface_source: "bucket_static"
+      _topo_surface_source: "bucket_static",
+      _topo_reply_semantic_class: _classifyReplySemanticClass(staticReply),
+      _topo_bucket_incompatible: _bucketIncompatible,
+      _topo_how_it_works_explanation_present: _topoBucket === "how_it_works" && _classifyReplySemanticClass(staticReply) === "explanation",
+      _topo_reused_opening_shell: false // static replies are pre-validated
     };
   }
 
@@ -20049,6 +20139,11 @@ function setTopoHappyPathFlags(st, happyResult) {
     st.__topo_surface_source = happyResult._topo_surface_source || "bucket_static";
     st.__topo_retry_count = happyResult._topo_retry_count || 0;
     st.__topo_retry_reason = happyResult._topo_retry_reason || null;
+    // ── Bucket separation telemetry fields ──
+    st.__topo_reply_semantic_class = happyResult._topo_reply_semantic_class || null;
+    st.__topo_bucket_incompatible = happyResult._topo_bucket_incompatible || false;
+    st.__topo_how_it_works_explanation_present = happyResult._topo_how_it_works_explanation_present || false;
+    st.__topo_reused_opening_shell = happyResult._topo_reused_opening_shell || false;
     return;
   }
 
@@ -24104,6 +24199,9 @@ if (querIncluirP3Global) {
   async function _emitTopoSealedTelemetry(env, st, stage, userText, nextStage, happyResult) {
     if (!TOP_SEALED_MODE || !TOP_SEALED_STAGES.has(stage)) return;
     const _bucket = _classifyTopoIntentBucket(userText);
+    const _surfaceSent = String(st.__cognitive_reply_prefix || "").slice(0, 500);
+    const _replyFromCognitive = happyResult?.speech?.[0] || null;
+    const _surfaceEqualReplyText = _surfaceSent && _replyFromCognitive && _surfaceSent === _replyFromCognitive;
     await telemetry(env, {
       wa_id: st.wa_id,
       event: "topo_sealed_telemetry",
@@ -24116,12 +24214,19 @@ if (querIncluirP3Global) {
         topo_bucket_validated: Boolean(happyResult?._topo_sealed),
         topo_retry_count: happyResult?._topo_retry_count || 0,
         topo_retry_reason: happyResult?._topo_retry_reason || null,
+        topo_reply_semantic_class: happyResult?._topo_reply_semantic_class || _classifyReplySemanticClass(_surfaceSent),
+        topo_bucket_retry_reason: happyResult?._topo_retry_reason || null,
+        topo_bucket_incompatible: happyResult?._topo_bucket_incompatible || false,
+        topo_how_it_works_explanation_present: happyResult?._topo_how_it_works_explanation_present || false,
+        topo_reused_opening_shell: happyResult?._topo_reused_opening_shell || false,
+        surface_sent_to_customer: _surfaceSent,
+        surface_equal_reply_text: _surfaceEqualReplyText,
         topo_surface_source: happyResult?._topo_surface_source || st.__topo_surface_source || "unknown",
         topo_mechanical_surface_blocked: true,
         topo_contract_applied: false, // no strip destrutivo no topo selado
         topo_contract_changed_reply: false,
         topo_llm_only_mode: true,
-        output_surface: String(st.__cognitive_reply_prefix || "").slice(0, 500),
+        output_surface: _surfaceSent,
         stage_before: stage,
         stage_after: nextStage,
         nextStage: nextStage

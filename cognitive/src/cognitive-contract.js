@@ -209,10 +209,26 @@ const STAGE_GOALS = Object.freeze({
   aguardando_retorno_correspondente: "Aguardar retorno do correspondente"
 });
 
+// ── Bucket-aware goals for inicio_programa ─────────────────────────────────
+// When the topo bucket is known, the goal is more specific than the generic
+// inicio_programa goal. This prevents how_it_works from collapsing with greeting.
+const INICIO_PROGRAMA_BUCKET_GOALS = Object.freeze({
+  greeting: "Saudação acolhedora: apresente-se como Enova, assistente do Minha Casa Minha Vida. Pergunte se o cliente já sabe como funciona ou quer explicação.",
+  identity: "O cliente perguntou quem você é. Explique que você é a Enova, assistente virtual do Minha Casa Minha Vida. NÃO repita saudação de boas-vindas.",
+  how_it_works: "O cliente pediu explicação do programa. EXPLIQUE o Minha Casa Minha Vida: programa do governo que oferece subsídio na entrada e parcela reduzida conforme renda familiar. Mencione benefícios reais (subsídio, faixas, parcela). NÃO pergunte 'já sabe como funciona?' — ele já disse que quer explicação. Ao final, pergunte se quer seguir com a análise.",
+  program_choice: "Pergunte ao cliente se já sabe como funciona o Minha Casa Minha Vida ou se quer explicação.",
+  unknown_topo: "Confirmar interesse e apresentar o programa Minha Casa Minha Vida"
+});
+
 /**
  * getStageGoal — Retorna o objetivo do stage.
+ * @param {string} stage — Stage atual
+ * @param {string} [bucket] — Bucket do topo (opcional). Se fornecido para inicio_programa, retorna goal específico do bucket.
  */
-export function getStageGoal(stage) {
+export function getStageGoal(stage, bucket) {
+  if (stage === "inicio_programa" && bucket && INICIO_PROGRAMA_BUCKET_GOALS[bucket]) {
+    return INICIO_PROGRAMA_BUCKET_GOALS[bucket];
+  }
   return STAGE_GOALS[stage] || "Conduzir a conversa com o cliente";
 }
 

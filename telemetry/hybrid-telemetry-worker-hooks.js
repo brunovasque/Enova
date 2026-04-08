@@ -26,6 +26,7 @@ import {
   MECHANICAL_REASON_CODES,
   ARBITRATION_REASON_CODES,
   OVERRIDE_CLASSIFICATIONS,
+  STAGE_SYMPTOM_CODES,
   sanitizeTelemetryPayload
 } from "./hybrid-telemetry.js";
 
@@ -40,6 +41,9 @@ function safeSlice(value, maxLen = 500) {
     return s.length > maxLen ? s.slice(0, maxLen) + "…" : s;
   } catch (_) { return ""; }
 }
+
+/** Minimum cognitive confidence to consider a signal plausible */
+const MIN_COGNITIVE_CONFIDENCE_THRESHOLD = 0.5;
 
 /** Safe JSON — never throws */
 function safeStringify(value) {
@@ -88,6 +92,72 @@ function buildMinimalStateDiff(before, after) {
     }
     return hasChange ? diff : null;
   } catch (_) { return null; }
+}
+
+/**
+ * Compute stage diff symptoms (advance / repeat / stick).
+ * Pure function — no side effects.
+ */
+function computeStageDiff(stageBefore, stageAfter, reaskTriggered, stageLocked) {
+  try {
+    const before = stageBefore || null;
+    const after = stageAfter || null;
+    const present = before !== null && after !== null;
+    return {
+      did_stage_advance: present && after !== before,
+      did_stage_repeat: present && after === before && !reaskTriggered && !stageLocked,
+      did_stage_stick: present && after === before && Boolean(stageLocked)
+    };
+  } catch (_) {
+    return { did_stage_advance: false, did_stage_repeat: false, did_stage_stick: false };
+  }
+}
+
+/**
+ * Compute all central stage symptoms from the current turn context.
+ * Pure function — observability only, never influences flow.
+ */
+function computeStageSymptoms({
+  stageBefore, stageAfter,
+  reaskTriggered, stageLocked,
+  cognitiveSignal, cognitiveConfidence,
+  mechanicalAction, overrideSuspected,
+  stateDiff
+} = {}) {
+  try {
+    const { did_stage_advance, did_stage_repeat, did_stage_stick } =
+      computeStageDiff(stageBefore, stageAfter, reaskTriggered, stageLocked);
+    const did_reask = Boolean(reaskTriggered);
+    const hasPlausibleSignal =
+      Boolean(cognitiveSignal) && Number(cognitiveConfidence ?? 0) >= MIN_COGNITIVE_CONFIDENCE_THRESHOLD;
+    const plausible_answer_without_advance = hasPlausibleSignal && !did_stage_advance;
+    const override_suspected_sym =
+      Boolean(overrideSuspected) ||
+      (hasPlausibleSignal && !did_stage_advance && Boolean(mechanicalAction));
+    const blocked_valid_signal =
+      hasPlausibleSignal && !did_stage_advance && !did_reask;
+    const state_unchanged_when_expected =
+      plausible_answer_without_advance && !stateDiff;
+    const caused_loop =
+      did_reask && (did_stage_repeat || override_suspected_sym || blocked_valid_signal);
+    return {
+      did_stage_advance,
+      did_stage_repeat,
+      did_stage_stick,
+      did_reask,
+      plausible_answer_without_advance,
+      override_suspected: override_suspected_sym,
+      blocked_valid_signal,
+      state_unchanged_when_expected,
+      caused_loop
+    };
+  } catch (_) {
+    return {
+      did_stage_advance: false, did_stage_repeat: false, did_stage_stick: false,
+      did_reask: false, plausible_answer_without_advance: false, override_suspected: false,
+      blocked_valid_signal: false, state_unchanged_when_expected: false, caused_loop: false
+    };
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -317,15 +387,27 @@ export async function emitMechanicalDecisionTelemetry({
  * @param {boolean} params.overrideDetected - whether override was detected
  * @param {string} params.overrideClassification - classification of override
  * @param {boolean} params.overrideSuspected - suspected problematic override
+ * @param {boolean} params.blockedValidSignal - cognitive signal was blocked by mechanical
+ * @param {boolean} params.causedLoop - this turn's resolution caused a loop symptom
+ * @param {boolean} params.requiresConfirmation - outcome requires user confirmation
  */
 export async function emitArbitrationTelemetry({
   st, stage, cognitiveSignal, mechanicalParserResult,
   mechanicalAction, arbitrationTriggered, arbitrationOutcome,
   arbitrationWinner, arbitrationReason, overrideDetected,
-  overrideClassification, overrideSuspected
+  overrideClassification, overrideSuspected,
+  blockedValidSignal, causedLoop, requiresConfirmation
 } = {}) {
   try {
     const correlationId = resolveCorrelationId(st);
+    // Best-effort infer blocked_valid_signal if not explicitly provided
+    const resolvedBlockedValidSignal = blockedValidSignal !== undefined
+      ? Boolean(blockedValidSignal)
+      : Boolean(overrideDetected && cognitiveSignal && arbitrationWinner === "mechanical");
+    const resolvedCausedLoop = causedLoop !== undefined ? Boolean(causedLoop) : false;
+    const resolvedRequiresConfirmation = requiresConfirmation !== undefined
+      ? Boolean(requiresConfirmation)
+      : false;
     await emitArbitrationTelemetrySafe({
       eventName: arbitrationTriggered
         ? HYBRID_TELEMETRY_EVENT_TYPES.ARBITRATION_CONFLICT
@@ -352,7 +434,10 @@ export async function emitArbitrationTelemetry({
         arbitration_reason: arbitrationReason || null,
         override_detected: Boolean(overrideDetected),
         override_classification: overrideClassification || null,
-        override_suspected: Boolean(overrideSuspected)
+        override_suspected: Boolean(overrideSuspected),
+        blocked_valid_signal: resolvedBlockedValidSignal,
+        caused_loop: resolvedCausedLoop,
+        requires_confirmation: resolvedRequiresConfirmation
       },
       cognitive: {
         ai_structured_signal: safeSlice(cognitiveSignal, 200)
@@ -423,6 +508,58 @@ export async function emitFinalOutputTelemetry({
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// HOOK 7 — STAGE SYMPTOMS (central diagnostic signals — PR 3)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Emits the central stage symptom signals for diagnostic purposes.
+ * Observability only — never influences any decision or flow.
+ *
+ * @param {object} params
+ * @param {object} params.st - current state
+ * @param {string} params.stageBefore - stage before this turn
+ * @param {string} params.stageAfter - stage after this turn
+ * @param {boolean} params.reaskTriggered - whether reask was triggered
+ * @param {boolean} params.stageLocked - whether stage is locked
+ * @param {string} params.cognitiveSignal - cognitive structured signal (optional)
+ * @param {number} params.cognitiveConfidence - cognitive confidence score (optional)
+ * @param {string} params.mechanicalAction - mechanical action taken
+ * @param {boolean} params.overrideSuspected - whether override is suspected
+ * @param {object} params.stateDiff - minimal state diff (null if unchanged)
+ */
+export async function emitStageSymptomsHook({
+  st, stageBefore, stageAfter,
+  reaskTriggered, stageLocked,
+  cognitiveSignal, cognitiveConfidence,
+  mechanicalAction, overrideSuspected,
+  stateDiff
+} = {}) {
+  try {
+    const correlationId = resolveCorrelationId(st);
+    const symptoms = computeStageSymptoms({
+      stageBefore, stageAfter, reaskTriggered, stageLocked,
+      cognitiveSignal, cognitiveConfidence, mechanicalAction, overrideSuspected, stateDiff
+    });
+    const event = buildHybridTelemetryEvent({
+      eventName: HYBRID_TELEMETRY_EVENT_TYPES.STAGE_SYMPTOMS,
+      base: {
+        lead_id: st?.wa_id || null,
+        conversation_id: st?.wa_id || null,
+        turn_id: st?.last_message_id || null,
+        correlation_id: correlationId,
+        stage_before: stageBefore || st?.fase_conversa || "inicio",
+        stage_after: stageAfter || stageBefore || null
+      }
+    });
+    event._stage_symptoms = symptoms;
+    await emitHybridTelemetry({
+      event,
+      consoleEmitter: buildConsoleEmitter("stage_symptoms")
+    });
+  } catch (_) { /* fire-and-forget */ }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // UTILITY — Clear turn correlation
 // ═══════════════════════════════════════════════════════════════════
 
@@ -444,5 +581,6 @@ export {
   COGNITIVE_REASON_CODES,
   MECHANICAL_REASON_CODES,
   ARBITRATION_REASON_CODES,
-  OVERRIDE_CLASSIFICATIONS
+  OVERRIDE_CLASSIFICATIONS,
+  STAGE_SYMPTOM_CODES
 };

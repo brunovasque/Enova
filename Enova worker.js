@@ -4,6 +4,15 @@ import {
   runReadOnlyCognitiveEngine
 } from "./cognitive/src/run-cognitive.js";
 import { buildReanchor } from "./cognitive/src/reanchor-helper.js";
+import {
+  emitTurnEntryTelemetry,
+  emitCognitiveDecisionTelemetry,
+  emitPostProcessingTelemetry,
+  emitMechanicalDecisionTelemetry,
+  emitArbitrationTelemetry,
+  emitFinalOutputTelemetry,
+  clearHybridTurnCorrelation
+} from "./telemetry/hybrid-telemetry-worker-hooks.js";
 
 console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
 
@@ -187,6 +196,19 @@ async function step(env, st, messages, nextStage, options = {}) {
   const _mechanicalTextCandidate = rawArr.filter(Boolean).join("\n");
   const _mechanicalTextBlocked = speechArbiterSource === "llm_real";
 
+  // ── HYBRID TELEMETRY PR2: Hook 3 — Post-processing / Final Contract ──
+  try {
+    emitPostProcessingTelemetry({
+      st,
+      stage: currentStage,
+      replyBeforeContract: _llmResponseForTelemetry || _mechanicalTextCandidate,
+      replyAfterContract: _outputSurface,
+      surfaceChanged: speechArbiterSource === "llm_real"
+        ? (_outputSurface !== _llmResponseForTelemetry)
+        : (_outputSurface !== _mechanicalTextCandidate)
+    }).catch(() => {});
+  } catch (_) { /* telemetry must never break the flow */ }
+
   // limpa flags transitórias para não vazar para próximas respostas
   st.__cognitive_reply_prefix = null;
   st.__cognitive_v2_takes_final = false;
@@ -236,6 +258,36 @@ async function step(env, st, messages, nextStage, options = {}) {
   } catch (_telErr) {
     console.error("SOVEREIGN_SURFACE_PROOF_TELEMETRY_ERROR:", _telErr);
   }
+
+  // ── HYBRID TELEMETRY PR2: Hook 4 — Mechanical Decision ──
+  try {
+    emitMechanicalDecisionTelemetry({
+      st,
+      stageBefore: currentStage,
+      stageAfter: nextStage || currentStage,
+      parserUsed: null,
+      parserResult: null,
+      mechanicalAction: nextStage && nextStage !== currentStage ? "stage_advance" : "stay",
+      validationResult: null,
+      reaskTriggered: false,
+      stageLocked: false,
+      stateDiff: null
+    }).catch(() => {});
+  } catch (_) { /* telemetry must never break the flow */ }
+
+  // ── HYBRID TELEMETRY PR2: Hook 6 — Final Output ──
+  try {
+    emitFinalOutputTelemetry({
+      st,
+      stageBefore: currentStage,
+      stageAfter: nextStage || currentStage,
+      outputSurface: _outputSurface,
+      surfaceEqualLlm: _surfaceEqualLlm,
+      mechanicalTextCandidate: _mechanicalTextCandidate,
+      mechanicalTextBlocked: _mechanicalTextBlocked,
+      speechArbiterSource
+    }).catch(() => {});
+  } catch (_) { /* telemetry must never break the flow */ }
 
   if (isSim) {
     simCtx.messageLog = Array.isArray(simCtx.messageLog) ? simCtx.messageLog : [];
@@ -9252,6 +9304,18 @@ try {
     try {
       await syncAttendanceMeta(env, st, { type: "customer_message" });
     } catch (_) { /* non-blocking */ }
+
+    // ── HYBRID TELEMETRY PR2: Hook 1 — Turn Entry ──
+    try {
+      emitTurnEntryTelemetry({
+        st,
+        messageId,
+        waId,
+        userText,
+        normalizedUserText,
+        stage: st?.fase_conversa || "inicio"
+      }).catch(() => {});
+    } catch (_) { /* telemetry must never break the flow */ }
 
     await runFunnel(env, st, userText);
 
@@ -23419,6 +23483,45 @@ async function runFunnel(env, st, userText) {
         nextStage: stage,
         replyText: cognitiveReply
       });
+
+      // ── HYBRID TELEMETRY PR2: Hook 2 — Cognitive Decision ──
+      try {
+        emitCognitiveDecisionTelemetry({
+          st,
+          stage,
+          userText,
+          cognitive,
+          cognitiveReply,
+          hasUsefulReply: hasUsefulCognitiveReply,
+          speechOrigin: st.__speech_arbiter_source || null,
+          v2Mode
+        }).catch(() => {});
+      } catch (_) { /* telemetry must never break the flow */ }
+
+      // ── HYBRID TELEMETRY PR2: Hook 5 — Arbitration ──
+      try {
+        const _arbCogSignal = cognitive?.safe_stage_signal || cognitive?.intent || null;
+        const _arbMechResult = clearAnswer || null;
+        const _arbWinner = st.__cognitive_v2_takes_final ? "cognitive" : "mechanical";
+        const _arbTriggered = Boolean(_arbCogSignal && hasUsefulCognitiveReply);
+        const _arbOverride = _arbTriggered && _arbWinner === "mechanical" && Boolean(_arbCogSignal);
+        emitArbitrationTelemetry({
+          st,
+          stage,
+          cognitiveSignal: _arbCogSignal,
+          mechanicalParserResult: _arbMechResult,
+          mechanicalAction: "step",
+          arbitrationTriggered: _arbTriggered,
+          arbitrationOutcome: _arbWinner === "cognitive" ? "cognitive_accepted" : "mechanical_prevails",
+          arbitrationWinner: _arbWinner,
+          arbitrationReason: _arbTriggered
+            ? (_arbWinner === "cognitive" ? "llm_real_takes_final" : "mechanical_sovereign")
+            : "no_conflict",
+          overrideDetected: _arbOverride,
+          overrideClassification: _arbOverride ? "OVERRIDE_EXPECTED_RULE" : null,
+          overrideSuspected: false
+        }).catch(() => {});
+      } catch (_) { /* telemetry must never break the flow */ }
 
       st.__cognitive_stage_answer = null;
       }

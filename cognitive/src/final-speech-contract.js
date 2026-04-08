@@ -334,9 +334,30 @@ export function applyFinalSpeechContract(reply, context = {}) {
   // coleta estrutural prematura — aplica stripFutureStageCollection.
   // EXCEÇÃO 2 (Item 3): no topo, se a fala LLM violar integridade após strip,
   // INVALIDAR inteira — proibido devolver fragmento truncado.
+  //
+  // TOP_SEALED_MODE: no topo selado com llmSovereign, NÃO aplicar stripFutureStageCollection
+  // nem qualquer pós-processamento destrutivo. A fala aprovada do bucket é final.
+  // Somente guardrails leves (casa→imóvel, promessas proibidas) já aplicados acima.
   if (context.llmSovereign === true) {
     const currentStage = String(context.currentStage || "").toLowerCase().trim();
-    if (currentStage === "inicio_programa" || currentStage === "inicio" || currentStage === "inicio_decisao") {
+    const isTopoStage = (currentStage === "inicio_programa" || currentStage === "inicio" || currentStage === "inicio_decisao");
+    
+    // TOP_SEALED_MODE: topo selado → sem strip, sem reescrita semântica
+    if (isTopoStage && context.topoSealed === true) {
+      // Guardrails leves já aplicados (casa→imóvel, promessas).
+      // Nada que reescreva semanticamente a resposta.
+      console.log(JSON.stringify({
+        _tag: "TOPO_SEALED_CONTRACT_PASSTHROUGH",
+        reply_before_contract: reply.slice(0, 500),
+        reply_after_guardrails: result.slice(0, 500),
+        strip_skipped: true,
+        topo_sealed: true,
+        currentStage
+      }));
+      return normalizeWhitespace(result);
+    }
+    
+    if (isTopoStage) {
       const _replyBeforeStrip = result;
       result = stripFutureStageCollection(result, context.currentStage);
       const _stripChanged = result !== _replyBeforeStrip;

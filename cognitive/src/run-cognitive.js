@@ -3290,11 +3290,14 @@ export async function runReadOnlyCognitiveEngine(rawInput = {}, options = {}) {
   if (response.speech_origin === "llm_real") {
     // Guardrail mínimo: substituir "casa" por "imóvel" e bloquear promessas proibidas.
     // NÃO reescrever tom, NÃO truncar, NÃO adicionar empatia.
+    const _topoSealedStages = new Set(["inicio", "inicio_decisao", "inicio_programa"]);
+    const _isTopoSealed = _topoSealedStages.has(String(request.current_stage || "").toLowerCase().trim());
     response.reply_text = applyFinalSpeechContract(response.reply_text, {
       currentStage: request.current_stage,
       messageText: request.message_text,
       empathySeed: (request.message_text || "").length,
-      llmSovereign: true  // flag para guardrail mínimo
+      llmSovereign: true,  // flag para guardrail mínimo
+      topoSealed: _isTopoSealed  // TOP_SEALED_MODE: skip strip no topo selado
     });
   } else {
     response.reply_text = applyFinalSpeechContract(response.reply_text, {

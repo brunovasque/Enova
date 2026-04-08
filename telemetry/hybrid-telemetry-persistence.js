@@ -285,9 +285,13 @@ export async function queryArbitrationConflicts(sbFetchFn, env, filters = {}) {
  * Query specifically for stage symptom events.
  */
 export async function queryStageSymptoms(sbFetchFn, env, filters = {}) {
+  // Do NOT pass filters.symptom to queryHybridTelemetryEvents — its eventHasSymptom
+  // only checks stage_symptoms. We apply the symptom filter here after aggregating
+  // arbitration block signals too.
+  const { symptom: _symptomFilter, ...baseFilters } = filters;
   const result = await queryHybridTelemetryEvents(sbFetchFn, env, {
-    ...filters,
-    limit: filters.limit || 100
+    ...baseFilters,
+    limit: baseFilters.limit || 100
   });
 
   if (!result.ok) return result;
@@ -298,16 +302,28 @@ export async function queryStageSymptoms(sbFetchFn, env, filters = {}) {
     "caused_loop", "override_suspected", "state_unchanged_when_expected"
   ];
 
+  // fix sintomas: also surface blocked_valid_signal and caused_loop that live
+  // only in the arbitration block (emitted by Hook 5 before Hook 7 gets context)
   const symptomEvents = result.events.filter(e => {
     const symptoms = e.stage_symptoms || {};
-    return symptomKeys.some(key => symptoms[key] === true);
+    const arb = e.arbitration || {};
+    return (
+      symptomKeys.some(key => symptoms[key] === true) ||
+      arb.blocked_valid_signal === true ||
+      arb.caused_loop === true
+    );
   });
 
   // If a specific symptom filter is requested
-  if (filters.symptom) {
+  if (_symptomFilter) {
     const filtered = symptomEvents.filter(e => {
       const symptoms = e.stage_symptoms || {};
-      return symptoms[filters.symptom] === true;
+      const arb = e.arbitration || {};
+      if (symptoms[_symptomFilter] === true) return true;
+      // blocked_valid_signal and caused_loop also live in the arbitration block
+      if (_symptomFilter === "blocked_valid_signal" && arb.blocked_valid_signal === true) return true;
+      if (_symptomFilter === "caused_loop" && arb.caused_loop === true) return true;
+      return false;
     });
     return { ok: true, events: filtered, total: filtered.length };
   }

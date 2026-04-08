@@ -13,7 +13,8 @@ import {
   emitFinalOutputTelemetry,
   emitStageSymptomsHook,
   clearHybridTurnCorrelation,
-  registerPersistentEmitter
+  registerPersistentEmitter,
+  registerWaitUntil
 } from "./telemetry/hybrid-telemetry-worker-hooks.js";
 import {
   createPersistentEmitter,
@@ -288,17 +289,25 @@ async function step(env, st, messages, nextStage, options = {}) {
   } catch (_) { /* telemetry must never break the flow */ }
 
   // ── HYBRID TELEMETRY PR3: Hook 7 — Stage Symptoms ──
+  // Reads ephemeral __tel_* flags set by the COGNITIVE ASSIST block (if present),
+  // then clears them so they don't leak into the next turn.
   try {
+    const _telCogSignal = st.__tel_cognitive_signal || null;
+    const _telCogConf = st.__tel_cognitive_confidence ?? null;
+    const _telOverride = Boolean(st.__tel_override_suspected);
+    st.__tel_cognitive_signal = null;
+    st.__tel_cognitive_confidence = null;
+    st.__tel_override_suspected = null;
     emitStageSymptomsHook({
       st,
       stageBefore: currentStage,
       stageAfter: nextStage || currentStage,
       reaskTriggered: false,
       stageLocked: false,
-      cognitiveSignal: null,
-      cognitiveConfidence: null,
+      cognitiveSignal: _telCogSignal,
+      cognitiveConfidence: _telCogConf,
       mechanicalAction: nextStage && nextStage !== currentStage ? "stage_advance" : "stay",
-      overrideSuspected: false,
+      overrideSuspected: _telOverride,
       stateDiff: null
     }).catch(() => {});
   } catch (_) { /* telemetry must never break the flow */ }
@@ -6917,6 +6926,14 @@ export default {
     try {
       registerPersistentEmitter(createPersistentEmitter(logger, env));
     } catch (_) { /* persistence registration failure must never block worker */ }
+
+    // ── fix sintomas: Register ctx.waitUntil for durable telemetry persistence ──
+    // Extends worker lifetime for telemetry promises even after Response is sent.
+    try {
+      if (ctx && typeof ctx.waitUntil === "function") {
+        registerWaitUntil(ctx.waitUntil.bind(ctx));
+      }
+    } catch (_) { /* never blocks worker */ }
 
     // ---------------------------------------------
 // 🔐 Admin canônico — deve vir antes de /webhook/meta e fallback
@@ -23721,6 +23738,22 @@ async function runFunnel(env, st, userText) {
           overrideSuspected: false
         }).catch(() => {});
       } catch (_) { /* telemetry must never break the flow */ }
+
+      // ── fix sintomas: Store ephemeral cognitive context for Hook 7 in step() ──
+      // These flags are read and cleared in step() at the Hook 7 callsite.
+      // They carry the cognitive signal/confidence/override from this turn into step().
+      try {
+        const _telCogSignalVal = cognitive?.safe_stage_signal || cognitive?.intent || null;
+        const _telCogConfVal = cognitive?.confidence ?? null;
+        const _telOverrideVal = Boolean(
+          hasUsefulCognitiveReply &&
+          !st.__cognitive_v2_takes_final &&
+          Boolean(_telCogSignalVal)
+        );
+        st.__tel_cognitive_signal = _telCogSignalVal;
+        st.__tel_cognitive_confidence = _telCogConfVal;
+        st.__tel_override_suspected = _telOverrideVal;
+      } catch (_) { /* never throws */ }
 
       st.__cognitive_stage_answer = null;
       }

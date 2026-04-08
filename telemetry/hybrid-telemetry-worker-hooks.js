@@ -65,6 +65,42 @@ export function getRegisteredPersistentEmitter() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// MODULE-LEVEL WAIT-UNTIL (durability — fix sintomas callsite)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Module-level waitUntil function from the Cloudflare execution context.
+ * When registered, telemetry promises are handed off to the runtime so they
+ * survive even when the Response is already sent (fire-and-forget durability).
+ * Set via registerWaitUntil(). Never throws to the caller.
+ */
+let _registeredWaitUntil = null;
+
+/**
+ * Register a waitUntil function for durable telemetry persistence.
+ * Call once during worker initialization with ctx.waitUntil.bind(ctx).
+ *
+ * @param {Function|null} waitUntilFn - ctx.waitUntil from the execution context
+ */
+export function registerWaitUntil(waitUntilFn) {
+  _registeredWaitUntil = typeof waitUntilFn === "function" ? waitUntilFn : null;
+}
+
+/**
+ * Emit with durability: if waitUntil is registered, hand the promise to the
+ * runtime so it outlives the Response. Falls back to plain await.
+ * Always awaits the promise so internal errors surface in the hook's try/catch.
+ *
+ * @param {Promise} emitPromise
+ */
+async function _safeEmitWithDurability(emitPromise) {
+  if (typeof _registeredWaitUntil === "function") {
+    try { _registeredWaitUntil(emitPromise); } catch (_) { /* never throws */ }
+  }
+  try { await emitPromise; } catch (_) { /* fire-and-forget: never throws */ }
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // INTERNAL HELPERS
 // ═══════════════════════════════════════════════════════════════════
 
@@ -263,11 +299,12 @@ export async function emitCognitiveDecisionTelemetry({
       reasonCodes.push(COGNITIVE_REASON_CODES.AMBIGUOUS_INPUT);
     }
 
+    const _waIdH2 = st?.wa_id || st?.lead_id || st?.conversation_id || null;
     await emitCognitiveTelemetrySafe({
       eventName: HYBRID_TELEMETRY_EVENT_TYPES.COGNITIVE_TURN_RESULT,
       base: {
-        lead_id: st?.wa_id || null,
-        conversation_id: st?.wa_id || null,
+        lead_id: _waIdH2,
+        conversation_id: _waIdH2,
         turn_id: st?.last_message_id || null,
         correlation_id: correlationId,
         stage_before: stage || st?.fase_conversa || "inicio",
@@ -312,11 +349,12 @@ export async function emitPostProcessingTelemetry({
 } = {}) {
   try {
     const correlationId = resolveCorrelationId(st);
+    const _waIdH3 = st?.wa_id || st?.lead_id || st?.conversation_id || null;
     const event = buildHybridTelemetryEvent({
       eventName: "funnel.cognitive.post_processing",
       base: {
-        lead_id: st?.wa_id || null,
-        conversation_id: st?.wa_id || null,
+        lead_id: _waIdH3,
+        conversation_id: _waIdH3,
         turn_id: st?.last_message_id || null,
         correlation_id: correlationId,
         stage_before: stage || st?.fase_conversa || "inicio",
@@ -376,11 +414,12 @@ export async function emitMechanicalDecisionTelemetry({
       reasonCodes.push(MECHANICAL_REASON_CODES.STATE_UNCHANGED);
     }
 
+    const _waIdH4 = st?.wa_id || st?.lead_id || st?.conversation_id || null;
     await emitMechanicalTelemetrySafe({
       eventName: HYBRID_TELEMETRY_EVENT_TYPES.MECHANICAL_PARSE_RESULT,
       base: {
-        lead_id: st?.wa_id || null,
-        conversation_id: st?.wa_id || null,
+        lead_id: _waIdH4,
+        conversation_id: _waIdH4,
         turn_id: st?.last_message_id || null,
         correlation_id: correlationId,
         stage_before: stageBefore || st?.fase_conversa || "inicio",
@@ -446,13 +485,14 @@ export async function emitArbitrationTelemetry({
     const resolvedRequiresConfirmation = requiresConfirmation !== undefined
       ? Boolean(requiresConfirmation)
       : false;
+    const _waIdH5 = st?.wa_id || st?.lead_id || st?.conversation_id || null;
     await emitArbitrationTelemetrySafe({
       eventName: arbitrationTriggered
         ? HYBRID_TELEMETRY_EVENT_TYPES.ARBITRATION_CONFLICT
         : HYBRID_TELEMETRY_EVENT_TYPES.ARBITRATION_OVERRIDE_SUSPECTED,
       base: {
-        lead_id: st?.wa_id || null,
-        conversation_id: st?.wa_id || null,
+        lead_id: _waIdH5,
+        conversation_id: _waIdH5,
         turn_id: st?.last_message_id || null,
         correlation_id: correlationId,
         stage_before: stage || st?.fase_conversa || "inicio",
@@ -518,11 +558,12 @@ export async function emitFinalOutputTelemetry({
 } = {}) {
   try {
     const correlationId = resolveCorrelationId(st);
+    const _waIdH6 = st?.wa_id || st?.lead_id || st?.conversation_id || null;
     const event = buildHybridTelemetryEvent({
       eventName: "funnel.output.final",
       base: {
-        lead_id: st?.wa_id || null,
-        conversation_id: st?.wa_id || null,
+        lead_id: _waIdH6,
+        conversation_id: _waIdH6,
         turn_id: st?.last_message_id || null,
         correlation_id: correlationId,
         stage_before: stageBefore || st?.fase_conversa || "inicio",
@@ -580,11 +621,12 @@ export async function emitStageSymptomsHook({
       stageBefore, stageAfter, reaskTriggered, stageLocked,
       cognitiveSignal, cognitiveConfidence, mechanicalAction, overrideSuspected, stateDiff
     });
+    const _waIdH7 = st?.wa_id || st?.lead_id || st?.conversation_id || null;
     const event = buildHybridTelemetryEvent({
       eventName: HYBRID_TELEMETRY_EVENT_TYPES.STAGE_SYMPTOMS,
       base: {
-        lead_id: st?.wa_id || null,
-        conversation_id: st?.wa_id || null,
+        lead_id: _waIdH7,
+        conversation_id: _waIdH7,
         turn_id: st?.last_message_id || null,
         correlation_id: correlationId,
         stage_before: stageBefore || st?.fase_conversa || "inicio",
@@ -592,11 +634,11 @@ export async function emitStageSymptomsHook({
       }
     });
     event._stage_symptoms = symptoms;
-    await emitHybridTelemetry({
+    await _safeEmitWithDurability(emitHybridTelemetry({
       event,
       consoleEmitter: buildConsoleEmitter("stage_symptoms"),
       persistentEmitter: _registeredPersistentEmitter
-    });
+    }));
   } catch (_) { /* fire-and-forget */ }
 }
 

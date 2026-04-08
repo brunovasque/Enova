@@ -142,6 +142,8 @@ const COGNITIVE_SLOT_DEPENDENCIES = Object.freeze({
   correspondente: ["visita"]
 });
 const TOPO_FUNIL_STAGES = new Set(["inicio", "inicio_decisao", "inicio_programa", "inicio_nome", "inicio_nacionalidade", "inicio_rnm", "inicio_rnm_validade"]);
+// TOP_SEALED_MODE: topo stages where speech is LLM-only (no mechanical)
+const TOPO_SEALED_STAGES_SET = new Set(["inicio", "inicio_decisao", "inicio_programa"]);
 const COMPOSICAO_INICIAL_STAGES = new Set(["somar_renda_solteiro", "somar_renda_familiar", "quem_pode_somar", "interpretar_composicao"]);
 const BLOCO_3_STAGES = new Set(["estado_civil", "confirmar_casamento", "financiamento_conjunto"]);
 const RENDA_TRABALHO_STAGES = new Set(["regime_trabalho", "autonomo_ir_pergunta", "renda"]);
@@ -3290,8 +3292,7 @@ export async function runReadOnlyCognitiveEngine(rawInput = {}, options = {}) {
   if (response.speech_origin === "llm_real") {
     // Guardrail mínimo: substituir "casa" por "imóvel" e bloquear promessas proibidas.
     // NÃO reescrever tom, NÃO truncar, NÃO adicionar empatia.
-    const _topoSealedStages = new Set(["inicio", "inicio_decisao", "inicio_programa"]);
-    const _isTopoSealed = _topoSealedStages.has(String(request.current_stage || "").toLowerCase().trim());
+    const _isTopoSealed = TOPO_SEALED_STAGES_SET.has(String(request.current_stage || "").toLowerCase().trim());
     response.reply_text = applyFinalSpeechContract(response.reply_text, {
       currentStage: request.current_stage,
       messageText: request.message_text,

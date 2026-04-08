@@ -216,9 +216,8 @@ test("D2: greeting reply NOT compatible if has collection", () => {
 });
 
 test("D3: identity reply NOT compatible with greeting bucket", () => {
-  // A pure identity reply (no greeting markers) should fail greeting validation
+  // A pure identity reply without greeting markers should fail greeting bucket validation
   const identityOnly = "Eu sou a Enova, uma assistente virtual do programa.";
-  // This actually passes because it doesn't have collection — but it doesn't have greeting markers
   assert.ok(!isCompatible("greeting", identityOnly));
 });
 

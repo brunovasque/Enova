@@ -177,6 +177,16 @@ async function step(env, st, messages, nextStage, options = {}) {
   // a semântica. Apenas guardrail mínimo estrito é permitido.
   const speechArbiterSource = st.__speech_arbiter_source || "extreme_fallback";
 
+  // ── TELEMETRIA SOBERANA OBRIGATÓRIA (Item 5: prova output_surface) ────────
+  // Captura antes de limpar flags transitórias.
+  const _llmResponseForTelemetry = String(st.__cognitive_reply_prefix || "").trim();
+  const _outputSurface = arr.join("\n");
+  const _surfaceEqualLlm = speechArbiterSource === "llm_real"
+    ? (_outputSurface === _llmResponseForTelemetry)
+    : null;
+  const _mechanicalTextCandidate = rawArr.filter(Boolean).join("\n");
+  const _mechanicalTextBlocked = speechArbiterSource === "llm_real";
+
   // limpa flags transitórias para não vazar para próximas respostas
   st.__cognitive_reply_prefix = null;
   st.__cognitive_v2_takes_final = false;
@@ -194,6 +204,38 @@ async function step(env, st, messages, nextStage, options = {}) {
     nextStage: nextStage || currentStage,
     replyText
   });
+
+  // ── TELEMETRIA SOBERANA — prova de igualdade strict (Item 2 + 5) ──────
+  try {
+    await telemetry(env, {
+      wa_id: st.wa_id,
+      event: "sovereign_surface_proof",
+      stage: currentStage,
+      next_stage: nextStage || null,
+      severity: "info",
+      message: "Prova de superfície soberana — step()",
+      details: {
+        user_text: st.last_user_text || null,
+        normalized_user_text: normalizeText(st.last_user_text || ""),
+        origin: speechArbiterSource,
+        llm_response_after_contract: speechArbiterSource === "llm_real" ? _llmResponseForTelemetry : null,
+        output_surface: _outputSurface,
+        surface_source: speechArbiterSource,
+        stage_before: currentStage,
+        stage_after: nextStage || currentStage,
+        nextStage: nextStage || null,
+        mechanical_text_candidate: _mechanicalTextCandidate.slice(0, 300),
+        mechanical_text_blocked: _mechanicalTextBlocked,
+        surface_equal_llm: _surfaceEqualLlm,
+        replay_suspected: false,
+        opener_override_used: false,
+        cognitive_v2_takes_final: speechArbiterSource === "llm_real",
+        speech_arbiter_source: speechArbiterSource
+      }
+    });
+  } catch (_telErr) {
+    console.error("SOVEREIGN_SURFACE_PROOF_TELEMETRY_ERROR:", _telErr);
+  }
 
   if (isSim) {
     simCtx.messageLog = Array.isArray(simCtx.messageLog) ? simCtx.messageLog : [];
@@ -3772,6 +3814,13 @@ function sanitizeCognitiveReply(replyText) {
   text = text.replace(/Minha\s+Casa\s+Minha\s+Vida/gi, mcmvPlaceholder);
   text = text.replace(/\bcasa\b/gi, "imóvel");
   text = text.replace(new RegExp(mcmvPlaceholder.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"), "g"), "Minha Casa Minha Vida");
+  // ── Blindagem de identidade interna (Item 4) ──
+  text = text.replace(/\bEnova\s+Cognitive\s+Engine\b/gi, "Enova");
+  text = text.replace(/\bCognitive\s+Engine\b/gi, "atendimento");
+  text = text.replace(/\bread[- ]?only\b/gi, "");
+  text = text.replace(/\bMCMV\s*\/\s*CEF\b/gi, "Minha Casa Minha Vida");
+  text = text.replace(/\bCEF\s*\/\s*MCMV\b/gi, "Minha Casa Minha Vida");
+  text = text.replace(/\s{2,}/g, " ").trim();
   return text;
 }
 
@@ -18921,7 +18970,7 @@ const TOPO_PREMATURE_COLLECTION = /\b(?:estado\s+civil|solteiro\(?a?\)?|casad[oa
  * que não é adequado para uma abertura humanizada no topo do funil.
  * Rejeita termos frios, siglas internas e formulações burocráticas.
  */
-const TOPO_INSTITUTIONAL_TONE = /\b(?:Cognitive\s+Engine|programas?\s+habitaciona(?:l|is)|MCMV\s*\/\s*CEF|CEF\s*\/\s*MCMV|processo\s+de\s+financiamento\s+habitacional|financiamento\s+habitacional|Caixa\s+Econ[oô]mica\s+Federal)\b/i;
+const TOPO_INSTITUTIONAL_TONE = /\b(?:Cognitive\s+Engine|Enova\s+Cognitive\s+Engine|programas?\s+habitaciona(?:l|is)|MCMV\s*\/\s*CEF|CEF\s*\/\s*MCMV|processo\s+de\s+financiamento\s+habitacional|financiamento\s+habitacional|Caixa\s+Econ[oô]mica\s+Federal|read[- ]?only|motor\s+cognitivo|fase\s+de\s+leitura)\b/i;
 
 /**
  * _isTopoReplySemanticallySafe — Valida que o reply NÃO puxa coleta estrutural
@@ -18943,20 +18992,39 @@ function _isTopoReplyToneSafe(reply) {
   return !TOPO_INSTITUTIONAL_TONE.test(reply);
 }
 
-/**
- * TOPO_HAPPY_PATH_SPEECH — Mapa canônico de falas cognitivas por transição.
- *
- * Cada chave é uma transição happy-path (ex: "inicio_programa:sim").
- * O valor é um objeto com:
- *   - cognitiveStage: stage a passar para o cognitive engine
- *   - cognitiveMessage: mensagem contextual a passar como input do cliente
- *   - fallback: array de strings mecânicas (safety net)
- *   - validate(reply): função que valida se o reply cognitivo é usável
- *
- * O cognitivo real (runCognitiveV2WithAdapter) é chamado com esses parâmetros.
- * Se o reply for válido → substitui a fala mecânica.
- * Se falhar → fallback mecânico entra automaticamente.
- */
+// ── Classificador de intent bucket para prova de colapso no topo ───────────
+// Retorna um rótulo semântico para o input do cliente no topo.
+// Permite provar se inputs distintos estão caindo no mesmo bucket de resposta.
+const _TOPO_INTENT_BUCKETS = Object.freeze([
+  { key: "greeting",       re: /^(oi+|ola|olá|opa|eae|eai|e ai|e aí|fala|bom dia|boa tarde|boa noite)\b/i },
+  { key: "identity",       re: /\b(quem [eé] voc[eê]|quem [eé] a enova|voc[eê] [eé] quem|quem\b.*\bvoc[eê])\b/i },
+  { key: "how_it_works",   re: /\b(como funciona|explica|me explica|o que [eé]|como [eé]|que [eé] isso)\b/i },
+  { key: "restart",        re: /\b(quero come[cç]ar|come[cç]ar de novo|come[cç]ar do zero|resetar|reset|voltei|to de volta)\b/i },
+  { key: "affirmative",    re: /^(sim|s|ss|claro|pode|bora|vamos)\b/i },
+  { key: "negative",       re: /^(n[aã]o|nao|nope)\b/i },
+  { key: "program_query",  re: /\b(minha casa|mcmv|programa|habitacional|financ|subsídio|subs[ií]dio)\b/i },
+  { key: "eligibility",    re: /\b(tenho direito|posso participar|consigo|eleg[ií]vel|enquadro)\b/i }
+]);
+
+function _classifyTopoIntentBucket(userText) {
+  if (!userText) return "unknown";
+  const nt = String(userText).trim().toLowerCase();
+  for (const { key, re } of _TOPO_INTENT_BUCKETS) {
+    if (re.test(nt)) return key;
+  }
+  return "other";
+}
+
+// ── Fingerprint de template de resposta para prova de bucket ────────────────
+function _replyTemplateFingerprint(reply) {
+  if (!reply || typeof reply !== "string") return "empty";
+  const nt = String(reply).trim().toLowerCase()
+    .replace(/[^\w\s]/g, "")
+    .replace(/\s+/g, " ")
+    .substring(0, 60);
+  return nt || "empty";
+}
+
 const TOPO_INICIO_PROGRAMA_FORBIDDEN_COLLECTION_RE =
   /\b(?:estado civil|solteir[oa]?|casad[oa]?|uni[aã]o est[aá]vel|divorciad[oa]?|separad[oa]?|vi[uú]v[oa]?|nome completo|nome e sobrenome|qual (?:e|é) o seu nome|nacionalidade|brasileir[oa]?|estrangeir[oa]?|rnm|renda|sal[aá]rio|clt|aut[oô]nom[oa]?|servidor[oa]?|aposentad[oa]?|ctps|cpf|rg|documentos?|comprovante|restri[cç][aã]o)\b/i;
 const TOPO_INICIO_PROGRAMA_COLD_RE =
@@ -23066,19 +23134,57 @@ async function runFunnel(env, st, userText) {
         }
 
         // ── TOPO BYPASS GUARD ──────────────────────────────────────────
-        // No topo (inicio / inicio_decisao / inicio_programa) o cognitive
-        // assist geral NÃO pode selar takes_final sem passar pelo mesmo
-        // contrato de aceitação semântica e tonal do topo.
-        // Se o reply falhar no validador, revoga takes_final e prefix —
-        // a fala final será decidida pelo contrato de topo downstream
-        // (getTopoHappyPathSpeech → validateInicioProgramaChoiceSpeech).
-        if (st.__cognitive_v2_takes_final && (stage === "inicio" || stage === "inicio_decisao" || stage === "inicio_programa")) {
+        // No topo o cognitive assist NÃO pode selar takes_final sem validação.
+        const _isTopoStage = (stage === "inicio" || stage === "inicio_decisao" || stage === "inicio_programa");
+        let _topoValidatorApplied = false, _topoValidatorPassed = false, _topoContractBypassed = false, _topoContractBypassReason = null;
+        if (st.__cognitive_v2_takes_final && _isTopoStage) {
+          _topoValidatorApplied = true;
           const _topoReply = st.__cognitive_reply_prefix || "";
-          if (!_isTopoReplySemanticallySafe(_topoReply) || !_isTopoReplyToneSafe(_topoReply)) {
+          const _semSafe = _isTopoReplySemanticallySafe(_topoReply);
+          const _toneSafe = _isTopoReplyToneSafe(_topoReply);
+          if (!_semSafe || !_toneSafe) {
+            _topoContractBypassed = true;
+            _topoContractBypassReason = !_semSafe ? "semantic_unsafe" : "tone_unsafe";
             st.__cognitive_reply_prefix = null;
             st.__cognitive_v2_takes_final = false;
             st.__speech_arbiter_source = null;
-          }
+          } else { _topoValidatorPassed = true; }
+        }
+
+        // ── TELEMETRIA SOBERANA DO TOPO (Item 5 + 6) ─────────────────
+        if (_isTopoStage) {
+          const _intentBucket = _classifyTopoIntentBucket(userText);
+          const _replyFp = _replyTemplateFingerprint(st.__cognitive_reply_prefix || cognitiveReply);
+          await telemetry(env, {
+            wa_id: st.wa_id,
+            event: "topo_sovereign_chain",
+            stage,
+            severity: "info",
+            message: "Telemetria soberana do topo — cadeia de fala",
+            details: {
+              user_text: userText,
+              normalized_user_text: normalizeText(userText),
+              detected_intent: cognitive?.intent || null,
+              origin: st.__speech_arbiter_source || null,
+              llm_raw_response: String(cognitive?.reply_text || "").slice(0, 500),
+              llm_response_after_contract: String(cognitiveReply || "").slice(0, 500),
+              stage_before: stage,
+              cognitive_v2_takes_final: st.__cognitive_v2_takes_final,
+              speech_arbiter_source: st.__speech_arbiter_source || null,
+              topo_validator_applied: _topoValidatorApplied,
+              topo_validator_passed: _topoValidatorPassed,
+              topo_contract_bypassed: _topoContractBypassed,
+              topo_contract_bypass_reason: _topoContractBypassReason,
+              topo_route_key: stage,
+              topo_intent_bucket: _intentBucket,
+              input_semantic_class: _intentBucket,
+              reply_template_fingerprint: _replyFp,
+              mechanical_text_blocked: !st.__cognitive_v2_takes_final,
+              v2_mode: v2Mode,
+              cognitive_reason: cognitive?.reason || null,
+              cognitive_confidence: cognitive?.confidence ?? null
+            }
+          });
         }
       } else {
         st.__cognitive_reply_prefix = null;

@@ -56,6 +56,9 @@ const MCMV_RESTORE_PATTERN = new RegExp(MCMV_PLACEHOLDER.replace(/[-/\\^$*+?.()|
 const MAX_REPLY_LENGTH = 400;
 const MAX_REPLY_LENGTH_OPERACIONAL = 600;
 
+// Minimum length for a valid topo reply (below this → safe minimum fallback)
+const MIN_TOPO_REPLY_LENGTH = 20;
+
 // Stages operacionais que legitimamente precisam de mais espaço (listas de docs, detalhes de visita)
 const OPERACIONAL_LONG_STAGES = new Set([
   "envio_docs", "agendamento_visita", "visita_confirmada",
@@ -181,9 +184,22 @@ function stripFutureStageCollection(reply, currentStage) {
 
   // ── Integrity guard for topo ──
   // If stripping destroyed the reply for a topo stage (result too short,
-  // empty, or ends mid-word/mid-phrase), reconstruct with a safe minimum.
-  if (group === "topo" && (!result || result.length < 20 || /\b\w{1,3}$/.test(result))) {
-    return TOPO_SAFE_MINIMUM;
+  // empty, ends mid-word/mid-phrase, or still has trailing fragment),
+  // INVALIDATE the whole reply and return safe minimum.
+  // Proibido: devolver fragmento truncado parcial no topo.
+  if (group === "topo") {
+    if (!result || result.length < MIN_TOPO_REPLY_LENGTH || /\b\w{1,3}$/.test(result)) {
+      return TOPO_SAFE_MINIMUM;
+    }
+    // Extra guard: if the reply still matches a trailing fragment pattern after stripping,
+    // or doesn't end with sentence-ending punctuation, invalidate entirely.
+    if (TRAILING_FRAGMENT_PATTERN.test(result) || !/[.!?](?:\s*😊|✨|👌|💛|🇧🇷)?\s*$/.test(result)) {
+      // Check: at least has one complete sentence (ends with punctuation somewhere)
+      const lastSentEnd = Math.max(result.lastIndexOf(". "), result.lastIndexOf("? "), result.lastIndexOf("! "), result.lastIndexOf("."), result.lastIndexOf("?"), result.lastIndexOf("!"));
+      if (lastSentEnd < 10) {
+        return TOPO_SAFE_MINIMUM;
+      }
+    }
   }
 
   return result;
@@ -305,10 +321,20 @@ export function applyFinalSpeechContract(reply, context = {}) {
   // - NÃO strip future stage (pode alterar perguntas legítimas do LLM)
   // EXCEÇÃO: no topo (inicio_programa), mesmo LLM soberano NÃO pode puxar
   // coleta estrutural prematura — aplica stripFutureStageCollection.
+  // EXCEÇÃO 2 (Item 3): no topo, se a fala LLM violar integridade após strip,
+  // INVALIDAR inteira — proibido devolver fragmento truncado.
   if (context.llmSovereign === true) {
     const currentStage = String(context.currentStage || "").toLowerCase().trim();
     if (currentStage === "inicio_programa" || currentStage === "inicio" || currentStage === "inicio_decisao") {
       result = stripFutureStageCollection(result, context.currentStage);
+      // Item 3: se stripFutureStageCollection devolveu TOPO_SAFE_MINIMUM,
+      // significa que a fala original foi invalidada. Manter o fallback seguro.
+      // Adicionalmente: se o resultado é um fragmento truncado (sem pontuação final
+      // ou muito curto), invalidar inteira e retornar null para que o caller use fallback.
+      const _normalized = normalizeWhitespace(result);
+      if (_normalized.length < MIN_TOPO_REPLY_LENGTH || TRAILING_FRAGMENT_PATTERN.test(_normalized)) {
+        return TOPO_SAFE_MINIMUM;
+      }
     }
     return normalizeWhitespace(result);
   }

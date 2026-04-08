@@ -33,23 +33,7 @@ function ok(name, cond) {
 const { getStageGoal, buildCognitiveInput } = await import(cogContractPath);
 
 // ── Extract worker internals via eval-based approach ────────────────────
-// Read worker file and extract the functions we need
 import { readFileSync } from "fs";
-const workerSource = readFileSync(workerPath, "utf-8");
-
-// Extract function definitions
-function extractFunction(source, name) {
-  // Find function definition
-  const patterns = [
-    new RegExp(`function ${name}\\b[^]*?\\n\\}`, "m"),
-    new RegExp(`const ${name}\\s*=\\s*[^;]+;`, "m")
-  ];
-  for (const p of patterns) {
-    const m = source.match(p);
-    if (m) return m[0];
-  }
-  return null;
-}
 
 // We need to test the internal signature and reuse functions.
 // Since they're not exported, we replicate the logic for testing.

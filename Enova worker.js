@@ -22,6 +22,9 @@ import {
   queryStageSymptoms,
   HYBRID_TELEMETRY_LOG_TAG
 } from "./telemetry/hybrid-telemetry-persistence.js";
+import { handleRankingEndpoint } from "./telemetry/hybrid-telemetry-ranking.js";
+import { handleRegressionEndpoint } from "./telemetry/hybrid-telemetry-regression.js";
+import { handleRolloutEndpoint } from "./telemetry/hybrid-telemetry-rollout.js";
 
 console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
 
@@ -7461,6 +7464,77 @@ if (isAdminProdPath) {
         order: url.searchParams.get("order") || "desc"
       });
       return adminJson(result.ok ? 200 : 500, {
+        ...result,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 📊 PR 5 (Fase 10): RANKING ENDPOINT
+    // Auth is already enforced by isAdminProdPath gate above.
+    // Read-only — no writes to state/funil.
+    // ═══════════════════════════════════════════════════════════════════
+
+    // --- 5. Problem ranking ---
+    if (request.method === "GET" && pathname === "/__admin_prod__/hybrid-telemetry/ranking") {
+      const url = new URL(request.url);
+      const result = await handleRankingEndpoint(sbFetch, env, url.searchParams);
+      return adminJson(result.ok ? 200 : 500, {
+        ...result,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 📈 PR 5 (Fase 11): REGRESSION ENDPOINT
+    // Auth is already enforced by isAdminProdPath gate above.
+    // Read-only — no writes to state/funil.
+    // ═══════════════════════════════════════════════════════════════════
+
+    // --- 6. Regression comparison ---
+    if (request.method === "GET" && pathname === "/__admin_prod__/hybrid-telemetry/regression") {
+      const url = new URL(request.url);
+      const result = await handleRegressionEndpoint(sbFetch, env, url.searchParams);
+      return adminJson(result.ok ? 200 : 500, {
+        ...result,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 🎛️ PR 5 (Fase 12): ROLLOUT CONTROL ENDPOINT
+    // Auth is already enforced by isAdminProdPath gate above.
+    // GET = read status, POST = modify flags.
+    // ═══════════════════════════════════════════════════════════════════
+
+    // --- 7. Rollout control (GET status) ---
+    if (request.method === "GET" && pathname === "/__admin_prod__/hybrid-telemetry/rollout") {
+      const result = handleRolloutEndpoint("GET", null);
+      return adminJson(result.ok ? 200 : 500, {
+        ...result,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
+
+    // --- 7b. Rollout control (POST modify) ---
+    if (request.method === "POST" && pathname === "/__admin_prod__/hybrid-telemetry/rollout") {
+      let body = null;
+      try {
+        body = await request.json();
+      } catch {
+        return adminJson(400, {
+          ok: false,
+          error: "invalid_json",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+      const result = handleRolloutEndpoint("POST", body);
+      return adminJson(result.ok ? 200 : (result.error === "invalid_body" || result.error === "invalid_payload" ? 400 : 500), {
         ...result,
         build: ENOVA_BUILD,
         ts: new Date().toISOString()

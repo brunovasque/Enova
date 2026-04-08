@@ -26,6 +26,13 @@ import {
 import { handleRankingEndpoint } from "./telemetry/hybrid-telemetry-ranking.js";
 import { handleRegressionEndpoint } from "./telemetry/hybrid-telemetry-regression.js";
 import { handleRolloutEndpoint } from "./telemetry/hybrid-telemetry-rollout.js";
+import {
+  adaptLegacyToCanonical,
+  validateSignal,
+  buildSeparationTelemetry,
+  getStageGoal,
+  getAllowedSignalsForStage
+} from "./cognitive/src/cognitive-contract.js";
 
 console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
 
@@ -221,6 +228,39 @@ async function step(env, st, messages, nextStage, options = {}) {
         : (_outputSurface !== _mechanicalTextCandidate)
     }).catch(() => {});
   } catch (_) { /* telemetry must never break the flow */ }
+
+  // ── TELEMETRIA: separação de responsabilidades no step() ──
+  // Prova em runtime que: surface === reply_text, worker não reescreveu fala
+  try {
+    const _stepSepTelemetry = buildSeparationTelemetry({
+      stage_before: currentStage,
+      stage_after: nextStage || currentStage,
+      reply_text_from_cognitive: speechArbiterSource === "llm_real" ? _llmResponseForTelemetry : null,
+      signal_from_cognitive: null,
+      signal_validated_by_worker: false,
+      signal_validation_result: null,
+      surface_sent_to_customer: _outputSurface,
+      needs_confirmation: false,
+      confidence: null,
+      advance_allowed: Boolean(nextStage && nextStage !== currentStage),
+      advance_block_reason: null
+    });
+    _stepSepTelemetry.worker_rewrote_reply = speechArbiterSource === "llm_real"
+      ? (_outputSurface !== _llmResponseForTelemetry)
+      : false;
+    _stepSepTelemetry.surface_equal_reply_text = speechArbiterSource === "llm_real"
+      ? (_outputSurface === _llmResponseForTelemetry)
+      : null;
+    await telemetry(env, {
+      wa_id: st.wa_id,
+      event: "step_separation_proof",
+      stage: currentStage,
+      next_stage: nextStage || null,
+      severity: "info",
+      message: "Prova de separação no step() — surface vs reply_text",
+      details: _stepSepTelemetry
+    });
+  } catch (_stepSepErr) { /* telemetry must never break the flow */ }
 
   // limpa flags transitórias para não vazar para próximas respostas
   st.__cognitive_reply_prefix = null;
@@ -23517,22 +23557,36 @@ async function runFunnel(env, st, userText) {
         });
       }
 
-      const compatibleSignal = isStageSignalCompatible(stage, cognitive.safe_stage_signal);
-      const lowConfidence = Number(cognitive.confidence || 0) < COGNITIVE_V1_CONFIDENCE_MIN;
+      // ── CONTRATO CANÔNICO: converter saída legada → formato canônico ──
+      const canonicalOutput = adaptLegacyToCanonical(cognitive);
+      const _canonicalSignal = canonicalOutput.signal;
+      const _canonicalConfidence = canonicalOutput.confidence;
+      const _canonicalNeedsConfirmation = canonicalOutput.needs_confirmation;
+      const _canonicalReplyText = canonicalOutput.reply_text;
+      const _canonicalSpeechOrigin = canonicalOutput.speech_origin;
+
+      // ── SEPARAÇÃO DE RESPONSABILIDADES ──
+      // Worker valida SOMENTE o sinal (signal). Nunca reescreve reply_text.
+      // O cognitivo é dono de: reply_text, signal, confidence, needs_confirmation
+      const signalValidation = validateSignal(stage, _canonicalSignal);
+      const compatibleSignal = signalValidation.valid;
+      const lowConfidence = _canonicalConfidence < COGNITIVE_V1_CONFIDENCE_MIN;
       const stillNeedsOriginal =
         cognitive.still_needs_original_answer === true && !clearAnswer;
 
       const telemetryDetails = {
         intent: cognitive.intent || null,
-        confidence: cognitive.confidence ?? null,
+        confidence: _canonicalConfidence,
         still_needs_original_answer: cognitive.still_needs_original_answer,
         answered_customer_question: cognitive.answered_customer_question,
         suggested_stage: cognitive.suggested_stage || null,
-        safe_stage_signal: cognitive.safe_stage_signal || null,
+        safe_stage_signal: _canonicalSignal,
         signal_compatible: compatibleSignal,
+        signal_validation_result: signalValidation.reason,
         clear_answer_detected_by_parser: clearAnswer,
         still_needs_original_effective: stillNeedsOriginal,
-        cognitive_v2_mode: v2Mode
+        cognitive_v2_mode: v2Mode,
+        canonical_contract_active: true
       };
 
       // Shadow telemetria comparativa
@@ -23559,6 +23613,10 @@ async function runFunnel(env, st, userText) {
         details: telemetryDetails
       });
 
+      // ── CAMINHO COGNITIVO LIMPO ──
+      // Worker NÃO julga qualidade da fala. Apenas valida o sinal.
+      // reply_text vem pronto do cognitivo (já passou por applyFinalSpeechContract internamente).
+      // Sanitização leve (casa→imóvel) mantida apenas como guardrail mínimo; NÃO reescreve semântica.
       const cognitiveReply = !lowConfidence
         ? sanitizeCognitiveReply(cognitive.reply_text)
         : "";
@@ -23575,40 +23633,38 @@ async function runFunnel(env, st, userText) {
         (
           cognitive.answered_customer_question === true ||
           Boolean(cognitive.intent) ||
-          Boolean(cognitive.safe_stage_signal) ||
+          Boolean(_canonicalSignal) ||
           (v2OnWithLlm && cognitiveReply.length > 30) ||
           (v2OnWithHeuristic && cognitiveReply.length > 30)
         );
 
       if (hasUsefulCognitiveReply) {
         st.__cognitive_reply_prefix = cognitiveReply;
-        // Assunção da fala final: cognitivo substitui o mecânico quando a resposta é útil
-        // e suficiente para a rodada. Mecânico permanece soberano em stage/gate/nextStage/persistência.
-        // Sempre definir explicitamente para evitar vazamento de estado anterior.
-        //
-        // Guarda universal: se o motor sinalizou que o stage ainda precisa da resposta
-        // original (still_needs_original_answer === true), takes_final nunca fecha,
-        // independente do modo (off/shadow/on) ou do caminho (LLM/heuristic/fallback).
-        // Cobre: buildCognitiveFallback (no_llm_or_parse) que retorna still_needs=true.
+        // ── SEPARAÇÃO DE RESPONSABILIDADES: worker valida sinal, não reescreve fala ──
+        // Guarda universal: still_needs_original_answer → takes_final nunca fecha.
         const _stillNeedsOriginal = cognitive.still_needs_original_answer === true;
-        // BLOCO 3 (PR #550): Somente LLM real pode assumir fala final.
-        // Heurística (v2OnWithHeuristic) NÃO pode mais assumir takes_final.
-        // _answeredSufficiently também só vale quando veio de LLM real.
-        //   1. V2 "on" com LLM real (cognitive_v2) → takes_final=true
-        //   2. Heurística → suporte interno apenas, NÃO takes_final
+        // Somente LLM real pode assumir fala final.
+        // Heurística é suporte interno, NÃO takes_final.
         st.__cognitive_v2_takes_final = (v2OnWithLlm && !_stillNeedsOriginal) ? true : false;
-        // __speech_arbiter_source — somente LLM real é soberano
         st.__speech_arbiter_source = (v2OnWithLlm && !_stillNeedsOriginal) ? "llm_real" : null;
         // Se não é LLM real, limpa prefix — heurística não produz fala final
         if (!v2OnWithLlm) {
           st.__cognitive_reply_prefix = null;
         }
 
+        // ── SIGNAL VALIDATION GUARD ──────────────────────────────────
+        // Worker valida se o signal é compatível com o stage.
+        // Se signal incompatível → bloqueia avanço, NÃO reescreve fala.
+        if (!signalValidation.valid && _canonicalSignal) {
+          // Sinal incompatível → não confia no signal para avançar stage.
+          // Fala permanece intacta (cognitivo é dono da fala).
+          telemetryDetails.signal_blocked = true;
+          telemetryDetails.signal_block_reason = signalValidation.reason;
+        }
+
         // ── TOPO BYPASS GUARD ──────────────────────────────────────────
         // No topo o cognitive assist NÃO pode selar takes_final sem validação.
-        // FASE 1: Para buckets do topo em inicio_programa, aplicar o mesmo contrato
-        // certo (validateInicioProgramaChoiceSpeech) além de semantic+tone.
-        // Isso impede que o assist geral bypass-e o contrato específico do topo.
+        // Guardrail leve: semantic+tone safety. NÃO reescreve reply_text.
         const _isTopoStage = (stage === "inicio" || stage === "inicio_decisao" || stage === "inicio_programa");
         let _topoValidatorApplied = false, _topoValidatorPassed = false, _topoContractBypassed = false, _topoContractBypassReason = null;
         let _topoValidatorName = null, _topoChoiceContractMissing = false, _topoShouldHaveUsedChoiceValidator = false, _topoRouteKeyCandidate = null;
@@ -23618,10 +23674,6 @@ async function runFunnel(env, st, userText) {
           const _semSafe = _isTopoReplySemanticallySafe(_topoReply);
           const _toneSafe = _isTopoReplyToneSafe(_topoReply);
 
-          // FASE 1: Para inicio_programa em buckets conversacionais do topo,
-          // exigir validateInicioProgramaChoiceSpeech (contrato certo do topo)
-          // além de semantic + tone. Sem isso, o assist geral pode promover
-          // llm_real sem a pergunta de escolha canônica, pulando a surface.
           const _intentBucketForGuard = _classifyTopoIntentBucket(userText);
           _topoRouteKeyCandidate = _intentBucketForGuard;
           const _needsChoiceContract = stage === "inicio_programa" &&
@@ -23631,6 +23683,7 @@ async function runFunnel(env, st, userText) {
           _topoChoiceContractMissing = _needsChoiceContract && !_choiceContractOk;
           _topoValidatorName = _needsChoiceContract ? "validateInicioProgramaChoiceSpeech" : "semantic_tone_only";
 
+          // Guardrail: bloqueia avanço se unsafe, NÃO reescreve fala
           if (!_semSafe || !_toneSafe || !_choiceContractOk) {
             _topoContractBypassed = true;
             _topoContractBypassReason = !_semSafe ? "semantic_unsafe" : !_toneSafe ? "tone_unsafe" : "choice_contract_missing";
@@ -23675,10 +23728,35 @@ async function runFunnel(env, st, userText) {
               mechanical_text_blocked: !st.__cognitive_v2_takes_final,
               v2_mode: v2Mode,
               cognitive_reason: cognitive?.reason || null,
-              cognitive_confidence: cognitive?.confidence ?? null
+              cognitive_confidence: _canonicalConfidence
             }
           });
         }
+
+        // ── TELEMETRIA: separação de responsabilidades worker ↔ cognitivo ──
+        try {
+          const _sepTelemetry = buildSeparationTelemetry({
+            stage_before: stage,
+            stage_after: stage,
+            reply_text_from_cognitive: _canonicalReplyText,
+            signal_from_cognitive: _canonicalSignal,
+            signal_validated_by_worker: true,
+            signal_validation_result: signalValidation.reason,
+            surface_sent_to_customer: st.__cognitive_reply_prefix || null,
+            needs_confirmation: _canonicalNeedsConfirmation,
+            confidence: _canonicalConfidence,
+            advance_allowed: compatibleSignal && !lowConfidence,
+            advance_block_reason: !compatibleSignal ? "signal_incompatible" : lowConfidence ? "low_confidence" : null
+          });
+          await telemetry(env, {
+            wa_id: st.wa_id,
+            event: "worker_cognitive_separation",
+            stage,
+            severity: "info",
+            message: "Prova de separação de responsabilidades worker ↔ cognitivo",
+            details: _sepTelemetry
+          });
+        } catch (_sepErr) { /* telemetry must never break the flow */ }
       } else {
         st.__cognitive_reply_prefix = null;
         st.__cognitive_v2_takes_final = false;

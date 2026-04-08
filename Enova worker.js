@@ -4298,6 +4298,17 @@ function renderCognitiveSpeech(st, stage, rawArr) {
     return [cognitivePrefix];
   }
 
+  // ── TOP_SEALED_MODE: no topo selado, fallback extremo usa resposta estática do bucket ──
+  // NUNCA usa fala mecânica (_MINIMAL_FALLBACK_SPEECH_MAP ou _renderCognitiveFromIntent)
+  // no topo selado. Usa a resposta cognitiva estática do bucket classificado.
+  if (TOP_SEALED_MODE && TOP_SEALED_STAGES.has(stage)) {
+    const _bucket = st?.__topo_bucket || _classifyTopoIntentBucket(st?.last_user_text || "");
+    const _staticReply = _TOPO_BUCKET_STATIC_REPLIES[_bucket] || _TOPO_BUCKET_STATIC_REPLIES.unknown_topo;
+    st.__speech_arbiter_source = "topo_sealed_bucket_static";
+    st.__topo_mechanical_surface_blocked = true;
+    return [_staticReply];
+  }
+
   // Tudo que não é LLM real → fallback extremo mínimo (mapa por stage).
   // Heurística, resolver, topo, prefix local — NADA disso é soberano.
   // O prefix (se existir) é DESCARTADO — foi suporte interno, não fala final.
@@ -18992,27 +19003,103 @@ function _isTopoReplyToneSafe(reply) {
   return !TOPO_INSTITUTIONAL_TONE.test(reply);
 }
 
+// ── TOP_SEALED_MODE — Zona selada do topo ──────────────────────────────────
+// A partir deste patch, o mecânico no topo NÃO FALA. Ele só:
+//   identifica stage, classifica bucket, valida avanço, calcula nextStage,
+//   persiste estado, registra telemetria.
+// A fala do topo é LLM-only. Se o LLM falhar, a fala vem da resposta
+// cognitiva estática do bucket — NUNCA de happy path mecânico.
+const TOP_SEALED_MODE = true;
+const TOP_SEALED_STAGES = new Set(["inicio", "inicio_decisao", "inicio_programa"]);
+const TOP_SEALED_MAX_RETRIES = 2;
+
 // ── Classificador de intent bucket para prova de colapso no topo ───────────
 // Retorna um rótulo semântico para o input do cliente no topo.
 // Permite provar se inputs distintos estão caindo no mesmo bucket de resposta.
+// Buckets obrigatórios: greeting, identity, how_it_works, program_choice, unknown_topo
 const _TOPO_INTENT_BUCKETS = Object.freeze([
-  { key: "greeting",       re: /^(oi+|ola|olá|opa|eae|eai|e ai|e aí|fala|bom dia|boa tarde|boa noite)\b/i },
-  { key: "identity",       re: /\b(quem [eé] voc[eê]|quem [eé] a enova|voc[eê] [eé] quem|quem\b.*\bvoc[eê])\b/i },
-  { key: "how_it_works",   re: /\b(como funciona|explica|me explica|o que [eé]|como [eé]|que [eé] isso)\b/i },
-  { key: "restart",        re: /\b(quero come[cç]ar|come[cç]ar de novo|come[cç]ar do zero|resetar|reset|voltei|to de volta)\b/i },
-  { key: "affirmative",    re: /^(sim|s|ss|claro|pode|bora|vamos)\b/i },
-  { key: "negative",       re: /^(n[aã]o|nao|nope)\b/i },
-  { key: "program_query",  re: /\b(minha casa|mcmv|programa|habitacional|financ|subsídio|subs[ií]dio)\b/i },
-  { key: "eligibility",    re: /\b(tenho direito|posso participar|consigo|eleg[ií]vel|enquadro)\b/i }
+  { key: "greeting",        re: /^(oi+|ol[aá]|opa|eae|eai|e ai|e a[ií]|fala|bom dia|boa tarde|boa noite)(?:\b|$|\s)/i },
+  { key: "identity",        re: /(?:quem [eé] voc[eê]|quem [eé] a enova|voc[eê] [eé] quem|quem\b.*\bvoc[eê]|o que [eé] voc[eê]|o que voc[eê] [eé]|quem vc [eé]|quem [eé] vc)/i },
+  { key: "how_it_works",    re: /(?:como funciona|explica|me explica|n[aã]o.*me explica|como [eé]|que [eé] isso|como que funciona|funciona como)/i },
+  { key: "program_choice",  re: /\b(j[aá] sei|j[aá] conhe[cç]o|sei sim|conhe[cç]o|n[aã]o sei|n[aã]o conhe[cç]o|quero saber|quero entender)\b/i },
+  { key: "restart",         re: /\b(quero come[cç]ar|come[cç]ar de novo|come[cç]ar do zero|resetar|reset|voltei|to de volta)\b/i },
+  { key: "affirmative",     re: /^(sim|s|ss|claro|pode|bora|vamos)\b/i },
+  { key: "negative",        re: /^(n[aã]o|nao|nope)\b/i },
+  { key: "program_query",   re: /\b(minha casa|mcmv|programa|habitacional|financ|subsídio|subs[ií]dio)\b/i },
+  { key: "eligibility",     re: /\b(tenho direito|posso participar|consigo|eleg[ií]vel|enquadro)\b/i }
 ]);
 
 function _classifyTopoIntentBucket(userText) {
-  if (!userText) return "unknown";
+  if (!userText) return "unknown_topo";
   const nt = String(userText).trim().toLowerCase();
   for (const { key, re } of _TOPO_INTENT_BUCKETS) {
     if (re.test(nt)) return key;
   }
-  return "other";
+  return "unknown_topo";
+}
+
+// ── Respostas cognitivas estáticas por bucket (contingência LLM) ───────────
+// Estas NÃO são fala mecânica — são surface cognitiva mínima do bucket.
+// Usadas SOMENTE quando LLM falha após todos os retries.
+const _TOPO_BUCKET_STATIC_REPLIES = Object.freeze({
+  greeting:       "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Posso te ajudar a entender se você se enquadra. Você já sabe como funciona ou quer que eu te explique?",
+  identity:       "Eu sou a Enova, uma assistente virtual especializada no programa Minha Casa Minha Vida 😊 Estou aqui pra te ajudar a entender suas condições e te guiar no processo. Você já sabe como funciona ou quer que eu te explique?",
+  how_it_works:   "O Minha Casa Minha Vida é um programa do governo que ajuda na entrada e reduz a parcela do financiamento, de acordo com a faixa da família 😊 Eu vou analisar seu perfil e mostrar quanto de subsídio você pode ter. Quer seguir com a análise? Me diz *sim* pra gente começar.",
+  program_choice: "Você já sabe como funciona o Minha Casa Minha Vida ou quer que eu te explique rapidinho? 😊",
+  unknown_topo:   "Oi! 😊 Eu sou a Enova, assistente do Minha Casa Minha Vida. Posso te ajudar? Você já sabe como funciona o programa ou prefere que eu explique?"
+});
+
+// ── Validação de compatibilidade bucket × reply ────────────────────────────
+// Garante que a resposta LLM é semanticamente compatível com o bucket esperado.
+// Retorna true se compatível, false se precisa retry.
+function _isTopoBucketReplyCompatible(bucket, reply) {
+  if (!reply || typeof reply !== "string") return false;
+  const nt = reply.toLowerCase();
+  switch (bucket) {
+    case "greeting":
+      // greeting NÃO pode responder como identity pura (sem saudação/acolhimento)
+      // greeting NÃO pode puxar coleta estrutural
+      if (TOPO_PREMATURE_COLLECTION.test(reply)) return false;
+      // Deve ter algum sinal de saudação/acolhimento
+      if (!/\b(oi|olá|ola|bem[- ]?vind|ajudar|ajudo|por aqui|tudo bem)\b/i.test(nt)) return false;
+      return true;
+    case "identity":
+      // identity deve conter referência à Enova ou ao que ela é
+      if (TOPO_PREMATURE_COLLECTION.test(reply)) return false;
+      if (!/\b(enova|assistente|virtual|programa|minha casa)\b/i.test(nt)) return false;
+      return true;
+    case "how_it_works":
+      // how_it_works deve explicar o programa, NÃO puxar nome/estado civil/renda
+      if (TOPO_PREMATURE_COLLECTION.test(reply)) return false;
+      if (!/\b(programa|governo|subs[ií]dio|financiamento|parcela|renda|entrada|minha casa)\b/i.test(nt)) return false;
+      return true;
+    case "program_choice":
+      // program_choice deve ter pergunta de escolha (sim/não, conhece/explica)
+      if (TOPO_PREMATURE_COLLECTION.test(reply)) return false;
+      if (!/\?/.test(reply)) return false;
+      return true;
+    default:
+      // unknown_topo e outros: só valida que não tem coleta estrutural
+      if (TOPO_PREMATURE_COLLECTION.test(reply)) return false;
+      return true;
+  }
+}
+
+// ── Instrução dura de retry por bucket ─────────────────────────────────────
+// Usada para forçar o LLM a gerar resposta compatível com o bucket esperado.
+function _getTopoBucketRetryInstruction(bucket) {
+  switch (bucket) {
+    case "greeting":
+      return "Responda APENAS com uma saudação calorosa e acolhedora. NÃO pergunte nome, estado civil, renda ou qualquer dado pessoal. Apresente-se como Enova e pergunte se o cliente já sabe como funciona o Minha Casa Minha Vida ou quer explicação.";
+    case "identity":
+      return "O cliente perguntou quem você é. Responda APENAS explicando que você é a Enova, assistente virtual do programa Minha Casa Minha Vida. NÃO repita a saudação de boas-vindas. NÃO pergunte nome, estado civil, renda ou qualquer dado pessoal.";
+    case "how_it_works":
+      return "O cliente quer saber como funciona o programa. Explique brevemente o Minha Casa Minha Vida: programa do governo que ajuda na entrada e reduz parcela conforme a renda. NÃO pergunte nome, estado civil, renda ou qualquer dado pessoal. Pergunte se quer seguir com a análise.";
+    case "program_choice":
+      return "Pergunte ao cliente se já sabe como funciona o Minha Casa Minha Vida ou se quer explicação. NÃO pergunte nome, estado civil, renda ou qualquer dado pessoal.";
+    default:
+      return "Responda de forma acolhedora e natural. NÃO pergunte nome, estado civil, renda ou qualquer dado pessoal. Apresente-se como Enova e pergunte se o cliente já sabe como funciona o Minha Casa Minha Vida.";
+  }
 }
 
 // ── Fingerprint de template de resposta para prova de bucket ────────────────
@@ -19468,8 +19555,16 @@ const TOPO_HAPPY_PATH_SPEECH = {
  */
 async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
   const config = TOPO_HAPPY_PATH_SPEECH[transitionKey];
+  // ── TOP_SEALED_MODE: bucket classification ──
+  const _topoBucket = _classifyTopoIntentBucket(overrides?.cognitiveMessage || config?.cognitiveMessage || "");
+  const _isSealed = TOP_SEALED_MODE && TOP_SEALED_STAGES.has(String(config?.cognitiveStage || "").toLowerCase());
+
   if (!config) {
-    // Chave desconhecida → fallback direto
+    // Chave desconhecida — em modo selado, usar resposta estática do bucket
+    if (_isSealed) {
+      const staticReply = _TOPO_BUCKET_STATIC_REPLIES[_topoBucket] || _TOPO_BUCKET_STATIC_REPLIES.unknown_topo;
+      return { speech: [staticReply], source: "cognitive_real", _topo_sealed: true, _topo_bucket: _topoBucket, _topo_surface_source: "bucket_static" };
+    }
     return {
       speech: overrides?.fallback || ["Pode continuar por aqui 😊"],
       source: "fallback_mechanical"
@@ -19478,45 +19573,104 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
 
   const fallback = overrides?.fallback || config.fallback || ["Pode continuar por aqui 😊"];
 
-  try {
-    const cogResult = await runCognitiveV2WithAdapter(
-      env,
-      config.cognitiveStage,
-      overrides?.cognitiveMessage || config.cognitiveMessage,
-      st
-    );
+  // ── TOP_SEALED_MODE: bucket-aware LLM retry loop ──
+  let _retryCount = 0;
+  let _retryReason = null;
+  let _lastReply = null;
+  const _maxRetries = _isSealed ? TOP_SEALED_MAX_RETRIES : 0;
 
-    const replyText = sanitizeCognitiveReply(cogResult?.reply_text);
-    const confidence = Number(cogResult?.confidence || 0);
-    // Origem real da fala: propagada do cognitive engine via adapter
-    const rawOrigin = cogResult?.speech_origin || "fallback_mechanical";
+  for (let attempt = 0; attempt <= _maxRetries; attempt++) {
+    try {
+      const _cogMsg = attempt === 0
+        ? (overrides?.cognitiveMessage || config.cognitiveMessage)
+        : `[INSTRUÇÃO DE RETRY #${attempt}] ${_getTopoBucketRetryInstruction(_topoBucket)} Mensagem original do cliente: "${overrides?.cognitiveMessage || config.cognitiveMessage}"`;
 
-    // Valida reply: confiança mínima + validação contextual
-    if (
-      replyText &&
-      confidence >= COGNITIVE_V1_CONFIDENCE_MIN &&
-      config.validate(replyText)
-    ) {
-      // Rotular a origem de forma honesta:
-      // - "llm_real" do engine → "cognitive_real" (LLM real dominante)
-      // - "heuristic_guidance" do engine → "heuristic_guidance" (heurística como fallback)
-      // - qualquer outro → "fallback_mechanical"
-      const source = rawOrigin === "llm_real" ? "cognitive_real"
-        : rawOrigin === "heuristic_guidance" ? "heuristic_guidance"
-        : "fallback_mechanical";
-      return {
-        speech: [replyText],
-        source
-      };
+      const cogResult = await runCognitiveV2WithAdapter(
+        env,
+        config.cognitiveStage,
+        _cogMsg,
+        st
+      );
+
+      const replyText = sanitizeCognitiveReply(cogResult?.reply_text);
+      const confidence = Number(cogResult?.confidence || 0);
+      const rawOrigin = cogResult?.speech_origin || "fallback_mechanical";
+      _lastReply = replyText;
+
+      // Valida reply: confiança mínima + validação contextual
+      if (
+        replyText &&
+        confidence >= COGNITIVE_V1_CONFIDENCE_MIN &&
+        config.validate(replyText)
+      ) {
+        // ── TOP_SEALED_MODE: validação de bucket ──
+        if (_isSealed && !_isTopoBucketReplyCompatible(_topoBucket, replyText)) {
+          _retryCount++;
+          _retryReason = `bucket_incompatible:${_topoBucket}`;
+          console.log(JSON.stringify({
+            _tag: "TOPO_SEALED_BUCKET_RETRY",
+            attempt,
+            bucket: _topoBucket,
+            reply_snippet: replyText.slice(0, 100),
+            reason: _retryReason
+          }));
+          continue; // retry with bucket instruction
+        }
+
+        const source = rawOrigin === "llm_real" ? "cognitive_real"
+          : rawOrigin === "heuristic_guidance" ? "heuristic_guidance"
+          : "fallback_mechanical";
+        return {
+          speech: [replyText],
+          source,
+          _topo_sealed: _isSealed,
+          _topo_bucket: _topoBucket,
+          _topo_retry_count: _retryCount,
+          _topo_retry_reason: _retryReason,
+          _topo_surface_source: "llm_real"
+        };
+      }
+
+      // Reply insuficiente — retry se possível
+      if (_isSealed && attempt < _maxRetries) {
+        _retryCount++;
+        _retryReason = "low_confidence_or_validation_fail";
+        continue;
+      }
+    } catch (e) {
+      console.error("TOPO_HAPPY_PATH_COGNITIVE_ERROR:", transitionKey, e?.message || e);
+      if (_isSealed && attempt < _maxRetries) {
+        _retryCount++;
+        _retryReason = "error:" + (e?.message || "unknown");
+        continue;
+      }
     }
-
-    // Reply insuficiente → fallback
-    return { speech: fallback, source: "fallback_mechanical" };
-  } catch (e) {
-    // Erro no cognitivo → fallback seguro
-    console.error("TOPO_HAPPY_PATH_COGNITIVE_ERROR:", transitionKey, e?.message || e);
-    return { speech: fallback, source: "fallback_mechanical" };
   }
+
+  // ── TOP_SEALED_MODE: fallback = resposta cognitiva estática do bucket ──
+  // NUNCA usa fala mecânica no topo selado.
+  if (_isSealed) {
+    const staticReply = _TOPO_BUCKET_STATIC_REPLIES[_topoBucket] || _TOPO_BUCKET_STATIC_REPLIES.unknown_topo;
+    console.log(JSON.stringify({
+      _tag: "TOPO_SEALED_BUCKET_STATIC_FALLBACK",
+      bucket: _topoBucket,
+      retry_count: _retryCount,
+      retry_reason: _retryReason,
+      last_reply_snippet: (_lastReply || "").slice(0, 100)
+    }));
+    return {
+      speech: [staticReply],
+      source: "cognitive_real", // surface cognitiva do bucket, não mecânica
+      _topo_sealed: true,
+      _topo_bucket: _topoBucket,
+      _topo_retry_count: _retryCount,
+      _topo_retry_reason: _retryReason,
+      _topo_surface_source: "bucket_static"
+    };
+  }
+
+  // Reply insuficiente → fallback mecânico (fora do topo selado)
+  return { speech: fallback, source: "fallback_mechanical" };
 }
 
 /**
@@ -19530,6 +19684,20 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
  * (mapa por stage) dentro de renderCognitiveSpeech.
  */
 function setTopoHappyPathFlags(st, happyResult) {
+  // ── TOP_SEALED_MODE: no modo selado, a resposta do bucket (LLM ou estática)
+  // é SEMPRE promovida como soberana da superfície. Sem fallback mecânico.
+  if (happyResult._topo_sealed) {
+    st.__cognitive_reply_prefix = happyResult.speech[0];
+    st.__cognitive_v2_takes_final = true;
+    st.__speech_arbiter_source = "llm_real";
+    st.__topo_sealed_mode = true;
+    st.__topo_bucket = happyResult._topo_bucket || null;
+    st.__topo_surface_source = happyResult._topo_surface_source || "bucket_static";
+    st.__topo_retry_count = happyResult._topo_retry_count || 0;
+    st.__topo_retry_reason = happyResult._topo_retry_reason || null;
+    return;
+  }
+
   if (happyResult.source === "cognitive_real") {
     // LLM real → soberano da superfície
     st.__cognitive_reply_prefix = happyResult.speech[0];
@@ -23010,6 +23178,29 @@ async function runFunnel(env, st, userText) {
   // ============================================================
   try {
     if (shouldTriggerCognitiveAssist(stage, userText)) {
+      // ── TOP_SEALED_MODE: bloquear cognitive assist geral no topo ──
+      // No modo selado, o topo NÃO recebe fala do assist geral.
+      // A fala é controlada exclusivamente por getTopoHappyPathSpeech + bucket.
+      // O assist geral pode promover llm_real sem o contrato do topo, causando
+      // colapso de bucket. Bloqueio absoluto.
+      if (TOP_SEALED_MODE && TOP_SEALED_STAGES.has(stage)) {
+        st.__cognitive_reply_prefix = null;
+        st.__cognitive_v2_takes_final = false;
+        st.__speech_arbiter_source = null;
+        st.__topo_mechanical_surface_blocked = true;
+        await telemetry(env, {
+          wa_id: st.wa_id,
+          event: "topo_sealed_assist_blocked",
+          stage,
+          severity: "info",
+          message: "TOP_SEALED_MODE: cognitive assist geral bloqueado no topo",
+          details: {
+            user_text: userText,
+            topo_bucket: _classifyTopoIntentBucket(userText),
+            topo_sealed: true
+          }
+        });
+      } else
       // Guard: preservar abertura mecânica soberana no primeiro contato em "inicio"
       // step() em L159-168 lê st.__cognitive_reply_prefix e o prepende às mensagens;
       // garantir null aqui evita que a casca cognitiva apareça antes da abertura mecânica.
@@ -23451,6 +23642,36 @@ if (querIncluirP3Global) {
 // ============================================================
   // A PARTIR DAQUI COMEÇA O SWITCH(stage)
   // ============================================================
+  
+  // ── Helper: emit topo sealed telemetry ──
+  async function _emitTopoSealedTelemetry(env, st, stage, userText, nextStage, happyResult) {
+    if (!TOP_SEALED_MODE || !TOP_SEALED_STAGES.has(stage)) return;
+    const _bucket = _classifyTopoIntentBucket(userText);
+    await telemetry(env, {
+      wa_id: st.wa_id,
+      event: "topo_sealed_telemetry",
+      stage,
+      severity: "info",
+      message: "TOP_SEALED_MODE: telemetria completa do topo selado",
+      details: {
+        topo_bucket_expected: _bucket,
+        topo_bucket_detected: happyResult?._topo_bucket || _bucket,
+        topo_bucket_validated: Boolean(happyResult?._topo_sealed),
+        topo_retry_count: happyResult?._topo_retry_count || 0,
+        topo_retry_reason: happyResult?._topo_retry_reason || null,
+        topo_surface_source: happyResult?._topo_surface_source || st.__topo_surface_source || "unknown",
+        topo_mechanical_surface_blocked: true,
+        topo_contract_applied: false, // no strip destrutivo no topo selado
+        topo_contract_changed_reply: false,
+        topo_llm_only_mode: true,
+        output_surface: String(st.__cognitive_reply_prefix || "").slice(0, 500),
+        stage_before: stage,
+        stage_after: nextStage,
+        nextStage: nextStage
+      }
+    });
+  }
+  
   switch (stage) {
 
 
@@ -23514,6 +23735,7 @@ case "inicio": {
     });
 
     // Fallback extremo mínimo — só usado se LLM falhar tecnicamente.
+    await _emitTopoSealedTelemetry(env, st, stage, userText, "inicio_programa", _aberturaSpeech);
     return step(env, st, ["Oi! 😊 Eu sou a Enova, assistente do Minha Casa Minha Vida. Posso te ajudar?"], "inicio_programa");
   }
 
@@ -23558,6 +23780,7 @@ case "inicio": {
     setTopoHappyPathFlags(novoSt, _resetSpeech);
 
     // Fallback extremo mínimo — só usado se LLM falhar tecnicamente.
+    await _emitTopoSealedTelemetry(env, novoSt, stage, userText, "inicio_programa", _resetSpeech);
     return step(
       env,
       novoSt,
@@ -23594,6 +23817,7 @@ case "inicio": {
     });
 
     // Fallback extremo mínimo — só usado se LLM falhar tecnicamente.
+    await _emitTopoSealedTelemetry(env, st, stage, userText, "inicio_decisao", _retomadaSpeech);
     return step(
       env,
       st,
@@ -23624,6 +23848,7 @@ case "inicio": {
     });
 
     // Fallback extremo mínimo — só usado se LLM falhar tecnicamente.
+    await _emitTopoSealedTelemetry(env, st, stage, userText, "inicio_programa", _saudacaoSpeech);
     return step(
       env,
       st,
@@ -23654,6 +23879,7 @@ case "inicio": {
   });
 
   // Fallback extremo mínimo — só usado se LLM falhar tecnicamente.
+  await _emitTopoSealedTelemetry(env, st, stage, userText, "inicio_programa", null);
   return step(
     env,
     st,
@@ -23703,6 +23929,7 @@ case "inicio_decisao": {
     });
 
     // Fallback extremo mínimo.
+    await _emitTopoSealedTelemetry(env, st, stage, userText, "inicio_decisao", _invalidSpeech);
     return step(
       env,
       st,
@@ -23730,6 +23957,7 @@ case "inicio_decisao": {
     });
 
     // Fallback extremo mínimo.
+    await _emitTopoSealedTelemetry(env, st, stage, userText, st.fase_conversa || "inicio_programa", _contSpeech);
     return step(
       env,
       st,
@@ -23762,6 +23990,7 @@ case "inicio_decisao": {
     setTopoHappyPathFlags(novoSt, _resetSpeech);
 
     // Fallback extremo mínimo.
+    await _emitTopoSealedTelemetry(env, novoSt, stage, userText, "inicio_programa", _resetSpeech);
     return step(
       env,
       novoSt,
@@ -23870,6 +24099,7 @@ case "inicio_programa": {
     });
 
     // Fallback extremo mínimo — só se LLM falhar.
+    await _emitTopoSealedTelemetry(env, st, stage, userText, "inicio_nome", _postExplSpeech);
     return step(
       env,
       st,
@@ -23963,6 +24193,7 @@ case "inicio_programa": {
     // Nenhum texto manual roteirizado. Nenhum script multi-linha.
     //
     // Reversível: restaurar mensagens originais no step() abaixo.
+    await _emitTopoSealedTelemetry(env, st, stage, userText, "inicio_programa", null);
     return step(
       env,
       st,
@@ -23993,6 +24224,7 @@ case "inicio_programa": {
     });
 
     // Fallback extremo mínimo — curto e neutro. Só se LLM falhar.
+    await _emitTopoSealedTelemetry(env, st, stage, userText, "inicio_programa", _naoSpeech);
     return step(
       env,
       st,
@@ -24024,6 +24256,7 @@ case "inicio_programa": {
     });
 
     // Fallback extremo mínimo — só se LLM falhar. Curto e neutro.
+    await _emitTopoSealedTelemetry(env, st, stage, userText, "inicio_nome", _simSpeech);
     return step(
       env,
       st,

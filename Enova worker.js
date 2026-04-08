@@ -3960,7 +3960,12 @@ function sanitizeCognitiveReply(replyText) {
   // Protege nome oficial "Minha Casa Minha Vida" antes do replace global
   const mcmvPlaceholder = "\u200B__MCMV__\u200B";
   text = text.replace(/Minha\s+Casa\s+Minha\s+Vida/gi, mcmvPlaceholder);
+  // Protege "casa própria" (expressão idiomática, evita "imóvel própria")
+  const casaPropriaPlaceholder = "\u200B__CASA_PROPRIA__\u200B";
+  text = text.replace(/\bcasa\s+própria\b/gi, casaPropriaPlaceholder);
   text = text.replace(/\bcasa\b/gi, "imóvel");
+  // Restaura expressões protegidas
+  text = text.replace(new RegExp(casaPropriaPlaceholder.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"), "g"), "casa própria");
   text = text.replace(new RegExp(mcmvPlaceholder.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"), "g"), "Minha Casa Minha Vida");
   // ── Blindagem de identidade interna (Item 4) ──
   text = text.replace(/\bEnova\s+Cognitive\s+Engine\b/gi, "Enova");
@@ -9181,6 +9186,13 @@ if (dedupKey) {
         severity: "warning",
         message: "Webhook META duplicado suprimido (janela 10s)",
         details: {
+          inbound_message_id: messageId,
+          duplicate_inbound_detected: true,
+          duplicate_inbound_blocked: true,
+          already_processed_message_id: messageId,
+          response_send_skipped_due_duplicate: true,
+          request_id: null,
+          wa_id: waId,
           dedupKey,
           lastTs,
           now,
@@ -9209,7 +9221,7 @@ let dedupProcessedHit = false;
 if (messageId) {
   try {
     const now = Date.now();
-    const PROCESSED_WINDOW_MS = 120000; // 2 minutos
+    const PROCESSED_WINDOW_MS = 300000; // 5 minutos (ampliado de 2min para cobrir retries da Meta)
     const CACHE_KEY_PROCESSED = "__enova_meta_processed_cache";
     const cacheProcessed =
       (globalThis[CACHE_KEY_PROCESSED] = globalThis[CACHE_KEY_PROCESSED] || new Map());
@@ -9223,8 +9235,15 @@ if (messageId) {
         event: "meta_duplicate_webhook_processed_suppressed",
         stage: "meta_message",
         severity: "warning",
-        message: "Webhook META suprimido por dedupe de processados (janela 2min)",
+        message: "Webhook META suprimido por dedupe de processados (janela 5min)",
         details: {
+          inbound_message_id: messageId,
+          duplicate_inbound_detected: true,
+          duplicate_inbound_blocked: true,
+          already_processed_message_id: messageId,
+          response_send_skipped_due_duplicate: true,
+          request_id: null,
+          wa_id: waId,
           processedKey,
           lastProcessed,
           now,
@@ -9440,6 +9459,36 @@ let userText = null;
       });
 
       st = await getState(env, waId);
+    }
+
+    // ============================================================
+    // 🔒 ANTI-DUPLICAÇÃO PERSISTENTE (cross-isolate)
+    // Usa last_message_id já persistido no Supabase para detectar
+    // reentrega do mesmo wamid que já foi processado em outro isolate.
+    // ============================================================
+    const _requestId = crypto.randomUUID ? crypto.randomUUID() : `req-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    if (messageId && st?.last_message_id && st.last_message_id === messageId) {
+      await telemetry(env, {
+        wa_id: waId,
+        event: "duplicate_inbound_blocked",
+        stage: st?.fase_conversa || "inicio",
+        severity: "warning",
+        message: "Inbound duplicado bloqueado via state persistence (cross-isolate)",
+        details: {
+          inbound_message_id: messageId,
+          duplicate_inbound_detected: true,
+          duplicate_inbound_blocked: true,
+          already_processed_message_id: st.last_message_id,
+          response_send_skipped_due_duplicate: true,
+          request_id: _requestId,
+          wa_id: waId
+        }
+      });
+      return metaWebhookResponse(200, {
+        reason: "duplicate_inbound_blocked_persistent",
+        inbound_message_id: messageId,
+        request_id: _requestId
+      });
     }
 
     // ============================================================

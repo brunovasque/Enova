@@ -50,6 +50,16 @@ const MCMV_PATTERN = /Minha\s+Casa\s+Minha\s+Vida/gi;
 const MCMV_PLACEHOLDER = "\u200B__MCMV__\u200B";
 const MCMV_RESTORE_PATTERN = new RegExp(MCMV_PLACEHOLDER.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"), "g");
 
+// ── Blindagem contextual "casa própria" ─────────────────────────────────────
+// "casa própria" é expressão idiomática do programa habitacional.
+// Substituir para "imóvel própria" quebra concordância de gênero.
+// Protege: "casa própria", "da casa própria", "sua casa própria" etc.
+const CASA_PROPRIA_PATTERN = /\bcasa\s+própria\b/gi;
+const CASA_PROPRIA_PLACEHOLDER = "\u200B__CASA_PROPRIA__\u200B";
+const CASA_PROPRIA_RESTORE_PATTERN = new RegExp(
+  CASA_PROPRIA_PLACEHOLDER.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&"), "g"
+);
+
 // ── Controle de tamanho ────────────────────────────────────────────────────
 // 400 para coleta/conversação WhatsApp; 600 para stages operacionais (docs/visita/correspondente)
 // onde listas de documentos legitimamente precisam de mais espaço.
@@ -253,8 +263,11 @@ function replaceForbiddenPromises(text) {
 function replaceCasa(text) {
   // Protege nome oficial "Minha Casa Minha Vida" antes do replace global
   let result = text.replace(MCMV_PATTERN, MCMV_PLACEHOLDER);
+  // Protege "casa própria" (expressão idiomática do programa habitacional)
+  result = result.replace(CASA_PROPRIA_PATTERN, CASA_PROPRIA_PLACEHOLDER);
   result = result.replace(CASA_PATTERN, "imóvel");
-  // Restaura nome oficial
+  // Restaura expressões protegidas
+  result = result.replace(CASA_PROPRIA_RESTORE_PATTERN, "casa própria");
   result = result.replace(MCMV_RESTORE_PATTERN, "Minha Casa Minha Vida");
   return result;
 }
@@ -450,8 +463,9 @@ export function hasForbiddenPromise(text) {
  */
 export function containsCasaInsteadOfImovel(text) {
   if (!text || typeof text !== "string") return false;
-  // Remove nome oficial do programa antes de verificar
-  const cleaned = text.replace(MCMV_PATTERN, "");
+  // Remove nome oficial do programa e "casa própria" antes de verificar
+  let cleaned = text.replace(MCMV_PATTERN, "");
+  cleaned = cleaned.replace(CASA_PROPRIA_PATTERN, "");
   const fresh = new RegExp(CASA_PATTERN.source, CASA_PATTERN.flags);
   return fresh.test(cleaned);
 }

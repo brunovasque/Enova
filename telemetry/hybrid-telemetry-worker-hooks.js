@@ -1,8 +1,12 @@
 /**
- * hybrid-telemetry-worker-hooks.js — PR 2
+ * hybrid-telemetry-worker-hooks.js — PR 2 + PR 4 (persistence)
  *
  * Instrumentação real da telemetria híbrida no worker.
  * Conecta os helpers da PR 1 (hybrid-telemetry.js) aos pontos reais do fluxo.
+ *
+ * PR 4 adds: structured persistence via enova_log (Fase 8).
+ * A module-level persistent emitter can be registered once and all hooks
+ * automatically use it for fire-and-forget persistence.
  *
  * Regras invioláveis:
  *   - Nenhuma emissão pode alterar decisão do fluxo
@@ -10,6 +14,7 @@
  *   - Nenhuma emissão pode alterar nextStage, parser, gate, copy, fallback ou surface
  *   - Se falhar, falha isolada e segue o fluxo
  *   - Telemetria não pode lançar exceção para o chamador
+ *   - Persistência falha → atendimento segue normalmente
  *
  * Todos os hooks retornam void (fire-and-forget seguro).
  */
@@ -29,6 +34,35 @@ import {
   STAGE_SYMPTOM_CODES,
   sanitizeTelemetryPayload
 } from "./hybrid-telemetry.js";
+
+// ═══════════════════════════════════════════════════════════════════
+// MODULE-LEVEL PERSISTENT EMITTER (PR 4 — Fase 8)
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Module-level persistent emitter. Once registered, all hooks automatically
+ * persist events to enova_log via this emitter.
+ * Set via registerPersistentEmitter(). Fire-and-forget — failures are silent.
+ */
+let _registeredPersistentEmitter = null;
+
+/**
+ * Register a persistent emitter for all hybrid telemetry hooks.
+ * Call once during worker initialization (e.g., in fetch handler).
+ *
+ * @param {Function|null} emitter - Async function(event) that persists to enova_log
+ */
+export function registerPersistentEmitter(emitter) {
+  _registeredPersistentEmitter = typeof emitter === "function" ? emitter : null;
+}
+
+/**
+ * Get the current persistent emitter (or null if not registered).
+ * @returns {Function|null}
+ */
+export function getRegisteredPersistentEmitter() {
+  return _registeredPersistentEmitter;
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // INTERNAL HELPERS
@@ -192,7 +226,8 @@ export async function emitTurnEntryTelemetry({ st, messageId, waId, userText, no
         user_input_raw: safeSlice(userText, 500),
         user_input_normalized: safeSlice(normalizedUserText, 500)
       },
-      consoleEmitter: buildConsoleEmitter("turn_entry")
+      consoleEmitter: buildConsoleEmitter("turn_entry"),
+      persistentEmitter: _registeredPersistentEmitter
     });
   } catch (_) { /* fire-and-forget: telemetry must never break the flow */ }
 }
@@ -251,7 +286,8 @@ export async function emitCognitiveDecisionTelemetry({
         cognitive_reason_codes: reasonCodes,
         latency_ms: cognitive?.latency_ms || null
       },
-      consoleEmitter: buildConsoleEmitter("cognitive_decision")
+      consoleEmitter: buildConsoleEmitter("cognitive_decision"),
+      persistentEmitter: _registeredPersistentEmitter
     });
   } catch (_) { /* fire-and-forget */ }
 }
@@ -300,7 +336,8 @@ export async function emitPostProcessingTelemetry({
     };
     await emitHybridTelemetry({
       event,
-      consoleEmitter: buildConsoleEmitter("post_processing")
+      consoleEmitter: buildConsoleEmitter("post_processing"),
+      persistentEmitter: _registeredPersistentEmitter
     });
   } catch (_) { /* fire-and-forget */ }
 }
@@ -361,7 +398,8 @@ export async function emitMechanicalDecisionTelemetry({
         mechanical_reason_codes: reasonCodes,
         state_diff: stateDiff || null
       },
-      consoleEmitter: buildConsoleEmitter("mechanical_decision")
+      consoleEmitter: buildConsoleEmitter("mechanical_decision"),
+      persistentEmitter: _registeredPersistentEmitter
     });
   } catch (_) { /* fire-and-forget */ }
 }
@@ -450,7 +488,8 @@ export async function emitArbitrationTelemetry({
         ),
         mechanical_action: mechanicalAction || null
       },
-      consoleEmitter: buildConsoleEmitter("arbitration")
+      consoleEmitter: buildConsoleEmitter("arbitration"),
+      persistentEmitter: _registeredPersistentEmitter
     });
   } catch (_) { /* fire-and-forget */ }
 }
@@ -499,7 +538,8 @@ export async function emitFinalOutputTelemetry({
     };
     await emitHybridTelemetry({
       event,
-      consoleEmitter: buildConsoleEmitter("final_output")
+      consoleEmitter: buildConsoleEmitter("final_output"),
+      persistentEmitter: _registeredPersistentEmitter
     });
 
     // Clean up correlation_id for the turn
@@ -554,7 +594,8 @@ export async function emitStageSymptomsHook({
     event._stage_symptoms = symptoms;
     await emitHybridTelemetry({
       event,
-      consoleEmitter: buildConsoleEmitter("stage_symptoms")
+      consoleEmitter: buildConsoleEmitter("stage_symptoms"),
+      persistentEmitter: _registeredPersistentEmitter
     });
   } catch (_) { /* fire-and-forget */ }
 }

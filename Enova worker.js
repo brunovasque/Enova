@@ -12,8 +12,16 @@ import {
   emitArbitrationTelemetry,
   emitFinalOutputTelemetry,
   emitStageSymptomsHook,
-  clearHybridTurnCorrelation
+  clearHybridTurnCorrelation,
+  registerPersistentEmitter
 } from "./telemetry/hybrid-telemetry-worker-hooks.js";
+import {
+  createPersistentEmitter,
+  queryHybridTelemetryEvents,
+  queryArbitrationConflicts,
+  queryStageSymptoms,
+  HYBRID_TELEMETRY_LOG_TAG
+} from "./telemetry/hybrid-telemetry-persistence.js";
 
 console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
 
@@ -6901,6 +6909,12 @@ export default {
       return Boolean(reqKey && envKey && reqKey === envKey);
     }
 
+    // ── PR 4 (Fase 8): Register persistent emitter for hybrid telemetry ──
+    // Fire-and-forget: if logger or env is broken, telemetry still flows via console.
+    try {
+      registerPersistentEmitter(createPersistentEmitter(logger, env));
+    } catch (_) { /* persistence registration failure must never block worker */ }
+
     // ---------------------------------------------
 // 🔐 Admin canônico — deve vir antes de /webhook/meta e fallback
 // ---------------------------------------------
@@ -7358,6 +7372,100 @@ if (isAdminProdPath) {
     ts: new Date().toISOString()
   });
 }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 🔍 PR 4 (Fase 9): HYBRID TELEMETRY ADMIN ENDPOINTS
+    // Auth is already enforced by isAdminProdPath gate above.
+    // All endpoints are read-only — no writes to state/funil.
+    // ═══════════════════════════════════════════════════════════════════
+
+    // --- 1. History by lead ---
+    if (request.method === "GET" && pathname === "/__admin_prod__/hybrid-telemetry/by-lead") {
+      const url = new URL(request.url);
+      const leadId = url.searchParams.get("lead_id") || url.searchParams.get("wa_id");
+      if (!leadId) {
+        return adminJson(400, {
+          ok: false,
+          error: "missing_lead_id",
+          details: "Envie lead_id ou wa_id como query param",
+          build: ENOVA_BUILD,
+          ts: new Date().toISOString()
+        });
+      }
+      const result = await queryHybridTelemetryEvents(sbFetch, env, {
+        lead_id: leadId,
+        event_name: url.searchParams.get("event_name") || undefined,
+        stage: url.searchParams.get("stage") || undefined,
+        reason_code: url.searchParams.get("reason_code") || undefined,
+        since: url.searchParams.get("since") || undefined,
+        until: url.searchParams.get("until") || undefined,
+        limit: Number(url.searchParams.get("limit")) || 50,
+        order: url.searchParams.get("order") || "desc"
+      });
+      return adminJson(result.ok ? 200 : 500, {
+        ...result,
+        lead_id: leadId,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
+
+    // --- 2. Recent events/failures ---
+    if (request.method === "GET" && pathname === "/__admin_prod__/hybrid-telemetry/recent") {
+      const url = new URL(request.url);
+      const result = await queryHybridTelemetryEvents(sbFetch, env, {
+        event_name: url.searchParams.get("event_name") || undefined,
+        stage: url.searchParams.get("stage") || undefined,
+        reason_code: url.searchParams.get("reason_code") || undefined,
+        since: url.searchParams.get("since") || undefined,
+        until: url.searchParams.get("until") || undefined,
+        limit: Number(url.searchParams.get("limit")) || 50,
+        order: url.searchParams.get("order") || "desc"
+      });
+      return adminJson(result.ok ? 200 : 500, {
+        ...result,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
+
+    // --- 3. Arbitration conflicts ---
+    if (request.method === "GET" && pathname === "/__admin_prod__/hybrid-telemetry/conflicts") {
+      const url = new URL(request.url);
+      const result = await queryArbitrationConflicts(sbFetch, env, {
+        lead_id: url.searchParams.get("lead_id") || url.searchParams.get("wa_id") || undefined,
+        stage: url.searchParams.get("stage") || undefined,
+        conflict_type: url.searchParams.get("conflict_type") || undefined,
+        since: url.searchParams.get("since") || undefined,
+        until: url.searchParams.get("until") || undefined,
+        limit: Number(url.searchParams.get("limit")) || 100,
+        order: url.searchParams.get("order") || "desc"
+      });
+      return adminJson(result.ok ? 200 : 500, {
+        ...result,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
+
+    // --- 4. Stage symptoms ---
+    if (request.method === "GET" && pathname === "/__admin_prod__/hybrid-telemetry/symptoms") {
+      const url = new URL(request.url);
+      const result = await queryStageSymptoms(sbFetch, env, {
+        lead_id: url.searchParams.get("lead_id") || url.searchParams.get("wa_id") || undefined,
+        stage: url.searchParams.get("stage") || undefined,
+        symptom: url.searchParams.get("symptom") || undefined,
+        since: url.searchParams.get("since") || undefined,
+        until: url.searchParams.get("until") || undefined,
+        limit: Number(url.searchParams.get("limit")) || 100,
+        order: url.searchParams.get("order") || "desc"
+      });
+      return adminJson(result.ok ? 200 : 500, {
+        ...result,
+        build: ENOVA_BUILD,
+        ts: new Date().toISOString()
+      });
+    }
 
     if (request.method === "POST" && pathname === "/__admin__/test-parsers") {
       if (!isAdminAuthorized()) {

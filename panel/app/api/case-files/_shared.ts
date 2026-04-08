@@ -40,7 +40,6 @@ function buildDedupKey(row: EnovaDocRow): string {
     normalizedUrl,
     String(row.tipo || "").trim().toLowerCase(),
     String(row.participante || "").trim().toLowerCase(),
-    String(row.created_at || "").trim(),
   ].join("|");
 }
 

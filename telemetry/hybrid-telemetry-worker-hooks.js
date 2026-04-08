@@ -418,9 +418,7 @@ export async function emitFinalOutputTelemetry({
     });
 
     // Clean up correlation_id for the turn
-    if (st && typeof st === "object") {
-      st.__hybrid_correlation_id = null;
-    }
+    clearHybridTurnCorrelation(st);
   } catch (_) { /* fire-and-forget */ }
 }
 

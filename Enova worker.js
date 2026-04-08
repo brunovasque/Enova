@@ -23135,16 +23135,34 @@ async function runFunnel(env, st, userText) {
 
         // ── TOPO BYPASS GUARD ──────────────────────────────────────────
         // No topo o cognitive assist NÃO pode selar takes_final sem validação.
+        // FASE 1: Para buckets do topo em inicio_programa, aplicar o mesmo contrato
+        // certo (validateInicioProgramaChoiceSpeech) além de semantic+tone.
+        // Isso impede que o assist geral bypass-e o contrato específico do topo.
         const _isTopoStage = (stage === "inicio" || stage === "inicio_decisao" || stage === "inicio_programa");
         let _topoValidatorApplied = false, _topoValidatorPassed = false, _topoContractBypassed = false, _topoContractBypassReason = null;
+        let _topoValidatorName = null, _topoChoiceContractMissing = false, _topoShouldHaveUsedChoiceValidator = false, _topoRouteKeyCandidate = null;
         if (st.__cognitive_v2_takes_final && _isTopoStage) {
           _topoValidatorApplied = true;
           const _topoReply = st.__cognitive_reply_prefix || "";
           const _semSafe = _isTopoReplySemanticallySafe(_topoReply);
           const _toneSafe = _isTopoReplyToneSafe(_topoReply);
-          if (!_semSafe || !_toneSafe) {
+
+          // FASE 1: Para inicio_programa em buckets conversacionais do topo,
+          // exigir validateInicioProgramaChoiceSpeech (contrato certo do topo)
+          // além de semantic + tone. Sem isso, o assist geral pode promover
+          // llm_real sem a pergunta de escolha canônica, pulando a surface.
+          const _intentBucketForGuard = _classifyTopoIntentBucket(userText);
+          _topoRouteKeyCandidate = _intentBucketForGuard;
+          const _needsChoiceContract = stage === "inicio_programa" &&
+            ["greeting", "identity", "how_it_works", "program_query", "other"].includes(_intentBucketForGuard);
+          _topoShouldHaveUsedChoiceValidator = _needsChoiceContract;
+          const _choiceContractOk = _needsChoiceContract ? validateInicioProgramaChoiceSpeech(_topoReply) : true;
+          _topoChoiceContractMissing = _needsChoiceContract && !_choiceContractOk;
+          _topoValidatorName = _needsChoiceContract ? "validateInicioProgramaChoiceSpeech" : "semantic_tone_only";
+
+          if (!_semSafe || !_toneSafe || !_choiceContractOk) {
             _topoContractBypassed = true;
-            _topoContractBypassReason = !_semSafe ? "semantic_unsafe" : "tone_unsafe";
+            _topoContractBypassReason = !_semSafe ? "semantic_unsafe" : !_toneSafe ? "tone_unsafe" : "choice_contract_missing";
             st.__cognitive_reply_prefix = null;
             st.__cognitive_v2_takes_final = false;
             st.__speech_arbiter_source = null;
@@ -23175,6 +23193,10 @@ async function runFunnel(env, st, userText) {
               topo_validator_passed: _topoValidatorPassed,
               topo_contract_bypassed: _topoContractBypassed,
               topo_contract_bypass_reason: _topoContractBypassReason,
+              topo_validator_name: _topoValidatorName,
+              topo_validator_missing_choice_contract: _topoChoiceContractMissing,
+              topo_contract_should_have_used_choice_validator: _topoShouldHaveUsedChoiceValidator,
+              topo_route_key_candidate: _topoRouteKeyCandidate,
               topo_route_key: stage,
               topo_intent_bucket: _intentBucket,
               input_semantic_class: _intentBucket,

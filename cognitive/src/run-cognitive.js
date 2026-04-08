@@ -276,8 +276,7 @@ const REPLY_TEXT_REPLACEMENTS = Object.freeze([
   [/\bEnova\s+Cognitive\s+Engine\b/gi, "Enova"],
   [/\bCognitive\s+Engine\b/gi, "atendimento"],
   [/\bread[- ]only\b/gi, ""],
-  [/\bMCMV\s*\/\s*CEF\b/gi, "Minha Casa Minha Vida"],
-  [/\bCEF\s*\/\s*MCMV\b/gi, "Minha Casa Minha Vida"],
+  [/\b(?:MCMV|CEF)\s*\/\s*(?:CEF|MCMV)\b/gi, "Minha Casa Minha Vida"],
   [/\bphase[_ ]?\d+[_ ]?read[_ ]?only\b/gi, ""]
 ]);
 const SLOT_LABELS = Object.freeze({

@@ -56,6 +56,9 @@ const MCMV_RESTORE_PATTERN = new RegExp(MCMV_PLACEHOLDER.replace(/[-/\\^$*+?.()|
 const MAX_REPLY_LENGTH = 400;
 const MAX_REPLY_LENGTH_OPERACIONAL = 600;
 
+// Minimum length for a valid topo reply (below this → safe minimum fallback)
+const MIN_TOPO_REPLY_LENGTH = 20;
+
 // Stages operacionais que legitimamente precisam de mais espaço (listas de docs, detalhes de visita)
 const OPERACIONAL_LONG_STAGES = new Set([
   "envio_docs", "agendamento_visita", "visita_confirmada",
@@ -185,7 +188,7 @@ function stripFutureStageCollection(reply, currentStage) {
   // INVALIDATE the whole reply and return safe minimum.
   // Proibido: devolver fragmento truncado parcial no topo.
   if (group === "topo") {
-    if (!result || result.length < 20 || /\b\w{1,3}$/.test(result)) {
+    if (!result || result.length < MIN_TOPO_REPLY_LENGTH || /\b\w{1,3}$/.test(result)) {
       return TOPO_SAFE_MINIMUM;
     }
     // Extra guard: if the reply still matches a trailing fragment pattern after stripping,
@@ -329,7 +332,7 @@ export function applyFinalSpeechContract(reply, context = {}) {
       // Adicionalmente: se o resultado é um fragmento truncado (sem pontuação final
       // ou muito curto), invalidar inteira e retornar null para que o caller use fallback.
       const _normalized = normalizeWhitespace(result);
-      if (_normalized.length < 20 || TRAILING_FRAGMENT_PATTERN.test(_normalized)) {
+      if (_normalized.length < MIN_TOPO_REPLY_LENGTH || TRAILING_FRAGMENT_PATTERN.test(_normalized)) {
         return TOPO_SAFE_MINIMUM;
       }
     }

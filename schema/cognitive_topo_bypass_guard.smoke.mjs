@@ -133,7 +133,7 @@ ok("B6: Guard covers stage === 'inicio_programa'", () => {
 ok("B7: Guard revokes __cognitive_v2_takes_final on failed validation", () => {
   const assistBlock = WORKER_SRC.substring(
     WORKER_SRC.indexOf("TOPO BYPASS GUARD"),
-    WORKER_SRC.indexOf("TOPO BYPASS GUARD") + 1200
+    WORKER_SRC.indexOf("TOPO BYPASS GUARD") + 2500
   );
   assert.ok(assistBlock.includes("__cognitive_v2_takes_final = false"),
     "Must revoke takes_final on validation failure");
@@ -142,7 +142,7 @@ ok("B7: Guard revokes __cognitive_v2_takes_final on failed validation", () => {
 ok("B8: Guard revokes __cognitive_reply_prefix on failed validation", () => {
   const assistBlock = WORKER_SRC.substring(
     WORKER_SRC.indexOf("TOPO BYPASS GUARD"),
-    WORKER_SRC.indexOf("TOPO BYPASS GUARD") + 1200
+    WORKER_SRC.indexOf("TOPO BYPASS GUARD") + 2500
   );
   assert.ok(assistBlock.includes("__cognitive_reply_prefix = null"),
     "Must revoke prefix on validation failure");
@@ -151,7 +151,7 @@ ok("B8: Guard revokes __cognitive_reply_prefix on failed validation", () => {
 ok("B9: Guard revokes __speech_arbiter_source on failed validation", () => {
   const assistBlock = WORKER_SRC.substring(
     WORKER_SRC.indexOf("TOPO BYPASS GUARD"),
-    WORKER_SRC.indexOf("TOPO BYPASS GUARD") + 1200
+    WORKER_SRC.indexOf("TOPO BYPASS GUARD") + 2500
   );
   assert.ok(assistBlock.includes("__speech_arbiter_source = null"),
     "Must revoke arbiter source on validation failure");

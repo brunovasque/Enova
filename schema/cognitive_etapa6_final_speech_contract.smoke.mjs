@@ -334,12 +334,13 @@ test("8.2 — resposta de topo com 'casa' é corrigida", () => {
   assert.ok(result.includes("imóvel"), `Topo não substituiu 'casa': ${result}`);
 });
 
-test("8.3 — resposta de topo preserva explicação", () => {
+test("8.3 — resposta de topo com coleta prematura é invalidada para TOPO_SAFE_MINIMUM", () => {
   const reply = "O primeiro passo é entender seu perfil. Me confirma: você trabalha de carteira assinada ou é autônomo?";
   const result = applyFinalSpeechContract(reply, { currentStage: "inicio" });
-  assert.ok(result.includes("perfil"), "Explicação preservada");
-  assert.ok(result.includes("confirma") || result.includes("carteira") || result.includes("autônomo"),
-    "Condução preservada");
+  // FASE 2: coleta prematura (regime_trabalho: "autônomo?") no topo → TOPO_SAFE_MINIMUM inteiro
+  // Não pode sair como fragmento parcial. Invalidação é o comportamento correto.
+  assert.ok(result.includes("Enova") || result.includes("Minha Casa Minha Vida"),
+    "Invalidada para safe minimum com identidade Enova/MCMV");
 });
 
 test("8.4 — resposta de topo com dúvida emocional é acolhedora", () => {

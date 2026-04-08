@@ -10,7 +10,8 @@ export const HYBRID_TELEMETRY_EVENT_TYPES = Object.freeze({
   ARBITRATION_CONFLICT: "funnel.arbitration.conflict",
   ARBITRATION_OVERRIDE: "funnel.arbitration.override",
   ARBITRATION_OVERRIDE_SUSPECTED: "funnel.arbitration.override.suspected",
-  ARBITRATION_LOOP_CAUSED: "funnel.arbitration.loop.caused"
+  ARBITRATION_LOOP_CAUSED: "funnel.arbitration.loop.caused",
+  STAGE_SYMPTOMS: "funnel.stage.symptoms"
 });
 
 export const COGNITIVE_REASON_CODES = Object.freeze({
@@ -38,6 +39,18 @@ export const ARBITRATION_REASON_CODES = Object.freeze({
   COGNITIVE_ATTEMPTED_UNSAFE_ADVANCE: "COGNITIVE_ATTEMPTED_UNSAFE_ADVANCE",
   OVERRIDE_CAUSED_LOOP: "OVERRIDE_CAUSED_LOOP",
   OVERRIDE_BLOCKED_VALID_PROGRESS: "OVERRIDE_BLOCKED_VALID_PROGRESS"
+});
+
+export const STAGE_SYMPTOM_CODES = Object.freeze({
+  DID_STAGE_ADVANCE: "DID_STAGE_ADVANCE",
+  DID_STAGE_REPEAT: "DID_STAGE_REPEAT",
+  DID_STAGE_STICK: "DID_STAGE_STICK",
+  DID_REASK: "DID_REASK",
+  PLAUSIBLE_ANSWER_WITHOUT_ADVANCE: "PLAUSIBLE_ANSWER_WITHOUT_ADVANCE",
+  OVERRIDE_SUSPECTED: "OVERRIDE_SUSPECTED",
+  BLOCKED_VALID_SIGNAL: "BLOCKED_VALID_SIGNAL",
+  STATE_UNCHANGED_WHEN_EXPECTED: "STATE_UNCHANGED_WHEN_EXPECTED",
+  CAUSED_LOOP: "CAUSED_LOOP"
 });
 
 export const OVERRIDE_CLASSIFICATIONS = Object.freeze({
@@ -105,7 +118,21 @@ export const HYBRID_TELEMETRY_FIELD_GROUPS = Object.freeze({
     "override_direction",
     "override_classification",
     "override_suspected",
+    "blocked_valid_signal",
+    "caused_loop",
+    "requires_confirmation",
     "arbitration_flags"
+  ]),
+  stage_symptoms: Object.freeze([
+    "did_stage_advance",
+    "did_stage_repeat",
+    "did_stage_stick",
+    "did_reask",
+    "plausible_answer_without_advance",
+    "override_suspected",
+    "blocked_valid_signal",
+    "state_unchanged_when_expected",
+    "caused_loop"
   ])
 });
 
@@ -165,6 +192,20 @@ export const HYBRID_TELEMETRY_DEFAULTS = Object.freeze({
     override_direction: null,
     override_classification: null,
     override_suspected: false,
+    blocked_valid_signal: false,
+    caused_loop: false,
+    requires_confirmation: false,
     arbitration_flags: []
+  }),
+  stage_symptoms: Object.freeze({
+    did_stage_advance: false,
+    did_stage_repeat: false,
+    did_stage_stick: false,
+    did_reask: false,
+    plausible_answer_without_advance: false,
+    override_suspected: false,
+    blocked_valid_signal: false,
+    state_unchanged_when_expected: false,
+    caused_loop: false
   })
 });

@@ -11,6 +11,7 @@ import {
   emitMechanicalDecisionTelemetry,
   emitArbitrationTelemetry,
   emitFinalOutputTelemetry,
+  emitStageSymptomsHook,
   clearHybridTurnCorrelation
 } from "./telemetry/hybrid-telemetry-worker-hooks.js";
 
@@ -271,6 +272,22 @@ async function step(env, st, messages, nextStage, options = {}) {
       validationResult: null,
       reaskTriggered: false,
       stageLocked: false,
+      stateDiff: null
+    }).catch(() => {});
+  } catch (_) { /* telemetry must never break the flow */ }
+
+  // ── HYBRID TELEMETRY PR3: Hook 7 — Stage Symptoms ──
+  try {
+    emitStageSymptomsHook({
+      st,
+      stageBefore: currentStage,
+      stageAfter: nextStage || currentStage,
+      reaskTriggered: false,
+      stageLocked: false,
+      cognitiveSignal: null,
+      cognitiveConfidence: null,
+      mechanicalAction: nextStage && nextStage !== currentStage ? "stage_advance" : "stay",
+      overrideSuspected: false,
       stateDiff: null
     }).catch(() => {});
   } catch (_) { /* telemetry must never break the flow */ }

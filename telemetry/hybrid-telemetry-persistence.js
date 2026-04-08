@@ -77,12 +77,12 @@ export function buildPersistenceRecord(event) {
 
     const details = {
       ...base,
-      cognitive,
-      mechanical,
-      arbitration,
-      stage_symptoms: stageSymptoms,
-      contract_meta: contractMeta,
-      output_meta: outputMeta
+      ...(cognitive && { cognitive }),
+      ...(mechanical && { mechanical }),
+      ...(arbitration && { arbitration }),
+      ...(stageSymptoms && { stage_symptoms: stageSymptoms }),
+      ...(contractMeta && { contract_meta: contractMeta }),
+      ...(outputMeta && { output_meta: outputMeta })
     };
 
     return {
@@ -191,18 +191,15 @@ export async function queryHybridTelemetryEvents(sbFetchFn, env, filters = {}) {
     }
 
     // Filter by time range
-    if (filters.since) {
+    // PostgREST supports range on same column via `and` operator syntax
+    if (filters.since && filters.until) {
       query["created_at"] = `gte.${filters.since}`;
-    }
-    if (filters.until) {
-      // If 'since' was already set, we need to combine with 'and'
-      if (filters.since) {
-        query["created_at"] = `gte.${filters.since}`;
-        // PostgREST doesn't support two filters on same column easily
-        // We use a workaround with ordering and limit
-      } else {
-        query["created_at"] = `lte.${filters.until}`;
-      }
+      // Post-filter until in JS since PostgREST single-column constraint
+      // is limited. We fetch with since, then trim by until below.
+    } else if (filters.since) {
+      query["created_at"] = `gte.${filters.since}`;
+    } else if (filters.until) {
+      query["created_at"] = `lte.${filters.until}`;
     }
 
     const rows = normalizeRows(await sbFetchFn(env, "/rest/v1/enova_log", {
@@ -212,6 +209,17 @@ export async function queryHybridTelemetryEvents(sbFetchFn, env, filters = {}) {
 
     // Post-filter in JS for fields inside `details` JSON
     let events = rows.map(parseLogRow).filter(Boolean);
+
+    // Apply `until` post-filter when both since and until are specified
+    if (filters.since && filters.until) {
+      const untilTs = new Date(filters.until).getTime();
+      if (Number.isFinite(untilTs)) {
+        events = events.filter(e => {
+          const ts = new Date(e.created_at || e.timestamp || "").getTime();
+          return Number.isFinite(ts) && ts <= untilTs;
+        });
+      }
+    }
 
     if (filters.event_name) {
       events = events.filter(e => e.event_name === filters.event_name);

@@ -3307,8 +3307,10 @@ export async function runReadOnlyCognitiveEngine(rawInput = {}, options = {}) {
 
   // ── Etapa 6: Contrato global de fala final ──────────────────────────────
   // Fase 3: Caminho normal soberano (speech_origin === "llm_real") NÃO passa por
-  // applyFinalSpeechContract. O reply_text aprovado pelo LLM sai intacto desta camada.
-  // Apenas caminhos de fallback/heuristic recebem o contrato completo.
+  // applyFinalSpeechContract. O reply_text aprovado pelo LLM sai intacto desta camada
+  // sem mudança semântica. O guard em applyFinalSpeechContract pode aplicar
+  // normalizeWhitespace se chamado, mas no caminho normal (llm_real) a chamada é
+  // completamente omitida. Apenas caminhos de fallback/heuristic recebem o contrato completo.
   if (response.speech_origin === "llm_real") {
     // llm_real: reply_text sai intacto — sem rewrite, sem strip, sem contrato.
     console.log(JSON.stringify({

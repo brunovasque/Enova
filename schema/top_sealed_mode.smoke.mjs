@@ -284,6 +284,8 @@ test("E3: llmSovereign=true retorna reply sem modificar tokens (Fase 3)", () => 
   });
   // "Minha Casa Minha Vida" permanece intacto (não sofre replace)
   assert.ok(result.includes("Minha Casa Minha Vida"), "Should preserve Minha Casa Minha Vida");
+  // "uma casa" (token isolado) NÃO deve ser substituído por "imóvel"
+  assert.ok(result.includes("uma casa"), "Standalone 'casa' must remain unchanged for sovereign path");
   // Reply sai com normalizeWhitespace apenas
   assert.ok(result.length > 0, "Should return non-empty reply");
 });

@@ -20109,9 +20109,12 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
       // Restore previous goal override
       st.__topo_bucket_goal_override = _previousGoalOverride;
 
-      const replyText = sanitizeCognitiveReply(cogResult?.reply_text);
-      const confidence = Number(cogResult?.confidence || 0);
       const rawOrigin = cogResult?.speech_origin || "fallback_mechanical";
+      // Fase 3: llm_real → reply sai intacto sem sanitizeCognitiveReply.
+      const replyText = rawOrigin === "llm_real"
+        ? String(cogResult?.reply_text || "").trim()
+        : sanitizeCognitiveReply(cogResult?.reply_text);
+      const confidence = Number(cogResult?.confidence || 0);
       _lastReply = replyText;
 
       // ── Telemetry: classify reply for bucket separation proof ──
@@ -23874,10 +23877,12 @@ async function runFunnel(env, st, userText) {
 
       // ── CAMINHO COGNITIVO LIMPO ──
       // Worker NÃO julga qualidade da fala. Apenas valida o sinal.
-      // reply_text vem pronto do cognitivo (já passou por applyFinalSpeechContract internamente).
-      // Sanitização leve (casa→imóvel) mantida apenas como guardrail mínimo; NÃO reescreve semântica.
+      // Fase 3: reply_text de llm_real sai intacto — sem sanitizeCognitiveReply.
+      // sanitizeCognitiveReply apenas aplicada a caminhos não-soberanos (heuristic/fallback).
       const cognitiveReply = !lowConfidence
-        ? sanitizeCognitiveReply(cognitive.reply_text)
+        ? (_canonicalSpeechOrigin === "llm_real"
+            ? String(cognitive.reply_text || "").trim()
+            : sanitizeCognitiveReply(cognitive.reply_text))
         : "";
 
       // V2 "on" com LLM real ou heuristic útil: se o reply_text é não-trivial (>30 chars),

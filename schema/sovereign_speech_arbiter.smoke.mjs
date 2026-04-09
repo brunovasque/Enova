@@ -593,11 +593,11 @@ test("L2: BLOCO 3 comments exist for resolver demotion", () => {
   assert.ok(matches >= 6, `Expected >=6 BLOCO 3 markers, found ${matches}`);
 });
 
-test("L3: BLOCO 4 comments exist for post-LLM blindage", () => {
-  const cogEnginePath = resolve(__dirname, "..", "cognitive", "src", "run-cognitive.js");
-  const cogEngineSrc = readFileSync(cogEnginePath, "utf-8");
-  assert.ok(cogEngineSrc.includes("BLOCO 4 (PR #550)"), "BLOCO 4 in cognitive engine");
-  assert.ok(cogSrc.includes("BLOCO 4 (PR #550)"), "BLOCO 4 in final-speech-contract");
+test("L3: Fase 3 guard exists in final-speech-contract (llmSovereign early return)", () => {
+  // Fase 3: applyFinalSpeechContract não deve processar caminho llm_real.
+  // Verificamos que o guard soberano existe no arquivo.
+  assert.ok(cogSrc.includes("FINAL_CONTRACT_LLM_SOVEREIGN_GUARD"), "Fase 3 sovereign guard in final-speech-contract");
+  assert.ok(cogSrc.includes("llmSovereign"), "llmSovereign guard still present");
 });
 
 test("L4: No gate/nextStage removed", () => {

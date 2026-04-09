@@ -4249,6 +4249,8 @@ const _PHASE_REQUIREMENT_GUARDRAILS = new Map([
   ["confirmar_casamento",  { required: /casamento|civil|união|estável/i }],
   ["somar_renda_solteiro", { required: /renda|somar|sozinho/i }],
   ["somar_renda_familiar", { required: /renda|somar|pai|mãe|irmão|familiar/i }],
+  // meio — renda e perfil CLT
+  ["clt_renda_perfil_informativo", { required: /fix|vari|comiss[aã]o|hora extra|salário/i }],
 ]);
 
 /**
@@ -4281,8 +4283,12 @@ function _validatePhaseRequirement(stage, cognitiveText) {
 function _renderCognitiveFromIntent(mechanicalSource, stage) {
   if (!mechanicalSource || !mechanicalSource.trim()) return null;
 
-  // Pega apenas a primeira frase mecânica (antes do separador "|")
-  let source = mechanicalSource.split("|")[0].trim();
+  // PATCH 1: Selecionar o segmento mais útil da fonte mecânica.
+  // rawArr é unido com " | " em mechanical_prompt_source. O primeiro segmento é
+  // frequentemente um acknowledgment ("Perfeito! 👌"), não a pergunta do stage.
+  // Preferência: segmento com "?" (a pergunta real). Se não houver, usa o último.
+  const _parts = mechanicalSource.split("|").map(p => p.trim()).filter(Boolean);
+  let source = _parts.find(p => /\?/.test(p)) || _parts[_parts.length - 1] || "";
   if (!source) return null;
 
   // ── Transformações de tom ──
@@ -4360,6 +4366,9 @@ const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
   ["interpretar_composicao",  "Me conta mais sobre a composição de renda. 😊"],
   ["verificar_averbacao",     "Você tem averbação de separação judicial?"],
   ["verificar_inventario",    "O inventário já foi concluído?"],
+  // ── meio — regime e renda ──
+  ["regime_trabalho",         "Me diz: você trabalha com CLT, é autônomo(a), servidor(a) público ou aposentado(a)? 😊"],
+  ["clt_renda_perfil_informativo", "Seu salário é fixo ou costuma variar por comissão, hora extra ou adicional? 😊"],
   // ── gates_finais — mesma exigência técnica, fala cognitiva ──
   ["ir_declarado",            "Você declarou Imposto de Renda nos últimos 2 anos? 😊"],
   ["autonomo_ir_pergunta",    "Você fez declaração de IR como autônomo(a)?"],
@@ -4414,6 +4423,20 @@ function buildMinimalCognitiveFallback(stage, rawArr, roundIntent) {
   if (roundIntent?.pode_ter_multiplas_intencoes && roundIntent?.eh_off_trail) {
     return ["Anotei tudo aqui 😊 Deixa eu continuar a análise do seu perfil.", finalSpeech];
   }
+
+  // PATCH 3: Pergunta de identidade (qualquer stage não-topo que chegue no fallback).
+  // Topo sealed stages nunca chegam aqui — são tratados pelo guard TOP_SEALED_MODE antes.
+  // Responde a pergunta do cliente E fecha com o CTA do stage atual.
+  const _textoR = roundIntent?.texto_reconciliado || "";
+  const _isIdentityQ = /^quem.*(é|és|vc|você)[\s?]*$/i.test(_textoR) ||
+                       /^(me conta|fala).* (sobre|de) você/i.test(_textoR) ||
+                       /^o que.*você.*é\s*\?/i.test(_textoR);
+  if (_isIdentityQ) {
+    return ["Sou a Enova, assistente virtual do programa Minha Casa Minha Vida 😊", finalSpeech];
+  }
+
+  // Off-trail puro (pergunta sem resposta de stage junto): já retorna o CTA do stage.
+  // O finalSpeech já é a ação esperada pelo parser, suficiente para reancorar.
   return [finalSpeech];
 }
 

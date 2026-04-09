@@ -4600,6 +4600,8 @@ async function runCognitiveV2WithAdapter(env, stage, userText, st) {
     if (st.regime) knownSlots.regime_trabalho = { value: st.regime };
     // BLOCO 11: processo_enviado_correspondente para prontidão do pacote
     if (st.processo_enviado_correspondente != null) knownSlots.processo_enviado_correspondente = { value: st.processo_enviado_correspondente };
+    // nome: consolidado em memoria após inicio_nome; exposto ao LLM para personalização
+    if (st.nome) knownSlots.nome = { value: st.nome };
 
     // ── PASSO 2: Caminho cognitivo canônico formalizado ──
     // Usa buildCognitiveInput para garantir shape canônico estável.
@@ -19491,7 +19493,7 @@ function _classifyTopoIntentBucket(userText) {
 // Usadas SOMENTE quando LLM falha após todos os retries.
 const _TOPO_BUCKET_STATIC_REPLIES = Object.freeze({
   greeting:       "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Posso te ajudar a entender se você se enquadra. Você já sabe como funciona ou quer que eu te explique?",
-  identity:       "Eu sou a Enova, uma assistente virtual especializada no programa Minha Casa Minha Vida 😊 Estou aqui pra te ajudar a entender suas condições e te guiar no processo. Você já sabe como funciona ou quer que eu te explique?",
+  identity:       "Sou a Enova, uma assistente virtual especializada no programa Minha Casa Minha Vida 😊 Fui criada pra te ajudar a entender se você se enquadra no programa e te guiar pelo processo. Como posso te ajudar?",
   how_it_works:   "O Minha Casa Minha Vida é um programa do governo que ajuda na entrada e reduz a parcela do financiamento, de acordo com a faixa da família 😊 Eu vou analisar seu perfil e mostrar quanto de subsídio você pode ter. Quer seguir com a análise? Me diz *sim* pra gente começar.",
   program_choice: "Você já sabe como funciona o Minha Casa Minha Vida ou quer que eu te explique rapidinho? 😊",
   unknown_topo:   "Oi! 😊 Eu sou a Enova, assistente do Minha Casa Minha Vida. Posso te ajudar? Você já sabe como funciona o programa ou prefere que eu explique?"
@@ -19515,6 +19517,8 @@ function _isTopoBucketReplyCompatible(bucket, reply) {
       // identity deve conter referência à Enova ou ao que ela é
       if (TOPO_PREMATURE_COLLECTION.test(reply)) return false;
       if (!/\b(enova|assistente|virtual|programa|minha casa)\b/i.test(nt)) return false;
+      // identity NÃO pode abrir como greeting — rejeita replies que começam com saudação
+      if (/^(?:oi|ol[aá])\b/i.test(nt.trim())) return false;
       return true;
     case "how_it_works":
       // how_it_works deve EXPLICAR o programa, NÃO puxar nome/estado civil/renda
@@ -19834,7 +19838,7 @@ const TOPO_HAPPY_PATH_SPEECH = {
     cognitiveStage: "inicio_programa",
     cognitiveMessage: "quem é você?",
     fallback: [
-      "Eu sou a Enova, assistente virtual do Minha Casa Minha Vida 😊 Estou aqui pra te ajudar a entender se você se enquadra no programa e como funciona. Você já sabe como funciona ou prefere que eu explique?"
+      "Sou a Enova, assistente virtual do Minha Casa Minha Vida 😊 Estou aqui pra te ajudar a entender se você se enquadra no programa e te guiar pelo processo. Como posso te ajudar?"
     ],
     validate: (reply) => _isTopoBucketReplyCompatible("identity", reply) && reply.length > 30
   },
@@ -25144,12 +25148,14 @@ case "inicio_nome": {
   const nomeCompleto = rawNome;
   const primeiroNome = partes[0];
 
-  // 🔐 Salva o nome no Supabase (coluna `nome`)
+  // 🔐 Salva o nome no Supabase (coluna `nome`) e consolida em memória
   await upsertState(env, st.wa_id, {
     nome: nomeCompleto
     // se um dia criarmos coluna `primeiro_nome`, dá pra adicionar aqui também
     // primeiro_nome: primeiroNome
   });
+  // Consolida em memória para que knownSlots e surface da transição já reflitam o nome.
+  st.nome = nomeCompleto;
 
   await funnelTelemetry(env, {
     wa_id: st.wa_id,
@@ -28037,8 +28043,7 @@ case "regime_trabalho": {
     env,
     st,
     [
-      "Só pra confirmar 😊",
-      "Você trabalha com **CLT**, é **autônomo(a)**, **servidor(a)** ou **aposentado(a)**?"
+      "Não consegui identificar seu regime de trabalho 😊 Me diz: você trabalha com **CLT**, é **autônomo(a)**, **servidor(a) público** ou **aposentado(a)**?"
     ],
     "regime_trabalho"
   );

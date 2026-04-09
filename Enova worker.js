@@ -19825,6 +19825,20 @@ const TOPO_HAPPY_PATH_SPEECH = {
     ],
     validate: (reply) => validateInicioProgramaChoiceSpeech(reply)
   },
+
+  // ── inicio_programa: identity (quem é você?) ──
+  // Speech key dedicado para o bucket identity, evitando que a fala de identidade
+  // seja submetida ao validate do ambiguous (que exige choice question) e caia
+  // sempre no static, convergindo com greeting.
+  "inicio_programa:identity": {
+    cognitiveStage: "inicio_programa",
+    cognitiveMessage: "quem é você?",
+    fallback: [
+      "Eu sou a Enova, assistente virtual do Minha Casa Minha Vida 😊 Estou aqui pra te ajudar a entender se você se enquadra no programa e como funciona. Você já sabe como funciona ou prefere que eu explique?"
+    ],
+    validate: (reply) => _isTopoBucketReplyCompatible("identity", reply) && reply.length > 30
+  },
+
   "inicio_nome:nome_aceito": {
     cognitiveStage: "inicio_nacionalidade",
     cognitiveMessage: "meu nome é Bruno",
@@ -24820,11 +24834,17 @@ case "inicio_programa": {
     // ── TOPO HAPPY PATH MIGRATION: ambiguous / greeting / first-after-reset ──
     // Pós-reset: usa speech key dedicada para primeira mensagem (cognitivo real + contexto do cliente).
     // Caso normal: usa speech key de ambiguous/greeting.
+    // Identity bucket usa chave própria para evitar o validate de choice question do ambiguous.
+    const _ambBucket = (!_isFirstAfterReset && !_isGreetingOrReentry)
+      ? _classifyTopoIntentBucket(userText)
+      : null;
     const _ambSpeechKey = _isFirstAfterReset
       ? "inicio_programa:first_after_reset"
       : _isGreetingOrReentry
         ? "inicio_programa:greeting_reentrada"
-        : "inicio_programa:ambiguous";
+        : _ambBucket === "identity"
+          ? "inicio_programa:identity"
+          : "inicio_programa:ambiguous";
 
     if (!st.__cognitive_v2_takes_final) {
       const _ambSpeech = await getTopoHappyPathSpeech(env, _ambSpeechKey, st, {
@@ -26299,6 +26319,11 @@ case "somar_renda_solteiro": {
         }
       });
 
+      // Limpa prefix cognitivo gerado pelo COGNITIVE ASSIST antes da transição:
+      // evita que a fala do stage atual (composição) vaze como surface do próximo stage.
+      st.__cognitive_reply_prefix = null;
+      st.__cognitive_v2_takes_final = false;
+      st.__speech_arbiter_source = null;
       return step(
         env,
         st,
@@ -26331,6 +26356,11 @@ case "somar_renda_solteiro": {
       renda_familiar: false
     });
 
+    // Limpa prefix cognitivo gerado pelo COGNITIVE ASSIST antes da transição:
+    // evita que a fala do stage atual (composição) vaze como surface do próximo stage.
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
     return step(
       env,
       st,
@@ -26377,6 +26407,11 @@ case "somar_renda_solteiro": {
     renda_familiar: false
   });
 
+  // Limpa prefix cognitivo gerado pelo COGNITIVE ASSIST antes da transição:
+  // evita que a fala do stage atual (composição) vaze como surface do próximo stage.
+  st.__cognitive_reply_prefix = null;
+  st.__cognitive_v2_takes_final = false;
+  st.__speech_arbiter_source = null;
   return step(
     env,
     st,
@@ -26425,6 +26460,11 @@ case "somar_renda_solteiro": {
         p3_tipo: null
       });
 
+      // Limpa prefix cognitivo gerado pelo COGNITIVE ASSIST antes da transição:
+      // evita que a fala do stage atual (composição) vaze como surface do próximo stage.
+      st.__cognitive_reply_prefix = null;
+      st.__cognitive_v2_takes_final = false;
+      st.__speech_arbiter_source = null;
       return step(
         env,
         st,
@@ -26455,6 +26495,11 @@ case "somar_renda_solteiro": {
       renda_familiar: true
     });
 
+    // Limpa prefix cognitivo gerado pelo COGNITIVE ASSIST antes da transição:
+    // evita que a fala do stage atual (composição) vaze como surface do próximo stage.
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
     return step(
       env,
       st,
@@ -31359,7 +31404,10 @@ case "restricao": {
   });
 
   // Exemplos cobertos: "nome sujo", "negativado no serasa", "cpf limpo", "não sei"
-  const temNaoTenho = /\b(n[aã]o|nao)\s+tenho\b/i.test(userText);
+  // normalizeText aplicado antes do teste para blindar contra mojibake/encoding quebrado:
+  // ex: "NÃ£o tenho restriÃ§Ã£o" → normalizado → "nao tenho restricao" (negação detectada corretamente).
+  const _userTextNormRestricao = normalizeText(userText);
+  const temNaoTenho = /\bnao\s+tenho\b/.test(_userTextNormRestricao);
   const temTermoRestricao = hasRestricaoIndicador(userText);
 
   const sim =

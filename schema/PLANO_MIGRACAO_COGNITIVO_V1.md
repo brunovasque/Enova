@@ -7,6 +7,50 @@
 
 ---
 
+## STATUS OPERACIONAL — HANDOFF
+
+**Última atualização:** 2026-04-02
+
+| Etapa | Descrição | Status |
+|-------|-----------|--------|
+| Merge infra V2 | Adapter, wrapper, flag, telemetria shadow no worker | ✅ CONCLUÍDO |
+| Smoke tests V2 | 4 suites: adapter, mode_on, runner, telemetria | ✅ PASSANDO |
+| Shadow integration smoke | cognitive_shadow_integration.smoke.mjs (18 testes) | ✅ PASSANDO |
+| **Shadow TEST ativado** | `COGNITIVE_V2_MODE=shadow` + `TELEMETRIA_LEVEL=verbose` em `[env.test.vars]` | ✅ **ATIVADO** |
+| Validação operacional shadow TEST | V1 primário, V2 paralelo, v2_shadow presente, sem erros | ✅ **VALIDADO** |
+| Amostragem TEST | estado_civil, quem_pode_somar, interpretar_composicao, renda, ir_declarado | ✅ **5/5 OK** |
+| Análise de shadow (≥500 chamadas reais) | Dados comparativos V1 vs V2 com tráfego real | ⏳ PENDENTE |
+| On TEST | `COGNITIVE_V2_MODE=on` em TEST | ⏳ AGUARDA ANÁLISE SHADOW |
+| Shadow PROD | `COGNITIVE_V2_MODE=shadow` em produção | ⏳ AGUARDA ON TEST |
+| On PROD | `COGNITIVE_V2_MODE=on` em produção | ⏳ AGUARDA SHADOW PROD |
+| Remover legado V1 | Limpar cognitiveAssistV1, playbook, constantes obsoletas | ⏳ FUTURA |
+
+### Evidências da validação shadow TEST (2026-04-02)
+
+- **cognitive_shadow_integration.smoke.mjs:** 18/18 ✅
+  - Grupo 1: v2_shadow presente em todos os blocos (9 stages)
+  - Grupo 2: zero COGNITIVE_V2_SHADOW_ERROR
+  - Grupo 3: V1 como motor primário confirmado (`"Cognitive v1 acionado"`)
+  - Grupo 4: v2_shadow com 9 campos comparativos obrigatórios
+  - Grupo 5: should_advance_stage=false via adapter
+  - Grupo 6: trilho mecânico preservado (estado_civil avança corretamente)
+  - Grupo 7: rollback `COGNITIVE_V2_MODE=off` → v2_shadow ausente confirmado
+  - Grupo 8: stages extras (autonomo_compor_renda, agendamento_visita)
+
+- **Amostragem operacional PARTE 4 (5/5 ✅):**
+  - `quem_pode_somar`: signals=1, v2_shadow=true, no_errors=true, v1_primary=true, mode=shadow
+  - `interpretar_composicao`: signals=1, v2_shadow=true, no_errors=true, v1_primary=true, mode=shadow
+  - `estado_civil`: signals=1, v2_shadow=true, no_errors=true, v1_primary=true, mode=shadow
+  - `renda`: signals=1, v2_shadow=true, no_errors=true, v1_primary=true, mode=shadow
+  - `ir_declarado`: signals=1, v2_shadow=true, no_errors=true, v1_primary=true, mode=shadow
+
+### Próximo passo único e correto
+
+Coletar ≥500 chamadas shadow reais no TEST e analisar critérios do ADENDO_FINAL (Bloco 3/4.1).  
+Rollback imediato se necessário: remover `COGNITIVE_V2_MODE` de `[env.test.vars]` no `wrangler.toml`.
+
+---
+
 ## BLOCO 1 — PONTO DE ENTRADA CANÔNICO
 
 ### Onde a migração deve entrar no worker

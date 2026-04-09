@@ -2128,8 +2128,12 @@ function buildTopoFunilGuidance(request) {
   const REENTRY_TOPO = /\b(quero comecar|quero começar|me tira uma duvida|me tira uma dúvida|quero saber|quero entender|tenho duvida|tenho dúvida|vim saber|voltei|to de volta|tô de volta|vamos la|vamos lá)\b/i;
 
   if (stage === "inicio") {
-    // Saudação curta / reentrada — resposta humana + reancoragem no topo
-    if (GREETING_TOPO.test(normalizedMessage) || REENTRY_TOPO.test(normalizedMessage)) {
+    // Greeting puro — delegar ao LLM cognitivo para variação (não retornar hardcoded)
+    if (GREETING_TOPO.test(normalizedMessage) && !REENTRY_TOPO.test(normalizedMessage)) {
+      return null;
+    }
+    // Reentrada sem greeting — reancoragem humana no topo
+    if (REENTRY_TOPO.test(normalizedMessage)) {
       return "Oi! Que bom ter você aqui 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Posso te ajudar com dúvidas ou, se quiser, já começamos a pré-análise rapidinho.";
     }
     // Etapa 7 — precedence-aware global layer: stage context guard + objection priority
@@ -2145,8 +2149,12 @@ function buildTopoFunilGuidance(request) {
   }
 
   if (stage === "inicio_decisao") {
-    // Saudação curta / reentrada — resposta humana + reancoragem na decisão
-    if (GREETING_TOPO.test(normalizedMessage) || REENTRY_TOPO.test(normalizedMessage)) {
+    // Greeting puro — delegar ao LLM cognitivo para variação (não retornar hardcoded)
+    if (GREETING_TOPO.test(normalizedMessage) && !REENTRY_TOPO.test(normalizedMessage)) {
+      return null;
+    }
+    // Reentrada sem greeting — manter lógica de continuar/recomeçar
+    if (REENTRY_TOPO.test(normalizedMessage)) {
       return "Oi! Que bom te ver de volta 😊 Você já tem um atendimento aqui. Quer continuar de onde paramos (*1*) ou prefere começar do zero (*2*)?";
     }
     if (/\b(onde parei|onde estava|em que fase|em que etapa)\b/.test(normalizedMessage)) {

@@ -327,97 +327,31 @@ function normalizeWhitespace(text) {
 export function applyFinalSpeechContract(reply, context = {}) {
   if (!reply || typeof reply !== "string") return reply || "";
 
+  // ── Fase 3: Guard soberano — caminho llm_real não passa por este contrato ──
+  // applyFinalSpeechContract NÃO deve ser chamada no caminho normal de llm_real.
+  // Se chamada com llmSovereign=true (defensive guard), retorna reply sem modificação
+  // alguma (nem replaceCasa, nem replaceForbiddenPromises, nem strip).
+  // Surface soberana é intocável.
+  if (context.llmSovereign === true) {
+    console.log(JSON.stringify({
+      _tag: "FINAL_CONTRACT_LLM_SOVEREIGN_GUARD",
+      warning: "applyFinalSpeechContract chamada com llmSovereign=true — caminho llm_real não deve chegar aqui (Fase 3). Retornando reply intacto.",
+      surface_equal_llm: true,
+      currentStage: String(context.currentStage || "")
+    }));
+    return normalizeWhitespace(reply);
+  }
+
   const messageText = context.messageText || "";
   const hasEmotionalContext = detectEmotionalContext(messageText);
 
   let result = reply;
 
-  // 1. Substituir "casa" por "imóvel" — guardrail mínimo (aplica sempre)
+  // 1. Substituir "casa" por "imóvel" — guardrail mínimo (caminhos não-soberanos)
   result = replaceCasa(result);
 
-  // 2. Bloquear/ajustar promessas proibidas — guardrail mínimo (aplica sempre)
+  // 2. Bloquear/ajustar promessas proibidas — guardrail mínimo (caminhos não-soberanos)
   result = replaceForbiddenPromises(result);
-
-  // ── PASSO 2: Rastreio de mudança destrutiva no contrato final ──
-  // Guardrails leves (casa→imóvel, promessas proibidas) podem alterar tokens
-  // específicos mas NUNCA reescrevem semântica. Rastreamos se a resposta mudou
-  // para provar que o contrato final não destrói reply_text no caminho normal.
-  const _guardrailsChangedReply = (result !== reply);
-
-  // ── BLOCO 4 (PR #550): Quando LLM é soberano, parar aqui. ──
-  // Guardrails mínimos aplicados acima. NÃO reescrever semântica:
-  // - NÃO adicionar empatia (altera tom)
-  // - NÃO truncar agressivamente (perde conteúdo)
-  // - NÃO strip future stage (pode alterar perguntas legítimas do LLM)
-  // EXCEÇÃO: no topo (inicio_programa), mesmo LLM soberano NÃO pode puxar
-  // coleta estrutural prematura — aplica stripFutureStageCollection.
-  // EXCEÇÃO 2 (Item 3): no topo, se a fala LLM violar integridade após strip,
-  // INVALIDAR inteira — proibido devolver fragmento truncado.
-  //
-  // TOP_SEALED_MODE: no topo selado com llmSovereign, NÃO aplicar stripFutureStageCollection
-  // nem qualquer pós-processamento destrutivo. A fala aprovada do bucket é final.
-  // Somente guardrails leves (casa→imóvel, promessas proibidas) já aplicados acima.
-  if (context.llmSovereign === true) {
-    const currentStage = String(context.currentStage || "").toLowerCase().trim();
-    const isTopoStage = (currentStage === "inicio_programa" || currentStage === "inicio" || currentStage === "inicio_decisao");
-    
-    // TOP_SEALED_MODE: topo selado → sem strip, sem reescrita semântica
-    if (isTopoStage && context.topoSealed === true) {
-      // Guardrails leves já aplicados (casa→imóvel, promessas).
-      // Nada que reescreva semanticamente a resposta.
-      console.log(JSON.stringify({
-        _tag: "TOPO_SEALED_CONTRACT_PASSTHROUGH",
-        reply_before_contract: reply.slice(0, 500),
-        reply_after_guardrails: result.slice(0, 500),
-        strip_skipped: true,
-        topo_sealed: true,
-        contract_final_changed_reply: _guardrailsChangedReply,
-        currentStage
-      }));
-      return normalizeWhitespace(result);
-    }
-    
-    if (isTopoStage) {
-      const _replyBeforeStrip = result;
-      result = stripFutureStageCollection(result, context.currentStage);
-      const _stripChanged = result !== _replyBeforeStrip;
-      const _returnedSafeMinimum = result === TOPO_SAFE_MINIMUM;
-      // Item 3: se stripFutureStageCollection devolveu TOPO_SAFE_MINIMUM,
-      // significa que a fala original foi invalidada. Manter o fallback seguro.
-      // Adicionalmente: se o resultado é um fragmento truncado (sem pontuação final
-      // ou muito curto), invalidar inteira e retornar null para que o caller use fallback.
-      const _normalized = normalizeWhitespace(result);
-      const _integrityFailed = _normalized.length < MIN_TOPO_REPLY_LENGTH || TRAILING_FRAGMENT_PATTERN.test(_normalized);
-
-      // ── Telemetria do contrato final no topo ──
-      console.log(JSON.stringify({
-        _tag: "TOPO_FINAL_CONTRACT_TELEMETRY",
-        reply_before_contract: reply.slice(0, 500),
-        reply_before_strip: _replyBeforeStrip.slice(0, 500),
-        reply_after_strip: result.slice(0, 500),
-        strip_changed: _stripChanged,
-        strip_returned_safe_minimum: _returnedSafeMinimum,
-        integrity_failed: _integrityFailed,
-        contract_final_changed_reply: _stripChanged || _guardrailsChangedReply,
-        llmSovereign: true,
-        currentStage
-      }));
-
-      if (_integrityFailed) {
-        return TOPO_SAFE_MINIMUM;
-      }
-    }
-
-    // ── PASSO 2 TELEMETRIA: contrato final não-destrutivo no caminho llm_real ──
-    console.log(JSON.stringify({
-      _tag: "FINAL_CONTRACT_LLM_SOVEREIGN_PASSTHROUGH",
-      contract_final_changed_reply: _guardrailsChangedReply,
-      guardrails_only: true,
-      llmSovereign: true,
-      currentStage: String(context.currentStage || "").toLowerCase().trim()
-    }));
-    return normalizeWhitespace(result);
-  }
 
   // 2.5 Stage discipline: strip future-stage collection questions (ONE-STAGE-ONLY)
   result = stripFutureStageCollection(result, context.currentStage);

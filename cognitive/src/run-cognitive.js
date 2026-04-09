@@ -3306,21 +3306,20 @@ export async function runReadOnlyCognitiveEngine(rawInput = {}, options = {}) {
   });
 
   // ── Etapa 6: Contrato global de fala final ──────────────────────────────
-  // BLOCO 4 (PR #550): Quando o LLM real dominou (speech_origin === "llm_real"),
-  // aplicar SOMENTE guardrails mínimos estritos (casa→imóvel, promessas proibidas).
-  // NÃO aplicar addEmpathyIfNeeded nem controlLength agressivo — isso reescreve semântica.
-  // Heuristic/fallback recebem o contrato completo normalmente.
+  // Fase 3: Caminho normal soberano (speech_origin === "llm_real") NÃO passa por
+  // applyFinalSpeechContract. O reply_text aprovado pelo LLM sai intacto desta camada
+  // sem mudança semântica. O guard em applyFinalSpeechContract pode aplicar
+  // normalizeWhitespace se chamado, mas no caminho normal (llm_real) a chamada é
+  // completamente omitida. Apenas caminhos de fallback/heuristic recebem o contrato completo.
   if (response.speech_origin === "llm_real") {
-    // Guardrail mínimo: substituir "casa" por "imóvel" e bloquear promessas proibidas.
-    // NÃO reescrever tom, NÃO truncar, NÃO adicionar empatia.
-    const _isTopoSealed = TOPO_SEALED_STAGES_SET.has(String(request.current_stage || "").toLowerCase().trim());
-    response.reply_text = applyFinalSpeechContract(response.reply_text, {
-      currentStage: request.current_stage,
-      messageText: request.message_text,
-      empathySeed: (request.message_text || "").length,
-      llmSovereign: true,  // flag para guardrail mínimo
-      topoSealed: _isTopoSealed  // TOP_SEALED_MODE: skip strip no topo selado
-    });
+    // llm_real: reply_text sai intacto — sem rewrite, sem strip, sem contrato.
+    console.log(JSON.stringify({
+      _tag: "FASE3_LLM_REAL_CONTRACT_SKIPPED",
+      surface_equal_llm: true,
+      speech_origin: "llm_real",
+      reply_text_length: (response.reply_text || "").length,
+      currentStage: String(request.current_stage || "")
+    }));
   } else {
     response.reply_text = applyFinalSpeechContract(response.reply_text, {
       currentStage: request.current_stage,

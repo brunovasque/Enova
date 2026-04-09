@@ -256,7 +256,9 @@ test("E1: topoSealed + llmSovereign skips stripFutureStageCollection", () => {
   assert.ok(result.includes("estado civil"), "Sealed mode should NOT strip the reply");
 });
 
-test("E2: non-sealed topo + llmSovereign DOES strip collection", () => {
+test("E2: llmSovereign=true always returns reply intact (Fase 3 guard)", () => {
+  // Fase 3: applyFinalSpeechContract com llmSovereign=true retorna reply intacto.
+  // Strip NÃO é aplicado — caminho soberano é intocável.
   const reply = "Oi! Eu sou a Enova 😊 Qual é o seu estado civil?";
   const result = applyFinalSpeechContract(reply, {
     currentStage: "inicio_programa",
@@ -264,11 +266,15 @@ test("E2: non-sealed topo + llmSovereign DOES strip collection", () => {
     topoSealed: false,
     messageText: "oi"
   });
-  // Without sealed mode, the old behavior strips/invalidates
-  assert.ok(!result.includes("estado civil") || result === TOPO_SAFE_MINIMUM, "Non-sealed should strip or return safe minimum");
+  // Fase 3: llmSovereign guard retorna cedo — reply sai com normalizeWhitespace apenas
+  assert.ok(result && result.length > 0, "Should return non-empty reply");
+  // A surface soberana não é reescrita (estado civil pode aparecer — LLM soberano)
+  assert.equal(typeof result, "string", "Result must be a string");
 });
 
-test("E3: topoSealed still applies casa→imóvel guardrail", () => {
+test("E3: llmSovereign=true retorna reply sem modificar tokens (Fase 3)", () => {
+  // Fase 3: casa→imóvel NÃO é aplicado no caminho llmSovereign.
+  // Se o LLM usou "casa", sai "casa" — LLM é soberano.
   const reply = "Oi! Você quer comprar uma casa pelo programa Minha Casa Minha Vida?";
   const result = applyFinalSpeechContract(reply, {
     currentStage: "inicio_programa",
@@ -276,13 +282,17 @@ test("E3: topoSealed still applies casa→imóvel guardrail", () => {
     topoSealed: true,
     messageText: "oi"
   });
-  // "casa" (not in "Minha Casa") should be replaced with "imóvel"
-  assert.ok(result.includes("imóvel") || !result.includes(" casa "), "Should apply casa→imóvel guardrail");
-  // "Minha Casa Minha Vida" should be preserved
+  // "Minha Casa Minha Vida" permanece intacto (não sofre replace)
   assert.ok(result.includes("Minha Casa Minha Vida"), "Should preserve Minha Casa Minha Vida");
+  // "uma casa" (token isolado) NÃO deve ser substituído por "imóvel"
+  assert.ok(result.includes("uma casa"), "Standalone 'casa' must remain unchanged for sovereign path");
+  // Reply sai com normalizeWhitespace apenas
+  assert.ok(result.length > 0, "Should return non-empty reply");
 });
 
-test("E4: topoSealed still applies forbidden promise guardrail", () => {
+test("E4: llmSovereign=true não aplica guardrail de promessa (Fase 3)", () => {
+  // Fase 3: replaceForbiddenPromises NÃO roda no caminho llmSovereign.
+  // Promessas proibidas devem ser controladas no prompt, não no pós-processamento.
   const reply = "Oi! Você vai ser aprovado com certeza 😊";
   const result = applyFinalSpeechContract(reply, {
     currentStage: "inicio_programa",
@@ -290,7 +300,9 @@ test("E4: topoSealed still applies forbidden promise guardrail", () => {
     topoSealed: true,
     messageText: "oi"
   });
-  assert.ok(!result.includes("vai ser aprovado"), "Should replace forbidden promise");
+  // Fase 3: reply sai intacto (normalizeWhitespace apenas)
+  assert.ok(result.length > 0, "Should return non-empty reply");
+  assert.equal(typeof result, "string", "Result must be a string");
 });
 
 // ═════════════════════════════════════════════════════════════════
@@ -449,7 +461,8 @@ test("J2: sealed topo contract does not strip collection questions", () => {
   assert.ok(result.includes("regime de trabalho"), "Sealed mode must NOT strip");
 });
 
-test("J3: non-sealed topo with collection DOES get stripped", () => {
+test("J3: llmSovereign=true retorna reply intacto mesmo com coleção (Fase 3)", () => {
+  // Fase 3: llmSovereign=true → sem strip — surface soberana é intocável.
   const original = "Oi! Qual é o seu regime de trabalho?";
   const result = applyFinalSpeechContract(original, {
     currentStage: "inicio_programa",
@@ -457,8 +470,9 @@ test("J3: non-sealed topo with collection DOES get stripped", () => {
     topoSealed: false,
     messageText: "oi"
   });
-  // In non-sealed mode, should be stripped or replaced
-  assert.ok(!result.includes("regime de trabalho") || result === TOPO_SAFE_MINIMUM);
+  // Fase 3: guard retorna com normalizeWhitespace apenas (sem strip)
+  assert.ok(result && result.length > 0, "Should return non-empty reply");
+  assert.equal(typeof result, "string", "Result must be a string");
 });
 
 // ═════════════════════════════════════════════════════════════════

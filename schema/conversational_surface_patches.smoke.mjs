@@ -143,7 +143,7 @@ test("B2: _MINIMAL_FALLBACK_SPEECH_MAP tem clt_renda_perfil_informativo", () => 
 test("B3: fallback regime_trabalho — sem mechanical source usa mapa", () => {
   const result = _buildFallback("regime_trabalho", [], null);
   const speech = result.join(" ");
-  assert.ok(/clt|autônom|servidor|aposentad/i.test(speech), `deve reancorcor no stage, obteve: "${speech}"`);
+  assert.ok(/clt|autônom|servidor|aposentad/i.test(speech), `deve reancorar no stage, obteve: "${speech}"`);
 });
 
 test("B4: fallback clt_renda_perfil_informativo — sem mechanical source usa mapa", () => {
@@ -155,7 +155,7 @@ test("B4: fallback clt_renda_perfil_informativo — sem mechanical source usa ma
 test("B5: fallback inicio_nacionalidade — reancora em brasileiro/estrangeiro", () => {
   const result = _buildFallback("inicio_nacionalidade", [], null);
   const speech = result.join(" ");
-  assert.ok(/brasileiro|nacionalidade/i.test(speech), `deve reancorcor em brasileiro, obteve: "${speech}"`);
+  assert.ok(/brasileiro|nacionalidade/i.test(speech), `deve reancorar em brasileiro, obteve: "${speech}"`);
 });
 
 test("B6: fallback somar_renda_solteiro — reancora em sozinho/parceiro/familiar", () => {

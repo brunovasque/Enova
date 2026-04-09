@@ -246,7 +246,8 @@ ok(
 ok(
   "R3: hasRestricaoIndicador usa normalizeText (inalterado)",
   src.includes("function hasRestricaoIndicador(text)") &&
-    src.includes("const nt = normalizeText(text);\n  if (!nt) return false;\n  return /(negativad")
+    src.includes("const nt = normalizeText(text);") &&
+    src.includes("/(negativad|nome sujo|cpf sujo|spc|serasa|restricao|protesto")
 );
 
 ok(

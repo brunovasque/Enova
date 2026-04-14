@@ -1,31 +1,59 @@
-import { getDependentSlots } from "./dependency-engine";
-import { listPendingSlots } from "./slot-engine";
+import { getStageGoal } from "./cognitive-contract";
+import { COGNITIVE_SYSTEM_PROMPT, COGNITIVE_RESPONSE_STYLE } from "./prompts";
 import type { CognitiveRequest, CognitiveResponse } from "./response-schema";
 import { emptyCognitiveResponse } from "./response-schema";
 
-export const createPlaceholderResponse = (
-  request: CognitiveRequest
-): CognitiveResponse => {
-  const pendingSlots = listPendingSlots(request);
-  const suggestedNextSlot = pendingSlots[0] ?? null;
-  const consultiveNotes =
-    suggestedNextSlot === null
-      ? []
-      : [`Slot sugerido para próxima pergunta: ${suggestedNextSlot}.`];
+export async function runCognitiveEngine(
+  request: CognitiveRequest,
+  apiKey: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<CognitiveResponse> {
+  const stageGoal = getStageGoal(request.current_stage);
+  const userPrompt = `
+Stage atual: ${request.current_stage}
+Objetivo do stage: ${stageGoal}
+Mensagem do cliente: "${request.message_text}"
+Slots conhecidos: ${JSON.stringify(request.known_slots)}
+Slots pendentes: ${JSON.stringify(request.pending_slots)}
 
-  if (suggestedNextSlot !== null) {
-    consultiveNotes.push(
-      `Dependências consultivas observadas: ${getDependentSlots(suggestedNextSlot).join(", ") || "nenhuma"}.`
-    );
+Responda APENAS com JSON válido seguindo o shape CognitiveResponse V1.
+should_advance_stage deve ser false obrigatoriamente.
+`.trim();
+
+  try {
+    const res = await fetchImpl("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        temperature: 0.4,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: COGNITIVE_SYSTEM_PROMPT + "\n" + COGNITIVE_RESPONSE_STYLE },
+          { role: "user", content: userPrompt }
+        ]
+      })
+    });
+
+    if (!res.ok) throw new Error(`OpenAI HTTP ${res.status}`);
+
+    const data = await res.json() as any;
+    const raw = JSON.parse(data.choices[0].message.content);
+
+    return {
+      ...emptyCognitiveResponse(),
+      ...raw,
+      should_advance_stage: false // blindagem — mecânico decide sempre
+    };
+  } catch (e) {
+    console.error("COGNITIVE_ENGINE_ERROR:", e);
+    return {
+      ...emptyCognitiveResponse(),
+      human_response: "",
+      should_advance_stage: false
+    };
   }
-
-  return {
-    ...emptyCognitiveResponse(),
-    human_response:
-      "Placeholder do Enova Cognitive Engine: retorno consultivo ainda não integrado em produção.",
-    known_slots: request.known_slots,
-    pending_slots: pendingSlots,
-    suggested_next_slot: suggestedNextSlot,
-    consultive_notes: consultiveNotes
-  };
-};
+}

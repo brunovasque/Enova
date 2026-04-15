@@ -2927,14 +2927,10 @@ async function callOpenAIReadOnly(runtimeConfig, prompt) {
   const _hasApiKey = Boolean(runtimeConfig?.openaiApiKey);
   const _hasFetchImpl = typeof runtimeConfig?.fetchImpl === "function";
   const _model = runtimeConfig?.model || DEFAULT_COGNITIVE_AI_MODEL;
-  const _apiKeyLength = _hasApiKey ? runtimeConfig.openaiApiKey.length : 0;
-  const _apiKeyPrefix = _hasApiKey ? runtimeConfig.openaiApiKey.substring(0, 5) + "…" : "NONE";
 
   console.log(JSON.stringify({
     _tag: "COGV2_OPENAI_CALL",
     has_api_key: _hasApiKey,
-    api_key_length: _apiKeyLength,
-    api_key_prefix: _apiKeyPrefix,
     has_fetch_impl: _hasFetchImpl,
     model: _model,
     url: "https://api.openai.com/v1/chat/completions",
@@ -3052,7 +3048,6 @@ async function callOpenAIReadOnly(runtimeConfig, prompt) {
       _tag: "COGV2_OPENAI_ERROR",
       error_type: "content_json_parse",
       content_length: content.length,
-      content_snippet: content.substring(0, 120),
       error_message: String(parseErr?.message || "unknown").substring(0, 200)
     }));
     return { ok: false, reason: "openai_parse_failed", raw: content, parsed: null };

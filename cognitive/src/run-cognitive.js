@@ -2923,7 +2923,33 @@ function buildOpenAIUserPrompt(request, analysis, normativeContext) {
 }
 
 async function callOpenAIReadOnly(runtimeConfig, prompt) {
-  if (!runtimeConfig?.openaiApiKey || !runtimeConfig?.fetchImpl) {
+  // ── COGV2 TEMPORARY DIAGNOSTIC (safe — no secrets) ──────────────────────
+  const _hasApiKey = Boolean(runtimeConfig?.openaiApiKey);
+  const _hasFetchImpl = typeof runtimeConfig?.fetchImpl === "function";
+  const _model = runtimeConfig?.model || DEFAULT_COGNITIVE_AI_MODEL;
+  const _apiKeyLength = _hasApiKey ? runtimeConfig.openaiApiKey.length : 0;
+  const _apiKeyPrefix = _hasApiKey ? runtimeConfig.openaiApiKey.substring(0, 5) + "…" : "NONE";
+
+  console.log(JSON.stringify({
+    _tag: "COGV2_OPENAI_CALL",
+    has_api_key: _hasApiKey,
+    api_key_length: _apiKeyLength,
+    api_key_prefix: _apiKeyPrefix,
+    has_fetch_impl: _hasFetchImpl,
+    model: _model,
+    url: "https://api.openai.com/v1/chat/completions",
+    prompt_system_length: (prompt?.system || "").length,
+    prompt_user_length: (prompt?.user || "").length
+  }));
+
+  if (!_hasApiKey || !_hasFetchImpl) {
+    console.log(JSON.stringify({
+      _tag: "COGV2_OPENAI_ERROR",
+      error_type: "missing_openai_config",
+      has_api_key: _hasApiKey,
+      has_fetch_impl: _hasFetchImpl,
+      detail: !_hasApiKey ? "apiKey is falsy/empty" : "fetchImpl is not a function"
+    }));
     return { ok: false, reason: "missing_openai_config", raw: null, parsed: null };
   }
 
@@ -2936,7 +2962,7 @@ async function callOpenAIReadOnly(runtimeConfig, prompt) {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        model: runtimeConfig.model || DEFAULT_COGNITIVE_AI_MODEL,
+        model: _model,
         temperature: 0.2,
         response_format: { type: "json_object" },
         messages: [
@@ -2945,34 +2971,90 @@ async function callOpenAIReadOnly(runtimeConfig, prompt) {
         ]
       })
     });
-  } catch {
+  } catch (fetchErr) {
+    console.log(JSON.stringify({
+      _tag: "COGV2_OPENAI_ERROR",
+      error_type: "fetch_threw",
+      error_message: String(fetchErr?.message || fetchErr || "unknown").substring(0, 200),
+      error_name: String(fetchErr?.name || "").substring(0, 50)
+    }));
     return { ok: false, reason: "openai_fetch_failed", raw: null, parsed: null };
   }
 
+  console.log(JSON.stringify({
+    _tag: "COGV2_OPENAI_HTTP",
+    status: response?.status ?? null,
+    ok: Boolean(response?.ok),
+    status_text: String(response?.statusText || "").substring(0, 80)
+  }));
+
   if (!response?.ok) {
+    // Try to read error body for diagnostic (safe — no secrets in OpenAI error responses)
+    let _errorBody = null;
+    try {
+      const _errText = await response.text();
+      _errorBody = _errText ? _errText.substring(0, 300) : null;
+    } catch { /* ignore */ }
+    console.log(JSON.stringify({
+      _tag: "COGV2_OPENAI_ERROR",
+      error_type: "http_not_ok",
+      status: response?.status ?? null,
+      error_body_snippet: _errorBody
+    }));
     return { ok: false, reason: `openai_http_${response?.status || "error"}`, raw: null, parsed: null };
   }
 
   let data = null;
   try {
     data = await response.json();
-  } catch {
+  } catch (jsonErr) {
+    console.log(JSON.stringify({
+      _tag: "COGV2_OPENAI_ERROR",
+      error_type: "json_parse_body",
+      error_message: String(jsonErr?.message || "unknown").substring(0, 200)
+    }));
     return { ok: false, reason: "openai_invalid_json", raw: null, parsed: null };
   }
 
   const content = data?.choices?.[0]?.message?.content;
   if (typeof content !== "string" || !content.trim()) {
+    console.log(JSON.stringify({
+      _tag: "COGV2_OPENAI_ERROR",
+      error_type: "empty_content",
+      content_type: typeof content,
+      content_length: content != null ? String(content).length : -1,
+      choices_length: Array.isArray(data?.choices) ? data.choices.length : -1,
+      has_message: Boolean(data?.choices?.[0]?.message),
+      finish_reason: data?.choices?.[0]?.finish_reason ?? null
+    }));
     return { ok: false, reason: "openai_empty_content", raw: content ?? null, parsed: null };
   }
 
   try {
+    const parsed = JSON.parse(content);
+    console.log(JSON.stringify({
+      _tag: "COGV2_OPENAI_HTTP",
+      parse_ok: true,
+      content_length: content.length,
+      has_reply_text: typeof parsed?.reply_text === "string" && parsed.reply_text.length > 0,
+      reply_text_length: (parsed?.reply_text || "").length,
+      has_slots_detected: Boolean(parsed?.slots_detected && typeof parsed.slots_detected === "object"),
+      finish_reason: data?.choices?.[0]?.finish_reason ?? null
+    }));
     return {
       ok: true,
       reason: null,
       raw: content,
-      parsed: JSON.parse(content)
+      parsed
     };
-  } catch {
+  } catch (parseErr) {
+    console.log(JSON.stringify({
+      _tag: "COGV2_OPENAI_ERROR",
+      error_type: "content_json_parse",
+      content_length: content.length,
+      content_snippet: content.substring(0, 120),
+      error_message: String(parseErr?.message || "unknown").substring(0, 200)
+    }));
     return { ok: false, reason: "openai_parse_failed", raw: content, parsed: null };
   }
 }
@@ -3297,6 +3379,34 @@ export async function runReadOnlyCognitiveEngine(rawInput = {}, options = {}) {
   const llmAttempted = llmResult.ok || llmResult.reason !== "missing_openai_config";
   const llmError = llmAttempted && !llmResult.ok ? llmResult.reason : null;
   const fallbackUsed = !llmResult.ok;
+
+  // ── COGV2 TEMPORARY DIAGNOSTIC: engine-level decision trace ─────────────
+  console.log(JSON.stringify({
+    _tag: "COGV2_ENGINE_RESULT",
+    stage: String(request.current_stage || ""),
+    llm_ok: Boolean(llmResult.ok),
+    llm_reason: llmResult.reason || null,
+    llm_attempted: llmAttempted,
+    llm_error: llmError,
+    fallback_used: fallbackUsed,
+    has_parsed_response: Boolean(llmResult.parsed),
+    has_raw_response: Boolean(llmResult.raw),
+    openai_key_was_present: Boolean(runtimeConfig.openaiApiKey),
+    model_used: runtimeConfig.model || null
+  }));
+
+  if (fallbackUsed) {
+    console.log(JSON.stringify({
+      _tag: "COGV2_FALLBACK_REASON",
+      stage: String(request.current_stage || ""),
+      reason: llmResult.reason || "unknown",
+      llm_attempted: llmAttempted,
+      heuristic_reply_length: (heuristicResponse?.reply_text || "").length,
+      heuristic_speech_origin: heuristicResponse?.speech_origin || null,
+      heuristic_confidence: heuristicResponse?.confidence ?? null
+    }));
+  }
+
   const response = normalizeModelResponse({
     request,
     analysis,

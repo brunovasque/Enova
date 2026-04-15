@@ -9388,7 +9388,12 @@ let userText = null;
   // ── COGPATH: ponto 2 — userText resolvido ──
   try { console.log("[COGPATH_MESSAGE] wa_id=" + (waId || "?") + " type=" + type + " text=" + String(userText || "").slice(0, 60)); } catch (_) {}
 
+  // ── COGROUTE: entrada no roteamento pré-funil ──
+  try { console.log("[COGROUTE_ENTER] routing_pre_funnel wa_id=" + (waId || "?") + " text=" + String(userText || "").slice(0, 40) + " has_author=" + Boolean(String(msg?.author || "").trim()) + " from=" + String(msg?.from || "?").slice(-6)); } catch (_) {}
+
   const assumirCmd = await handleCorrespondenteAssumirCommand(env, msg, userText);
+  // ── COGROUTE: resultado assumir ──
+  try { console.log("[COGROUTE_MATCH] assumirCmd_result handled=" + Boolean(assumirCmd?.handled) + " reason=" + (assumirCmd?.reason || "none") + " wa_id=" + (waId || "?")); } catch (_) {}
   if (assumirCmd?.handled) {
     await telemetry(env, {
       wa_id: waId,
@@ -9408,12 +9413,17 @@ let userText = null;
     });
     // ── COGPATH: retorno antecipado — assumir command ──
     try { console.log("[COGPATH_RETURN] assumir_handled wa_id=" + (waId || "?")); } catch (_) {}
+    try { console.log("[COGROUTE_RETURN] assumir_handled → early return, flow stops here wa_id=" + (waId || "?")); } catch (_) {}
     return metaWebhookResponse(200, {
       type
     });
   }
   const caseRefProbe = extractCorrespondenteCaseRefFromText(String(userText || ""));
+  // ── COGROUTE: antes de retornoByCaseRef ──
+  try { console.log("[COGROUTE_ENTER] retornoByCaseRef caseRefProbe=" + (caseRefProbe || "null") + " wa_id=" + (waId || "?")); } catch (_) {}
   const retornoByCaseRef = await handleCorrespondenteReturnByCaseRef(env, msg, userText);
+  // ── COGROUTE: resultado retornoByCaseRef ──
+  try { console.log("[COGROUTE_MATCH] retornoByCaseRef_result handled=" + Boolean(retornoByCaseRef?.handled) + " case_ref=" + (retornoByCaseRef?.case_ref || "null") + " status=" + (retornoByCaseRef?.status || "null") + " wa_id=" + (waId || "?")); } catch (_) {}
   await telemetry(env, {
     wa_id: waId,
     event: "corr_route_probe_case_ref_attempt",
@@ -9433,10 +9443,14 @@ let userText = null;
   if (retornoByCaseRef?.handled) {
     // ── COGPATH: retorno antecipado — corr case ref ──
     try { console.log("[COGPATH_RETURN] corr_case_ref_handled wa_id=" + (waId || "?")); } catch (_) {}
+    try { console.log("[COGROUTE_RETURN] retornoByCaseRef_handled → early return, flow stops here wa_id=" + (waId || "?")); } catch (_) {}
     return metaWebhookResponse(200, {
       type
     });
   }
+
+  // ── COGROUTE: ambos handlers passaram, seguindo para estado/funil ──
+  try { console.log("[COGROUTE_SKIP] corr_handlers_passed → both assumir and retornoByCaseRef returned handled=false wa_id=" + (waId || "?")); } catch (_) {}
 
   const normalizedUserText = normalizeText(userText || "");
   const isResetCmd = type === "text" && normalizedUserText === "reset";
@@ -9475,6 +9489,8 @@ let userText = null;
 
     // ── COGPATH: ponto 3 — estado carregado ──
     try { console.log("[COGPATH_STATE] wa_id=" + (waId || "?") + " stage=" + (st?.fase_conversa || "inicio") + " opening_used=" + (st?.opening_used || false) + " atendimento_manual=" + (st?.atendimento_manual || false)); } catch (_) {}
+    // ── COGROUTE: estado carregado com flags diagnósticas ──
+    try { console.log("[COGROUTE_MATCH] state_loaded wa_id=" + (waId || "?") + " fase_conversa=" + (st?.fase_conversa || "inicio") + " atendimento_manual=" + (st?.atendimento_manual || false) + " aguardando_retorno_correspondente=" + (st?.aguardando_retorno_correspondente || false) + " processo_enviado_correspondente=" + (st?.processo_enviado_correspondente || false) + " last_message_id=" + (st?.last_message_id ? "set" : "null")); } catch (_) {}
 
     // ============================================================
     // 🔒 ANTI-DUPLICAÇÃO PERSISTENTE (cross-isolate)
@@ -9501,6 +9517,7 @@ let userText = null;
       });
       // ── COGPATH: retorno antecipado — duplicata persistente ──
       try { console.log("[COGPATH_RETURN] duplicate_inbound_blocked wa_id=" + (waId || "?")); } catch (_) {}
+      try { console.log("[COGROUTE_RETURN] duplicate_inbound_blocked → early return, flow stops here wa_id=" + (waId || "?")); } catch (_) {}
       return metaWebhookResponse(200, {
         inbound_message_id: messageId,
         request_id: _requestId
@@ -9522,6 +9539,8 @@ let userText = null;
     }
 
     if (st?.atendimento_manual === true) {
+      // ── COGROUTE: manual mode detected ──
+      try { console.log("[COGROUTE_RETURN] manual_mode_bypass wa_id=" + (waId || "?") + " fase_conversa=" + (st?.fase_conversa || "inicio") + " → flow stops before runFunnel"); } catch (_) {}
       const bypassTs = new Date().toISOString();
       await telemetry(env, {
         wa_id: waId,
@@ -9548,6 +9567,8 @@ let userText = null;
         type
       });
     }
+    // ── COGROUTE: manual mode not active, continuing ──
+    try { console.log("[COGROUTE_SKIP] manual_mode_check passed (not manual) wa_id=" + (waId || "?") + " fase_conversa=" + (st?.fase_conversa || "inicio")); } catch (_) {}
 
     // ============================================================
     // TELEMETRIA DE ENTRADA — AGORA COM STAGE REAL
@@ -9596,6 +9617,8 @@ let userText = null;
 // ============================================================
 // 🧠 OFFTRACK GUARD (IA apertador de botão) — NÃO MUDA FASE
 // ============================================================
+// ── COGROUTE: entrando no offtrack guard ──
+try { console.log("[COGROUTE_ENTER] offtrack_guard wa_id=" + (waId || "?") + " stage=" + (st?.fase_conversa || "inicio") + " text=" + String(userText || "").slice(0, 40)); } catch (_) {}
 try {
   const guard = await offtrackGuard(env, {
     wa_id: waId,
@@ -9603,7 +9626,11 @@ try {
     text: userText
   });
 
+  // ── COGROUTE: resultado offtrack guard ──
+  try { console.log("[COGROUTE_MATCH] offtrack_guard_result offtrack=" + Boolean(guard?.offtrack) + " label=" + (guard?.label || "null") + " confidence=" + (guard?.confidence ?? "null") + " wa_id=" + (waId || "?")); } catch (_) {}
+
   if (guard?.offtrack === true) {
+    try { console.log("[COGROUTE_RETURN] offtrack_guard → early return, flow stops here wa_id=" + (waId || "?") + " label=" + (guard?.label || "null")); } catch (_) {}
     await telemetry(env, {
       wa_id: waId,
       event: "offtrack_signal",
@@ -9625,9 +9652,12 @@ try {
     try { console.log("[COGPATH_RETURN] offtrack_guard wa_id=" + (waId || "?") + " stage=" + (st?.fase_conversa || "inicio")); } catch (_) {}
     return metaWebhookResponse(200, { reason: "offtrack_guard", type });
   }
+  // ── COGROUTE: offtrack guard passed ──
+  try { console.log("[COGROUTE_SKIP] offtrack_guard passed (not offtrack) wa_id=" + (waId || "?")); } catch (_) {}
 } catch (e) {
   // Guard nunca pode derrubar o funil
   console.error("OFFTRACK-GUARD-ERROR:", e);
+  try { console.log("[COGROUTE_SKIP] offtrack_guard error (non-blocking) wa_id=" + (waId || "?") + " err=" + String(e?.message || e).slice(0, 80)); } catch (_) {}
 }
 
     // ============================================================
@@ -9678,6 +9708,9 @@ try {
         stage: st?.fase_conversa || "inicio"
       }).catch(() => {});
     } catch (_) { /* telemetry must never break the flow */ }
+
+    // ── COGROUTE_FUNNEL: TODOS os guards passaram, entrando no runFunnel ──
+    try { console.log("[COGROUTE_FUNNEL] ALL_GUARDS_PASSED → calling runFunnel wa_id=" + (waId || "?") + " stage=" + (st?.fase_conversa || "inicio") + " text=" + String(userText || "").slice(0, 40)); } catch (_) {}
 
     await runFunnel(env, st, userText);
 
@@ -21683,6 +21716,8 @@ function extractCorrespondentePendenciasFromText(rawText) {
 }
 
 async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
+  // ── COGROUTE: diagnóstico retornoByCaseRef entry ──
+  try { console.log("[COGROUTE_ENTER] handleCorrespondenteReturnByCaseRef wa_id=" + String(msg?.from || "?") + " has_author=" + Boolean(String(msg?.author || "").trim()) + " text=" + String(userText || "").slice(0, 40)); } catch (_) {}
   const correspondenteWaId = extractCorrespondenteWaId(msg, env);
   const fromWaIdCmp = correspondenteWaId
     ? normalizeCorrespondenteWaIdCmp(correspondenteWaId)
@@ -21701,7 +21736,10 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
       function_used: "normalizeCorrespondenteWaIdCmp"
     }
   });
-  if (!correspondenteWaId) return { handled: false, case_ref: null, status: null };
+  if (!correspondenteWaId) {
+    try { console.log("[COGROUTE_SKIP] retornoByCaseRef: no correspondenteWaId → handled=false"); } catch (_) {}
+    return { handled: false, case_ref: null, status: null };
+  }
   await telemetry(env, {
     wa_id: correspondenteWaId || String(msg?.from || "").trim() || null,
     event: "corr_flow_probe_enter",
@@ -21716,6 +21754,8 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   });
   const from = String(msg?.from || "").trim();
   const isCorrespondenteChannel = Boolean(String(msg?.author || "").trim()) || (from === String(env.CORRESPONDENTE_TO || "").trim());
+  // ── COGROUTE: diagnóstico channel detection ──
+  try { console.log("[COGROUTE_MATCH] retornoByCaseRef: isCorrespondenteChannel=" + isCorrespondenteChannel + " from=" + (from || "?") + " CORRESPONDENTE_TO=" + String(env.CORRESPONDENTE_TO || "not_set").slice(0, 20)); } catch (_) {}
   const signals = extractCorrespondenteReturnSignals(msg, userText);
   const textSourceUsed = signals.messageText
     ? "meta_text"
@@ -21731,6 +21771,8 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
     docExtraction?.extracted_text || ""
   ].filter(Boolean).join("\n");
   let caseRef = extractCorrespondenteCaseRefFromText(consolidatedText);
+  // ── COGROUTE: diagnóstico caseRef extraction ──
+  try { console.log("[COGROUTE_MATCH] retornoByCaseRef: caseRef=" + (caseRef || "null") + " consolidatedText=" + String(consolidatedText || "").slice(0, 40) + " textSource=" + textSourceUsedFinal); } catch (_) {}
   await telemetry(env, {
     wa_id: correspondenteWaId,
     event: "corr_status_probe_input",
@@ -21786,13 +21828,24 @@ async function handleCorrespondenteReturnByCaseRef(env, msg, userText) {
   };
   const senderLockedCases = await getSenderLockedCases();
   const senderSeemsCorrespondente = isCorrespondenteChannel || senderLockedCases.length > 0;
+  // ── COGROUTE: diagnóstico senderSeemsCorrespondente ──
+  try { console.log("[COGROUTE_MATCH] retornoByCaseRef: senderSeemsCorrespondente=" + senderSeemsCorrespondente + " isCorrespondenteChannel=" + isCorrespondenteChannel + " lockedCases=" + senderLockedCases.length); } catch (_) {}
 
   if (!caseRef) {
     const maybeRetorno = /pré[- ]?cadastro|pre[- ]?cadastro|aprovad|reprovad|pend[eê]n|analise|imped/i.test(String(consolidatedText || ""));
-    if (!maybeRetorno) return { handled: false, case_ref: caseRef || null, status: null };
-    if (!senderSeemsCorrespondente) return { handled: false, case_ref: caseRef || null, status: null };
+    // ── COGROUTE: diagnóstico retorno regex decision ──
+    try { console.log("[COGROUTE_MATCH] retornoByCaseRef: no_caseRef maybeRetorno=" + maybeRetorno + " senderSeemsCorrespondente=" + senderSeemsCorrespondente + " text=" + String(consolidatedText || "").slice(0, 40)); } catch (_) {}
+    if (!maybeRetorno) {
+      try { console.log("[COGROUTE_SKIP] retornoByCaseRef: no caseRef + no maybeRetorno → handled=false wa_id=" + String(msg?.from || "?")); } catch (_) {}
+      return { handled: false, case_ref: caseRef || null, status: null };
+    }
+    if (!senderSeemsCorrespondente) {
+      try { console.log("[COGROUTE_SKIP] retornoByCaseRef: no caseRef + maybeRetorno but not correspondente → handled=false"); } catch (_) {}
+      return { handled: false, case_ref: caseRef || null, status: null };
+    }
     if (senderLockedCases.length === 1) {
       caseRef = buildCorrespondenteCaseRef(senderLockedCases[0]);
+      try { console.log("[COGROUTE_MATCH] retornoByCaseRef: inferred caseRef from single locked case=" + caseRef); } catch (_) {}
     }
   }
   if (!caseRef) {
@@ -22802,10 +22855,18 @@ async function tryAcquireCorrespondenteLock(env, wa_id, correspondenteWaId) {
 async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   const token = parseAssumirTokenFromText(userText);
   const correspondenteWaId = extractCorrespondenteWaId(msg, env);
-  if (!correspondenteWaId) return { handled: false };
+  // ── COGROUTE: diagnóstico assumir entry ──
+  try { console.log("[COGROUTE_ENTER] handleCorrespondenteAssumirCommand wa_id=" + String(msg?.from || "?") + " token_parsed=" + (token ? "yes:" + token : "no") + " corr_wa_id=" + (correspondenteWaId || "empty") + " has_author=" + Boolean(String(msg?.author || "").trim()) + " text=" + String(userText || "").slice(0, 40)); } catch (_) {}
+  if (!correspondenteWaId) {
+    try { console.log("[COGROUTE_SKIP] assumir: no correspondenteWaId → handled=false"); } catch (_) {}
+    return { handled: false };
+  }
   const correspondenteWaIdRaw = String(correspondenteWaId || "").trim();
   const correspondenteWaIdCmp = normalizeCorrespondenteWaIdCmp(correspondenteWaIdRaw);
-  if (!correspondenteWaIdCmp) return { handled: false };
+  if (!correspondenteWaIdCmp) {
+    try { console.log("[COGROUTE_SKIP] assumir: no correspondenteWaIdCmp → handled=false"); } catch (_) {}
+    return { handled: false };
+  }
   const correspondenteWaIdOutbound = normalizeCorrespondenteWaIdOutbound(correspondenteWaIdRaw) || correspondenteWaIdRaw;
   await telemetry(env, {
     wa_id: null,
@@ -22823,7 +22884,13 @@ async function handleCorrespondenteAssumirCommand(env, msg, userText) {
   const normalizedText = String(userText || "").trim();
   const commandOnlyMatch = normalizedText.match(/^assumir(?:\s+pr[eé][-\s]?cadastro)?(?:\s+c?(\d{4,}))?\s*$/i);
   const isCommandWithoutToken = !token && Boolean(commandOnlyMatch);
-  if (!token && !isCommandWithoutToken) return { handled: false };
+  // ── COGROUTE: diagnóstico assumir decision ──
+  try { console.log("[COGROUTE_MATCH] assumir: token=" + (token || "null") + " commandOnlyMatch=" + Boolean(commandOnlyMatch) + " isCommandWithoutToken=" + isCommandWithoutToken + " text_norm=" + normalizedText.slice(0, 40)); } catch (_) {}
+  if (!token && !isCommandWithoutToken) {
+    try { console.log("[COGROUTE_SKIP] assumir: no token AND no command match → handled=false wa_id=" + String(msg?.from || "?")); } catch (_) {}
+    return { handled: false };
+  }
+  try { console.log("[COGROUTE_MATCH] assumir: WILL HANDLE token=" + (token || "null") + " isCommandWithoutToken=" + isCommandWithoutToken); } catch (_) {}
 
   let caso = null;
   if (token) {

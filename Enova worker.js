@@ -9545,6 +9545,9 @@ let userText = null;
       try { console.log("[COGPATH_RETURN] manual_mode_bypass wa_id=" + (waId || "?")); } catch (_) {}
       return metaWebhookResponse(200, {
         reason: "manual_mode_bypass",
+        type
+      });
+    }
 
     // ============================================================
     // TELEMETRIA DE ENTRADA — AGORA COM STAGE REAL

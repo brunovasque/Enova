@@ -8720,6 +8720,9 @@ async function handleMetaWebhook(request, env, ctx) {
 
   console.log("DEBUG-1: ENTROU NO handleMetaWebhook");
 
+  // ── COGPATH: ponto 1 — confirma entrada no webhook ──
+  try { console.log("[COGPATH_WEBHOOK] entered handleMetaWebhook ts=" + Date.now()); } catch (_) {}
+
   function isDebugOn(v) {
     const s = String(v || "").trim().toLowerCase();
     return s === "1" || s === "true" || s === "on" || s === "yes";
@@ -9374,11 +9377,16 @@ let userText = null;
       }
     });
 
+    // ── COGPATH: ponto 2b — sem userText, retorno antecipado ──
+    try { console.log("[COGPATH_RETURN] no_user_text type=" + type); } catch (_) {}
     return metaWebhookResponse(200, {
       reason: "webhook_no_text",
       type
     });
   }
+
+  // ── COGPATH: ponto 2 — userText resolvido ──
+  try { console.log("[COGPATH_MESSAGE] wa_id=" + (waId || "?") + " type=" + type + " text=" + String(userText || "").slice(0, 60)); } catch (_) {}
 
   const assumirCmd = await handleCorrespondenteAssumirCommand(env, msg, userText);
   if (assumirCmd?.handled) {
@@ -9398,8 +9406,9 @@ let userText = null;
         fallback_common_flow: "nao"
       }
     });
+    // ── COGPATH: retorno antecipado — assumir command ──
+    try { console.log("[COGPATH_RETURN] assumir_handled wa_id=" + (waId || "?")); } catch (_) {}
     return metaWebhookResponse(200, {
-      reason: assumirCmd.reason || "assumir_token_handled",
       type
     });
   }
@@ -9422,8 +9431,9 @@ let userText = null;
     }
   });
   if (retornoByCaseRef?.handled) {
+    // ── COGPATH: retorno antecipado — corr case ref ──
+    try { console.log("[COGPATH_RETURN] corr_case_ref_handled wa_id=" + (waId || "?")); } catch (_) {}
     return metaWebhookResponse(200, {
-      reason: retornoByCaseRef.reason || "corr_return_case_ref_handled",
       type
     });
   }
@@ -9463,6 +9473,9 @@ let userText = null;
       st = await getState(env, waId);
     }
 
+    // ── COGPATH: ponto 3 — estado carregado ──
+    try { console.log("[COGPATH_STATE] wa_id=" + (waId || "?") + " stage=" + (st?.fase_conversa || "inicio") + " opening_used=" + (st?.opening_used || false) + " atendimento_manual=" + (st?.atendimento_manual || false)); } catch (_) {}
+
     // ============================================================
     // 🔒 ANTI-DUPLICAÇÃO PERSISTENTE (cross-isolate)
     // Usa last_message_id já persistido no Supabase para detectar
@@ -9486,8 +9499,9 @@ let userText = null;
           wa_id: waId
         }
       });
+      // ── COGPATH: retorno antecipado — duplicata persistente ──
+      try { console.log("[COGPATH_RETURN] duplicate_inbound_blocked wa_id=" + (waId || "?")); } catch (_) {}
       return metaWebhookResponse(200, {
-        reason: "duplicate_inbound_blocked_persistent",
         inbound_message_id: messageId,
         request_id: _requestId
       });
@@ -9527,11 +9541,10 @@ let userText = null;
           timestamp: bypassTs
         }
       });
+      // ── COGPATH: retorno antecipado — atendimento manual ──
+      try { console.log("[COGPATH_RETURN] manual_mode_bypass wa_id=" + (waId || "?")); } catch (_) {}
       return metaWebhookResponse(200, {
         reason: "manual_mode_bypass",
-        type
-      });
-    }
 
     // ============================================================
     // TELEMETRIA DE ENTRADA — AGORA COM STAGE REAL
@@ -9605,6 +9618,8 @@ try {
     const msg = buildReanchor({ currentStage: st?.fase_conversa || "inicio" }).text;
 
     await sendMessage(env, waId, msg);
+    // ── COGPATH: retorno antecipado — offtrack guard ──
+    try { console.log("[COGPATH_RETURN] offtrack_guard wa_id=" + (waId || "?") + " stage=" + (st?.fase_conversa || "inicio")); } catch (_) {}
     return metaWebhookResponse(200, { reason: "offtrack_guard", type });
   }
 } catch (e) {
@@ -23583,6 +23598,9 @@ async function runFunnel(env, st, userText) {
   });
 
   const stage = st.fase_conversa || "inicio";
+
+  // ── COGPATH: ponto 4 — entrada no runFunnel ──
+  try { console.log("[COGPATH_STAGE] runFunnel wa_id=" + (st.wa_id || "?") + " stage=" + stage + " text=" + String(userText || "").slice(0, 60)); } catch (_) {}
   const normalizedUserText = normalizeText(userText || "");
   initializeCognitiveTelemetryState(st, stage);
 
@@ -23609,6 +23627,8 @@ async function runFunnel(env, st, userText) {
       }
     });
 
+    // ── COGPATH: retorno antecipado — QA reset ──
+    try { console.log("[COGPATH_RETURN] qa_reset wa_id=" + (st.wa_id || "?") + " stage=" + stage); } catch (_) {}
     return step(
       env,
       qaState || st,
@@ -23713,6 +23733,8 @@ async function runFunnel(env, st, userText) {
         silent: true
       };
     }
+    // ── COGPATH: retorno antecipado — reset global ──
+    try { console.log("[COGPATH_RETURN] reset_global wa_id=" + (st.wa_id || "?") + " stage=" + stage); } catch (_) {}
     return new Response("OK", { status: 200 });
   }
 
@@ -23760,8 +23782,9 @@ async function runFunnel(env, st, userText) {
 
     // não é resposta direta esperada → trava e pede responder a pergunta anterior
     if (!ehSim && !ehNao && !ehTalvez && !ehNaoExplicito) {
+      // ── COGPATH: retorno antecipado — yesNo offtrack ──
+      try { console.log("[COGPATH_RETURN] yesno_offtrack wa_id=" + (st.wa_id || "?") + " stage=" + stage); } catch (_) {}
       return step(
-        env,
         st,
         buildReanchor({ currentStage: stage }).lines,
         stage
@@ -23778,12 +23801,17 @@ async function runFunnel(env, st, userText) {
   // ============================================================
   try {
     if (shouldTriggerCognitiveAssist(stage, userText)) {
+      // ── COGPATH: ponto 5 — entrou no COGNITIVE ASSIST ──
+      try { console.log("[COGPATH_V2_GATE] trigger=true wa_id=" + (st.wa_id || "?") + " stage=" + stage); } catch (_) {}
+
       // ── TOP_SEALED_MODE: bloquear cognitive assist geral no topo ──
       // No modo selado, o topo NÃO recebe fala do assist geral.
       // A fala é controlada exclusivamente por getTopoHappyPathSpeech + bucket.
       // O assist geral pode promover llm_real sem o contrato do topo, causando
       // colapso de bucket. Bloqueio absoluto.
       if (TOP_SEALED_MODE && TOP_SEALED_STAGES.has(stage)) {
+        // ── COGPATH: V2 skip — topo selado ──
+        try { console.log("[COGPATH_V2_SKIP] reason=topo_sealed_mode wa_id=" + (st.wa_id || "?") + " stage=" + stage); } catch (_) {}
         st.__cognitive_reply_prefix = null;
         st.__cognitive_v2_takes_final = false;
         st.__speech_arbiter_source = null;
@@ -23805,18 +23833,29 @@ async function runFunnel(env, st, userText) {
       // step() em L159-168 lê st.__cognitive_reply_prefix e o prepende às mensagens;
       // garantir null aqui evita que a casca cognitiva apareça antes da abertura mecânica.
       if (stage === "inicio" && st.opening_used !== true) {
+        // ── COGPATH: V2 skip — inicio sem opening_used ──
+        try { console.log("[COGPATH_V2_SKIP] reason=inicio_first_contact wa_id=" + (st.wa_id || "?") + " stage=" + stage + " opening_used=" + (st.opening_used || false)); } catch (_) {}
         st.__cognitive_reply_prefix = null;
       } else {
       const clearAnswer = hasClearStageAnswer(stage, userText);
       const v2Mode = String(env.COGNITIVE_V2_MODE || "off").toLowerCase();
 
+      // ── COGPATH: ponto 6 — variáveis do gate V2 ──
+      try { console.log("[COGPATH_V2_GATE] v2Mode=" + v2Mode + " clearAnswer=" + clearAnswer + " stage=" + stage + " wa_id=" + (st.wa_id || "?")); } catch (_) {}
+
       let cognitive;
       let v2Shadow = null;
 
       if (v2Mode === "on") {
+        // ── COGPATH: ponto 7 — chamando runCognitiveV2WithAdapter (on) ──
+        try { console.log("[COGPATH_V2_CALL] mode=on wa_id=" + (st.wa_id || "?") + " stage=" + stage); } catch (_) {}
         // Motor isolado via adapter — legado desligado
         cognitive = await runCognitiveV2WithAdapter(env, stage, userText, st);
+        // ── COGPATH: ponto 9 — saída V2 ──
+        try { console.log("[COGPATH_V2_CALL] result reason=" + (cognitive?.reason || "?") + " confidence=" + (cognitive?.confidence ?? "?") + " reply_len=" + (cognitive?.reply_text || "").length + " signal=" + (cognitive?.safe_stage_signal || cognitive?.signal || "none")); } catch (_) {}
       } else if (v2Mode === "shadow") {
+        // ── COGPATH: ponto 7 — chamando V1 + V2 shadow ──
+        try { console.log("[COGPATH_V2_CALL] mode=shadow wa_id=" + (st.wa_id || "?") + " stage=" + stage); } catch (_) {}
         // Legado responde no fluxo, isolado roda em paralelo para telemetria
         cognitive = await cognitiveAssistV1(env, {
           stage,
@@ -23829,6 +23868,8 @@ async function runFunnel(env, st, userText) {
           console.error("COGNITIVE_V2_SHADOW_ERROR:", shadowErr);
         }
       } else {
+        // ── COGPATH: ponto 7 — chamando V1 legado (off) ──
+        try { console.log("[COGPATH_V2_SKIP] reason=v2_mode_off wa_id=" + (st.wa_id || "?") + " stage=" + stage + " v2Mode=" + v2Mode); } catch (_) {}
         // Legado puro (default)
         cognitive = await cognitiveAssistV1(env, {
           stage,
@@ -23853,6 +23894,12 @@ async function runFunnel(env, st, userText) {
       const lowConfidence = _canonicalConfidence < COGNITIVE_V1_CONFIDENCE_MIN;
       const stillNeedsOriginal =
         cognitive.still_needs_original_answer === true && !clearAnswer;
+
+      // ── COGPATH: ponto 6b — variáveis de decisão pós-cognitive ──
+      try {
+        const _v2OnWithLlmProbe = v2Mode === "on" && cognitive.reason === "cognitive_v2";
+        console.log("[COGPATH_V2_GATE] post_call stage=" + stage + " clearAnswer=" + clearAnswer + " stillNeedsOriginal=" + stillNeedsOriginal + " lowConfidence=" + lowConfidence + " v2OnWithLlm=" + _v2OnWithLlmProbe + " confidence=" + (_canonicalConfidence ?? "?") + " signal=" + (_canonicalSignal || "none") + " reason=" + (cognitive?.reason || "?"));
+      } catch (_) {}
 
       const telemetryDetails = {
         intent: cognitive.intent || null,
@@ -24127,6 +24174,9 @@ async function runFunnel(env, st, userText) {
 
       st.__cognitive_stage_answer = null;
       }
+    } else {
+      // ── COGPATH: trigger falso — cognitivo V2 NÃO acionado ──
+      try { console.log("[COGPATH_V2_SKIP] reason=shouldTrigger_false wa_id=" + (st.wa_id || "?") + " stage=" + stage + " text=" + String(userText || "").slice(0, 60)); } catch (_) {}
     }
   } catch (e) {
     console.error("COGNITIVE_V1_RUNFUNNEL_ERROR:", e);

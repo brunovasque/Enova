@@ -1278,26 +1278,48 @@ async function upsertAttendanceMeta(env, wa_id, patch) {
   const fullPatch = { ...patch, updated_at: now };
 
   try {
-    // UPSERT real (INSERT ... ON CONFLICT UPDATE via Prefer + on_conflict)
-    // Usa supabaseProxyFetch direto para garantir que:
-    //   1) query como objeto → on_conflict=wa_id chega na URL
-    //   2) headers passados aqui chegam ao proxy (sbFetch os descartaria)
+    // Attempt UPSERT via PostgREST Prefer + on_conflict.
+    // Uses supabaseProxyFetch directly (sbFetch drops custom headers).
     const result = await supabaseProxyFetch(env, {
       path: "/rest/v1/enova_attendance_meta",
       method: "POST",
       query: { on_conflict: "wa_id" },
       body: { wa_id, ...fullPatch, created_at: now },
       headers: {
-        "Content-Type": "application/json",
         Prefer: "resolution=merge-duplicates,return=representation",
-        apikey: env.SUPABASE_SERVICE_ROLE,
-        Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE}`
+        Accept: "application/json"
       }
     });
 
     const rows = normalizeSupabaseRows(result);
     return rows?.[0] || null;
   } catch (err) {
+    // ── 409 fallback: proxy may not forward Prefer/on_conflict correctly ──
+    // Same defensive pattern used by _upsertStateCore for enova_state:
+    // if INSERT fails with duplicate-key (409), retry as PATCH (update).
+    if (err?.status === 409) {
+      try {
+        const updateResult = await supabaseProxyFetch(env, {
+          path: "/rest/v1/enova_attendance_meta",
+          method: "PATCH",
+          query: { wa_id: `eq.${wa_id}` },
+          body: fullPatch,
+          headers: {
+            Accept: "application/json"
+          }
+        });
+        const rows = normalizeSupabaseRows(updateResult);
+        return rows?.[0] || null;
+      } catch (patchErr) {
+        const patchMsg = String(patchErr?.data?.message || patchErr?.message || patchErr || "");
+        if (/enova_attendance_meta/.test(patchMsg) && /schema cache|does not exist|relation/i.test(patchMsg)) {
+          return null;
+        }
+        console.error("ATTENDANCE_META_PATCH_FALLBACK_ERROR:", patchMsg);
+        return null;
+      }
+    }
+
     // Graceful: if table doesn't exist yet, log warning and continue
     const errMsg = String(err?.data?.message || err?.message || err || "");
     if (/enova_attendance_meta/.test(errMsg) && /schema cache|does not exist|relation/i.test(errMsg)) {

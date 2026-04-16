@@ -1278,11 +1278,15 @@ async function upsertAttendanceMeta(env, wa_id, patch) {
   const fullPatch = { ...patch, updated_at: now };
 
   try {
-    // Try UPSERT (INSERT ... ON CONFLICT UPDATE)
-    const result = await sbFetch(env, "/rest/v1/enova_attendance_meta", {
+    // UPSERT real (INSERT ... ON CONFLICT UPDATE via Prefer + on_conflict)
+    // Usa supabaseProxyFetch direto para garantir que:
+    //   1) query como objeto → on_conflict=wa_id chega na URL
+    //   2) headers passados aqui chegam ao proxy (sbFetch os descartaria)
+    const result = await supabaseProxyFetch(env, {
+      path: "/rest/v1/enova_attendance_meta",
       method: "POST",
-      query: "on_conflict=wa_id",
-      body: JSON.stringify({ wa_id, ...fullPatch, created_at: now }),
+      query: { on_conflict: "wa_id" },
+      body: { wa_id, ...fullPatch, created_at: now },
       headers: {
         "Content-Type": "application/json",
         Prefer: "resolution=merge-duplicates,return=representation",

@@ -1278,10 +1278,9 @@ async function upsertAttendanceMeta(env, wa_id, patch) {
   const fullPatch = { ...patch, updated_at: now };
 
   try {
-    // Attempt UPSERT via PostgREST Prefer + on_conflict.
-    // Uses supabaseProxyFetch directly (sbFetch drops custom headers).
-    const result = await supabaseProxyFetch(env, {
-      path: "/rest/v1/enova_attendance_meta",
+    // Attempt UPSERT direct to Supabase (bypasses Vercel proxy which
+    // does not forward on_conflict / Prefer: resolution=merge-duplicates correctly).
+    const result = await supabaseDirectFetch(env, "/rest/v1/enova_attendance_meta", {
       method: "POST",
       query: { on_conflict: "wa_id" },
       body: { wa_id, ...fullPatch, created_at: now },
@@ -1299,8 +1298,7 @@ async function upsertAttendanceMeta(env, wa_id, patch) {
     // if INSERT fails with duplicate-key (409), retry as PATCH (update).
     if (err?.status === 409) {
       try {
-        const updateResult = await supabaseProxyFetch(env, {
-          path: "/rest/v1/enova_attendance_meta",
+        const updateResult = await supabaseDirectFetch(env, "/rest/v1/enova_attendance_meta", {
           method: "PATCH",
           query: { wa_id: `eq.${wa_id}` },
           body: fullPatch,
@@ -1918,8 +1916,7 @@ async function updateProfileFieldsMeta(env, wa_id, fieldNames, source) {
       if (updatedAtCol) patch[updatedAtCol] = now;
     }
     try {
-      await supabaseProxyFetch(env, {
-        path: "/rest/v1/enova_prefill_meta",
+      await supabaseDirectFetch(env, "/rest/v1/enova_prefill_meta", {
         method: "POST",
         query: { on_conflict: "wa_id" },
         headers: {
@@ -1934,8 +1931,7 @@ async function updateProfileFieldsMeta(env, wa_id, fieldNames, source) {
       // Same defensive pattern used by upsertAttendanceMeta for enova_attendance_meta.
       if (upsertErr?.status === 409) {
         const { wa_id: _omit, ...patchWithoutWaId } = patch;
-        await supabaseProxyFetch(env, {
-          path: "/rest/v1/enova_prefill_meta",
+        await supabaseDirectFetch(env, "/rest/v1/enova_prefill_meta", {
           method: "PATCH",
           query: { wa_id: `eq.${wa_id}` },
           headers: { Accept: "application/json" },
@@ -5100,6 +5096,84 @@ url += "?" + usp.toString();
   if (!res.ok) {
     console.error("supabaseProxyFetch: erro HTTP", res.status, data);
     const error = new Error("Supabase proxy HTTP error");
+    error.status = res.status;
+    error.data = data;
+    throw error;
+  }
+
+  return data;
+}
+
+// -------------------------------------------------------------
+// supabaseDirectFetch — chama o Supabase diretamente (sem proxy Vercel)
+// Usar apenas em upsertAttendanceMeta e updateProfileFieldsMeta,
+// onde o proxy não repassa on_conflict/Prefer corretamente.
+// Requer env.SUPABASE_URL (plaintext) e env.SUPABASE_SERVICE_ROLE (secret).
+// -------------------------------------------------------------
+async function supabaseDirectFetch(env, path, {
+  method = "GET",
+  query = null,  // objeto { on_conflict: "wa_id", ... }
+  body = null,
+  headers = {}
+} = {}) {
+  if (!env.SUPABASE_URL) {
+    throw new Error("SUPABASE_URL não configurada no Worker");
+  }
+  if (!env.SUPABASE_SERVICE_ROLE) {
+    throw new Error("SUPABASE_SERVICE_ROLE não configurada no Worker");
+  }
+
+  let base = env.SUPABASE_URL.replace(/\/+$/, "");
+  if (!path.startsWith("/")) path = "/" + path;
+  let url = base + path;
+
+  if (query && typeof query === "object") {
+    const usp = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value === undefined || value === null) continue;
+      usp.append(key, String(value));
+    }
+    url += "?" + usp.toString();
+  }
+
+  const finalHeaders = {
+    "Content-Type": "application/json",
+    apikey: env.SUPABASE_SERVICE_ROLE,
+    Authorization: `Bearer ${env.SUPABASE_SERVICE_ROLE}`,
+    ...headers
+  };
+
+  let finalBody = body;
+  if (
+    body &&
+    typeof body === "object" &&
+    !(body instanceof ArrayBuffer) &&
+    !(body instanceof Uint8Array)
+  ) {
+    finalBody = JSON.stringify(body);
+  }
+
+  const sendBody = method === "GET" || method === "HEAD" ? undefined : finalBody;
+
+  let res;
+  try {
+    res = await fetch(url, { method, headers: finalHeaders, body: sendBody });
+  } catch (err) {
+    console.error("supabaseDirectFetch: erro de rede/fetch", err);
+    throw err;
+  }
+
+  const text = await res.text();
+  let data = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    data = text;
+  }
+
+  if (!res.ok) {
+    console.error("supabaseDirectFetch: erro HTTP", res.status, data);
+    const error = new Error("Supabase direct HTTP error");
     error.status = res.status;
     error.data = data;
     throw error;

@@ -1917,16 +1917,34 @@ async function updateProfileFieldsMeta(env, wa_id, fieldNames, source) {
       if (sourceCol) patch[sourceCol] = source;
       if (updatedAtCol) patch[updatedAtCol] = now;
     }
-    await supabaseProxyFetch(env, {
-      path: "/rest/v1/enova_prefill_meta",
-      method: "POST",
-      query: { on_conflict: "wa_id" },
-      headers: {
-        Prefer: "resolution=merge-duplicates,return=minimal",
-        Accept: "application/json",
-      },
-      body: patch,
-    });
+    try {
+      await supabaseProxyFetch(env, {
+        path: "/rest/v1/enova_prefill_meta",
+        method: "POST",
+        query: { on_conflict: "wa_id" },
+        headers: {
+          Prefer: "resolution=merge-duplicates,return=minimal",
+          Accept: "application/json",
+        },
+        body: patch,
+      });
+    } catch (upsertErr) {
+      // ── 409 fallback: race condition can cause duplicate-key even with on_conflict ──
+      // If INSERT fails with 409 (23505), retry as PATCH (UPDATE) filtered by wa_id.
+      // Same defensive pattern used by upsertAttendanceMeta for enova_attendance_meta.
+      if (upsertErr?.status === 409) {
+        const { wa_id: _omit, ...patchWithoutWaId } = patch;
+        await supabaseProxyFetch(env, {
+          path: "/rest/v1/enova_prefill_meta",
+          method: "PATCH",
+          query: { wa_id: `eq.${wa_id}` },
+          headers: { Accept: "application/json" },
+          body: patchWithoutWaId,
+        });
+      } else {
+        throw upsertErr;
+      }
+    }
   } catch (_) {
     // Non-blocking: metadata update failure must never affect the trilho
   }

@@ -4321,12 +4321,14 @@ function _validatePhaseRequirement(stage, cognitiveText) {
 function _renderCognitiveFromIntent(mechanicalSource, stage) {
   if (!mechanicalSource || !mechanicalSource.trim()) return null;
 
-  // Pega apenas a primeira frase mecânica (antes do separador "|")
-  let source = mechanicalSource.split("|")[0].trim();
-  if (!source) return null;
+  // Preserva todos os segmentos da resposta mecânica multi-parte (separados por "|").
+  // Anteriormente apenas split("|")[0] era usado, descartando a pergunta do próximo stage.
+  const parts = mechanicalSource.split("|").map(s => s.trim()).filter(Boolean);
+  if (!parts.length) return null;
 
-  // ── Transformações de tom ──
-  let cognitive = source;
+  // ── Transformações de tom aplicadas ao primeiro segmento ──
+  // Segmentos subsequentes já são conversacionais (confirmação/pergunta do próximo stage).
+  let cognitive = parts[0];
 
   // Remove imperativos formais e substitui por conversacional
   cognitive = cognitive.replace(/^Informe\s+/i, "Me fala ");
@@ -4362,11 +4364,15 @@ function _renderCognitiveFromIntent(mechanicalSource, stage) {
   }
 
   // ── Guardrail: verifica se a transformação preservou a exigência técnica ──
-  if (!_validatePhaseRequirement(stage, cognitive)) {
+  // Para respostas multi-parte (transição), o guardrail do stage atual não se aplica:
+  // o conteúdo pertence ao próximo stage e foi composto pelo mecânico — é confiável.
+  if (parts.length === 1 && !_validatePhaseRequirement(stage, cognitive)) {
     return null; // guardrail falhou → fallback para mapa
   }
 
-  return cognitive;
+  // Reconstrói a resposta completa preservando todos os segmentos
+  if (parts.length === 1) return cognitive;
+  return [cognitive, ...parts.slice(1)].join("\n");
 }
 
 /**

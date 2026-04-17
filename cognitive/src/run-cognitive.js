@@ -5,6 +5,7 @@ import { getCanonicalFAQ } from "./faq-lookup.js";
 import { getCanonicalObjection } from "./objections-lookup.js";
 import { getKnowledgeBaseItem } from "./knowledge-lookup.js";
 import { buildReanchor } from "./reanchor-helper.js";
+import { getStageGoal } from "./cognitive-contract.js";
 
 // ── Etapa 6: Contrato global de fala final ──────────────────────────────────
 import { applyFinalSpeechContract } from "./final-speech-contract.js";
@@ -2861,6 +2862,7 @@ function buildOpenAISystemPrompt() {
     "NÃO pergunte sobre slots, dados ou temas de stages futuros.",
     "Se o stage atual é inicio_programa, NÃO pergunte estado civil, renda, regime de trabalho ou qualquer coleta de stage posterior.",
     "Cada turno tem UM ÚNICO objetivo: ou explicar, ou perguntar, ou confirmar, ou reorientar — nunca misturar explicação com coleta de outro stage.",
+    "O campo goal_of_current_stage define O QUE você precisa obter do cliente neste turno. Use-o como âncora de objetivo — nunca como texto literal a ser repetido. Reescreva sempre de forma humana, natural e conversacional. Varie o tom e a estrutura da pergunta a cada turno: às vezes direta, às vezes acolhedora, às vezes com contexto breve antes de perguntar. O cliente não pode perceber que existe um script.",
     "Você NÃO pode aprovar financiamento, NÃO pode alterar o stage oficial, NÃO pode inventar regra fora do contrato ou do contexto normativo recebido.",
     "Você NÃO pode acionar produção, Meta, Supabase oficial ou qualquer side effect.",
     "Responda APENAS JSON válido compatível com este contrato:",
@@ -3360,6 +3362,12 @@ export function getReadOnlyCognitiveFixtureById(fixtureId) {
 
 export async function runReadOnlyCognitiveEngine(rawInput = {}, options = {}) {
   const request = normalizeRequest(rawInput);
+
+  // ── Mudança 1: Fallback de goal_of_current_stage via getStageGoal ────────
+  if (!request.goal_of_current_stage) {
+    request.goal_of_current_stage = getStageGoal(request.current_stage);
+  }
+
   const analysis = detectSlotsFromConversation(request);
   const knownSlotConflicts = detectKnownSlotConflicts(request.known_slots, analysis.slots_detected);
   const conflicts = [...analysis.conflicts, ...knownSlotConflicts];

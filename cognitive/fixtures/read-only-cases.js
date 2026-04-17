@@ -518,10 +518,10 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
     title: "Explicação de CTPS 36 meses",
     input: {
       conversation_id: "fx-ctps-001",
-      current_stage: "ctps",
+      current_stage: "ctps_36",
       message_text: "Como funciona isso de 36 meses de CTPS?",
       known_slots: {},
-      pending_slots: ["ctps"],
+      pending_slots: ["ctps_36"],
       recent_messages: []
     },
     expected: {

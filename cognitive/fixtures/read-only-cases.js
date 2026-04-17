@@ -1971,5 +1971,348 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
       should_request_confirmation: false,
       min_confidence: 0.70
     }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BLOCO PARCEIRO — fixtures read-only (PR3)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── parceiro_tem_renda ────────────────────────────────────────────────────
+
+  // parceiro_tem_renda — parceiro tem renda
+  {
+    id: "parceiro_tem_renda_sim",
+    title: "Parceiro confirma que tem renda",
+    input: {
+      conversation_id: "fx-ptr-sim-001",
+      current_stage: "parceiro_tem_renda",
+      message_text: "Sim, meu marido trabalha e tem renda.",
+      known_slots: {
+        estado_civil: "casado",
+        composicao: "parceiro"
+      },
+      pending_slots: ["parceiro_tem_renda"],
+      required_slots: ["parceiro_tem_renda"],
+      recent_messages: [
+        { role: "assistant", content: "Seu cônjuge ou companheiro(a) possui renda própria?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["parceiro_tem_renda"],
+      should_request_confirmation: false,
+      min_confidence: 0.75
+    }
+  },
+
+  // parceiro_tem_renda — parceiro não tem renda
+  {
+    id: "parceiro_tem_renda_nao",
+    title: "Parceiro não tem renda",
+    input: {
+      conversation_id: "fx-ptr-nao-001",
+      current_stage: "parceiro_tem_renda",
+      message_text: "Não, ela não trabalha. Fica em casa cuidando das crianças.",
+      known_slots: {
+        estado_civil: "casado",
+        composicao: "parceiro"
+      },
+      pending_slots: ["parceiro_tem_renda"],
+      required_slots: ["parceiro_tem_renda"],
+      recent_messages: [
+        { role: "assistant", content: "Seu cônjuge ou companheiro(a) possui renda própria?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["parceiro_tem_renda"],
+      should_request_confirmation: false,
+      min_confidence: 0.75
+    }
+  },
+
+  // parceiro_tem_renda — resposta ambígua / "faz bico"
+  {
+    id: "parceiro_tem_renda_ambiguo",
+    title: "Parceiro com renda ambígua (faz bico)",
+    input: {
+      conversation_id: "fx-ptr-amb-001",
+      current_stage: "parceiro_tem_renda",
+      message_text: "Ele faz uns bicos, ajuda em casa, mas carteira assinada não tem não.",
+      known_slots: {
+        estado_civil: "uniao_estavel",
+        composicao: "parceiro"
+      },
+      pending_slots: ["parceiro_tem_renda"],
+      required_slots: ["parceiro_tem_renda"],
+      recent_messages: [
+        { role: "assistant", content: "Seu cônjuge ou companheiro(a) possui renda própria?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["parceiro_tem_renda"],
+      should_request_confirmation: true,
+      min_confidence: 0.60
+    }
+  },
+
+  // ── regime_trabalho_parceiro ──────────────────────────────────────────────
+
+  // regime_trabalho_parceiro — parceiro CLT
+  {
+    id: "regime_trabalho_parceiro_clt",
+    title: "Parceiro trabalha CLT",
+    input: {
+      conversation_id: "fx-rtp-clt-001",
+      current_stage: "regime_trabalho_parceiro",
+      message_text: "Ele é registrado, trabalha de carteira assinada numa empresa.",
+      known_slots: {
+        estado_civil: "casado",
+        composicao: "parceiro",
+        parceiro_tem_renda: "sim"
+      },
+      pending_slots: ["regime_trabalho_parceiro"],
+      required_slots: ["regime_trabalho_parceiro"],
+      recent_messages: [
+        { role: "assistant", content: "Qual o regime de trabalho do seu cônjuge? Carteira assinada, autônomo, servidor público…?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["regime_trabalho_parceiro"],
+      should_request_confirmation: false,
+      min_confidence: 0.75
+    }
+  },
+
+  // regime_trabalho_parceiro — parceiro autônomo
+  {
+    id: "regime_trabalho_parceiro_autonomo",
+    title: "Parceiro trabalha como autônomo",
+    input: {
+      conversation_id: "fx-rtp-aut-001",
+      current_stage: "regime_trabalho_parceiro",
+      message_text: "Minha esposa é autônoma, tem um salão de beleza.",
+      known_slots: {
+        estado_civil: "casado",
+        composicao: "parceiro",
+        parceiro_tem_renda: "sim"
+      },
+      pending_slots: ["regime_trabalho_parceiro"],
+      required_slots: ["regime_trabalho_parceiro"],
+      recent_messages: [
+        { role: "assistant", content: "Qual o regime de trabalho do seu cônjuge? Carteira assinada, autônomo, servidor público…?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["regime_trabalho_parceiro"],
+      should_request_confirmation: false,
+      min_confidence: 0.75
+    }
+  },
+
+  // regime_trabalho_parceiro — resposta vaga/ambígua
+  {
+    id: "regime_trabalho_parceiro_resposta_vaga",
+    title: "Parceiro com regime de trabalho vago",
+    input: {
+      conversation_id: "fx-rtp-vag-001",
+      current_stage: "regime_trabalho_parceiro",
+      message_text: "Ah, ele trabalha por conta, faz de tudo um pouco… não sei explicar direito.",
+      known_slots: {
+        estado_civil: "uniao_estavel",
+        composicao: "parceiro",
+        parceiro_tem_renda: "sim"
+      },
+      pending_slots: ["regime_trabalho_parceiro"],
+      required_slots: ["regime_trabalho_parceiro"],
+      recent_messages: [
+        { role: "assistant", content: "Qual o regime de trabalho do seu cônjuge? Carteira assinada, autônomo, servidor público…?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["regime_trabalho_parceiro"],
+      should_request_confirmation: true,
+      min_confidence: 0.55
+    }
+  },
+
+  // ── renda_parceiro ────────────────────────────────────────────────────────
+
+  // renda_parceiro — valor objetivo
+  {
+    id: "renda_parceiro_valor_objetivo",
+    title: "Renda do parceiro com valor objetivo",
+    input: {
+      conversation_id: "fx-rdp-obj-001",
+      current_stage: "renda_parceiro",
+      message_text: "Ele ganha 3.200 por mês.",
+      known_slots: {
+        estado_civil: "casado",
+        composicao: "parceiro",
+        parceiro_tem_renda: "sim",
+        regime_trabalho_parceiro: "clt"
+      },
+      pending_slots: ["renda_parceiro"],
+      required_slots: ["renda_parceiro"],
+      recent_messages: [
+        { role: "assistant", content: "Qual a renda mensal do seu cônjuge?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["renda_parceiro"],
+      should_request_confirmation: false,
+      min_confidence: 0.78
+    }
+  },
+
+  // renda_parceiro — faixa / renda variável
+  {
+    id: "renda_parceiro_faixa",
+    title: "Renda do parceiro em faixa variável",
+    input: {
+      conversation_id: "fx-rdp-faixa-001",
+      current_stage: "renda_parceiro",
+      message_text: "Varia bastante, entre 2 mil e 4 mil dependendo do mês.",
+      known_slots: {
+        estado_civil: "uniao_estavel",
+        composicao: "parceiro",
+        parceiro_tem_renda: "sim",
+        regime_trabalho_parceiro: "autonomo"
+      },
+      pending_slots: ["renda_parceiro"],
+      required_slots: ["renda_parceiro"],
+      recent_messages: [
+        { role: "assistant", content: "Qual a renda mensal do seu cônjuge?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["renda_parceiro"],
+      should_request_confirmation: true,
+      min_confidence: 0.60
+    }
+  },
+
+  // renda_parceiro — resposta confusa que mistura renda titular e parceiro
+  {
+    id: "renda_parceiro_mistura_com_titular",
+    title: "Confusão entre renda do titular e do parceiro",
+    input: {
+      conversation_id: "fx-rdp-mix-001",
+      current_stage: "renda_parceiro",
+      message_text: "Eu ganho 4 mil e ele ganha uns 2.800, junto dá quase 7 mil.",
+      known_slots: {
+        estado_civil: "casado",
+        composicao: "parceiro",
+        parceiro_tem_renda: "sim",
+        regime_trabalho_parceiro: "clt",
+        renda_formal: 4000
+      },
+      pending_slots: ["renda_parceiro"],
+      required_slots: ["renda_parceiro"],
+      recent_messages: [
+        { role: "assistant", content: "Qual a renda mensal do seu cônjuge?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["renda_parceiro"],
+      should_request_confirmation: false,
+      min_confidence: 0.65
+    }
+  },
+
+  // ── restricao_parceiro ────────────────────────────────────────────────────
+
+  // restricao_parceiro — parceiro sem restrição
+  {
+    id: "restricao_parceiro_sem_restricao",
+    title: "Parceiro sem restrição de crédito",
+    input: {
+      conversation_id: "fx-rsp-sem-001",
+      current_stage: "restricao_parceiro",
+      message_text: "Não, ele tá com o nome limpo, sem nenhuma restrição.",
+      known_slots: {
+        estado_civil: "casado",
+        composicao: "parceiro",
+        parceiro_tem_renda: "sim",
+        regime_trabalho_parceiro: "clt",
+        renda_parceiro: 3200
+      },
+      pending_slots: ["restricao_parceiro"],
+      required_slots: ["restricao_parceiro"],
+      recent_messages: [
+        { role: "assistant", content: "Seu cônjuge possui alguma restrição no nome? Como Serasa, SPC ou similar?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["restricao_parceiro"],
+      should_request_confirmation: false,
+      min_confidence: 0.78
+    }
+  },
+
+  // restricao_parceiro — parceiro com restrição
+  {
+    id: "restricao_parceiro_com_restricao",
+    title: "Parceiro com restrição de crédito",
+    input: {
+      conversation_id: "fx-rsp-com-001",
+      current_stage: "restricao_parceiro",
+      message_text: "Tem sim, ele tá com o nome sujo no Serasa por causa de um cartão.",
+      known_slots: {
+        estado_civil: "casado",
+        composicao: "parceiro",
+        parceiro_tem_renda: "sim",
+        regime_trabalho_parceiro: "clt",
+        renda_parceiro: 3200
+      },
+      pending_slots: ["restricao_parceiro"],
+      required_slots: ["restricao_parceiro"],
+      recent_messages: [
+        { role: "assistant", content: "Seu cônjuge possui alguma restrição no nome? Como Serasa, SPC ou similar?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["restricao_parceiro"],
+      should_request_confirmation: false,
+      min_confidence: 0.78
+    }
+  },
+
+  // restricao_parceiro — dúvida se com restrição ainda dá para seguir
+  {
+    id: "restricao_parceiro_duvida_seguir",
+    title: "Parceiro com restrição, cliente pergunta se pode seguir",
+    input: {
+      conversation_id: "fx-rsp-duv-001",
+      current_stage: "restricao_parceiro",
+      message_text: "Ele tem uma dívida antiga no SPC… mesmo assim a gente consegue seguir com o financiamento?",
+      known_slots: {
+        estado_civil: "uniao_estavel",
+        composicao: "parceiro",
+        parceiro_tem_renda: "sim",
+        regime_trabalho_parceiro: "autonomo",
+        renda_parceiro: 2500
+      },
+      pending_slots: ["restricao_parceiro"],
+      required_slots: ["restricao_parceiro"],
+      recent_messages: [
+        { role: "assistant", content: "Seu cônjuge possui alguma restrição no nome? Como Serasa, SPC ou similar?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["restricao_parceiro"],
+      should_request_confirmation: false,
+      min_confidence: 0.65
+    }
   }
 ]);

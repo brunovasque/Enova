@@ -2314,5 +2314,646 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
       should_request_confirmation: false,
       min_confidence: 0.65
     }
+  },
+
+  // ── BLOCO 8 — Informativos pré-docs ──────────────────────────────────────
+  // Stages: informativo_moradia_atual → informativo_trabalho → informativo_moradia
+  //         → informativo_parcela_mensal → informativo_reserva → informativo_fgts
+  //         → informativo_escolaridade (condicional renda ≤ 3500)
+  // Natureza: informativo puro — orientativo, sem gate, sem travar cliente.
+
+  // ── informativo_moradia_atual ─────────────────────────────────────────────
+
+  {
+    id: "informativo_moradia_atual_bairro_objetivo",
+    title: "Informa bairro atual com clareza",
+    input: {
+      conversation_id: "fx-ima-001",
+      current_stage: "informativo_moradia_atual",
+      message_text: "Moro no Jardim América, aqui em Campinas mesmo.",
+      known_slots: {
+        estado_civil: "solteiro",
+        composicao: "sozinho",
+        regime_trabalho: "clt",
+        renda_formal: 3200,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Perfeito, agora pra te orientar melhor nas opções de imóvel: me conta onde você mora hoje? Pode ser bairro, região ou referência simples." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  {
+    id: "informativo_moradia_atual_objecao_pra_que",
+    title: "Cliente questiona por que a moradia atual importa",
+    input: {
+      conversation_id: "fx-ima-002",
+      current_stage: "informativo_moradia_atual",
+      message_text: "Pra que você precisa saber onde eu moro agora? Não interfere no financiamento.",
+      known_slots: {
+        estado_civil: "solteiro",
+        composicao: "sozinho",
+        regime_trabalho: "clt",
+        renda_formal: 2800,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Perfeito, agora pra te orientar melhor nas opções de imóvel: me conta onde você mora hoje? Pode ser bairro, região ou referência simples." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  {
+    id: "informativo_moradia_atual_resposta_vaga",
+    title: "Resposta vaga sobre moradia atual — só cidade",
+    input: {
+      conversation_id: "fx-ima-003",
+      current_stage: "informativo_moradia_atual",
+      message_text: "Moro em São Paulo.",
+      known_slots: {
+        estado_civil: "casado",
+        composicao: "parceiro",
+        regime_trabalho: "clt",
+        renda_formal: 4100,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Perfeito, agora pra te orientar melhor nas opções de imóvel: me conta onde você mora hoje? Pode ser bairro, região ou referência simples." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  // ── informativo_trabalho ──────────────────────────────────────────────────
+
+  {
+    id: "informativo_trabalho_regiao_clara",
+    title: "Informa local de trabalho com região clara",
+    input: {
+      conversation_id: "fx-itb-001",
+      current_stage: "informativo_trabalho",
+      message_text: "Trabalho no centro de Campinas, perto do terminal.",
+      known_slots: {
+        estado_civil: "solteiro",
+        composicao: "sozinho",
+        regime_trabalho: "clt",
+        renda_formal: 3200,
+        restricao: false,
+        moradia_atual: "Jardim América, Campinas"
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Anotei! E qual seu local de trabalho hoje? Endereço, bairro ou referência simples." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  {
+    id: "informativo_trabalho_resposta_vaga",
+    title: "Resposta vaga sobre local de trabalho",
+    input: {
+      conversation_id: "fx-itb-002",
+      current_stage: "informativo_trabalho",
+      message_text: "Trabalho em vários lugares, não tenho endereço fixo.",
+      known_slots: {
+        estado_civil: "solteiro",
+        composicao: "sozinho",
+        regime_trabalho: "autonomo",
+        ir_declarado: "sim",
+        renda_formal: 4500,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Anotei! E qual seu local de trabalho hoje? Endereço, bairro ou referência simples." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  {
+    id: "informativo_trabalho_home_office",
+    title: "Cliente trabalha em home office",
+    input: {
+      conversation_id: "fx-itb-003",
+      current_stage: "informativo_trabalho",
+      message_text: "Trabalho de casa, home office, empresa fica em outro estado.",
+      known_slots: {
+        estado_civil: "casado",
+        composicao: "parceiro",
+        regime_trabalho: "clt",
+        renda_formal: 5200,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Anotei! E qual seu local de trabalho hoje? Endereço, bairro ou referência simples." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  // ── informativo_moradia ───────────────────────────────────────────────────
+
+  {
+    id: "informativo_moradia_preferencia_objetiva",
+    title: "Cliente informa preferência de região para o imóvel",
+    input: {
+      conversation_id: "fx-imr-001",
+      current_stage: "informativo_moradia",
+      message_text: "Quero algo na zona norte, perto de onde trabalho.",
+      known_slots: {
+        estado_civil: "solteiro",
+        composicao: "sozinho",
+        regime_trabalho: "clt",
+        renda_formal: 3200,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Perfeito! Agora, em qual região ou bairro você tem preferência pra buscar imóvel? Isso é só informativo — não é escolha definitiva." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  {
+    id: "informativo_moradia_nao_sei_ainda",
+    title: "Cliente não sabe ainda onde quer o imóvel",
+    input: {
+      conversation_id: "fx-imr-002",
+      current_stage: "informativo_moradia",
+      message_text: "Ainda não sei, pode ser em qualquer lugar que tenha bom transporte.",
+      known_slots: {
+        estado_civil: "solteiro",
+        composicao: "sozinho",
+        regime_trabalho: "clt",
+        renda_formal: 2600,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Perfeito! Agora, em qual região ou bairro você tem preferência pra buscar imóvel? Isso é só informativo — não é escolha definitiva." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  {
+    id: "informativo_moradia_resposta_ampla",
+    title: "Cliente dá resposta aberta com várias opções",
+    input: {
+      conversation_id: "fx-imr-003",
+      current_stage: "informativo_moradia",
+      message_text: "Pode ser no ABC ou na Grande São Paulo, tanto faz, desde que não seja muito longe do serviço.",
+      known_slots: {
+        estado_civil: "casado",
+        composicao: "parceiro",
+        regime_trabalho: "clt",
+        renda_formal: 4800,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Perfeito! Agora, em qual região ou bairro você tem preferência pra buscar imóvel? Isso é só informativo — não é escolha definitiva." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  // ── informativo_parcela_mensal ────────────────────────────────────────────
+
+  {
+    id: "informativo_parcela_mensal_valor_objetivo",
+    title: "Cliente informa valor objetivo de parcela",
+    input: {
+      conversation_id: "fx-ipm-001",
+      current_stage: "informativo_parcela_mensal",
+      message_text: "Consigo pagar até R$ 900 por mês tranquilamente.",
+      known_slots: {
+        estado_civil: "solteiro",
+        composicao: "sozinho",
+        regime_trabalho: "clt",
+        renda_formal: 3200,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Anotei! Agora, considerando seus gastos atuais, até qual valor mensal faria sentido pra você pagar de parcela? É só informativo — sem compromisso de valor final." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  {
+    id: "informativo_parcela_mensal_faixa",
+    title: "Cliente informa faixa aproximada de parcela",
+    input: {
+      conversation_id: "fx-ipm-002",
+      current_stage: "informativo_parcela_mensal",
+      message_text: "Algo entre 700 e 1000 por mês, mais ou menos.",
+      known_slots: {
+        estado_civil: "casado",
+        composicao: "parceiro",
+        regime_trabalho: "clt",
+        renda_formal: 4500,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Anotei! Agora, considerando seus gastos atuais, até qual valor mensal faria sentido pra você pagar de parcela? É só informativo — sem compromisso de valor final." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  {
+    id: "informativo_parcela_mensal_nao_sei",
+    title: "Cliente não sabe dizer o valor de parcela",
+    input: {
+      conversation_id: "fx-ipm-003",
+      current_stage: "informativo_parcela_mensal",
+      message_text: "Não sei dizer agora, depende muito do que o banco liberar.",
+      known_slots: {
+        estado_civil: "solteiro",
+        composicao: "sozinho",
+        regime_trabalho: "clt",
+        renda_formal: 2900,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Anotei! Agora, considerando seus gastos atuais, até qual valor mensal faria sentido pra você pagar de parcela? É só informativo — sem compromisso de valor final." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  // ── informativo_reserva ───────────────────────────────────────────────────
+
+  {
+    id: "informativo_reserva_sim",
+    title: "Cliente confirma que tem reserva para entrada",
+    input: {
+      conversation_id: "fx-irv-001",
+      current_stage: "informativo_reserva",
+      message_text: "Sim, tenho uns R$ 15 mil guardados.",
+      known_slots: {
+        estado_civil: "solteiro",
+        composicao: "sozinho",
+        regime_trabalho: "clt",
+        renda_formal: 3200,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Agora, só pra te orientar melhor: você tem alguma reserva pra ajudar na entrada? Responda *sim* ou *não* — não trava nada." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  {
+    id: "informativo_reserva_nao",
+    title: "Cliente não tem reserva para entrada",
+    input: {
+      conversation_id: "fx-irv-002",
+      current_stage: "informativo_reserva",
+      message_text: "Não, no momento não tenho nada guardado.",
+      known_slots: {
+        estado_civil: "solteiro",
+        composicao: "sozinho",
+        regime_trabalho: "clt",
+        renda_formal: 2800,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Agora, só pra te orientar melhor: você tem alguma reserva pra ajudar na entrada? Responda *sim* ou *não* — não trava nada." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  {
+    id: "informativo_reserva_duvida",
+    title: "Cliente tem dúvida sobre se reserva é necessária",
+    input: {
+      conversation_id: "fx-irv-003",
+      current_stage: "informativo_reserva",
+      message_text: "Tenho um pouco, mas preciso de reserva mesmo pra dar entrada?",
+      known_slots: {
+        estado_civil: "casado",
+        composicao: "parceiro",
+        regime_trabalho: "clt",
+        renda_formal: 4200,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Agora, só pra te orientar melhor: você tem alguma reserva pra ajudar na entrada? Responda *sim* ou *não* — não trava nada." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  // ── informativo_fgts ──────────────────────────────────────────────────────
+
+  {
+    id: "informativo_fgts_sim",
+    title: "Cliente confirma que tem FGTS disponível",
+    input: {
+      conversation_id: "fx-ifg-001",
+      current_stage: "informativo_fgts",
+      message_text: "Sim, tenho FGTS, trabalho registrado há mais de 3 anos.",
+      known_slots: {
+        estado_civil: "solteiro",
+        composicao: "sozinho",
+        regime_trabalho: "clt",
+        renda_formal: 3200,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Perfeito. E você tem FGTS disponível hoje? Responda *sim* ou *não* — é só informativo." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  {
+    id: "informativo_fgts_nao",
+    title: "Cliente não tem FGTS disponível",
+    input: {
+      conversation_id: "fx-ifg-002",
+      current_stage: "informativo_fgts",
+      message_text: "Não, sou autônomo, nunca tive carteira assinada.",
+      known_slots: {
+        estado_civil: "solteiro",
+        composicao: "sozinho",
+        regime_trabalho: "autonomo",
+        ir_declarado: "sim",
+        renda_formal: 4000,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Perfeito. E você tem FGTS disponível hoje? Responda *sim* ou *não* — é só informativo." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  {
+    id: "informativo_fgts_tenho_nao_sei_valor",
+    title: "Cliente tem FGTS mas não sabe o saldo",
+    input: {
+      conversation_id: "fx-ifg-003",
+      current_stage: "informativo_fgts",
+      message_text: "Tenho sim, mas não sei exatamente quanto tem lá.",
+      known_slots: {
+        estado_civil: "casado",
+        composicao: "parceiro",
+        regime_trabalho: "clt",
+        renda_formal: 4800,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Perfeito. E você tem FGTS disponível hoje? Responda *sim* ou *não* — é só informativo." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  // ── informativo_escolaridade ──────────────────────────────────────────────
+  // Stage condicional no fluxo (ativo quando renda titular ≤ 3500),
+  // mas a fixture é válida como teste isolado do cognitivo.
+
+  {
+    id: "informativo_escolaridade_completo",
+    title: "Cliente tem curso superior completo",
+    input: {
+      conversation_id: "fx-esc-001",
+      current_stage: "informativo_escolaridade",
+      message_text: "Tenho superior completo, sou formado em Administração.",
+      known_slots: {
+        estado_civil: "solteiro",
+        composicao: "sozinho",
+        regime_trabalho: "clt",
+        renda_formal: 3200,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Último ponto informativo: você tem curso superior completo, incompleto, está cursando ou não tem?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  {
+    id: "informativo_escolaridade_incompleto",
+    title: "Cliente tem superior incompleto",
+    input: {
+      conversation_id: "fx-esc-002",
+      current_stage: "informativo_escolaridade",
+      message_text: "Comecei a faculdade mas não terminei, parei no 3º ano.",
+      known_slots: {
+        estado_civil: "solteiro",
+        composicao: "sozinho",
+        regime_trabalho: "clt",
+        renda_formal: 2800,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Último ponto informativo: você tem curso superior completo, incompleto, está cursando ou não tem?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  {
+    id: "informativo_escolaridade_cursando",
+    title: "Cliente está cursando superior",
+    input: {
+      conversation_id: "fx-esc-003",
+      current_stage: "informativo_escolaridade",
+      message_text: "Estou cursando ainda, estou no 4º semestre de Engenharia.",
+      known_slots: {
+        estado_civil: "solteiro",
+        composicao: "sozinho",
+        regime_trabalho: "clt",
+        renda_formal: 3100,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Último ponto informativo: você tem curso superior completo, incompleto, está cursando ou não tem?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  {
+    id: "informativo_escolaridade_sem_superior",
+    title: "Cliente não tem curso superior",
+    input: {
+      conversation_id: "fx-esc-004",
+      current_stage: "informativo_escolaridade",
+      message_text: "Não, só tenho o ensino médio completo.",
+      known_slots: {
+        estado_civil: "solteiro",
+        composicao: "sozinho",
+        regime_trabalho: "clt",
+        renda_formal: 2500,
+        restricao: false
+      },
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [
+        { role: "assistant", content: "Último ponto informativo: você tem curso superior completo, incompleto, está cursando ou não tem?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
   }
 ]);

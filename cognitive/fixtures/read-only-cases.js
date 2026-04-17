@@ -1115,5 +1115,510 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
       should_request_confirmation: false,
       min_confidence: 0.5
     }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BLOCO A — TOPO (fixtures PR1)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── inicio_programa ──────────────────────────────────────────────────────
+  {
+    id: "inicio_programa_abertura_normal",
+    title: "Abertura normal do programa — saudação acolhedora",
+    input: {
+      conversation_id: "fx-topo-prog-001",
+      current_stage: "inicio_programa",
+      message_text: "Oi, boa tarde!",
+      known_slots: {},
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+  {
+    id: "inicio_programa_cliente_pergunta_antes",
+    title: "Cliente chega perguntando antes de responder — retorno ao trilho",
+    input: {
+      conversation_id: "fx-topo-prog-002",
+      current_stage: "inicio_programa",
+      message_text: "Vocês são de que empresa? Quero saber antes de falar qualquer coisa.",
+      known_slots: {},
+      pending_slots: [],
+      required_slots: [],
+      recent_messages: [],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
+  },
+
+  // ── inicio_nome ──────────────────────────────────────────────────────────
+  {
+    id: "inicio_nome_coleta_normal",
+    title: "Coleta normal do nome do cliente",
+    input: {
+      conversation_id: "fx-topo-nome-001",
+      current_stage: "inicio_nome",
+      message_text: "Meu nome é Carlos Eduardo.",
+      known_slots: {},
+      pending_slots: ["nome"],
+      required_slots: ["nome"],
+      recent_messages: [
+        { role: "assistant", content: "Prazer! Para começarmos, qual é o seu nome completo?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["nome"],
+      should_request_confirmation: false,
+      min_confidence: 0.72
+    }
+  },
+  {
+    id: "inicio_nome_nome_embutido",
+    title: "Nome já embutido na fala do cliente antes da pergunta",
+    input: {
+      conversation_id: "fx-topo-nome-002",
+      current_stage: "inicio_nome",
+      message_text: "Sou a Maria da Silva, quero saber do Minha Casa Minha Vida.",
+      known_slots: {},
+      pending_slots: ["nome"],
+      required_slots: ["nome"],
+      recent_messages: [],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["nome"],
+      should_request_confirmation: false,
+      min_confidence: 0.72
+    }
+  },
+
+  // ── inicio_nacionalidade ─────────────────────────────────────────────────
+  {
+    id: "inicio_nacionalidade_brasileiro",
+    title: "Nacionalidade brasileira — caso direto",
+    input: {
+      conversation_id: "fx-topo-nac-001",
+      current_stage: "inicio_nacionalidade",
+      message_text: "Sou brasileiro.",
+      known_slots: { nome: "Carlos Eduardo" },
+      pending_slots: ["nacionalidade"],
+      required_slots: ["nacionalidade"],
+      recent_messages: [
+        { role: "assistant", content: "Carlos, você é brasileiro(a) ou de outra nacionalidade?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["nacionalidade"],
+      should_request_confirmation: false,
+      min_confidence: 0.78
+    }
+  },
+  {
+    id: "inicio_nacionalidade_estrangeiro",
+    title: "Nacionalidade estrangeira — caso limítrofe",
+    input: {
+      conversation_id: "fx-topo-nac-002",
+      current_stage: "inicio_nacionalidade",
+      message_text: "Sou colombiano, mas moro aqui há 8 anos.",
+      known_slots: { nome: "Juan Herrera" },
+      pending_slots: ["nacionalidade"],
+      required_slots: ["nacionalidade"],
+      recent_messages: [
+        { role: "assistant", content: "Juan, você é brasileiro(a) ou de outra nacionalidade?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["nacionalidade"],
+      should_request_confirmation: false,
+      min_confidence: 0.72
+    }
+  },
+
+  // ── inicio_rnm ───────────────────────────────────────────────────────────
+  {
+    id: "inicio_rnm_resposta_clara",
+    title: "Estrangeiro com resposta clara sobre RNM",
+    input: {
+      conversation_id: "fx-topo-rnm-001",
+      current_stage: "inicio_rnm",
+      message_text: "Sim, tenho RNM. O número é V123456-7.",
+      known_slots: { nome: "Juan Herrera", nacionalidade: "colombiano" },
+      pending_slots: ["rnm_status"],
+      required_slots: ["rnm_status"],
+      recent_messages: [
+        { role: "assistant", content: "Juan, como você não é brasileiro, precisamos verificar seu RNM. Você tem o Registro Nacional Migratório?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["rnm_status"],
+      should_request_confirmation: false,
+      min_confidence: 0.72
+    }
+  },
+  {
+    id: "inicio_rnm_resposta_ambigua",
+    title: "Estrangeiro com resposta ambígua sobre RNM — precisa confirmação",
+    input: {
+      conversation_id: "fx-topo-rnm-002",
+      current_stage: "inicio_rnm",
+      message_text: "Acho que tenho, mas não sei se é isso que vocês pedem. Tenho um documento da Polícia Federal.",
+      known_slots: { nome: "Juan Herrera", nacionalidade: "colombiano" },
+      pending_slots: ["rnm_status"],
+      required_slots: ["rnm_status"],
+      recent_messages: [
+        { role: "assistant", content: "Juan, como você não é brasileiro, precisamos verificar seu RNM. Você tem o Registro Nacional Migratório?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: true,
+      min_confidence: 0.4
+    }
+  },
+
+  // ── inicio_rnm_validade ──────────────────────────────────────────────────
+  {
+    id: "inicio_rnm_validade_prazo_indeterminado",
+    title: "RNM com prazo indeterminado / permanente",
+    input: {
+      conversation_id: "fx-topo-rnmv-001",
+      current_stage: "inicio_rnm_validade",
+      message_text: "É permanente, sem prazo de validade.",
+      known_slots: { nome: "Juan Herrera", nacionalidade: "colombiano", rnm_status: "sim" },
+      pending_slots: ["rnm_validade"],
+      required_slots: ["rnm_validade"],
+      recent_messages: [
+        { role: "assistant", content: "Entendi, Juan. Seu RNM tem prazo de validade ou é permanente?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["rnm_validade"],
+      should_request_confirmation: false,
+      min_confidence: 0.72
+    }
+  },
+  {
+    id: "inicio_rnm_validade_resposta_vaga",
+    title: "RNM com resposta vaga — exige formulação cuidadosa",
+    input: {
+      conversation_id: "fx-topo-rnmv-002",
+      current_stage: "inicio_rnm_validade",
+      message_text: "Não sei, faz tempo que tirei e nunca olhei a validade.",
+      known_slots: { nome: "Juan Herrera", nacionalidade: "colombiano", rnm_status: "sim" },
+      pending_slots: ["rnm_validade"],
+      required_slots: ["rnm_validade"],
+      recent_messages: [
+        { role: "assistant", content: "Entendi, Juan. Seu RNM tem prazo de validade ou é permanente?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.35
+    }
+  },
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // BLOCO B — GATES CRÍTICOS (fixtures PR1)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // ── autonomo_sem_ir_este_ano ─────────────────────────────────────────────
+  {
+    id: "autonomo_sem_ir_este_ano_resposta_objetiva",
+    title: "Autônomo sem IR — resposta objetiva sobre declarar este ano",
+    input: {
+      conversation_id: "fx-gate-asir-001",
+      current_stage: "autonomo_sem_ir_este_ano",
+      message_text: "Não, não pretendo declarar esse ano.",
+      known_slots: { regime_trabalho: "autonomo", ir_declarado: "nao" },
+      pending_slots: ["autonomo_sem_ir_este_ano"],
+      required_slots: ["autonomo_sem_ir_este_ano"],
+      recent_messages: [
+        { role: "assistant", content: "Entendi que você não declara IR. Você pretende declarar esse ano?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.58
+    }
+  },
+  {
+    id: "autonomo_sem_ir_este_ano_resposta_ambigua",
+    title: "Autônomo sem IR — resposta ambígua que exige condução cuidadosa",
+    input: {
+      conversation_id: "fx-gate-asir-002",
+      current_stage: "autonomo_sem_ir_este_ano",
+      message_text: "Talvez, depende de quanto eu faturar até o meio do ano.",
+      known_slots: { regime_trabalho: "autonomo", ir_declarado: "nao" },
+      pending_slots: ["autonomo_sem_ir_este_ano"],
+      required_slots: ["autonomo_sem_ir_este_ano"],
+      recent_messages: [
+        { role: "assistant", content: "Entendi que você não declara IR. Você pretende declarar esse ano?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.35
+    }
+  },
+
+  // ── renda ────────────────────────────────────────────────────────────────
+  {
+    id: "renda_valor_objetivo",
+    title: "Coleta direta de renda — valor objetivo",
+    input: {
+      conversation_id: "fx-gate-renda-001",
+      current_stage: "renda",
+      message_text: "Ganho R$ 3.200 por mês.",
+      known_slots: { regime_trabalho: "clt" },
+      pending_slots: ["renda", "ir_declarado"],
+      required_slots: ["renda"],
+      recent_messages: [
+        { role: "assistant", content: "Qual é a sua renda mensal bruta?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["renda"],
+      should_request_confirmation: false,
+      min_confidence: 0.78
+    }
+  },
+  {
+    id: "renda_valor_faixa",
+    title: "Coleta de renda — resposta aproximada / faixa",
+    input: {
+      conversation_id: "fx-gate-renda-002",
+      current_stage: "renda",
+      message_text: "Fica entre 2.800 e 3.500, depende do mês.",
+      known_slots: { regime_trabalho: "clt" },
+      pending_slots: ["renda", "ir_declarado"],
+      required_slots: ["renda"],
+      recent_messages: [
+        { role: "assistant", content: "Qual é a sua renda mensal bruta?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["renda"],
+      should_request_confirmation: false,
+      min_confidence: 0.58
+    }
+  },
+  {
+    id: "renda_composicao_implicita",
+    title: "Renda com composição implícita sem invadir stage alheio",
+    input: {
+      conversation_id: "fx-gate-renda-003",
+      current_stage: "renda",
+      message_text: "Eu ganho 2.200 e minha esposa mais uns 1.800.",
+      known_slots: { regime_trabalho: "clt", estado_civil: "casado_civil" },
+      pending_slots: ["renda", "ir_declarado"],
+      required_slots: ["renda"],
+      recent_messages: [
+        { role: "assistant", content: "Qual é a sua renda mensal bruta?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["renda"],
+      should_request_confirmation: false,
+      min_confidence: 0.58
+    }
+  },
+
+  // ── ir_declarado ─────────────────────────────────────────────────────────
+  {
+    id: "ir_declarado_resposta_sim",
+    title: "IR declarado — resposta sim",
+    input: {
+      conversation_id: "fx-gate-ir-001",
+      current_stage: "ir_declarado",
+      message_text: "Sim, declaro todo ano.",
+      known_slots: { regime_trabalho: "autonomo", renda_formal: 4200 },
+      pending_slots: ["ir_declarado"],
+      required_slots: ["ir_declarado"],
+      recent_messages: [
+        { role: "assistant", content: "Você declara imposto de renda?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["ir_declarado"],
+      should_request_confirmation: false,
+      min_confidence: 0.78
+    }
+  },
+  {
+    id: "ir_declarado_resposta_nao",
+    title: "IR declarado — resposta não",
+    input: {
+      conversation_id: "fx-gate-ir-002",
+      current_stage: "ir_declarado",
+      message_text: "Não, nunca declarei.",
+      known_slots: { regime_trabalho: "autonomo", renda_formal: 2500 },
+      pending_slots: ["ir_declarado"],
+      required_slots: ["ir_declarado"],
+      recent_messages: [
+        { role: "assistant", content: "Você declara imposto de renda?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["ir_declarado"],
+      should_request_confirmation: false,
+      min_confidence: 0.78
+    }
+  },
+  {
+    id: "ir_declarado_resposta_dubia",
+    title: "IR declarado — resposta dúbia",
+    input: {
+      conversation_id: "fx-gate-ir-003",
+      current_stage: "ir_declarado",
+      message_text: "Ano passado não, mas acho que esse ano eu deveria, meu contador falou.",
+      known_slots: { regime_trabalho: "autonomo", renda_formal: 3000 },
+      pending_slots: ["ir_declarado"],
+      required_slots: ["ir_declarado"],
+      recent_messages: [
+        { role: "assistant", content: "Você declara imposto de renda?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.35
+    }
+  },
+
+  // ── autonomo_compor_renda ────────────────────────────────────────────────
+  {
+    id: "autonomo_compor_renda_aceita",
+    title: "Autônomo sem IR aceita composição de renda",
+    input: {
+      conversation_id: "fx-gate-acr-001",
+      current_stage: "autonomo_compor_renda",
+      message_text: "Sim, minha esposa trabalha de CLT e pode compor comigo.",
+      known_slots: { regime_trabalho: "autonomo", ir_declarado: "nao", renda_formal: 2200 },
+      pending_slots: ["composicao"],
+      required_slots: ["composicao"],
+      recent_messages: [
+        { role: "assistant", content: "Como autônomo sem IR, uma opção é compor renda com alguém. Tem alguém que possa compor com você?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["composicao"],
+      should_request_confirmation: false,
+      min_confidence: 0.58
+    }
+  },
+  {
+    id: "autonomo_compor_renda_resiste",
+    title: "Autônomo sem IR resiste à composição — fala deve orientar sem parecer robótica",
+    input: {
+      conversation_id: "fx-gate-acr-002",
+      current_stage: "autonomo_compor_renda",
+      message_text: "Não quero envolver ninguém, prefiro seguir sozinho.",
+      known_slots: { regime_trabalho: "autonomo", ir_declarado: "nao", renda_formal: 2200 },
+      pending_slots: ["composicao"],
+      required_slots: ["composicao"],
+      recent_messages: [
+        { role: "assistant", content: "Como autônomo sem IR, uma opção é compor renda com alguém. Tem alguém que possa compor com você?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.58
+    }
+  },
+
+  // ── regularizacao_restricao ──────────────────────────────────────────────
+  {
+    id: "regularizacao_restricao_em_andamento",
+    title: "Cliente diz que está regularizando restrição",
+    input: {
+      conversation_id: "fx-gate-rr-001",
+      current_stage: "regularizacao_restricao",
+      message_text: "Já estou negociando com o banco, deve sair semana que vem.",
+      known_slots: { restricao: "sim" },
+      pending_slots: ["regularizacao_restricao"],
+      required_slots: ["regularizacao_restricao"],
+      recent_messages: [
+        { role: "assistant", content: "Identificamos uma restrição no seu nome. Você já está regularizando?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["regularizacao_restricao"],
+      should_request_confirmation: false,
+      min_confidence: 0.58
+    }
+  },
+  {
+    id: "regularizacao_restricao_nao_regularizou",
+    title: "Cliente diz que ainda não regularizou restrição",
+    input: {
+      conversation_id: "fx-gate-rr-002",
+      current_stage: "regularizacao_restricao",
+      message_text: "Não, ainda não comecei a resolver isso.",
+      known_slots: { restricao: "sim" },
+      pending_slots: ["regularizacao_restricao"],
+      required_slots: ["regularizacao_restricao"],
+      recent_messages: [
+        { role: "assistant", content: "Identificamos uma restrição no seu nome. Você já está regularizando?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["regularizacao_restricao"],
+      should_request_confirmation: false,
+      min_confidence: 0.58
+    }
+  },
+  {
+    id: "regularizacao_restricao_pergunta_seguir",
+    title: "Cliente pergunta se mesmo assim consegue seguir com restrição",
+    input: {
+      conversation_id: "fx-gate-rr-003",
+      current_stage: "regularizacao_restricao",
+      message_text: "Mas mesmo com essa restrição eu consigo seguir no programa?",
+      known_slots: { restricao: "sim" },
+      pending_slots: ["regularizacao_restricao"],
+      required_slots: ["regularizacao_restricao"],
+      recent_messages: [
+        { role: "assistant", content: "Identificamos uma restrição no seu nome. Você já está regularizando?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: [],
+      should_request_confirmation: false,
+      min_confidence: 0.5
+    }
   }
 ]);

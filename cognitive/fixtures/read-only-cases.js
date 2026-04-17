@@ -1620,5 +1620,356 @@ export const READ_ONLY_COGNITIVE_FIXTURES = Object.freeze([
       should_request_confirmation: false,
       min_confidence: 0.5
     }
+  },
+
+  // ── PR2 — BLOCO A: CIVIL / COMPOSIÇÃO ────────────────────────────────────
+
+  // confirmar_casamento — caso confirma civil
+  {
+    id: "confirmar_casamento_confirma_civil",
+    title: "Confirma casamento civil com certidão",
+    input: {
+      conversation_id: "fx-cc-001",
+      current_stage: "confirmar_casamento",
+      message_text: "Sim, somos casados no civil, com certidão de casamento.",
+      known_slots: { estado_civil: "casado" },
+      pending_slots: ["estado_civil"],
+      required_slots: ["estado_civil"],
+      recent_messages: [
+        { role: "assistant", content: "É *casamento civil no papel* (com certidão) ou *união estável*?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["estado_civil"],
+      should_request_confirmation: false,
+      min_confidence: 0.70
+    }
+  },
+
+  // confirmar_casamento — caso corrige para união estável
+  {
+    id: "confirmar_casamento_corrige_uniao_estavel",
+    title: "Corrige: não é civil, é união estável",
+    input: {
+      conversation_id: "fx-cc-002",
+      current_stage: "confirmar_casamento",
+      message_text: "Na verdade não fomos no cartório, moramos juntos. É união estável mesmo.",
+      known_slots: { estado_civil: "casado" },
+      pending_slots: ["estado_civil"],
+      required_slots: ["estado_civil"],
+      recent_messages: [
+        { role: "assistant", content: "É *casamento civil no papel* (com certidão) ou *união estável*?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["estado_civil"],
+      should_request_confirmation: false,
+      min_confidence: 0.70
+    }
+  },
+
+  // confirmar_casamento — caso ambíguo / não sabe
+  {
+    id: "confirmar_casamento_ambiguo_nao_sei",
+    title: "Não sabe se é civil ou estável",
+    input: {
+      conversation_id: "fx-cc-003",
+      current_stage: "confirmar_casamento",
+      message_text: "Não sei te dizer, acho que a gente assinou um papel sim, mas não tenho certeza.",
+      known_slots: { estado_civil: "casado" },
+      pending_slots: ["estado_civil"],
+      required_slots: ["estado_civil"],
+      recent_messages: [
+        { role: "assistant", content: "É *casamento civil no papel* (com certidão) ou *união estável*?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["estado_civil"],
+      should_request_confirmation: false,
+      min_confidence: 0.70
+    }
+  },
+
+  // financiamento_conjunto — aceita seguir em conjunto
+  {
+    id: "financiamento_conjunto_aceita",
+    title: "Aceita financiamento conjunto",
+    input: {
+      conversation_id: "fx-fc-001",
+      current_stage: "financiamento_conjunto",
+      message_text: "Vamos comprar juntos sim, eu e minha esposa.",
+      known_slots: { estado_civil: "casado" },
+      pending_slots: ["composicao"],
+      required_slots: ["composicao"],
+      recent_messages: [
+        { role: "assistant", content: "Vocês querem *comprar juntos*, *só você*, ou *apenas se precisar*?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["composicao"],
+      should_request_confirmation: false,
+      min_confidence: 0.70
+    }
+  },
+
+  // financiamento_conjunto — tenta seguir sozinho
+  {
+    id: "financiamento_conjunto_resiste_solo",
+    title: "Quer seguir sozinho mesmo casado",
+    input: {
+      conversation_id: "fx-fc-002",
+      current_stage: "financiamento_conjunto",
+      message_text: "Quero seguir sozinho, minha esposa não quer participar.",
+      known_slots: { estado_civil: "casado" },
+      pending_slots: ["composicao"],
+      required_slots: ["composicao"],
+      recent_messages: [
+        { role: "assistant", content: "Vocês querem *comprar juntos*, *só você*, ou *apenas se precisar*?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["composicao"],
+      should_request_confirmation: false,
+      min_confidence: 0.70
+    }
+  },
+
+  // financiamento_conjunto — não sabe / dúvida
+  {
+    id: "financiamento_conjunto_duvida",
+    title: "Não sabe se deve seguir junto ou solo",
+    input: {
+      conversation_id: "fx-fc-003",
+      current_stage: "financiamento_conjunto",
+      message_text: "Não sei se precisa ser junto. Muda alguma coisa?",
+      known_slots: { estado_civil: "uniao_estavel" },
+      pending_slots: ["composicao"],
+      required_slots: ["composicao"],
+      recent_messages: [
+        { role: "assistant", content: "Vocês querem *comprar juntos*, *só você*, ou *apenas se precisar*?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["composicao"],
+      should_request_confirmation: false,
+      min_confidence: 0.70
+    }
+  },
+
+  // ── PR2 — BLOCO B: REFORÇO DE COBERTURA ──────────────────────────────────
+
+  // somar_renda_solteiro — aceita composição familiar
+  {
+    id: "somar_renda_solteiro_aceita_familiar",
+    title: "Solteiro aceita compor com familiar",
+    input: {
+      conversation_id: "fx-srs-001",
+      current_stage: "somar_renda_solteiro",
+      message_text: "Quero somar com minha mãe, ela trabalha registrada.",
+      known_slots: { estado_civil: "solteiro" },
+      pending_slots: ["composicao", "familiar", "renda"],
+      required_slots: ["composicao"],
+      recent_messages: [
+        { role: "assistant", content: "Vai somar renda com alguém ou seguir *sozinho(a)*?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["composicao"],
+      should_request_confirmation: false,
+      min_confidence: 0.70
+    }
+  },
+
+  // somar_renda_solteiro — resiste, quer seguir sozinho
+  {
+    id: "somar_renda_solteiro_resiste_solo",
+    title: "Solteiro quer tentar sozinho",
+    input: {
+      conversation_id: "fx-srs-002",
+      current_stage: "somar_renda_solteiro",
+      message_text: "Posso tentar sozinho? Ganho 3.200 e acho que dá.",
+      known_slots: { estado_civil: "solteiro", renda: "3200" },
+      pending_slots: ["composicao", "familiar", "renda"],
+      required_slots: ["composicao"],
+      recent_messages: [
+        { role: "assistant", content: "Vai somar renda com alguém ou seguir *sozinho(a)*?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["composicao"],
+      should_request_confirmation: false,
+      min_confidence: 0.70
+    }
+  },
+
+  // somar_renda_solteiro — dúvida sobre quem pode compor
+  {
+    id: "somar_renda_solteiro_duvida_quem_pode",
+    title: "Solteiro tem dúvida sobre quem pode compor",
+    input: {
+      conversation_id: "fx-srs-003",
+      current_stage: "somar_renda_solteiro",
+      message_text: "Meu irmão pode compor comigo? Ou só cônjuge e pai/mãe?",
+      known_slots: { estado_civil: "solteiro" },
+      pending_slots: ["composicao", "familiar", "renda"],
+      required_slots: ["composicao"],
+      recent_messages: [
+        { role: "assistant", content: "Vai somar renda com alguém ou seguir *sozinho(a)*?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["composicao"],
+      should_request_confirmation: false,
+      min_confidence: 0.70
+    }
+  },
+
+  // somar_renda_familiar — composição com mãe
+  {
+    id: "somar_renda_familiar_mae_compoe",
+    title: "Composição com mãe confirmada",
+    input: {
+      conversation_id: "fx-srf-001",
+      current_stage: "somar_renda_familiar",
+      message_text: "Minha mãe vai compor comigo, ela é CLT e ganha 2.800.",
+      known_slots: { estado_civil: "solteiro", composicao: "familiar" },
+      pending_slots: ["familiar", "p3"],
+      required_slots: ["familiar"],
+      recent_messages: [
+        { role: "assistant", content: "Me diz com qual familiar você pretende compor renda?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["familiar"],
+      should_request_confirmation: false,
+      min_confidence: 0.70
+    }
+  },
+
+  // somar_renda_familiar — terceiro participante (P3)
+  {
+    id: "somar_renda_familiar_p3_duvida",
+    title: "Dúvida sobre incluir P3 na composição",
+    input: {
+      conversation_id: "fx-srf-002",
+      current_stage: "somar_renda_familiar",
+      message_text: "Minha mãe já tá confirmada, mas meu irmão também pode entrar?",
+      known_slots: { estado_civil: "solteiro", composicao: "familiar", familiar: "mae" },
+      pending_slots: ["p3"],
+      required_slots: ["familiar"],
+      recent_messages: [
+        { role: "assistant", content: "Me diz com qual familiar você pretende compor renda?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["familiar"],
+      should_request_confirmation: false,
+      min_confidence: 0.64
+    }
+  },
+
+  // somar_renda_familiar — ambiguidade sobre quem entra
+  {
+    id: "somar_renda_familiar_ambiguo_quem_entra",
+    title: "Ambiguidade sobre qual familiar vai compor",
+    input: {
+      conversation_id: "fx-srf-003",
+      current_stage: "somar_renda_familiar",
+      message_text: "Qualquer pessoa da família pode entrar? Tipo um tio ou primo?",
+      known_slots: { estado_civil: "solteiro", composicao: "familiar" },
+      pending_slots: ["familiar", "p3"],
+      required_slots: ["familiar"],
+      recent_messages: [
+        { role: "assistant", content: "Me diz com qual familiar você pretende compor renda?" }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["familiar"],
+      should_request_confirmation: false,
+      min_confidence: 0.64
+    }
+  },
+
+  // ── PR2 — BLOCO C: GAP DE CTPS (stage canônico: ctps_36) ─────────────────
+
+  // ctps_36 — caso objetivo, tempo claro
+  {
+    id: "ctps_36_tempo_claro",
+    title: "Tempo de CTPS claro e acima de 36 meses",
+    input: {
+      conversation_id: "fx-ctps36-001",
+      current_stage: "ctps_36",
+      message_text: "Sim, tenho mais de 5 anos de carteira assinada.",
+      known_slots: {},
+      pending_slots: ["ctps_36"],
+      required_slots: ["ctps_36"],
+      recent_messages: [
+        { role: "assistant", content: "Você soma 36 meses de carteira assinada? Responda *sim*, *não* ou *não sei*." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["ctps_36"],
+      should_request_confirmation: false,
+      min_confidence: 0.70
+    }
+  },
+
+  // ctps_36 — abaixo do critério / limítrofe
+  {
+    id: "ctps_36_abaixo_limitrofe",
+    title: "Tempo de CTPS abaixo de 36 meses",
+    input: {
+      conversation_id: "fx-ctps36-002",
+      current_stage: "ctps_36",
+      message_text: "Acho que não chego a 36 meses, tenho uns 2 anos só.",
+      known_slots: {},
+      pending_slots: ["ctps_36"],
+      required_slots: ["ctps_36"],
+      recent_messages: [
+        { role: "assistant", content: "Você soma 36 meses de carteira assinada? Responda *sim*, *não* ou *não sei*." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["ctps_36"],
+      should_request_confirmation: false,
+      min_confidence: 0.70
+    }
+  },
+
+  // ctps_36 — resposta vaga
+  {
+    id: "ctps_36_resposta_vaga",
+    title: "Resposta vaga sobre tempo de CTPS",
+    input: {
+      conversation_id: "fx-ctps36-003",
+      current_stage: "ctps_36",
+      message_text: "Trabalhei em vários lugares, mas não sei se soma tudo isso.",
+      known_slots: {},
+      pending_slots: ["ctps_36"],
+      required_slots: ["ctps_36"],
+      recent_messages: [
+        { role: "assistant", content: "Você soma 36 meses de carteira assinada? Responda *sim*, *não* ou *não sei*." }
+      ],
+      normative_context: []
+    },
+    expected: {
+      required_slots: ["ctps_36"],
+      should_request_confirmation: false,
+      min_confidence: 0.70
+    }
   }
 ]);

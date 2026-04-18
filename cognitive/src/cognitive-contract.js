@@ -629,19 +629,22 @@ function _checkStageDrift(normalizedReply, currentStage, expectedSlot) {
 /**
  * _checkBriefAnswerViolation — Verifica se resposta de stage sim/não é longa demais.
  *
- * Se brief_answer_allowed === true e a resposta é muito longa (>300 chars)
- * e contém elaboração excessiva (>2 frases), marca como violação.
+ * Se brief_answer_allowed === true e a resposta é muito longa (>MAX_BRIEF_ANSWER_LENGTH chars)
+ * e contém elaboração excessiva (>2 frases com MIN_SENTENCE_LENGTH+ chars), marca como violação.
  *
  * @param {boolean} briefAnswerAllowed
  * @param {string} replyText
  * @returns {{ blocked: boolean }}
  */
+const MAX_BRIEF_ANSWER_LENGTH = 300;
+const MIN_SENTENCE_LENGTH = 10;
+
 function _checkBriefAnswerViolation(briefAnswerAllowed, replyText) {
   if (!briefAnswerAllowed) return { blocked: false };
   const text = String(replyText || "").trim();
-  if (text.length <= 300) return { blocked: false };
+  if (text.length <= MAX_BRIEF_ANSWER_LENGTH) return { blocked: false };
   // Conta frases (pontos finais, exclamações, interrogações)
-  const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
+  const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > MIN_SENTENCE_LENGTH);
   if (sentences.length <= 2) return { blocked: false };
   return { blocked: true };
 }
@@ -670,12 +673,24 @@ function _checkRepetitionReopen(normalizedReply, expectedSlot, knownSlots, canon
   // Se a reply contém a mesma pergunta canônica, está reabrindo
   if (canonicalPrompt) {
     const normCanonical = _normalizeForArbiter(canonicalPrompt);
-    if (normCanonical && normalizedReply.includes(normCanonical.slice(0, 40))) {
+    const matchLen = Math.min(normCanonical.length, 40);
+    if (normCanonical && matchLen > 0 && normalizedReply.includes(normCanonical.slice(0, matchLen))) {
       return { blocked: true };
     }
   }
   return { blocked: false };
 }
+
+/**
+ * @typedef {Object} ArbitrationDecision
+ * @property {boolean} valid — Se a superfície do LLM é válida para o stage
+ * @property {string} reason_code — Código da razão da decisão
+ * @property {string} chosen_surface — Superfície final escolhida para o cliente
+ * @property {string} source — Origem da superfície: "llm_real" | "contract_reanchor" | "contract_fallback" | "mechanical_fallback"
+ * @property {string[]} used_contract_guardrails — Guardrails do contrato que foram acionados
+ * @property {boolean} arbitration_triggered — Se a arbitragem foi de fato executada
+ * @property {object} arbitration_details — Detalhes adicionais da arbitragem
+ */
 
 /**
  * arbitrateCognitiveSurface — Árbitro final duro da superfície cognitiva (PR3).

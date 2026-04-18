@@ -23994,7 +23994,8 @@ async function runFunnel(env, st, userText) {
   // - COGNITIVE_V2_MODE: "off" (legado), "shadow" (ambos), "on" (isolado)
   // ============================================================
   try {
-    if (shouldTriggerCognitiveAssist(stage, userText)) {
+    const v2AlwaysOn = String(env.COGNITIVE_V2_MODE || "off").toLowerCase() === "on";
+    if (v2AlwaysOn || shouldTriggerCognitiveAssist(stage, userText)) {
       // ── COGPATH: ponto 5 — entrou no COGNITIVE ASSIST ──
       try { console.log("[COGPATH_V2_GATE] trigger=true wa_id=" + (st.wa_id || "?") + " stage=" + stage); } catch (_) {}
 

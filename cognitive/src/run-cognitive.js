@@ -4,7 +4,7 @@ import { READ_ONLY_COGNITIVE_FIXTURES } from "../fixtures/read-only-cases.js";
 import { getCanonicalFAQ } from "./faq-lookup.js";
 import { getCanonicalObjection } from "./objections-lookup.js";
 import { getKnowledgeBaseItem } from "./knowledge-lookup.js";
-import { buildReanchor } from "./reanchor-helper.js";
+import { buildReanchor, stageToPhase } from "./reanchor-helper.js";
 import { getStageGoal } from "./cognitive-contract.js";
 
 // ── Etapa 6: Contrato global de fala final ──────────────────────────────────
@@ -949,7 +949,7 @@ function buildDocsGuidanceByProfile(request) {
   return [
     empathyNote,
     `Pelo seu perfil, para adiantar sua análise, o ideal é separar ${humanJoinList(docs)}.`,
-    "Envie um documento por vez para que eu registre cada um corretamente.",
+    "Envie um documento por vez para que eu registre cada um corretamente 📎",
     autonomoIrNote,
     doubtNote,
     channelNote,
@@ -1125,21 +1125,31 @@ function buildOperacionalFinalGuidance(request) {
     const globalReply = resolveGlobalLayerReply(normalizedMessage, _DOCS_FAQ_MAP);
     if (globalReply) return wrapWithReanchor(globalReply.reply, stage);
 
+    // PR4: Segurança do envio — resposta firme e útil
+    if (/\b(seguro|segur|confi[aá]vel|golpe|vazar|expost|dados|privacidade)\b/i.test(normalizedMessage)) {
+      return "Sim, é seguro. Os documentos ficam em ambiente protegido e são usados exclusivamente para a análise do financiamento. Nada é compartilhado sem a sua autorização. Pode mandar o primeiro documento quando quiser 📎";
+    }
+
     if (DEFER_ACTION_PATTERN.test(normalizedMessage) || NO_TIME_PATTERN.test(normalizedMessage)) {
-      return "Sem problema. Sempre que puder, me manda os documentos por aqui que eu adianto sua análise. Envie um por vez para eu registrar direitinho.";
+      return "Quanto antes você me enviar, mais rápido consigo adiantar sua análise. Me manda o que tiver pronto agora — um documento por vez 📎";
     }
     if (/\b(site|portal)\b/.test(normalizedMessage)) {
       return "Perfeito, pode enviar pelo site com tranquilidade que seguimos por lá.";
     }
+    // PR4: Cliente pede lista de docs — resposta objetiva, sem loop genérico
+    if (/\b(quais doc|que doc|lista.*doc|documentos.*precis|preciso.*quais|o que eu preciso|o que.*mandar|o que.*enviar)\b/i.test(normalizedMessage)) {
+      return "O básico para começar: RG ou CNH com CPF e comprovante de residência atualizado. Depois, comprovante de renda conforme seu perfil. Envie um por vez que eu vou registrando 📎";
+    }
     // Cliente diz que ainda não tem tudo pronto
     if (/\b(n[aã]o tenho tudo|falta.*doc|ainda n[aã]o.*tudo|n[aã]o.*pronto|s[oó] tenho.*parte)\b/.test(normalizedMessage)) {
-      return "Sem problema, pode ir mandando o que tiver pronto que eu já vou registrando. Envie um documento por vez que facilita o controle.";
+      return "Pode ir mandando o que tiver pronto que eu já vou registrando. Envie um documento por vez 📎";
     }
     // Cliente pergunta de quem é o documento ou expressa dúvida de participante
     if (/\b(de quem|pra quem|qual.*pessoa|titular|parceiro|familiar|esposa|marido|companheiro)\b/.test(normalizedMessage)) {
       return "Cada documento precisa ser identificado por participante. Quando enviar, me diga se é do titular, parceiro(a), familiar ou da terceira pessoa na composição.";
     }
-    return null;
+    // PR4: Catch-all mais firme para envio_docs — não deixar em loop vago
+    return "Pra seguir com a análise, preciso que envie os documentos. Comece por: RG ou CNH com CPF, comprovante de residência e comprovante de renda. Envie um por vez 📎";
   }
 
   if (stage === "aguardando_retorno_correspondente") {
@@ -2333,6 +2343,104 @@ function buildBloco3Guidance(request) {
   return null;
 }
 
+// ── PR4: OUT-OF-TURN INFORMATIVE REPLIES + REANCHOR ─────────────────────────
+// Catálogo de respostas informativas curtas e seguras para dúvidas comuns
+// que o cliente traz FORA da hora exata do stage.
+// Princípio: responder breve → não aprofundar → não abrir fluxo paralelo →
+// retornar imediatamente à pergunta mecânica do stage.
+// Tudo submetido ao arbiter PR3 (a surface final passa por arbitrateCognitiveSurface).
+// ────────────────────────────────────────────────────────────────────────────
+
+const _OUT_OF_TURN_INFORMATIVE_CATALOG = Object.freeze([
+  {
+    id: "parcela",
+    pattern: /\b(parcela|valor.*parcela|parcela.*valor|quanto.*parcela|parcela.*quanto|prestacao|presta[cç][aã]o)\b/i,
+    reply: "Isso depende do seu perfil, renda, entrada e avaliação bancária. Já vou seguir com os pontos que fecham isso melhor 😊",
+    excludeStages: new Set(["informativo_parcela_mensal"])
+  },
+  {
+    id: "fgts",
+    pattern: /\b(fgts|fundo de garantia)\b/i,
+    reply: "O FGTS pode ser usado em muitos casos como entrada ou amortização — as regras são verificadas durante o processo. Vamos seguir que isso fica mais claro na frente 😊",
+    excludeStages: new Set(["informativo_fgts", "informativo_fgts_valor"])
+  },
+  {
+    id: "entrada_reserva",
+    pattern: /\b(entrada|entrada\s*m[ií]nima|valor.*entrada|reserva|sinal)\b/i,
+    reply: "A entrada varia conforme o programa e o banco. Em programas subsidiados ela pode ser bem reduzida. Isso a gente calcula certinho no seu perfil 😊",
+    excludeStages: new Set(["informativo_reserva", "informativo_reserva_valor"])
+  },
+  {
+    id: "imovel_regiao",
+    pattern: /\b(im[oó]vel|apartamento|casa\b(?!d[oa]s?|ment|l\b)|bairro|regi[aã]o|onde fica|localiza[cç][aã]o|empreendimento|unidade)\b/i,
+    reply: "A escolha do imóvel acontece em paralelo, mas depende do seu perfil de crédito. Vamos fechar os dados primeiro e isso fica mais claro 😊",
+    excludeStages: new Set(["informativo_moradia", "informativo_moradia_atual", "agendamento_visita", "visita_confirmada"])
+  },
+  {
+    id: "proximo_passo",
+    pattern: /\b(pr[oó]ximo\s*passo|como\s*funciona|o\s*que\s*vem\s*depois|o\s*que\s*falta|quanto\s*falta|pra\s*que\s*serve|como\s*[eé]\s*o\s*processo)\b/i,
+    reply: "O processo segue um passo a passo seguro: coleta de perfil → análise → documentos → correspondente → visita. Estamos no caminho certo 😊",
+    excludeStages: new Set(["finalizacao_processo"])
+  },
+  {
+    id: "documentos",
+    pattern: /\b(doc|documento|documentos|quais\s*doc|lista\s*doc|o\s*que\s*preciso|preciso.*quais)\b/i,
+    reply: "A lista de documentos depende do seu perfil. Assim que fecharmos os dados principais, eu te passo exatamente o que você precisa enviar 😊",
+    excludeStages: new Set(["envio_docs", "aguardando_retorno_correspondente"])
+  },
+  {
+    id: "seguranca_envio",
+    pattern: /\b(seguro|segur|confi[aá]vel|golpe|vazar|expost|dados|privacidade)\b/i,
+    reply: "Sim, é seguro. Os documentos ficam em ambiente protegido e são usados exclusivamente para a análise do financiamento. Nada é compartilhado sem a sua autorização 😊",
+    excludeStages: new Set([])
+  },
+  {
+    id: "visita_plantao",
+    pattern: /\b(visita|plant[aã]o|presencial|ir\s*pessoalmente|hor[aá]rio.*plant|plant.*hor[aá]rio)\b/i,
+    reply: "A visita ao plantão acontece numa etapa posterior, depois de fechar os dados e a análise inicial. Vamos seguir que a gente chega lá 😊",
+    excludeStages: new Set(["agendamento_visita", "visita_confirmada", "finalizacao_processo"])
+  }
+]);
+
+/**
+ * buildOutOfTurnInformativeReanchor — PR4: Resposta informativa curta + retorno ao stage.
+ *
+ * Detecta se a mensagem do cliente toca em tópico informativo comum fora do stage atual.
+ * Se sim, responde de forma breve e segura e retorna ao stage via buildReanchor.
+ *
+ * SOBERANIA: mecânico > contrato > arbiter PR3 > esta camada.
+ * A surface final continua passando pelo arbiter normalmente — esta função
+ * apenas fornece o reply_text de heurística, que será avaliado pelo arbiter.
+ *
+ * @param {string} normalizedMessage — Mensagem normalizada do cliente
+ * @param {string} currentStage — Stage atual do mecânico
+ * @returns {{ reply: string, informativeId: string, needsReanchor: true } | null}
+ */
+function buildOutOfTurnInformativeReanchor(normalizedMessage, currentStage) {
+  if (!normalizedMessage || !currentStage) return null;
+  const stage = normalizeText(currentStage);
+
+  for (const entry of _OUT_OF_TURN_INFORMATIVE_CATALOG) {
+    // Se o stage atual é o contexto natural desse tópico, não interceptar
+    if (entry.excludeStages.has(stage)) continue;
+    if (!entry.pattern.test(normalizedMessage)) continue;
+
+    // Montar resposta informativa + reancoragem ao stage
+    const reanchored = buildReanchor({
+      partialReply: entry.reply,
+      currentStage: stage
+    });
+
+    return {
+      reply: reanchored.text,
+      informativeId: entry.id,
+      needsReanchor: true
+    };
+  }
+
+  return null;
+}
+
 // ── BLOCO 8: PRÉ-DOCS INFORMATIVO — guidance cognitiva ──────────────────────
 function isPreDocsInformativoContext(request) {
   return PRE_DOCS_INFO_STAGES.has(request?.current_stage);
@@ -3183,6 +3291,13 @@ function buildReplyText({ request, detectedSlots, pendingSlots, suggestedNextSlo
   }
 
   if (offtrack) {
+    // PR4: Resposta informativa curta + retorno ao stage (sem abrir conversa paralela)
+    const normalizedMsg = normalizeText(request?.message_text);
+    const informativeReply = buildOutOfTurnInformativeReanchor(normalizedMsg, request?.current_stage);
+    if (informativeReply) {
+      return informativeReply.reply;
+    }
+    // Fallback genérico se nenhum tópico informativo foi identificado
     return ensureReplyHasNextAction(
       "Entendi sua dúvida, e eu te explico isso com segurança, mas antes preciso fechar esta etapa para te orientar com mais precisão.",
       { request, pendingSlots, suggestedNextSlot }
@@ -3542,7 +3657,7 @@ export async function runReadOnlyCognitiveEngine(rawInput = {}, options = {}) {
 }
 
 // ── Stage discipline internals exported for tests ─────────────────────────
-export { isSlotOwnedByCurrentStage };
+export { isSlotOwnedByCurrentStage, buildOutOfTurnInformativeReanchor };
 
 function parseCliArgs(argv) {
   const parsed = {};

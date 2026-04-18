@@ -3489,13 +3489,16 @@ function normalizeModelResponse({
       });
 
   // ── PR6 FIX 5: Garantir que reply_text nunca é vazio ──
-  // Se por qualquer razão finalReplyText ficou vazio após todos os caminhos,
-  // usar fallback seguro baseado no heurístico ou prompt genérico.
+  // Prioridade: prompt parser-safe do stage atual > heurístico > genérico absoluto.
+  // O fallback_prompt do stage contract é a pergunta que o parser daquele stage aceita —
+  // nunca usar frase genérica solta enquanto existir prompt seguro de stage.
+  const _stageContractFallback = request.stage_contract?.fallback_prompt || null;
+  const _heuristicFallback = (heuristicResponse.reply_text && String(heuristicResponse.reply_text).trim().length > 0)
+    ? heuristicResponse.reply_text
+    : null;
   const safeFinalReplyText = (finalReplyText && String(finalReplyText).trim().length > 0)
     ? finalReplyText
-    : (heuristicResponse.reply_text && String(heuristicResponse.reply_text).trim().length > 0)
-      ? heuristicResponse.reply_text
-      : "Entendi, pode continuar que eu sigo com a análise do seu perfil 😊";
+    : _stageContractFallback || _heuristicFallback || "Entendi, pode continuar 😊";
 
   return {
     reply_text: safeFinalReplyText,

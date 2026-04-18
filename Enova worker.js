@@ -208,10 +208,13 @@ async function step(env, st, messages, nextStage, options = {}) {
   const arr = renderCognitiveSpeech(st, currentStage, rawArr.filter(Boolean));
 
   // ── PR6 FIX 5: Fallback obrigatório — nunca silêncio ──
-  // Se por qualquer razão arr ficou vazio ou sem conteúdo útil,
-  // inserir fallback seguro ancorado no stage para garantir resposta.
+  // Prioridade: prompt parser-safe do stage atual > mapa estático do stage > genérico absoluto.
+  // O fallback do stage é a pergunta canônica que o parser daquele stage aceita —
+  // nunca usar frase genérica solta enquanto existir prompt seguro de stage.
   if (!arr || !arr.length || arr.every(m => !m || !String(m).trim())) {
-    const _stageFallback = _MINIMAL_FALLBACK_SPEECH_MAP.get(currentStage) || "Pode continuar 😊";
+    const _contractFallback = st.__stage_contract?.fallback_prompt || null;
+    const _mapFallback = _MINIMAL_FALLBACK_SPEECH_MAP.get(currentStage) || null;
+    const _stageFallback = _contractFallback || _mapFallback || "Pode continuar 😊";
     arr.length = 0;
     arr.push(_stageFallback);
     st.__speech_arbiter_source = "mandatory_fallback";
@@ -222,7 +225,8 @@ async function step(env, st, messages, nextStage, options = {}) {
         timestamp: new Date().toISOString(),
         wa_id: st.wa_id || null,
         stage: currentStage,
-        reason: "empty_arr_after_render"
+        reason: "empty_arr_after_render",
+        fallback_source: _contractFallback ? "contract_fallback_prompt" : (_mapFallback ? "minimal_fallback_map" : "generic_last_resort")
       }));
     } catch (_) { /* telemetry must never break the flow */ }
   }

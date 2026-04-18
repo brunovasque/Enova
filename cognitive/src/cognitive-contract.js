@@ -758,7 +758,7 @@ const _FORBIDDEN_TOPIC_KEYWORDS = Object.freeze({
   coleta_nome: /\b(qual\s+(?:e\s+)?(?:o\s+)?seu\s+nome|me\s+diz\s+(?:o\s+)?seu\s+nome|nome\s+completo)\b/,
   coleta_estado_civil: /\b(estado\s+civil|casad[oa]|solteir[oa]|uniao\s+estavel|divorc)/,
   coleta_renda: /\b(sua\s+renda|renda\s+mensal|quanto\s+(?:voce\s+)?ganha|valor.*renda|renda.*valor)/,
-  coleta_documentos: /\b(envie?\s+(?:os?\s+)?doc|mande?\s+(?:os?\s+)?doc|documentos?\s+(?:necessario|precis))/,
+  coleta_documentos: /\b(envie?\s+(?:os?\s+)?doc|enviar?\s+(?:os?\s+)?(?:seus?\s+)?doc|mande?\s+(?:os?\s+)?doc|documentos?\s+(?:necessario|precis)|documentos?\s+(?:para|pra)\s+analise)/,
   valor_parcela: /\b(parcela\s+(?:de|sera|vai)|valor\s+(?:da\s+)?parcela|sua\s+parcela)/,
   valor_entrada: /\b(entrada\s+(?:de|sera|vai)|valor\s+(?:da\s+)?entrada|sua\s+entrada)/,
   aprovacao: /\b(aprovad[oa]|aprovacao|vai\s+ser\s+aprovad|sera\s+aprovad|garantia.*aprovacao)/
@@ -823,7 +823,7 @@ function _checkSlotMismatch(expectedSlot, slotsDetected) {
  */
 const _STAGE_DRIFT_PATTERNS = Object.freeze([
   { target: "coleta_renda", pattern: /\b(qual\s+(?:e\s+)?(?:a\s+)?sua\s+renda|renda\s+mensal|quanto\s+(?:voce\s+)?ganha)\b/, excludeStages: new Set(["renda", "renda_parceiro", "renda_familiar_valor", "renda_parceiro_familiar", "renda_parceiro_familiar_p3", "possui_renda_extra"]) },
-  { target: "coleta_documentos", pattern: /\b(envie?\s+(?:os?\s+)?doc|mande?\s+(?:os?\s+)?doc|preciso\s+(?:dos?\s+)?(?:seus?\s+)?doc)\b/, excludeStages: new Set(["envio_docs"]) },
+  { target: "coleta_documentos", pattern: /\b(envie?\s+(?:os?\s+)?doc|enviar?\s+(?:os?\s+)?(?:seus?\s+)?doc|mande?\s+(?:os?\s+)?doc|preciso\s+(?:dos?\s+)?(?:seus?\s+)?doc|documentos?\s+(?:para|pra)\s+analise)\b/, excludeStages: new Set(["envio_docs"]) },
   { target: "coleta_estado_civil", pattern: /\b(qual\s+(?:e\s+)?(?:o\s+)?seu\s+estado\s+civil|(?:voce\s+)?e\s+casad[oa]\s+ou\s+solteir[oa])\b/, excludeStages: new Set(["estado_civil", "confirmar_casamento"]) },
   { target: "coleta_regime", pattern: /\b(qual\s+(?:e\s+)?(?:o\s+)?seu\s+regime\s+(?:de\s+)?trabalho|(?:voce\s+)?e\s+clt\s+ou\s+autonomo)\b/, excludeStages: new Set(["regime_trabalho", "regime_trabalho_parceiro", "regime_trabalho_parceiro_familiar", "regime_trabalho_parceiro_familiar_p3"]) },
   { target: "coleta_visita", pattern: /\b(agendar\s+(?:uma?\s+)?visita|quer\s+(?:agendar|marcar)\s+(?:uma?\s+)?visita)\b/, excludeStages: new Set(["agendamento_visita", "visita_confirmada"]) }
@@ -1111,7 +1111,7 @@ const _SHORT_ANSWER_PATTERNS = Object.freeze({
   servidor: /^(servidor|servidora|servidor\s*publico|servidor\s*público|concursad[oa]|funcionar[io]|funcionár[io])$/i,
   aposentado: /^(aposentad[oa]|pensionista|inss|beneficio|benefício)$/i,
   fixo: /^(fixo|fixa|salario\s*fixo|salário\s*fixo)$/i,
-  numeric_value: /^R?\$?\s*\d[\d.,]*$/,
+  numeric_value: /^r?\$?\s*\d[\d.,]*$/,
   already_know: /^(ja\s*conh|já\s*conh|ja\s*sei|já\s*sei|sei\s*sim|conheço|conheço\s*sim|to\s*por\s*dentro|tô\s*por\s*dentro|ja\s*conheço|já\s*conheço)/i,
   civil_status: /^(solteir[oa]|casad[oa]|divorc|separad[oa]|viuv[oa]|viúv[oa]|uni[aã]o\s*(est[aá]vel)?|amasiado|juntad[oa])$/i
 });
@@ -1158,7 +1158,7 @@ export function classifyShortAnswer(userText) {
  * @returns {{ detected: boolean, topic: string|null }}
  */
 const _INFORMATIVE_OUT_OF_TURN_PATTERNS = Object.freeze([
-  { topic: "valor_parcela", pattern: /\b(parcela\s+(?:de|fica|seria?|vai|pode)\s+(?:r\$|reais|\d)|(?:r\$|reais)\s*\d+.*parcela|parcela\s+(?:mensal|fixa)?\s*(?:de\s+)?(?:r\$|reais)\s*\d)/i, allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente"]) },
+  { topic: "valor_parcela", pattern: /\b(parcela\s+(?:de|fica|seria?|vai|pode)[\s\w]*(?:r\$|reais|\d)|(?:r\$|reais)\s*\d+.*parcela|parcela\s+(?:mensal|fixa)?\s*(?:de\s+)?(?:r\$|reais)\s*\d)/i, allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente"]) },
   { topic: "fgts_antecipacao", pattern: /\b(fgts.*(?:usar|utilizar|sacar|aplicar)|(?:usar|utilizar|sacar|aplicar).*fgts)\b/i, allowedStages: new Set(["envio_docs", "finalizacao_processo"]) },
   { topic: "entrada_valor", pattern: /\b(entrada\s+(?:de|fica|seria?|vai)\s+(?:r\$|reais|\d)|(?:r\$|reais)\s*\d+.*entrada)\b/i, allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente"]) },
   { topic: "consultoria_prematura", pattern: /\b(simul(?:acao|ação)|(?:qual|quanto)\s+(?:fica|seria|custa|vale)\s+(?:o\s+)?(?:imovel|imóvel|ap(?:artamento|ê)?|casa))\b/i, allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente", "agendamento_visita"]) }

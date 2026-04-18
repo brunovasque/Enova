@@ -35,7 +35,9 @@ import {
   getAllowedSignalsForStage,
   buildStageContract,
   buildStageContractTelemetrySummary,
-  arbitrateCognitiveSurface
+  arbitrateCognitiveSurface,
+  unifySurfaceControl,
+  classifyShortAnswer
 } from "./cognitive/src/cognitive-contract.js";
 
 console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
@@ -260,17 +262,22 @@ async function step(env, st, messages, nextStage, options = {}) {
     // Campos obrigatórios para provar redução de arbitragem do worker.
     const _renderPathUsed = st.__render_path_used || "unknown";
     const _isTopoStage = (currentStage === "inicio" || currentStage === "inicio_decisao" || currentStage === "inicio_programa");
-    _stepSepTelemetry.cognitive_path_used = (speechArbiterSource === "llm_real");
-    _stepSepTelemetry.legacy_topo_path_used = (_isTopoStage && speechArbiterSource !== "llm_real");
-    _stepSepTelemetry.worker_conversational_override_used = (speechArbiterSource === "llm_real")
+    // PR5: cognitive_path_used agora inclui heuristic_guidance validado pelo unified controller
+    const _COGNITIVE_SOURCES = new Set(["llm_real", "heuristic_guidance", "contract_reanchor", "contract_fallback"]);
+    _stepSepTelemetry.cognitive_path_used = _COGNITIVE_SOURCES.has(speechArbiterSource);
+    _stepSepTelemetry.legacy_topo_path_used = (_isTopoStage && !_COGNITIVE_SOURCES.has(speechArbiterSource));
+    _stepSepTelemetry.worker_conversational_override_used = _COGNITIVE_SOURCES.has(speechArbiterSource)
       ? (_outputSurface !== _llmResponseForTelemetry)
       : false;
     _stepSepTelemetry.render_path_used = _renderPathUsed;
     _stepSepTelemetry.nextStage = nextStage || null;
-    _stepSepTelemetry.contract_final_changed_reply = (speechArbiterSource === "llm_real")
+    _stepSepTelemetry.contract_final_changed_reply = _COGNITIVE_SOURCES.has(speechArbiterSource)
       ? (_outputSurface !== _llmResponseForTelemetry)
       : false;
     _stepSepTelemetry.topo_special_case_used = (_isTopoStage && _renderPathUsed === "topo_sealed_bucket_static");
+    // PR5: telemetria unificada — fonte final exata
+    _stepSepTelemetry.unified_surface_source = speechArbiterSource;
+    _stepSepTelemetry.unified_surface_version = "1.0.0";
 
     await telemetry(env, {
       wa_id: st.wa_id,
@@ -4517,11 +4524,13 @@ function renderCognitiveSpeech(st, stage, rawArr) {
   // aprovada pelo cognitivo sem decisão conversacional paralela.
   // Apenas classifica a rota para telemetria.
 
-  // Caminho ÚNICO soberano: LLM real (caminho cognitivo canônico principal)
-  // Somente quando o LLM real produziu a fala e marcou como "llm_real".
-  if (v2TakesFinal && cognitivePrefix && arbiterSource === "llm_real") {
+  // ── PR5: Caminhos soberanos unificados ──
+  // LLM real e heuristic_guidance validado pelo unified surface controller
+  // podem assumir fala final. Ambos passaram pelas mesmas guardrails.
+  const _SOVEREIGN_SOURCES = new Set(["llm_real", "heuristic_guidance", "contract_reanchor", "contract_fallback"]);
+  if (v2TakesFinal && cognitivePrefix && _SOVEREIGN_SOURCES.has(arbiterSource)) {
     // ── PASSO 2 TELEMETRIA: prova que cognitive path é principal ──
-    st.__render_path_used = "cognitive_canonical";
+    st.__render_path_used = arbiterSource === "llm_real" ? "cognitive_canonical" : "cognitive_unified_" + arbiterSource;
     return [cognitivePrefix];
   }
 
@@ -4537,9 +4546,7 @@ function renderCognitiveSpeech(st, stage, rawArr) {
     return [_staticReply];
   }
 
-  // Tudo que não é LLM real → fallback extremo mínimo (mapa por stage).
-  // Heurística, resolver, topo, prefix local — NADA disso é soberano.
-  // O prefix (se existir) é DESCARTADO — foi suporte interno, não fala final.
+  // Tudo que não passou pelo controle unificado → fallback extremo mínimo (mapa por stage).
   st.__speech_arbiter_source = "extreme_fallback";
   st.__render_path_used = "extreme_fallback";
   return buildMinimalCognitiveFallback(stage, rawArr, roundIntent);
@@ -4548,20 +4555,21 @@ function renderCognitiveSpeech(st, stage, rawArr) {
 /**
  * classifyRenderPath — Classifica a origem da fala renderizada.
  *
- * Retorna uma das classificações canônicas do árbitro soberano:
- *   "llm_real"          — LLM real assumiu a fala. Único soberano.
- *   "extreme_fallback"  — Fallback extremo mínimo: _MINIMAL_FALLBACK_SPEECH_MAP
- *                          ou _renderCognitiveFromIntent. Usado somente quando LLM
- *                          não disponível ou falhou. Heurística/resolver/topo/prefix
- *                          local NÃO são soberanos — tudo que não é LLM cai aqui.
+ * Retorna uma das classificações canônicas:
+ *   "llm_real"             — LLM real assumiu a fala (soberano principal).
+ *   "heuristic_guidance"   — Heurística validada pelo unified controller (PR5).
+ *   "contract_reanchor"    — Reanchor de contrato (guardrail seguro).
+ *   "contract_fallback"    — Fallback de contrato (guardrail seguro).
+ *   "extreme_fallback"     — Fallback extremo mínimo.
  *
- * REMOVIDO: "explicit_fallback" (era largo demais — permitia heurística disfarçada).
- * REMOVIDO: "cognitive_heuristic" (heurística é suporte interno, não classificação).
  * Usado para telemetria e testes comportamentais. Não altera a fala.
  */
 function classifyRenderPath(st) {
   const arbiterSource = st?.__speech_arbiter_source || null;
   if (arbiterSource === "llm_real") return "llm_real";
+  if (arbiterSource === "heuristic_guidance") return "heuristic_guidance";
+  if (arbiterSource === "contract_reanchor") return "contract_reanchor";
+  if (arbiterSource === "contract_fallback") return "contract_fallback";
   return "extreme_fallback";
 }
 
@@ -24206,20 +24214,28 @@ async function runFunnel(env, st, userText) {
         // ── SEPARAÇÃO DE RESPONSABILIDADES: worker valida sinal, não reescreve fala ──
         // Guarda universal: still_needs_original_answer → takes_final nunca fecha.
         const _stillNeedsOriginal = cognitive.still_needs_original_answer === true;
-        // Somente LLM real pode assumir fala final.
-        // Heurística é suporte interno, NÃO takes_final.
-        st.__cognitive_v2_takes_final = (v2OnWithLlm && !_stillNeedsOriginal) ? true : false;
-        st.__speech_arbiter_source = (v2OnWithLlm && !_stillNeedsOriginal) ? "llm_real" : null;
-        // Se não é LLM real, limpa prefix — heurística não produz fala final
-        if (!v2OnWithLlm) {
+        // ── PR5: Unificação — tanto LLM real quanto heurística útil passam
+        // pelo mesmo controle final de surface (unifySurfaceControl).
+        // LLM real pode assumir fala final se não precisa original answer.
+        // Heurística útil (>30 chars) agora também é arbitrada pelo mesmo controller.
+        const _isUsableLlm = v2OnWithLlm && !_stillNeedsOriginal;
+        const _isUsableHeuristic = v2OnWithHeuristic && !_stillNeedsOriginal && cognitiveReply.length > 30;
+        const _effectiveSpeechOrigin = _isUsableLlm ? "llm_real" : (_isUsableHeuristic ? "heuristic_guidance" : "fallback_mechanical");
+
+        st.__cognitive_v2_takes_final = (_isUsableLlm || _isUsableHeuristic) ? true : false;
+        st.__speech_arbiter_source = _isUsableLlm ? "llm_real" : (_isUsableHeuristic ? "heuristic_guidance" : null);
+
+        // Se nem LLM real nem heurística útil, limpa prefix
+        if (!_isUsableLlm && !_isUsableHeuristic) {
           st.__cognitive_reply_prefix = null;
         }
 
-        // ── PR3: MECHANICAL ARBITER — validação dura da superfície cognitiva ──
-        // Antes de enviar a fala do LLM ao cliente, valida contra o stage mecânico.
-        // SOBERANIA: mecânico real > stage contract > LLM.
-        // Só atua quando speech_origin é "llm_real" e contrato existe.
+        // ── PR5: UNIFIED SURFACE CONTROL — controle final unificado ──
+        // Substitui o arbiter-only da PR3. Agora TODOS os caminhos de surface
+        // (llm_real E heuristic_guidance) passam pelo mesmo controller.
+        // SOBERANIA: mecânico real > stage contract > surface controller > renderer.
         let _arbiterDecision = null;
+        let _unifiedSurfaceDecision = null;
         if (st.__cognitive_v2_takes_final && st.__stage_contract) {
           try {
             const _knownSlotsForArbiter = {};
@@ -24267,25 +24283,42 @@ async function runFunnel(env, st, userText) {
             // ── Slot operacional ──
             if (st.processo_enviado_correspondente != null) _knownSlotsForArbiter.processo_enviado_correspondente = { value: st.processo_enviado_correspondente };
 
-            _arbiterDecision = arbitrateCognitiveSurface({
+            // ── PR5: Unified Surface Control — substitui arbiter-only da PR3 ──
+            _unifiedSurfaceDecision = unifySurfaceControl({
+              replyText: cognitiveReply,
+              speechOrigin: _effectiveSpeechOrigin,
               currentStage: stage,
               stageContract: st.__stage_contract,
-              canonicalPrompt: st.__stage_contract.canonical_prompt || "",
-              replyText: cognitiveReply,
               slotsDetected: cognitive.entities || {},
-              intent: cognitive.intent || null,
-              confidence: _canonicalConfidence,
               knownSlots: _knownSlotsForArbiter,
-              speechOrigin: "llm_real"
+              userText: userText || "",
+              confidence: _canonicalConfidence
             });
 
+            // Extrair decisão compatível com o formato do _arbiterDecision antigo
+            _arbiterDecision = {
+              valid: _unifiedSurfaceDecision.control_reason === "unified_all_passed" || _unifiedSurfaceDecision.control_reason === "no_contract_passthrough",
+              reason_code: _unifiedSurfaceDecision.control_reason,
+              chosen_surface: _unifiedSurfaceDecision.chosen_surface,
+              source: _unifiedSurfaceDecision.source,
+              used_contract_guardrails: _unifiedSurfaceDecision.telemetry?.arbiter_guardrails || [],
+              arbitration_triggered: _unifiedSurfaceDecision.arbitration_applied,
+              arbitration_details: {
+                ..._unifiedSurfaceDecision.telemetry,
+                expected_slot: st.__stage_contract?.expected_slot || null,
+                stage: stage,
+                informative_blocked: _unifiedSurfaceDecision.informative_blocked,
+                informative_topic: _unifiedSurfaceDecision.informative_topic,
+                short_answer_category: _unifiedSurfaceDecision.short_answer_category
+              }
+            };
+
             if (_arbiterDecision && !_arbiterDecision.valid) {
-              // Arbiter blocked the LLM surface — use contract safe surface
+              // Surface control blocked — use safe surface
               st.__cognitive_reply_prefix = _arbiterDecision.chosen_surface || st.__stage_contract.fallback_prompt || null;
               st.__speech_arbiter_source = _arbiterDecision.source || "contract_fallback";
-              // If source is not llm_real, takes_final depends on whether we have a usable reanchor
+              // Reanchor/fallback surfaces are mechanical-safe, can be sent as final
               if (_arbiterDecision.source === "contract_reanchor" || _arbiterDecision.source === "contract_fallback") {
-                // Reanchor/fallback surfaces are mechanical-safe, can be sent as final
                 st.__cognitive_v2_takes_final = Boolean(st.__cognitive_reply_prefix);
               } else {
                 st.__cognitive_v2_takes_final = false;
@@ -24293,27 +24326,30 @@ async function runFunnel(env, st, userText) {
               }
             }
 
-            // ── PR3: Arbiter telemetry ──
+            // ── PR5: Unified surface telemetry ──
             try {
               console.log(JSON.stringify({
-                type: "cognitive_arbiter_telemetry",
+                type: "unified_surface_control_telemetry",
                 timestamp: new Date().toISOString(),
                 wa_id: st.wa_id || null,
-                arbitration_triggered: _arbiterDecision?.arbitration_triggered || false,
-                arbitration_valid: _arbiterDecision?.valid ?? null,
-                arbitration_reason: _arbiterDecision?.reason_code || null,
-                arbitration_source_final: _arbiterDecision?.source || null,
-                arbitration_stage: stage,
-                arbitration_expected_slot: _arbiterDecision?.arbitration_details?.expected_slot || null,
-                arbitration_blocked_forbidden_topic: _arbiterDecision?.arbitration_details?.blocked_forbidden_topic || null,
-                arbitration_blocked_slot_mismatch: _arbiterDecision?.arbitration_details?.wrong_slot_detected || null,
-                arbitration_guardrails_used: _arbiterDecision?.used_contract_guardrails || [],
-                arbitration_details: _arbiterDecision?.arbitration_details || {}
+                stage: stage,
+                original_speech_origin: _effectiveSpeechOrigin,
+                final_source: _unifiedSurfaceDecision.source,
+                control_reason: _unifiedSurfaceDecision.control_reason,
+                arbitration_applied: _unifiedSurfaceDecision.arbitration_applied,
+                informative_blocked: _unifiedSurfaceDecision.informative_blocked,
+                informative_topic: _unifiedSurfaceDecision.informative_topic,
+                short_answer_category: _unifiedSurfaceDecision.short_answer_category,
+                surface_valid: _arbiterDecision.valid,
+                expected_slot: st.__stage_contract?.expected_slot || null,
+                confidence: _canonicalConfidence,
+                guardrails_used: _arbiterDecision.used_contract_guardrails,
+                telemetry_detail: _unifiedSurfaceDecision.telemetry
               }));
-            } catch (_arbTelErr) { /* telemetry must never break the flow */ }
+            } catch (_uniTelErr) { /* telemetry must never break the flow */ }
           } catch (_arbErr) {
-            console.error("COGNITIVE_ARBITER_ERROR:", _arbErr);
-            // On arbiter error, conservative: let LLM reply through (already validated by other guards)
+            console.error("UNIFIED_SURFACE_CONTROL_ERROR:", _arbErr);
+            // On controller error, conservative: let reply through (already validated by other guards)
           }
         }
 

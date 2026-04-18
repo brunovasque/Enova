@@ -418,14 +418,227 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
     allowed_topics_now: ["orientacao_docs", "duvida_seguranca", "duvida_canal"],
     forbidden_topics_now: ["coleta_renda", "coleta_estado_civil", "valor_parcela", "aprovacao"],
     stage_micro_rules: [
-      "Orientar sobre envio de documentos para análise",
-      "NÃO prometer resultado",
-      "Responder dúvidas sobre segurança do envio"
+      "Orientar envio de documentos de forma objetiva e firme",
+      "NÃO prometer resultado ou prazo de aprovação",
+      "Responder dúvidas sobre segurança do envio",
+      "NÃO ficar em loop genérico — dar CTA claro",
+      "Se cliente já enviou, confirmar recebimento e orientar próximo passo"
     ],
     brief_answer_allowed: false,
     canonical_prompt: "Agora preciso que envie os documentos pra análise.",
     return_to_stage_prompt: "Pra seguir, preciso que envie os documentos solicitados 📎",
     fallback_prompt: "Agora preciso que envie os documentos pra análise 📎😊"
+  },
+  // ── PR5: Stages faltantes cobertas na fase textual final ──────────────────
+  confirmar_casamento: {
+    expected_slot: "estado_civil",
+    allowed_topics_now: ["coleta_estado_civil", "duvida_tipo_casamento"],
+    forbidden_topics_now: ["coleta_renda", "coleta_documentos", "valor_parcela", "aprovacao", "coleta_nome"],
+    stage_micro_rules: [
+      "Confirmar se é casamento civil ou união estável",
+      "Aceitar: civil, união estável, comunhão parcial, comunhão total",
+      "NÃO coletar renda ou documentos aqui"
+    ],
+    brief_answer_allowed: true,
+    canonical_prompt: "Esse casamento é civil registrado ou é união estável?",
+    return_to_stage_prompt: "Preciso confirmar o tipo de casamento pra seguir 😊",
+    fallback_prompt: "Esse casamento é civil registrado ou é união estável?"
+  },
+  financiamento_conjunto: {
+    expected_slot: "composicao",
+    allowed_topics_now: ["composicao_renda", "duvida_financiamento_conjunto"],
+    forbidden_topics_now: ["coleta_documentos", "valor_parcela", "aprovacao", "coleta_nome", "coleta_estado_civil"],
+    stage_micro_rules: [
+      "Perguntar se vai financiar sozinho ou junto com alguém",
+      "NÃO decidir por conta própria",
+      "NÃO expandir para outros temas"
+    ],
+    brief_answer_allowed: true,
+    canonical_prompt: "Vai financiar sozinho(a) ou junto com alguém?",
+    return_to_stage_prompt: "Preciso saber se o financiamento será sozinho ou conjunto 😊",
+    fallback_prompt: "Vai financiar sozinho(a) ou junto com alguém?"
+  },
+  quem_pode_somar: {
+    expected_slot: "composicao",
+    allowed_topics_now: ["composicao_renda", "duvida_somar"],
+    forbidden_topics_now: ["coleta_documentos", "valor_parcela", "aprovacao", "coleta_nome", "coleta_estado_civil"],
+    stage_micro_rules: [
+      "Identificar quem mais compõe renda com o cliente",
+      "Aceitar: parceiro, familiar, sozinho",
+      "NÃO decidir por conta própria"
+    ],
+    brief_answer_allowed: false,
+    canonical_prompt: "Quem mais compõe renda com você?",
+    return_to_stage_prompt: "Preciso saber quem compõe renda com você 😊",
+    fallback_prompt: "Quem mais compõe renda com você?"
+  },
+  interpretar_composicao: {
+    expected_slot: "composicao",
+    allowed_topics_now: ["composicao_renda", "duvida_composicao"],
+    forbidden_topics_now: ["coleta_documentos", "valor_parcela", "aprovacao", "coleta_nome", "coleta_estado_civil"],
+    stage_micro_rules: [
+      "Interpretar tipo de composição de renda informado",
+      "Aceitar: parceiro, familiar, sozinho",
+      "NÃO decidir por conta própria"
+    ],
+    brief_answer_allowed: false,
+    canonical_prompt: "Me conta mais sobre a composição de renda 😊",
+    return_to_stage_prompt: "Preciso entender a composição de renda pra continuar 😊",
+    fallback_prompt: "Me conta mais sobre a composição de renda 😊"
+  },
+  somar_renda_familiar: {
+    expected_slot: "composicao",
+    allowed_topics_now: ["composicao_renda", "duvida_familiar"],
+    forbidden_topics_now: ["coleta_documentos", "valor_parcela", "aprovacao", "coleta_nome", "coleta_estado_civil"],
+    stage_micro_rules: [
+      "Perguntar com qual familiar quer compor renda",
+      "Aceitar: pai, mãe, irmão(ã), avô(ó), tio(a)",
+      "NÃO decidir por conta própria"
+    ],
+    brief_answer_allowed: false,
+    canonical_prompt: "Com quem quer somar renda? Pode ser pai, mãe, irmão(ã) ou tio(a).",
+    return_to_stage_prompt: "Preciso saber com qual familiar quer compor renda 😊",
+    fallback_prompt: "Com quem quer somar renda? Pode ser pai, mãe, irmão(ã) ou tio(a). 😊"
+  },
+  autonomo_ir_pergunta: {
+    expected_slot: "ir_declarado",
+    allowed_topics_now: ["coleta_ir", "duvida_ir_autonomo"],
+    forbidden_topics_now: ["coleta_documentos", "valor_parcela", "aprovacao", "coleta_nome", "coleta_renda"],
+    stage_micro_rules: [
+      "Perguntar se autônomo declara IR",
+      "Aceitar: sim ou não",
+      "NÃO julgar a resposta"
+    ],
+    brief_answer_allowed: true,
+    canonical_prompt: "Você fez declaração de IR como autônomo(a)?",
+    return_to_stage_prompt: "Preciso saber se você declara IR como autônomo(a) 😊",
+    fallback_prompt: "Você fez declaração de IR como autônomo(a)?"
+  },
+  ctps_36: {
+    expected_slot: "ctps_36",
+    allowed_topics_now: ["coleta_ctps", "duvida_carteira"],
+    forbidden_topics_now: ["coleta_documentos", "valor_parcela", "aprovacao", "coleta_renda"],
+    stage_micro_rules: [
+      "Perguntar se tem mais de 36 meses de carteira assinada",
+      "Aceitar: sim ou não",
+      "NÃO expandir para outros temas"
+    ],
+    brief_answer_allowed: true,
+    canonical_prompt: "Você tem mais de 36 meses de carteira assinada? 📋",
+    return_to_stage_prompt: "Preciso saber sobre seu tempo de carteira assinada 😊",
+    fallback_prompt: "Você tem mais de 36 meses de carteira assinada? 📋"
+  },
+  ctps_36_parceiro: {
+    expected_slot: "ctps_36_parceiro",
+    allowed_topics_now: ["coleta_ctps_parceiro", "duvida_carteira"],
+    forbidden_topics_now: ["coleta_documentos", "valor_parcela", "aprovacao", "coleta_renda"],
+    stage_micro_rules: [
+      "Perguntar se parceiro(a) tem mais de 36 meses de carteira assinada",
+      "Aceitar: sim ou não",
+      "NÃO expandir para outros temas"
+    ],
+    brief_answer_allowed: true,
+    canonical_prompt: "Seu(sua) parceiro(a) tem mais de 36 meses de carteira assinada?",
+    return_to_stage_prompt: "Preciso saber sobre o tempo de carteira do(a) parceiro(a) 😊",
+    fallback_prompt: "Seu(sua) parceiro(a) tem mais de 36 meses de carteira assinada?"
+  },
+  restricao_parceiro: {
+    expected_slot: "restricao_parceiro",
+    allowed_topics_now: ["coleta_restricao_parceiro", "duvida_barra"],
+    forbidden_topics_now: ["coleta_documentos", "valor_parcela", "aprovacao", "coleta_renda"],
+    stage_micro_rules: [
+      "Perguntar se parceiro(a) tem restrição no CPF",
+      "Aceitar: sim ou não",
+      "Se sim, seguir para regularização"
+    ],
+    brief_answer_allowed: true,
+    canonical_prompt: "E no CPF do(a) parceiro(a), tem alguma restrição?",
+    return_to_stage_prompt: "Preciso saber se o(a) parceiro(a) tem restrição no CPF 😊",
+    fallback_prompt: "E no CPF do(a) parceiro(a), tem alguma restrição?"
+  },
+  regularizacao_restricao: {
+    expected_slot: "regularizacao_restricao",
+    allowed_topics_now: ["regularizacao", "duvida_quitar", "duvida_negociar"],
+    forbidden_topics_now: ["coleta_documentos", "valor_parcela", "aprovacao", "coleta_renda"],
+    stage_micro_rules: [
+      "Perguntar se consegue regularizar a restrição",
+      "Aceitar: sim, não, vou tentar",
+      "NÃO julgar a capacidade financeira do cliente"
+    ],
+    brief_answer_allowed: true,
+    canonical_prompt: "Consegue regularizar essa restrição? Quitar ou negociar? 😊",
+    return_to_stage_prompt: "Preciso saber se você consegue regularizar a restrição 😊",
+    fallback_prompt: "Consegue regularizar essa restrição? Quitar ou negociar? 😊"
+  },
+  agendamento_visita: {
+    expected_slot: null,
+    allowed_topics_now: ["agendamento", "duvida_visita", "duvida_local"],
+    forbidden_topics_now: ["coleta_renda", "coleta_estado_civil", "valor_parcela", "aprovacao"],
+    stage_micro_rules: [
+      "Orientar agendamento de visita ao empreendimento",
+      "Perguntar data disponível",
+      "NÃO prometer aprovação ou resultado"
+    ],
+    brief_answer_allowed: false,
+    canonical_prompt: "Vamos agendar a visita ao empreendimento? Me diz uma data boa pra você 📅",
+    return_to_stage_prompt: "Preciso agendar uma data pra visita ao empreendimento 😊",
+    fallback_prompt: "Vamos agendar a visita ao empreendimento? Me diz uma data boa pra você 📅"
+  },
+  visita_confirmada: {
+    expected_slot: null,
+    allowed_topics_now: ["confirmar_visita", "duvida_visita", "duvida_local"],
+    forbidden_topics_now: ["coleta_renda", "coleta_estado_civil", "valor_parcela", "aprovacao"],
+    stage_micro_rules: [
+      "Confirmar detalhes da visita agendada",
+      "NÃO prometer resultado",
+      "Orientar sobre o que levar"
+    ],
+    brief_answer_allowed: false,
+    canonical_prompt: "Visita confirmada! Te passo os detalhes 😊",
+    return_to_stage_prompt: "Preciso confirmar os detalhes da sua visita 😊",
+    fallback_prompt: "Visita confirmada! Te passo os detalhes 😊"
+  },
+  finalizacao_processo: {
+    expected_slot: null,
+    allowed_topics_now: ["finalizacao", "duvida_proximo_passo", "duvida_prazo"],
+    forbidden_topics_now: ["coleta_renda", "coleta_estado_civil", "valor_parcela"],
+    stage_micro_rules: [
+      "Orientar sobre os últimos passos do processo",
+      "NÃO prometer prazo específico de aprovação",
+      "Dar CTA claro sobre próxima ação necessária"
+    ],
+    brief_answer_allowed: false,
+    canonical_prompt: "Estamos na reta final! Vou te orientar nos últimos passos 😊",
+    return_to_stage_prompt: "Estamos finalizando — vou te orientar nos próximos passos 😊",
+    fallback_prompt: "Estamos na reta final! Vou te orientar nos últimos passos 😊"
+  },
+  aguardando_retorno_correspondente: {
+    expected_slot: null,
+    allowed_topics_now: ["duvida_prazo", "duvida_proximo_passo", "duvida_status"],
+    forbidden_topics_now: ["coleta_renda", "coleta_estado_civil", "valor_parcela", "aprovacao"],
+    stage_micro_rules: [
+      "Informar que está aguardando retorno do correspondente",
+      "NÃO prometer prazo específico",
+      "Manter cliente informado e tranquilo"
+    ],
+    brief_answer_allowed: false,
+    canonical_prompt: "Estou aguardando o retorno do correspondente. Te aviso assim que tiver novidade! 😊",
+    return_to_stage_prompt: "Ainda aguardando retorno do correspondente — te aviso logo! 😊",
+    fallback_prompt: "Estou aguardando o retorno do correspondente. Te aviso assim que tiver novidade! 😊"
+  },
+  fim_ineligivel: {
+    expected_slot: null,
+    allowed_topics_now: ["explicacao_inelegibilidade", "duvida_alternativa"],
+    forbidden_topics_now: ["coleta_renda", "coleta_estado_civil", "valor_parcela"],
+    stage_micro_rules: [
+      "Informar que não foi possível seguir com o processo",
+      "NÃO dar esperança falsa",
+      "Ser empático mas objetivo"
+    ],
+    brief_answer_allowed: false,
+    canonical_prompt: "Infelizmente não foi possível seguir com o processo nesse momento. Se precisar, estou por aqui 💛",
+    return_to_stage_prompt: "Infelizmente não foi possível seguir nesse momento 💛",
+    fallback_prompt: "Infelizmente não foi possível seguir com o processo nesse momento. Se precisar, estou por aqui 💛"
   }
 });
 
@@ -545,7 +758,7 @@ const _FORBIDDEN_TOPIC_KEYWORDS = Object.freeze({
   coleta_nome: /\b(qual\s+(?:e\s+)?(?:o\s+)?seu\s+nome|me\s+diz\s+(?:o\s+)?seu\s+nome|nome\s+completo)\b/,
   coleta_estado_civil: /\b(estado\s+civil|casad[oa]|solteir[oa]|uniao\s+estavel|divorc)/,
   coleta_renda: /\b(sua\s+renda|renda\s+mensal|quanto\s+(?:voce\s+)?ganha|valor.*renda|renda.*valor)/,
-  coleta_documentos: /\b(envie?\s+(?:os?\s+)?doc|mande?\s+(?:os?\s+)?doc|documentos?\s+(?:necessario|precis))/,
+  coleta_documentos: /\b(envie?\s+(?:os?\s+)?doc|enviar?\s+(?:os?\s+)?(?:seus?\s+)?doc|mande?\s+(?:os?\s+)?doc|documentos?\s+(?:necessario|precis)|documentos?\s+(?:para|pra)\s+analise)/,
   valor_parcela: /\b(parcela\s+(?:de|sera|vai)|valor\s+(?:da\s+)?parcela|sua\s+parcela)/,
   valor_entrada: /\b(entrada\s+(?:de|sera|vai)|valor\s+(?:da\s+)?entrada|sua\s+entrada)/,
   aprovacao: /\b(aprovad[oa]|aprovacao|vai\s+ser\s+aprovad|sera\s+aprovad|garantia.*aprovacao)/
@@ -610,7 +823,7 @@ function _checkSlotMismatch(expectedSlot, slotsDetected) {
  */
 const _STAGE_DRIFT_PATTERNS = Object.freeze([
   { target: "coleta_renda", pattern: /\b(qual\s+(?:e\s+)?(?:a\s+)?sua\s+renda|renda\s+mensal|quanto\s+(?:voce\s+)?ganha)\b/, excludeStages: new Set(["renda", "renda_parceiro", "renda_familiar_valor", "renda_parceiro_familiar", "renda_parceiro_familiar_p3", "possui_renda_extra"]) },
-  { target: "coleta_documentos", pattern: /\b(envie?\s+(?:os?\s+)?doc|mande?\s+(?:os?\s+)?doc|preciso\s+(?:dos?\s+)?(?:seus?\s+)?doc)\b/, excludeStages: new Set(["envio_docs"]) },
+  { target: "coleta_documentos", pattern: /\b(envie?\s+(?:os?\s+)?doc|enviar?\s+(?:os?\s+)?(?:seus?\s+)?doc|mande?\s+(?:os?\s+)?doc|preciso\s+(?:dos?\s+)?(?:seus?\s+)?doc|documentos?\s+(?:para|pra)\s+analise)\b/, excludeStages: new Set(["envio_docs"]) },
   { target: "coleta_estado_civil", pattern: /\b(qual\s+(?:e\s+)?(?:o\s+)?seu\s+estado\s+civil|(?:voce\s+)?e\s+casad[oa]\s+ou\s+solteir[oa])\b/, excludeStages: new Set(["estado_civil", "confirmar_casamento"]) },
   { target: "coleta_regime", pattern: /\b(qual\s+(?:e\s+)?(?:o\s+)?seu\s+regime\s+(?:de\s+)?trabalho|(?:voce\s+)?e\s+clt\s+ou\s+autonomo)\b/, excludeStages: new Set(["regime_trabalho", "regime_trabalho_parceiro", "regime_trabalho_parceiro_familiar", "regime_trabalho_parceiro_familiar_p3"]) },
   { target: "coleta_visita", pattern: /\b(agendar\s+(?:uma?\s+)?visita|quer\s+(?:agendar|marcar)\s+(?:uma?\s+)?visita)\b/, excludeStages: new Set(["agendamento_visita", "visita_confirmada"]) }
@@ -731,10 +944,12 @@ export function arbitrateCognitiveSurface({
   const normalizedReply = _normalizeForArbiter(replyText);
   const guardrails = [];
 
-  // ── Se não há contrato OU não é llm_real, não arbitrar — passthrough ──
-  // Só arbitramos a fala quando é LLM real que pode ter fugido do escopo.
-  // Heurística e fallback mecânico já são controlados pelo worker.
-  if (!contract || speechOrigin !== "llm_real") {
+  // ── PR5: Arbitragem unificada — governa TODOS os caminhos de surface ──
+  // Antes: apenas llm_real passava pela arbitragem.
+  // Agora: llm_real E heuristic_guidance passam pelas mesmas guardrails.
+  // fallback_mechanical continua passthrough (já é controlado pelo worker).
+  const _ARBITRABLE_ORIGINS = new Set(["llm_real", "heuristic_guidance"]);
+  if (!contract || !_ARBITRABLE_ORIGINS.has(speechOrigin)) {
     return Object.freeze({
       valid: true,
       reason_code: "no_arbitration_needed",
@@ -852,20 +1067,290 @@ export function arbitrateCognitiveSurface({
     });
   }
 
-  // ── Todos os checks passaram — superfície LLM é válida ──
+  // ── Todos os checks passaram — superfície é válida ──
   return Object.freeze({
     valid: true,
     reason_code: "all_checks_passed",
     chosen_surface: replyText,
-    source: "llm_real",
+    source: speechOrigin,
     used_contract_guardrails: [],
     arbitration_triggered: true,
     arbitration_details: {
       stage: stage,
       expected_slot: expectedSlot,
+      original_speech_origin: speechOrigin,
       checks_passed: ["forbidden_topics", "slot_mismatch", "stage_drift", "repetition", "brief_answer"]
     }
   });
+}
+
+// ── PR5: Unified Surface Controller ────────────────────────────────────────
+// Controlador final unificado de superfície textual.
+// TODOS os caminhos de fala (llm_real, heuristic_guidance, contract_reanchor,
+// contract_fallback, mechanical_fallback) convergem para uma decisão coerente.
+//
+// SOBERANIA: mecânico real > stage contract > surface controller > LLM/heurística
+//
+// O controller não inventa regra nova — aplica guardrails existentes de forma
+// unificada a QUALQUER caminho de surface, não apenas a llm_real.
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * SHORT_ANSWER_EQUIVALENCES — Mapeamento de respostas curtas comuns para
+ * interpretação correta sem gerar repetição ou desvio.
+ *
+ * Usado pelo surface controller para reconhecer "sim", "não", "CLT", "fixo",
+ * valores numéricos etc. como respostas legítimas que não devem gerar
+ * reabertura, repetição ou pergunta fora de hora.
+ */
+
+// Limites para classificação de respostas curtas
+const _MAX_SHORT_ANSWER_LENGTH = 50; // Acima disso, não é resposta curta
+const _MAX_UNKNOWN_SHORT_LENGTH = 15; // Até esse tamanho, classifica como "unknown_short"
+
+const _SHORT_ANSWER_PATTERNS = Object.freeze({
+  affirmative: /^(sim|ss|sii|isso|exato|exatamente|com certeza|claro|ok|pode ser|positivo|uhum|aham|afirmativo|isso mesmo|e isso|eh|isso ai|e sim|sim sim|bora|vamo|vamos)$/i,
+  negative: /^(nao|não|n|nn|nope|negativo|nunca|nem|nada|de jeito nenhum|não não|nao nao)$/i,
+  clt: /^(clt|carteira\s*assinada|registrad[oa]|empregad[oa])$/i,
+  autonomo: /^(autonomo|autônomo|autonoma|autônoma|pj|mei|liberal|conta\s*propria|conta\s*própria)$/i,
+  servidor: /^(servidor|servidora|servidor\s*publico|servidor\s*público|concursad[oa]|funcionari[oa]|funcionári[oa])$/i,
+  aposentado: /^(aposentad[oa]|pensionista|inss|beneficio|benefício)$/i,
+  fixo: /^(fixo|fixa|salario\s*fixo|salário\s*fixo)$/i,
+  numeric_value: /^r?\$?\s*\d[\d.,]*$/,
+  already_know: /^(ja\s*conh|já\s*conh|ja\s*sei|já\s*sei|sei\s*sim|conheço|conheço\s*sim|to\s*por\s*dentro|tô\s*por\s*dentro|ja\s*conheço|já\s*conheço)/i,
+  civil_status: /^(solteir[oa]|casad[oa]|divorc|separad[oa]|viuv[oa]|viúv[oa]|uni[aã]o\s*(est[aá]vel)?|amasiado|juntad[oa])$/i
+});
+
+/**
+ * classifyShortAnswer — Classifica resposta curta do cliente.
+ *
+ * @param {string} userText — Texto do cliente
+ * @returns {{ isShort: boolean, category: string|null, normalized: string }}
+ */
+export function classifyShortAnswer(userText) {
+  const text = String(userText || "").trim();
+  if (text.length > _MAX_SHORT_ANSWER_LENGTH) return { isShort: false, category: null, normalized: text };
+
+  const normalizedText = text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+
+  for (const [category, pattern] of Object.entries(_SHORT_ANSWER_PATTERNS)) {
+    if (pattern.test(normalizedText)) {
+      return { isShort: true, category, normalized: normalizedText };
+    }
+  }
+
+  // Ainda pode ser curta mas sem categoria conhecida
+  if (text.length <= _MAX_UNKNOWN_SHORT_LENGTH) {
+    return { isShort: true, category: "unknown_short", normalized: normalizedText };
+  }
+
+  return { isShort: false, category: null, normalized: normalizedText };
+}
+
+/**
+ * _checkInformativeOutOfTurn — Verifica se resposta contém informativo fora de hora.
+ *
+ * Detecta padrões comuns de informativos que podem ser úteis mas devem ser
+ * controlados para não abrir conversa paralela ou furar stage.
+ *
+ * @param {string} normalizedReply — Reply normalizado
+ * @param {string} currentStage — Stage atual
+ * @returns {{ detected: boolean, topic: string|null }}
+ */
+const _INFORMATIVE_OUT_OF_TURN_PATTERNS = Object.freeze([
+  {
+    topic: "valor_parcela",
+    // Detecta menções concretas a valor de parcela (ex: "parcela fica em R$800", "R$1200 a parcela")
+    pattern: /\b(parcela[\s\w]+(r\$|reais|\d)|(r\$|reais)\s*\d+.*parcela|parcela\s*(mensal|fixa))/i,
+    allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente"])
+  },
+  {
+    topic: "fgts_antecipacao",
+    pattern: /\b(fgts.*(?:usar|utilizar|sacar|aplicar)|(?:usar|utilizar|sacar|aplicar).*fgts)\b/i,
+    allowedStages: new Set(["envio_docs", "finalizacao_processo"])
+  },
+  {
+    topic: "entrada_valor",
+    pattern: /\b(entrada[\s\w]+(r\$|reais|\d)|(r\$|reais)\s*\d+.*entrada)\b/i,
+    allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente"])
+  },
+  {
+    topic: "consultoria_prematura",
+    pattern: /\b(simul(?:acao|ação)|(?:qual|quanto)\s+(?:fica|seria|custa|vale)\s+(?:o\s+)?(?:imovel|imóvel|ap(?:artamento|ê)?|casa))\b/i,
+    allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente", "agendamento_visita"])
+  }
+]);
+
+function _checkInformativeOutOfTurn(normalizedReply, currentStage) {
+  if (!normalizedReply || !currentStage) return { detected: false, topic: null };
+  const stage = _normalizeForArbiter(currentStage);
+
+  for (const info of _INFORMATIVE_OUT_OF_TURN_PATTERNS) {
+    if (info.allowedStages.has(stage)) continue;
+    if (info.pattern.test(normalizedReply)) {
+      return { detected: true, topic: info.topic };
+    }
+  }
+  return { detected: false, topic: null };
+}
+
+/**
+ * @typedef {Object} UnifiedSurfaceDecision
+ * @property {string} chosen_surface — Superfície final escolhida para o cliente
+ * @property {string} source — Origem final: "llm_real" | "heuristic_guidance" | "contract_reanchor" | "contract_fallback" | "mechanical_fallback"
+ * @property {boolean} arbitration_applied — Se arbitragem foi executada
+ * @property {string} control_reason — Razão do controle aplicado
+ * @property {boolean} informative_blocked — Se informativo fora de hora foi bloqueado
+ * @property {string|null} informative_topic — Tópico informativo bloqueado
+ * @property {string|null} short_answer_category — Categoria de resposta curta detectada
+ * @property {object} telemetry — Telemetria completa da decisão
+ */
+
+/**
+ * unifySurfaceControl — Controlador final unificado de superfície textual.
+ *
+ * Governa TODOS os caminhos de surface de forma coerente.
+ * SOBERANIA: mecânico real > stage contract > surface controller > renderer.
+ *
+ * @param {object} params
+ * @param {string} params.replyText — Texto de resposta proposto
+ * @param {string} params.speechOrigin — Origem: "llm_real" | "heuristic_guidance" | "fallback_mechanical"
+ * @param {string} params.currentStage — Stage atual do mecânico
+ * @param {object|null} params.stageContract — Contrato de stage (buildStageContract)
+ * @param {object} params.slotsDetected — Slots detectados
+ * @param {object} params.knownSlots — Slots já coletados
+ * @param {string} params.userText — Texto do cliente
+ * @param {number} params.confidence — Confiança do cognitivo
+ * @returns {UnifiedSurfaceDecision}
+ */
+export function unifySurfaceControl({
+  replyText = "",
+  speechOrigin = "fallback_mechanical",
+  currentStage = "",
+  stageContract = null,
+  slotsDetected = {},
+  knownSlots = {},
+  userText = "",
+  confidence = 0
+} = {}) {
+  const stage = String(currentStage || "");
+  const contract = stageContract && typeof stageContract === "object" ? stageContract : null;
+  const shortAnswer = classifyShortAnswer(userText);
+
+  // ── Base telemetry ──
+  const baseTelemetry = {
+    stage,
+    original_speech_origin: speechOrigin,
+    short_answer: shortAnswer.isShort ? shortAnswer.category : null,
+    confidence,
+    contract_present: Boolean(contract),
+    unified_surface_version: "1.0.0"
+  };
+
+  // ── Passo 1: Se não há contrato, passthrough controlado ──
+  if (!contract) {
+    return {
+      chosen_surface: replyText,
+      source: speechOrigin || "mechanical_fallback",
+      arbitration_applied: false,
+      control_reason: "no_contract_passthrough",
+      informative_blocked: false,
+      informative_topic: null,
+      short_answer_category: shortAnswer.isShort ? shortAnswer.category : null,
+      telemetry: { ...baseTelemetry, decision: "passthrough_no_contract" }
+    };
+  }
+
+  // ── Passo 2: Classificar resposta curta do cliente ──
+  // Respostas curtas legítimas (sim, não, CLT, valores) devem ser tratadas
+  // sem repetição, sem reabertura, sem puxar assunto errado.
+  if (shortAnswer.isShort && shortAnswer.category !== "unknown_short") {
+    baseTelemetry.short_answer_handled = true;
+    baseTelemetry.short_answer_type = shortAnswer.category;
+  }
+
+  // ── Passo 3: Executar arbitragem unificada ──
+  // Mesmas guardrails para llm_real e heuristic_guidance.
+  const arbiterResult = arbitrateCognitiveSurface({
+    currentStage: stage,
+    stageContract: contract,
+    canonicalPrompt: contract.canonical_prompt || "",
+    replyText,
+    slotsDetected,
+    intent: null,
+    confidence,
+    knownSlots,
+    speechOrigin
+  });
+
+  baseTelemetry.arbiter_triggered = arbiterResult.arbitration_triggered;
+  baseTelemetry.arbiter_valid = arbiterResult.valid;
+  baseTelemetry.arbiter_reason = arbiterResult.reason_code;
+  baseTelemetry.arbiter_guardrails = arbiterResult.used_contract_guardrails;
+
+  // ── Passo 4: Se arbiter bloqueou, usar surface segura ──
+  if (!arbiterResult.valid) {
+    return {
+      chosen_surface: arbiterResult.chosen_surface,
+      source: arbiterResult.source,
+      arbitration_applied: true,
+      control_reason: arbiterResult.reason_code,
+      informative_blocked: false,
+      informative_topic: null,
+      short_answer_category: shortAnswer.isShort ? shortAnswer.category : null,
+      telemetry: {
+        ...baseTelemetry,
+        decision: "arbiter_blocked",
+        arbiter_details: arbiterResult.arbitration_details
+      }
+    };
+  }
+
+  // ── Passo 5: Verificar informativo fora de hora na reply ──
+  const normalizedReply = _normalizeForArbiter(replyText);
+  const informativeCheck = _checkInformativeOutOfTurn(normalizedReply, stage);
+
+  if (informativeCheck.detected) {
+    // Não bloqueia totalmente — reancorar com surface segura + informativo controlado
+    const reanchorPrompt = contract.return_to_stage_prompt || contract.fallback_prompt || "Pode continuar 😊";
+    baseTelemetry.informative_detected = informativeCheck.topic;
+
+    return {
+      chosen_surface: reanchorPrompt,
+      source: "contract_reanchor",
+      arbitration_applied: true,
+      control_reason: "informative_out_of_turn:" + informativeCheck.topic,
+      informative_blocked: true,
+      informative_topic: informativeCheck.topic,
+      short_answer_category: shortAnswer.isShort ? shortAnswer.category : null,
+      telemetry: {
+        ...baseTelemetry,
+        decision: "informative_out_of_turn_reanchor",
+        informative_topic: informativeCheck.topic
+      }
+    };
+  }
+
+  // ── Passo 6: Todos os checks passaram ──
+  return {
+    chosen_surface: arbiterResult.chosen_surface,
+    source: arbiterResult.source,
+    arbitration_applied: arbiterResult.arbitration_triggered,
+    control_reason: "unified_all_passed",
+    informative_blocked: false,
+    informative_topic: null,
+    short_answer_category: shortAnswer.isShort ? shortAnswer.category : null,
+    telemetry: {
+      ...baseTelemetry,
+      decision: "all_checks_passed",
+      final_source: arbiterResult.source
+    }
+  };
 }
 
 // ── Adapter: convert legacy adaptCognitiveV2Output → canonical output ──────

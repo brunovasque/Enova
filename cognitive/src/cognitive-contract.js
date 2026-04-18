@@ -569,7 +569,9 @@ function _checkForbiddenTopics(normalizedReply, forbiddenTopics) {
  * _checkSlotMismatch — Verifica se o LLM está coletando slot errado.
  *
  * Se o stage espera um expected_slot específico e o cognitivo detectou
- * slots de outro stage, é mismatch.
+ * SOMENTE slots de outro stage (sem o esperado junto), é mismatch.
+ * Se o expected_slot correto também foi detectado, permite — slots
+ * acessórios/secundários junto ao esperado não bloqueiam.
  *
  * @param {string|null} expectedSlot — Slot esperado pelo contrato
  * @param {object} slotsDetected — Slots detectados pelo cognitivo { name: { value } }
@@ -582,13 +584,14 @@ function _checkSlotMismatch(expectedSlot, slotsDetected) {
   const detectedKeys = Object.keys(slotsDetected);
   if (detectedKeys.length === 0) return { blocked: false, wrongSlot: null };
 
-  // Se algum slot detectado NÃO é o esperado E é diferente do esperado, mismatch
-  for (const key of detectedKeys) {
-    if (key !== expectedSlot) {
-      return { blocked: true, wrongSlot: key };
-    }
+  // Se o expected_slot está entre os detectados, permite — slots acessórios junto não bloqueiam
+  if (detectedKeys.includes(expectedSlot)) {
+    return { blocked: false, wrongSlot: null };
   }
-  return { blocked: false, wrongSlot: null };
+
+  // expected_slot ausente e existem outros slots → mismatch real
+  const wrongSlot = detectedKeys[0] || null;
+  return { blocked: true, wrongSlot };
 }
 
 /**

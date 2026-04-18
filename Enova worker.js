@@ -24223,11 +24223,49 @@ async function runFunnel(env, st, userText) {
         if (st.__cognitive_v2_takes_final && st.__stage_contract) {
           try {
             const _knownSlotsForArbiter = {};
+            // ── Slots principais do titular ──
             if (st.estado_civil) _knownSlotsForArbiter.estado_civil = { value: st.estado_civil };
             if (st.somar_renda != null) _knownSlotsForArbiter.composicao = { value: st.somar_renda };
             if (st.renda) _knownSlotsForArbiter.renda = { value: st.renda };
+            // st.regime mapeia para slot "regime_trabalho" (alias no state)
             if (st.regime) _knownSlotsForArbiter.regime_trabalho = { value: st.regime };
             if (st.nome) _knownSlotsForArbiter.nome = { value: st.nome };
+            if (st.ir_declarado != null) _knownSlotsForArbiter.ir_declarado = { value: st.ir_declarado };
+            if (st.autonomo_ir != null) _knownSlotsForArbiter.autonomo_ir = { value: st.autonomo_ir };
+            if (st.dependente != null) _knownSlotsForArbiter.dependente = { value: st.dependente };
+            if (st.restricao != null) _knownSlotsForArbiter.restricao = { value: st.restricao };
+            if (st.ctps_36 != null) _knownSlotsForArbiter.ctps_36 = { value: st.ctps_36 };
+            if (st.nacionalidade) _knownSlotsForArbiter.nacionalidade = { value: st.nacionalidade };
+            if (st.rnm_status) _knownSlotsForArbiter.rnm_status = { value: st.rnm_status };
+            if (st.rnm_validade) _knownSlotsForArbiter.rnm_validade = { value: st.rnm_validade };
+            if (st.possui_renda_extra != null) _knownSlotsForArbiter.renda_extra = { value: st.possui_renda_extra };
+            // ── Slots de composição / familiar ──
+            if (st.familiar_tipo) _knownSlotsForArbiter.familiar_tipo = { value: st.familiar_tipo };
+            if (st.p2_tipo) _knownSlotsForArbiter.p2_tipo = { value: st.p2_tipo };
+            if (st.p3_tipo) _knownSlotsForArbiter.p3_tipo = { value: st.p3_tipo };
+            if (st.p3_required != null) _knownSlotsForArbiter.p3_required = { value: st.p3_required };
+            if (st.p3_done != null) _knownSlotsForArbiter.p3_done = { value: st.p3_done };
+            if (st.composicao_pessoa) _knownSlotsForArbiter.composicao_pessoa = { value: st.composicao_pessoa };
+            // ── Slots do parceiro ──
+            if (st.parceiro_tem_renda != null) _knownSlotsForArbiter.parceiro_tem_renda = { value: st.parceiro_tem_renda };
+            if (st.regime_trabalho_parceiro) _knownSlotsForArbiter.regime_trabalho_parceiro = { value: st.regime_trabalho_parceiro };
+            // st.regime_parceiro é alias legado
+            if (!_knownSlotsForArbiter.regime_trabalho_parceiro && st.regime_parceiro) _knownSlotsForArbiter.regime_trabalho_parceiro = { value: st.regime_parceiro };
+            if (st.renda_parceiro) _knownSlotsForArbiter.renda_parceiro = { value: st.renda_parceiro };
+            if (st.ir_declarado_parceiro != null) _knownSlotsForArbiter.ir_declarado_parceiro = { value: st.ir_declarado_parceiro };
+            // st.ir_declarado_p2 é alias
+            if (!_knownSlotsForArbiter.ir_declarado_parceiro && st.ir_declarado_p2 != null) _knownSlotsForArbiter.ir_declarado_parceiro = { value: st.ir_declarado_p2 };
+            if (st.restricao_parceiro != null) _knownSlotsForArbiter.restricao_parceiro = { value: st.restricao_parceiro };
+            if (st.ctps_36_parceiro != null) _knownSlotsForArbiter.ctps_36_parceiro = { value: st.ctps_36_parceiro };
+            // ── Slots do familiar (renda/regime) ──
+            if (st.renda_familiar) _knownSlotsForArbiter.renda_familiar = { value: st.renda_familiar };
+            if (st.renda_parceiro_familiar) _knownSlotsForArbiter.renda_parceiro_familiar = { value: st.renda_parceiro_familiar };
+            // ── Slots do P3 ──
+            if (st.renda_parceiro_familiar_p3) _knownSlotsForArbiter.renda_parceiro_familiar_p3 = { value: st.renda_parceiro_familiar_p3 };
+            if (st.p3_restricao != null) _knownSlotsForArbiter.p3_restricao = { value: st.p3_restricao };
+            if (st.p3_ctps_36 != null) _knownSlotsForArbiter.p3_ctps_36 = { value: st.p3_ctps_36 };
+            // ── Slot operacional ──
+            if (st.processo_enviado_correspondente != null) _knownSlotsForArbiter.processo_enviado_correspondente = { value: st.processo_enviado_correspondente };
 
             _arbiterDecision = arbitrateCognitiveSurface({
               currentStage: stage,

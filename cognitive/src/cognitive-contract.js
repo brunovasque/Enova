@@ -1103,12 +1103,17 @@ export function arbitrateCognitiveSurface({
  * valores numéricos etc. como respostas legítimas que não devem gerar
  * reabertura, repetição ou pergunta fora de hora.
  */
+
+// Limites para classificação de respostas curtas
+const _MAX_SHORT_ANSWER_LENGTH = 50; // Acima disso, não é resposta curta
+const _MAX_UNKNOWN_SHORT_LENGTH = 15; // Até esse tamanho, classifica como "unknown_short"
+
 const _SHORT_ANSWER_PATTERNS = Object.freeze({
-  affirmative: /^(sim|s|ss|sii|isso|exato|exatamente|com certeza|claro|ok|pode ser|positivo|uhum|aham|afirmativo|isso mesmo|é isso|é|eh|isso aí|é sim|sim sim|bora|vamo|vamos)$/i,
+  affirmative: /^(sim|ss|sii|isso|exato|exatamente|com certeza|claro|ok|pode ser|positivo|uhum|aham|afirmativo|isso mesmo|e isso|eh|isso ai|e sim|sim sim|bora|vamo|vamos)$/i,
   negative: /^(nao|não|n|nn|nope|negativo|nunca|nem|nada|de jeito nenhum|não não|nao nao)$/i,
-  clt: /^(clt|CLT|carteira\s*assinada|registrad[oa]|empregad[oa])$/i,
+  clt: /^(clt|carteira\s*assinada|registrad[oa]|empregad[oa])$/i,
   autonomo: /^(autonomo|autônomo|autonoma|autônoma|pj|mei|liberal|conta\s*propria|conta\s*própria)$/i,
-  servidor: /^(servidor|servidora|servidor\s*publico|servidor\s*público|concursad[oa]|funcionar[io]|funcionár[io])$/i,
+  servidor: /^(servidor|servidora|servidor\s*publico|servidor\s*público|concursad[oa]|funcionari[oa]|funcionári[oa])$/i,
   aposentado: /^(aposentad[oa]|pensionista|inss|beneficio|benefício)$/i,
   fixo: /^(fixo|fixa|salario\s*fixo|salário\s*fixo)$/i,
   numeric_value: /^r?\$?\s*\d[\d.,]*$/,
@@ -1124,7 +1129,7 @@ const _SHORT_ANSWER_PATTERNS = Object.freeze({
  */
 export function classifyShortAnswer(userText) {
   const text = String(userText || "").trim();
-  if (text.length > 50) return { isShort: false, category: null, normalized: text };
+  if (text.length > _MAX_SHORT_ANSWER_LENGTH) return { isShort: false, category: null, normalized: text };
 
   const normalizedText = text
     .normalize("NFD")
@@ -1140,7 +1145,7 @@ export function classifyShortAnswer(userText) {
   }
 
   // Ainda pode ser curta mas sem categoria conhecida
-  if (text.length <= 15) {
+  if (text.length <= _MAX_UNKNOWN_SHORT_LENGTH) {
     return { isShort: true, category: "unknown_short", normalized: normalizedText };
   }
 
@@ -1158,10 +1163,27 @@ export function classifyShortAnswer(userText) {
  * @returns {{ detected: boolean, topic: string|null }}
  */
 const _INFORMATIVE_OUT_OF_TURN_PATTERNS = Object.freeze([
-  { topic: "valor_parcela", pattern: /\b(parcela\s+(?:de|fica|seria?|vai|pode)[\s\w]*(?:r\$|reais|\d)|(?:r\$|reais)\s*\d+.*parcela|parcela\s+(?:mensal|fixa)?\s*(?:de\s+)?(?:r\$|reais)\s*\d)/i, allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente"]) },
-  { topic: "fgts_antecipacao", pattern: /\b(fgts.*(?:usar|utilizar|sacar|aplicar)|(?:usar|utilizar|sacar|aplicar).*fgts)\b/i, allowedStages: new Set(["envio_docs", "finalizacao_processo"]) },
-  { topic: "entrada_valor", pattern: /\b(entrada\s+(?:de|fica|seria?|vai)\s+(?:r\$|reais|\d)|(?:r\$|reais)\s*\d+.*entrada)\b/i, allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente"]) },
-  { topic: "consultoria_prematura", pattern: /\b(simul(?:acao|ação)|(?:qual|quanto)\s+(?:fica|seria|custa|vale)\s+(?:o\s+)?(?:imovel|imóvel|ap(?:artamento|ê)?|casa))\b/i, allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente", "agendamento_visita"]) }
+  {
+    topic: "valor_parcela",
+    // Detecta menções concretas a valor de parcela (ex: "parcela fica em R$800", "R$1200 a parcela")
+    pattern: /\b(parcela[\s\w]+(r\$|reais|\d)|(r\$|reais)\s*\d+.*parcela|parcela\s*(mensal|fixa))/i,
+    allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente"])
+  },
+  {
+    topic: "fgts_antecipacao",
+    pattern: /\b(fgts.*(?:usar|utilizar|sacar|aplicar)|(?:usar|utilizar|sacar|aplicar).*fgts)\b/i,
+    allowedStages: new Set(["envio_docs", "finalizacao_processo"])
+  },
+  {
+    topic: "entrada_valor",
+    pattern: /\b(entrada[\s\w]+(r\$|reais|\d)|(r\$|reais)\s*\d+.*entrada)\b/i,
+    allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente"])
+  },
+  {
+    topic: "consultoria_prematura",
+    pattern: /\b(simul(?:acao|ação)|(?:qual|quanto)\s+(?:fica|seria|custa|vale)\s+(?:o\s+)?(?:imovel|imóvel|ap(?:artamento|ê)?|casa))\b/i,
+    allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente", "agendamento_visita"])
+  }
 ]);
 
 function _checkInformativeOutOfTurn(normalizedReply, currentStage) {

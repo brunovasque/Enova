@@ -682,7 +682,8 @@ export function buildStageContract({ stage, state = {}, bucket = null } = {}) {
     brief_answer_allowed: meta?.brief_answer_allowed || false,
 
     // ── Recuperação e fallback ──
-    return_to_stage_prompt: meta?.return_to_stage_prompt || "Vamos continuar de onde paramos 😊",
+    // PR6 FIX 4: Usar prompt ancorado no stage, não "vamos continuar de onde paramos"
+    return_to_stage_prompt: meta?.return_to_stage_prompt || (meta?.canonical_prompt ? meta.canonical_prompt : "Pode continuar 😊"),
     fallback_prompt: meta?.fallback_prompt || "Pode continuar 😊",
 
     // ── Sinais permitidos (do ALLOWED_SIGNAL_PREFIXES existente) ──
@@ -1109,16 +1110,18 @@ const _MAX_SHORT_ANSWER_LENGTH = 50; // Acima disso, não é resposta curta
 const _MAX_UNKNOWN_SHORT_LENGTH = 15; // Até esse tamanho, classifica como "unknown_short"
 
 const _SHORT_ANSWER_PATTERNS = Object.freeze({
-  affirmative: /^(sim|ss|sii|isso|exato|exatamente|com certeza|claro|ok|pode ser|positivo|uhum|aham|afirmativo|isso mesmo|e isso|eh|isso ai|e sim|sim sim|bora|vamo|vamos)$/i,
-  negative: /^(nao|não|n|nn|nope|negativo|nunca|nem|nada|de jeito nenhum|não não|nao nao)$/i,
-  clt: /^(clt|carteira\s*assinada|registrad[oa]|empregad[oa])$/i,
-  autonomo: /^(autonomo|autônomo|autonoma|autônoma|pj|mei|liberal|conta\s*propria|conta\s*própria)$/i,
-  servidor: /^(servidor|servidora|servidor\s*publico|servidor\s*público|concursad[oa]|funcionari[oa]|funcionári[oa])$/i,
-  aposentado: /^(aposentad[oa]|pensionista|inss|beneficio|benefício)$/i,
-  fixo: /^(fixo|fixa|salario\s*fixo|salário\s*fixo)$/i,
+  affirmative: /^(sim|ss|sii|isso|exato|exatamente|com certeza|claro|ok|pode ser|positivo|uhum|aham|afirmativo|isso mesmo|e isso|eh|isso ai|e sim|sim sim|bora|vamo|vamos|sim,? esta corret[oa]|sim,? esta certo|correto|correta|esta certo|esta correta|certo|certinho|certinha|esta sim|e isso mesmo)$/i,
+  // Note: text is NFD-normalized before matching, so accented forms (não→nao, só→so) are implicit
+  negative: /^(nao|n|nn|nope|negativo|nunca|nem|nada|de jeito nenhum|nao nao|nao tenho|nao tenho dependentes?|nao tenho nenhum|nenhum|nenhuma|nao possuo)$/i,
+  negative_solo: /^(s[oó]\s*(a\s*)?minha|s[oó]\s*eu|somente\s*eu|sozinh[oa]|nao\s*vou\s*somar|nao,?\s*s[oó]\s*(um|uma)\s*mesmo|s[oó]\s*(um|uma)\s*mesmo|nao,?\s*s[oó]\s*eu|somente\s*eu\s*mesm[oa])$/i,
+  clt: /^(clt|carteira\s*assinada|registrad[oa]|empregad[oa]|somente\s*(com\s*)?clt|s[oó]\s*(com\s*)?clt)$/i,
+  autonomo: /^(autonomo|autonoma|pj|mei|liberal|conta\s*propria)$/i,
+  servidor: /^(servidor|servidora|servidor\s*publico|concursad[oa]|funcionari[oa])$/i,
+  aposentado: /^(aposentad[oa]|pensionista|inss|beneficio)$/i,
+  fixo: /^(fixo|fixa|salario\s*fixo|renda\s*fixa)$/i,
   numeric_value: /^r?\$?\s*\d[\d.,]*$/,
-  already_know: /^(ja\s*conh|já\s*conh|ja\s*sei|já\s*sei|sei\s*sim|conheço|conheço\s*sim|to\s*por\s*dentro|tô\s*por\s*dentro|ja\s*conheço|já\s*conheço)/i,
-  civil_status: /^(solteir[oa]|casad[oa]|divorc|separad[oa]|viuv[oa]|viúv[oa]|uni[aã]o\s*(est[aá]vel)?|amasiado|juntad[oa])$/i
+  already_know: /^(ja\s*conh|ja\s*sei|sei\s*sim|conheco|conheco\s*sim|to\s*por\s*dentro|ja\s*conheco)/i,
+  civil_status: /^(solteir[oa]|casad[oa]|divorc|separad[oa]|viuv[oa]|uniao\s*(estavel)?|amasiado|juntad[oa])$/i
 });
 
 /**
@@ -1183,6 +1186,14 @@ const _INFORMATIVE_OUT_OF_TURN_PATTERNS = Object.freeze([
     topic: "consultoria_prematura",
     pattern: /\b(simul(?:acao|ação)|(?:qual|quanto)\s+(?:fica|seria|custa|vale)\s+(?:o\s+)?(?:imovel|imóvel|ap(?:artamento|ê)?|casa))\b/i,
     allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente", "agendamento_visita"])
+  },
+  {
+    // PR6 FIX 3: Bloquear consultoria prematura gerada pelo LLM durante stages de coleta.
+    // Padrões reais observados: "posso te ajudar a entender melhor", "quer saber como isso influencia",
+    // "posso te mostrar", "quer conversar sobre isso", "vou te explicar como funciona".
+    topic: "consultoria_prematura",
+    pattern: /\b(posso te (?:ajudar|mostrar|explicar)|quer (?:saber|conversar|entender)|vou te (?:explicar|mostrar|ajudar)|quer que eu (?:explique|mostre|ajude)|te (?:ajudo|explico|mostro) (?:como|melhor|isso))\b/i,
+    allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente", "agendamento_visita", "envio_docs", "inicio_programa"])
   }
 ]);
 

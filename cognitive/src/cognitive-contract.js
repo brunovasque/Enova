@@ -239,6 +239,271 @@ export function getAllowedSignalsForStage(stage) {
   return ALLOWED_SIGNAL_PREFIXES[stage] || [];
 }
 
+// ── Stage Contract: contrato cognitivo-mecânico por stage ───────────────────
+// PR1 — Fundação do contrato entre camada mecânica e camada cognitiva.
+//
+// O mecânico permanece soberano em: stage, gate, parse, nextStage, regras, micro regras.
+// O cognitivo recebe este contrato estruturado e o usa como fonte de verdade
+// para formular a fala ao cliente (renderer futuro em PR2).
+//
+// STAGE_CONTRACT_METADATA: dados estáticos por stage derivados do mecânico existente.
+// buildStageContract(): monta o objeto de contrato no turno, usando dados do state + metadata.
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * STAGE_CONTRACT_METADATA — Metadados canônicos do contrato por stage.
+ *
+ * Campos:
+ *   expected_slot: slot que o mecânico espera coletar neste stage
+ *   allowed_topics_now: tópicos que o cognitivo pode abordar
+ *   forbidden_topics_now: tópicos que o cognitivo NÃO pode tocar
+ *   stage_micro_rules: regras finas do stage que o cognitivo deve respeitar
+ *   brief_answer_allowed: se o stage aceita resposta curta sim/não
+ *   canonical_prompt: prompt canônico que o mecânico usaria (fallback reference)
+ *   return_to_stage_prompt: frase para trazer o cliente de volta ao stage
+ *   fallback_prompt: frase de segurança se tudo falhar
+ *
+ * Derivados das regras mecânicas existentes (COGNITIVE_PLAYBOOK_V1, STAGE_GOALS,
+ * _MINIMAL_FALLBACK_SPEECH_MAP, ALLOWED_SIGNAL_PREFIXES). Nenhuma regra nova inventada.
+ */
+const STAGE_CONTRACT_METADATA = Object.freeze({
+  inicio_programa: {
+    expected_slot: null,
+    allowed_topics_now: ["apresentacao_programa", "duvida_mcmv", "duvida_fgts", "duvida_entrada", "duvida_renda_minima"],
+    forbidden_topics_now: ["coleta_nome", "coleta_estado_civil", "coleta_renda", "coleta_documentos", "valor_parcela", "valor_entrada", "aprovacao"],
+    stage_micro_rules: [
+      "Apresentar-se como Enova, assistente do MCMV",
+      "Perguntar se cliente já sabe como funciona ou quer explicação",
+      "NÃO iniciar coleta de dados neste stage",
+      "NÃO prometer aprovação ou valores",
+      "Variar tom de abertura — não repetir mesma saudação"
+    ],
+    brief_answer_allowed: false,
+    canonical_prompt: "Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Você já sabe como funciona ou prefere que eu explique rapidinho?",
+    return_to_stage_prompt: "Antes de continuar, você quer saber como funciona o programa ou já conhece?",
+    fallback_prompt: "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Você já sabe como funciona ou prefere que eu explique rapidinho?"
+  },
+  inicio_nome: {
+    expected_slot: "nome",
+    allowed_topics_now: ["coleta_nome", "duvida_nome", "resistencia_nome"],
+    forbidden_topics_now: ["coleta_estado_civil", "coleta_renda", "coleta_documentos", "valor_parcela", "aprovacao"],
+    stage_micro_rules: [
+      "Pedir nome COMPLETO do cliente",
+      "Se der só apelido/primeiro nome, pedir novamente o nome completo",
+      "NÃO pular para próximo stage sem nome"
+    ],
+    brief_answer_allowed: false,
+    canonical_prompt: "Pode me dizer seu nome completo?",
+    return_to_stage_prompt: "Preciso do seu nome completo pra seguir com a análise 😊",
+    fallback_prompt: "Pode me dizer seu nome completo? 😊"
+  },
+  inicio_nacionalidade: {
+    expected_slot: "nacionalidade",
+    allowed_topics_now: ["coleta_nacionalidade", "duvida_estrangeiro", "duvida_por_que_nacionalidade"],
+    forbidden_topics_now: ["coleta_renda", "coleta_documentos", "valor_parcela", "aprovacao"],
+    stage_micro_rules: [
+      "Perguntar se é brasileiro(a) nato(a)",
+      "Se estrangeiro, seguir para RNM",
+      "NÃO coletar outros dados aqui"
+    ],
+    brief_answer_allowed: true,
+    canonical_prompt: "Você é brasileiro(a) nato(a)?",
+    return_to_stage_prompt: "Preciso confirmar sua nacionalidade para seguir 😊",
+    fallback_prompt: "Você é brasileiro(a) nato(a)?"
+  },
+  estado_civil: {
+    expected_slot: "estado_civil",
+    allowed_topics_now: ["coleta_estado_civil", "duvida_composicao", "duvida_imovel_pre_analise"],
+    forbidden_topics_now: ["coleta_renda", "coleta_documentos", "valor_parcela", "aprovacao", "coleta_nome"],
+    stage_micro_rules: [
+      "Aceitar: solteiro, casado, união estável, divorciado, separado, viúvo",
+      "Se ambíguo, pedir esclarecimento",
+      "NÃO coletar renda ou documentos aqui"
+    ],
+    brief_answer_allowed: false,
+    canonical_prompt: "Me conta seu estado civil — solteiro(a), casado(a) ou outra situação?",
+    return_to_stage_prompt: "Ainda preciso saber seu estado civil pra continuar a análise 😊",
+    fallback_prompt: "Me conta seu estado civil — solteiro(a), casado(a) ou outra situação? 😊"
+  },
+  somar_renda_solteiro: {
+    expected_slot: "composicao",
+    allowed_topics_now: ["composicao_renda", "duvida_somar", "duvida_solo"],
+    forbidden_topics_now: ["coleta_documentos", "valor_parcela", "aprovacao", "coleta_nome", "coleta_estado_civil"],
+    stage_micro_rules: [
+      "Perguntar se vai somar renda com alguém ou seguir sozinho",
+      "Aceitar: sozinho, parceiro, familiar",
+      "NÃO decidir por conta própria"
+    ],
+    brief_answer_allowed: false,
+    canonical_prompt: "Sobre renda — vai somar com parceiro(a), familiar, ou segue sozinho(a)?",
+    return_to_stage_prompt: "Preciso saber se vai somar renda com alguém ou seguir sozinho(a) 😊",
+    fallback_prompt: "Sobre renda — vai somar com parceiro(a), familiar, ou segue sozinho(a)? 😊"
+  },
+  regime_trabalho: {
+    expected_slot: "regime_trabalho",
+    allowed_topics_now: ["coleta_regime", "duvida_regime"],
+    forbidden_topics_now: ["coleta_documentos", "valor_parcela", "aprovacao", "coleta_nome"],
+    stage_micro_rules: [
+      "Aceitar: CLT, autônomo, MEI, servidor público, aposentado",
+      "Se ambíguo, pedir esclarecimento",
+      "NÃO coletar valor de renda aqui"
+    ],
+    brief_answer_allowed: false,
+    canonical_prompt: "Qual é o seu regime de trabalho? CLT, autônomo, MEI, servidor ou aposentado?",
+    return_to_stage_prompt: "Preciso saber seu regime de trabalho pra seguir 😊",
+    fallback_prompt: "Qual é o seu regime de trabalho? CLT, autônomo, MEI, servidor ou aposentado?"
+  },
+  renda: {
+    expected_slot: "renda",
+    allowed_topics_now: ["coleta_renda", "duvida_valor_sem_analise"],
+    forbidden_topics_now: ["coleta_documentos", "valor_parcela", "aprovacao", "coleta_nome", "coleta_estado_civil"],
+    stage_micro_rules: [
+      "Coletar renda MENSAL bruta",
+      "Aceitar valor numérico",
+      "NÃO prometer aprovação com base na renda informada",
+      "NÃO antecipar faixa ou valor de parcela"
+    ],
+    brief_answer_allowed: false,
+    canonical_prompt: "Qual é a sua renda mensal bruta?",
+    return_to_stage_prompt: "Preciso saber sua renda mensal pra continuar a análise 😊",
+    fallback_prompt: "Qual é a sua renda mensal bruta?"
+  },
+  ir_declarado: {
+    expected_slot: "ir_declarado",
+    allowed_topics_now: ["coleta_ir", "duvida_ir"],
+    forbidden_topics_now: ["coleta_documentos", "valor_parcela", "aprovacao", "coleta_nome", "coleta_renda"],
+    stage_micro_rules: [
+      "Perguntar se declarou IR nos últimos 2 anos",
+      "Aceitar: sim ou não",
+      "NÃO julgar a resposta"
+    ],
+    brief_answer_allowed: true,
+    canonical_prompt: "Você declarou Imposto de Renda nos últimos 2 anos?",
+    return_to_stage_prompt: "Preciso saber se você declarou IR nos últimos 2 anos 😊",
+    fallback_prompt: "Você declarou Imposto de Renda nos últimos 2 anos? 😊"
+  },
+  dependente: {
+    expected_slot: "dependente",
+    allowed_topics_now: ["coleta_dependente", "duvida_o_que_e_dependente"],
+    forbidden_topics_now: ["coleta_documentos", "valor_parcela", "aprovacao", "coleta_renda"],
+    stage_micro_rules: [
+      "Perguntar se tem dependente (filho menor de idade, por exemplo)",
+      "Aceitar: sim ou não",
+      "NÃO expandir para outros temas"
+    ],
+    brief_answer_allowed: true,
+    canonical_prompt: "Tem algum dependente? Filho(a) menor de idade, por exemplo?",
+    return_to_stage_prompt: "Preciso saber se você tem dependentes pra continuar 😊",
+    fallback_prompt: "Tem algum dependente? Filho(a) menor de idade, por exemplo 😊"
+  },
+  restricao: {
+    expected_slot: "restricao",
+    allowed_topics_now: ["coleta_restricao", "duvida_barra"],
+    forbidden_topics_now: ["coleta_documentos", "valor_parcela", "aprovacao", "coleta_renda"],
+    stage_micro_rules: [
+      "Perguntar se tem restrição no CPF (SPC, Serasa)",
+      "Aceitar: sim ou não",
+      "Se sim, seguir para regularização"
+    ],
+    brief_answer_allowed: true,
+    canonical_prompt: "Existe alguma restrição no seu CPF? Pode ser SPC, Serasa ou similar.",
+    return_to_stage_prompt: "Preciso saber se existe alguma restrição no seu CPF 😊",
+    fallback_prompt: "Existe alguma restrição no seu CPF? Pode ser SPC, Serasa ou similar 😊"
+  },
+  envio_docs: {
+    expected_slot: null,
+    allowed_topics_now: ["orientacao_docs", "duvida_seguranca", "duvida_canal"],
+    forbidden_topics_now: ["coleta_renda", "coleta_estado_civil", "valor_parcela", "aprovacao"],
+    stage_micro_rules: [
+      "Orientar sobre envio de documentos para análise",
+      "NÃO prometer resultado",
+      "Responder dúvidas sobre segurança do envio"
+    ],
+    brief_answer_allowed: false,
+    canonical_prompt: "Agora preciso que envie os documentos pra análise.",
+    return_to_stage_prompt: "Pra seguir, preciso que envie os documentos solicitados 📎",
+    fallback_prompt: "Agora preciso que envie os documentos pra análise 📎😊"
+  }
+});
+
+/**
+ * buildStageContract — Monta o contrato cognitivo-mecânico do stage atual.
+ *
+ * O mecânico permanece soberano. Este contrato é READ-ONLY para o cognitivo:
+ * ele informa ao LLM o que o stage espera, o que é permitido, o que é proibido.
+ *
+ * @param {object} params
+ * @param {string} params.stage — Stage atual do mecânico (fase_conversa)
+ * @param {object} [params.state] — State snapshot do lead (para extrair slots conhecidos)
+ * @param {string} [params.bucket] — Bucket do topo (para inicio_programa)
+ * @returns {StageContract} Objeto de contrato imutável
+ */
+export function buildStageContract({ stage, state = {}, bucket = null } = {}) {
+  const safeStage = String(stage || "inicio");
+  const meta = STAGE_CONTRACT_METADATA[safeStage] || null;
+  const goal = getStageGoal(safeStage, bucket);
+  const allowedSignals = getAllowedSignalsForStage(safeStage);
+
+  return Object.freeze({
+    // ── Identificação do stage ──
+    stage_current: safeStage,
+    stage_goal: goal,
+
+    // ── Prompt canônico (referência mecânica) ──
+    canonical_prompt: meta?.canonical_prompt || goal,
+
+    // ── Slot esperado neste turno ──
+    expected_slot: meta?.expected_slot || null,
+
+    // ── Disciplina de tópicos ──
+    allowed_topics_now: meta?.allowed_topics_now || [],
+    forbidden_topics_now: meta?.forbidden_topics_now || [],
+
+    // ── Micro regras do stage ──
+    stage_micro_rules: meta?.stage_micro_rules || [],
+
+    // ── Regras de formato ──
+    brief_answer_allowed: meta?.brief_answer_allowed || false,
+
+    // ── Recuperação e fallback ──
+    return_to_stage_prompt: meta?.return_to_stage_prompt || "Vamos continuar de onde paramos 😊",
+    fallback_prompt: meta?.fallback_prompt || "Pode continuar 😊",
+
+    // ── Sinais permitidos (do ALLOWED_SIGNAL_PREFIXES existente) ──
+    allowed_signals: allowedSignals,
+
+    // ── Fonte de verdade ──
+    mechanical_source_of_truth: true,
+
+    // ── Versão do contrato (para evolução futura) ──
+    contract_version: "1.0.0"
+  });
+}
+
+/**
+ * buildStageContractTelemetrySummary — Versão resumida do contrato para telemetria.
+ *
+ * Retorna um objeto compacto e legível para log/telemetria sem poluir com arrays longos.
+ *
+ * @param {StageContract} contract — Contrato de stage construído por buildStageContract
+ * @returns {object} Resumo compacto do contrato
+ */
+export function buildStageContractTelemetrySummary(contract) {
+  if (!contract || typeof contract !== "object") {
+    return { contract_stage: null, contract_valid: false };
+  }
+  return {
+    contract_stage: contract.stage_current || null,
+    contract_expected_slot: contract.expected_slot || null,
+    contract_has_forbidden_topics: Array.isArray(contract.forbidden_topics_now) && contract.forbidden_topics_now.length > 0,
+    contract_brief_answer_allowed: contract.brief_answer_allowed === true,
+    contract_has_micro_rules: Array.isArray(contract.stage_micro_rules) && contract.stage_micro_rules.length > 0,
+    contract_version: contract.contract_version || null,
+    mechanical_source_of_truth: contract.mechanical_source_of_truth === true,
+    contract_valid: true
+  };
+}
+
 // ── Adapter: convert legacy adaptCognitiveV2Output → canonical output ──────
 
 /**

@@ -266,10 +266,9 @@ test("F3: mechanical_source_of_truth is always true", () => {
 });
 
 test("F4: parser not altered — worker does not change parseSignal patterns", () => {
-  // The worker's signal parsing (isStageSignalCompatible, adaptCognitiveV2Output signal mapping)
+  // The worker's signal parsing (adaptCognitiveV2Output signal mapping)
   // should remain unchanged. We verify by checking key known patterns still exist.
-  assert.ok(workerSrc.includes("estado_civil:" + " + String(entities.estado_civil)") ||
-            workerSrc.includes('estado_civil:" + String(entities.estado_civil)'),
+  assert.ok(workerSrc.includes('safeStageSignal = "estado_civil:" + String(entities.estado_civil)'),
     "estado_civil signal parsing must be unchanged");
   assert.ok(workerSrc.includes('safeStageSignal = "renda:" + String(entities.renda)'),
     "renda signal parsing must be unchanged");
@@ -280,11 +279,13 @@ test("F5: nextStage logic not altered — worker step cleanup still exists", () 
     "__stage_contract cleanup must remain in step() transient flags");
 });
 
-test("F6: persistence not altered — no new upsertState calls added", () => {
-  // Count upsertState occurrences: should not have increased from PR2 changes
-  // We just verify stage_contract is NOT persisted
-  assert.ok(!workerSrc.includes("upsertState") || !workerSrc.includes('stage_contract"'),
-    "stage_contract must NOT be persisted via upsertState");
+test("F6: persistence not altered — stage_contract is NOT persisted", () => {
+  // Verify stage_contract is never passed to upsertState
+  // stage_contract is ephemeral — set in __stage_contract, cleaned in step()
+  const lines = workerSrc.split("\n");
+  const upsertLines = lines.filter(l => l.includes("upsertState") && l.includes("stage_contract"));
+  assert.equal(upsertLines.length, 0,
+    "stage_contract must NOT appear in any upsertState call");
 });
 
 test("F7: gates not altered — worker gate checks unchanged", () => {

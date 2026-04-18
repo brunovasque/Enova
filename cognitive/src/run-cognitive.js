@@ -2857,6 +2857,15 @@ function buildNormativeContext(request, runtimeConfig) {
     : [];
 }
 
+/**
+ * buildOpenAISystemPrompt — Monta o system prompt para o LLM.
+ *
+ * @param {object|null} [stageContract] — Contrato cognitivo-mecânico do stage (PR2).
+ *   Quando presente, injeta disciplina de superfície: expected_slot, forbidden_topics,
+ *   micro_rules, brief_answer_allowed, return_to_stage_prompt. READ-ONLY e auxiliar —
+ *   o mecânico permanece soberano. Se null/undefined, prompt funciona sem disciplina extra.
+ * @returns {string} System prompt para o LLM
+ */
 function buildOpenAISystemPrompt(stageContract) {
   const baseRules = [
     "Você é a Enova, especialista consultiva no programa Minha Casa Minha Vida.",

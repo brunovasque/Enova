@@ -32,7 +32,9 @@ import {
   buildSeparationTelemetry,
   buildCognitiveInput,
   getStageGoal,
-  getAllowedSignalsForStage
+  getAllowedSignalsForStage,
+  buildStageContract,
+  buildStageContractTelemetrySummary
 } from "./cognitive/src/cognitive-contract.js";
 
 console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
@@ -280,12 +282,30 @@ async function step(env, st, messages, nextStage, options = {}) {
     });
   } catch (_stepSepErr) { /* telemetry must never break the flow */ }
 
+  // ── PR1: Telemetria do contrato cognitivo-mecânico ──
+  // Emite resumo compacto do contrato de stage para auditoria.
+  // Não altera fluxo, não persiste — apenas prova que o contrato foi montado.
+  try {
+    const _stageContract = st?.__stage_contract || null;
+    if (_stageContract) {
+      const _contractSummary = buildStageContractTelemetrySummary(_stageContract);
+      console.log(JSON.stringify({
+        type: "stage_contract_telemetry",
+        timestamp: new Date().toISOString(),
+        wa_id: st.wa_id || null,
+        stage: currentStage,
+        ..._contractSummary
+      }));
+    }
+  } catch (_contractTelErr) { /* telemetry must never break the flow */ }
+
   // limpa flags transitórias para não vazar para próximas respostas
   st.__cognitive_reply_prefix = null;
   st.__cognitive_v2_takes_final = false;
   st.__round_intent = null;
   st.__speech_arbiter_source = null;
   st.__render_path_used = null;
+  st.__stage_contract = null;
 
   // 🔥 AQUI: aplica modo humano SOMENTE se modo humano MANUAL legítimo do painel
   // (BLOCO F: modoHumanoRender não reescreve superfície cognitiva automática)
@@ -4649,6 +4669,20 @@ async function runCognitiveV2WithAdapter(env, stage, userText, st) {
     // nome: consolidado em memoria após inicio_nome; exposto ao LLM para personalização
     if (st.nome) knownSlots.nome = { value: st.nome };
 
+    // ── PR1: Contrato cognitivo-mecânico do stage ──
+    // Monta contrato estruturado ANTES da chamada ao LLM.
+    // O contrato é READ-ONLY para o cognitivo — fonte de verdade mecânica.
+    // Não altera stage, gate, nextStage, persistência. Apenas informa.
+    const _topoBucket = st?.__topo_bucket || null;
+    const stageContract = buildStageContract({
+      stage,
+      state: st,
+      bucket: _topoBucket
+    });
+    // Disponibiliza o contrato no state para uso em próximas PRs (renderer, arbiter).
+    // Ephemeral — limpo após step() junto com outros flags transitórios.
+    st.__stage_contract = stageContract;
+
     // ── PASSO 2: Caminho cognitivo canônico formalizado ──
     // Usa buildCognitiveInput para garantir shape canônico estável.
     // Worker monta contexto do stage → cognitivo recebe contrato formal.
@@ -4660,7 +4694,7 @@ async function runCognitiveV2WithAdapter(env, stage, userText, st) {
       message_text: String(userText || ""),
       known_slots: knownSlots,
       goal_of_current_stage: _stageGoal,
-      forbidden_topics_for_stage: [],
+      forbidden_topics_for_stage: stageContract.forbidden_topics_now,
       allowed_signals_for_stage: getAllowedSignalsForStage(stage),
       normative_context: [],
       recent_messages: []

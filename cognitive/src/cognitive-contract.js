@@ -507,6 +507,349 @@ export function buildStageContractTelemetrySummary(contract) {
   };
 }
 
+// ── PR3: Mechanical Arbiter — validação dura da superfície cognitiva ────────
+// Antes de mandar a resposta final do LLM para o cliente, valida se a resposta
+// respeita o stage mecânico atual. Se não respeitar, descarta ou corrige pela
+// via segura do próprio stage.
+//
+// SOBERANIA: mecânico real > stage contract > LLM (renderer).
+// Se metadata estático conflitar com mecânico real do turno, mecânico vence.
+// ────────────────────────────────────────────────────────────────────────────
+
+/**
+ * _normalizeForArbiter — Normaliza texto para comparação no arbiter.
+ * Remove acentos, lowercase, trim.
+ * @param {string} text
+ * @returns {string}
+ */
+function _normalizeForArbiter(text) {
+  return String(text || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * _checkForbiddenTopics — Verifica se reply_text toca em tópico proibido.
+ *
+ * Usa os forbidden_topics_now do contrato. Mapeamento semântico simples:
+ * cada tópico proibido é testado contra keywords derivadas do próprio nome.
+ *
+ * @param {string} normalizedReply — Reply normalizado
+ * @param {string[]} forbiddenTopics — Lista de tópicos proibidos do contrato
+ * @returns {{ blocked: boolean, topic: string|null }}
+ */
+const _FORBIDDEN_TOPIC_KEYWORDS = Object.freeze({
+  coleta_nome: /\b(qual\s+(?:e\s+)?(?:o\s+)?seu\s+nome|me\s+diz\s+(?:o\s+)?seu\s+nome|nome\s+completo)\b/,
+  coleta_estado_civil: /\b(estado\s+civil|casad[oa]|solteir[oa]|uniao\s+estavel|divorc)/,
+  coleta_renda: /\b(sua\s+renda|renda\s+mensal|quanto\s+(?:voce\s+)?ganha|valor.*renda|renda.*valor)/,
+  coleta_documentos: /\b(envie?\s+(?:os?\s+)?doc|mande?\s+(?:os?\s+)?doc|documentos?\s+(?:necessario|precis))/,
+  valor_parcela: /\b(parcela\s+(?:de|sera|vai)|valor\s+(?:da\s+)?parcela|sua\s+parcela)/,
+  valor_entrada: /\b(entrada\s+(?:de|sera|vai)|valor\s+(?:da\s+)?entrada|sua\s+entrada)/,
+  aprovacao: /\b(aprovad[oa]|aprovacao|vai\s+ser\s+aprovad|sera\s+aprovad|garantia.*aprovacao)/
+});
+
+function _checkForbiddenTopics(normalizedReply, forbiddenTopics) {
+  if (!normalizedReply || !Array.isArray(forbiddenTopics) || forbiddenTopics.length === 0) {
+    return { blocked: false, topic: null };
+  }
+  for (const topic of forbiddenTopics) {
+    const topicKey = _normalizeForArbiter(topic);
+    const pattern = _FORBIDDEN_TOPIC_KEYWORDS[topicKey];
+    if (pattern && pattern.test(normalizedReply)) {
+      return { blocked: true, topic };
+    }
+  }
+  return { blocked: false, topic: null };
+}
+
+/**
+ * _checkSlotMismatch — Verifica se o LLM está coletando slot errado.
+ *
+ * Se o stage espera um expected_slot específico e o cognitivo detectou
+ * slots de outro stage, é mismatch.
+ *
+ * @param {string|null} expectedSlot — Slot esperado pelo contrato
+ * @param {object} slotsDetected — Slots detectados pelo cognitivo { name: { value } }
+ * @returns {{ blocked: boolean, wrongSlot: string|null }}
+ */
+function _checkSlotMismatch(expectedSlot, slotsDetected) {
+  if (!expectedSlot || !slotsDetected || typeof slotsDetected !== "object") {
+    return { blocked: false, wrongSlot: null };
+  }
+  const detectedKeys = Object.keys(slotsDetected);
+  if (detectedKeys.length === 0) return { blocked: false, wrongSlot: null };
+
+  // Se algum slot detectado NÃO é o esperado E é diferente do esperado, mismatch
+  for (const key of detectedKeys) {
+    if (key !== expectedSlot) {
+      return { blocked: true, wrongSlot: key };
+    }
+  }
+  return { blocked: false, wrongSlot: null };
+}
+
+/**
+ * _checkStageDrift — Verifica se a reply está puxando assunto de outro stage.
+ *
+ * Usa allowed_topics_now como whitelist. Se a resposta contém padrões fortes
+ * de outro domínio (renda quando está em estado_civil, docs quando está em renda, etc.),
+ * marca como drift.
+ *
+ * Conservador: só bloqueia padrões fortes e inequívocos.
+ *
+ * @param {string} normalizedReply
+ * @param {string} currentStage
+ * @param {string|null} expectedSlot
+ * @returns {{ blocked: boolean, driftTarget: string|null }}
+ */
+const _STAGE_DRIFT_PATTERNS = Object.freeze([
+  { target: "coleta_renda", pattern: /\b(qual\s+(?:e\s+)?(?:a\s+)?sua\s+renda|renda\s+mensal|quanto\s+(?:voce\s+)?ganha)\b/, excludeStages: new Set(["renda", "renda_parceiro", "renda_familiar_valor", "renda_parceiro_familiar", "renda_parceiro_familiar_p3", "possui_renda_extra"]) },
+  { target: "coleta_documentos", pattern: /\b(envie?\s+(?:os?\s+)?doc|mande?\s+(?:os?\s+)?doc|preciso\s+(?:dos?\s+)?(?:seus?\s+)?doc)\b/, excludeStages: new Set(["envio_docs"]) },
+  { target: "coleta_estado_civil", pattern: /\b(qual\s+(?:e\s+)?(?:o\s+)?seu\s+estado\s+civil|(?:voce\s+)?e\s+casad[oa]\s+ou\s+solteir[oa])\b/, excludeStages: new Set(["estado_civil", "confirmar_casamento"]) },
+  { target: "coleta_regime", pattern: /\b(qual\s+(?:e\s+)?(?:o\s+)?seu\s+regime\s+(?:de\s+)?trabalho|(?:voce\s+)?e\s+clt\s+ou\s+autonomo)\b/, excludeStages: new Set(["regime_trabalho", "regime_trabalho_parceiro", "regime_trabalho_parceiro_familiar", "regime_trabalho_parceiro_familiar_p3"]) },
+  { target: "coleta_visita", pattern: /\b(agendar\s+(?:uma?\s+)?visita|quer\s+(?:agendar|marcar)\s+(?:uma?\s+)?visita)\b/, excludeStages: new Set(["agendamento_visita", "visita_confirmada"]) }
+]);
+
+function _checkStageDrift(normalizedReply, currentStage, expectedSlot) {
+  if (!normalizedReply || !currentStage) return { blocked: false, driftTarget: null };
+  const stage = _normalizeForArbiter(currentStage);
+
+  for (const drift of _STAGE_DRIFT_PATTERNS) {
+    if (drift.excludeStages.has(stage)) continue;
+    if (drift.pattern.test(normalizedReply)) {
+      return { blocked: true, driftTarget: drift.target };
+    }
+  }
+  return { blocked: false, driftTarget: null };
+}
+
+/**
+ * _checkBriefAnswerViolation — Verifica se resposta de stage sim/não é longa demais.
+ *
+ * Se brief_answer_allowed === true e a resposta é muito longa (>300 chars)
+ * e contém elaboração excessiva (>2 frases), marca como violação.
+ *
+ * @param {boolean} briefAnswerAllowed
+ * @param {string} replyText
+ * @returns {{ blocked: boolean }}
+ */
+function _checkBriefAnswerViolation(briefAnswerAllowed, replyText) {
+  if (!briefAnswerAllowed) return { blocked: false };
+  const text = String(replyText || "").trim();
+  if (text.length <= 300) return { blocked: false };
+  // Conta frases (pontos finais, exclamações, interrogações)
+  const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 10);
+  if (sentences.length <= 2) return { blocked: false };
+  return { blocked: true };
+}
+
+/**
+ * _checkRepetitionReopen — Verifica se a resposta reabre pergunta já respondida.
+ *
+ * Se o mecânico já tem sinal suficiente para o slot esperado no turno
+ * (slot já existe em known_slots) e a reply está perguntando de novo.
+ *
+ * @param {string} normalizedReply
+ * @param {string|null} expectedSlot
+ * @param {object} knownSlots — Slots já coletados
+ * @param {string|null} canonicalPrompt — Prompt canônico do stage
+ * @returns {{ blocked: boolean }}
+ */
+function _checkRepetitionReopen(normalizedReply, expectedSlot, knownSlots, canonicalPrompt) {
+  if (!expectedSlot || !knownSlots || typeof knownSlots !== "object") {
+    return { blocked: false };
+  }
+  // Se o slot esperado já está coletado e a reply faz a mesma pergunta canônica
+  const slotValue = knownSlots[expectedSlot];
+  if (!slotValue || (typeof slotValue === "object" && !slotValue.value)) {
+    return { blocked: false };
+  }
+  // Se a reply contém a mesma pergunta canônica, está reabrindo
+  if (canonicalPrompt) {
+    const normCanonical = _normalizeForArbiter(canonicalPrompt);
+    if (normCanonical && normalizedReply.includes(normCanonical.slice(0, 40))) {
+      return { blocked: true };
+    }
+  }
+  return { blocked: false };
+}
+
+/**
+ * arbitrateCognitiveSurface — Árbitro final duro da superfície cognitiva (PR3).
+ *
+ * Valida se a resposta do LLM respeita o stage mecânico atual.
+ * Se respeitar, segue. Se não, descarta ou corrige pela via segura.
+ *
+ * SOBERANIA: mecânico real > stage contract > LLM (renderer).
+ *
+ * @param {object} params
+ * @param {string} params.currentStage — Stage atual do mecânico
+ * @param {object|null} params.stageContract — Contrato cognitivo-mecânico (buildStageContract)
+ * @param {string} params.canonicalPrompt — Prompt canônico do stage (fallback reference)
+ * @param {string} params.replyText — Texto de resposta do LLM
+ * @param {object} params.slotsDetected — Slots detectados pelo cognitivo
+ * @param {string|null} params.intent — Intent detectado pelo cognitivo
+ * @param {number} params.confidence — Confiança do cognitivo [0,1]
+ * @param {object} params.knownSlots — Slots já coletados (state atual)
+ * @param {string} params.speechOrigin — Origem da fala: "llm_real" | "heuristic_guidance" | etc.
+ * @returns {ArbitrationDecision} Decisão explícita do árbitro
+ */
+export function arbitrateCognitiveSurface({
+  currentStage = "",
+  stageContract = null,
+  canonicalPrompt = "",
+  replyText = "",
+  slotsDetected = {},
+  intent = null,
+  confidence = 0,
+  knownSlots = {},
+  speechOrigin = "fallback_mechanical"
+} = {}) {
+  const stage = String(currentStage || "");
+  const contract = stageContract && typeof stageContract === "object" ? stageContract : null;
+  const normalizedReply = _normalizeForArbiter(replyText);
+  const guardrails = [];
+
+  // ── Se não há contrato OU não é llm_real, não arbitrar — passthrough ──
+  // Só arbitramos a fala quando é LLM real que pode ter fugido do escopo.
+  // Heurística e fallback mecânico já são controlados pelo worker.
+  if (!contract || speechOrigin !== "llm_real") {
+    return Object.freeze({
+      valid: true,
+      reason_code: "no_arbitration_needed",
+      chosen_surface: replyText,
+      source: speechOrigin || "mechanical_fallback",
+      used_contract_guardrails: [],
+      arbitration_triggered: false,
+      arbitration_details: {}
+    });
+  }
+
+  const expectedSlot = contract.expected_slot || null;
+  const forbiddenTopics = contract.forbidden_topics_now || [];
+  const briefAnswerAllowed = contract.brief_answer_allowed === true;
+  const returnToStagePrompt = contract.return_to_stage_prompt || "";
+  const fallbackPrompt = contract.fallback_prompt || "Pode continuar 😊";
+  const contractCanonicalPrompt = contract.canonical_prompt || canonicalPrompt || "";
+
+  // ── A. Fuga de tópico proibido ──
+  const forbiddenCheck = _checkForbiddenTopics(normalizedReply, forbiddenTopics);
+  if (forbiddenCheck.blocked) {
+    guardrails.push("forbidden_topic:" + forbiddenCheck.topic);
+    return Object.freeze({
+      valid: false,
+      reason_code: "forbidden_topic_violation",
+      chosen_surface: fallbackPrompt,
+      source: "contract_fallback",
+      used_contract_guardrails: guardrails,
+      arbitration_triggered: true,
+      arbitration_details: {
+        blocked_forbidden_topic: forbiddenCheck.topic,
+        expected_slot: expectedSlot,
+        stage: stage
+      }
+    });
+  }
+
+  // ── B. Coleta de slot errado ──
+  const slotCheck = _checkSlotMismatch(expectedSlot, slotsDetected);
+  if (slotCheck.blocked) {
+    guardrails.push("slot_mismatch:" + slotCheck.wrongSlot);
+    return Object.freeze({
+      valid: false,
+      reason_code: "slot_mismatch",
+      chosen_surface: returnToStagePrompt || fallbackPrompt,
+      source: "contract_reanchor",
+      used_contract_guardrails: guardrails,
+      arbitration_triggered: true,
+      arbitration_details: {
+        expected_slot: expectedSlot,
+        wrong_slot_detected: slotCheck.wrongSlot,
+        stage: stage
+      }
+    });
+  }
+
+  // ── C. Deriva de stage ──
+  const driftCheck = _checkStageDrift(normalizedReply, stage, expectedSlot);
+  if (driftCheck.blocked) {
+    guardrails.push("stage_drift:" + driftCheck.driftTarget);
+    return Object.freeze({
+      valid: false,
+      reason_code: "stage_drift",
+      chosen_surface: returnToStagePrompt || fallbackPrompt,
+      source: "contract_reanchor",
+      used_contract_guardrails: guardrails,
+      arbitration_triggered: true,
+      arbitration_details: {
+        drift_target: driftCheck.driftTarget,
+        expected_slot: expectedSlot,
+        stage: stage
+      }
+    });
+  }
+
+  // ── D. Repetição burra / reabertura indevida ──
+  const repetitionCheck = _checkRepetitionReopen(
+    normalizedReply, expectedSlot, knownSlots, contractCanonicalPrompt
+  );
+  if (repetitionCheck.blocked) {
+    guardrails.push("repetition_reopen");
+    return Object.freeze({
+      valid: false,
+      reason_code: "repetition_reopen",
+      chosen_surface: returnToStagePrompt || fallbackPrompt,
+      source: "contract_reanchor",
+      used_contract_guardrails: guardrails,
+      arbitration_triggered: true,
+      arbitration_details: {
+        expected_slot: expectedSlot,
+        slot_already_collected: true,
+        stage: stage
+      }
+    });
+  }
+
+  // ── E. Violação de brief_answer_allowed ──
+  const briefCheck = _checkBriefAnswerViolation(briefAnswerAllowed, replyText);
+  if (briefCheck.blocked) {
+    guardrails.push("brief_answer_violation");
+    // Reancorar em vez de bloquear completamente — usar return_to_stage_prompt
+    return Object.freeze({
+      valid: false,
+      reason_code: "brief_answer_violation",
+      chosen_surface: returnToStagePrompt || contractCanonicalPrompt || fallbackPrompt,
+      source: "contract_reanchor",
+      used_contract_guardrails: guardrails,
+      arbitration_triggered: true,
+      arbitration_details: {
+        brief_answer_allowed: true,
+        reply_length: String(replyText || "").length,
+        expected_slot: expectedSlot,
+        stage: stage
+      }
+    });
+  }
+
+  // ── Todos os checks passaram — superfície LLM é válida ──
+  return Object.freeze({
+    valid: true,
+    reason_code: "all_checks_passed",
+    chosen_surface: replyText,
+    source: "llm_real",
+    used_contract_guardrails: [],
+    arbitration_triggered: true,
+    arbitration_details: {
+      stage: stage,
+      expected_slot: expectedSlot,
+      checks_passed: ["forbidden_topics", "slot_mismatch", "stage_drift", "repetition", "brief_answer"]
+    }
+  });
+}
+
 // ── Adapter: convert legacy adaptCognitiveV2Output → canonical output ──────
 
 /**

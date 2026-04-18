@@ -34,7 +34,8 @@ import {
   getStageGoal,
   getAllowedSignalsForStage,
   buildStageContract,
-  buildStageContractTelemetrySummary
+  buildStageContractTelemetrySummary,
+  arbitrateCognitiveSurface
 } from "./cognitive/src/cognitive-contract.js";
 
 console.log("DEBUG-INIT-1: Worker carregou até o topo do arquivo");
@@ -24212,6 +24213,79 @@ async function runFunnel(env, st, userText) {
         // Se não é LLM real, limpa prefix — heurística não produz fala final
         if (!v2OnWithLlm) {
           st.__cognitive_reply_prefix = null;
+        }
+
+        // ── PR3: MECHANICAL ARBITER — validação dura da superfície cognitiva ──
+        // Antes de enviar a fala do LLM ao cliente, valida contra o stage mecânico.
+        // SOBERANIA: mecânico real > stage contract > LLM.
+        // Só atua quando speech_origin é "llm_real" e contrato existe.
+        let _arbiterDecision = null;
+        if (st.__cognitive_v2_takes_final && st.__stage_contract) {
+          try {
+            const _knownSlotsForArbiter = {};
+            if (st.estado_civil) _knownSlotsForArbiter.estado_civil = { value: st.estado_civil };
+            if (st.somar_renda != null) _knownSlotsForArbiter.composicao = { value: st.somar_renda };
+            if (st.renda) _knownSlotsForArbiter.renda = { value: st.renda };
+            if (st.regime) _knownSlotsForArbiter.regime_trabalho = { value: st.regime };
+            if (st.nome) _knownSlotsForArbiter.nome = { value: st.nome };
+
+            _arbiterDecision = arbitrateCognitiveSurface({
+              currentStage: stage,
+              stageContract: st.__stage_contract,
+              canonicalPrompt: st.__stage_contract.canonical_prompt || "",
+              replyText: cognitiveReply,
+              slotsDetected: cognitive.entities || {},
+              intent: cognitive.intent || null,
+              confidence: _canonicalConfidence,
+              knownSlots: _knownSlotsForArbiter,
+              speechOrigin: "llm_real"
+            });
+
+            if (_arbiterDecision && !_arbiterDecision.valid) {
+              // Arbiter blocked the LLM surface — use contract safe surface
+              st.__cognitive_reply_prefix = _arbiterDecision.chosen_surface || st.__stage_contract.fallback_prompt || null;
+              st.__speech_arbiter_source = _arbiterDecision.source || "contract_fallback";
+              // If source is not llm_real, takes_final depends on whether we have a usable reanchor
+              if (_arbiterDecision.source === "contract_reanchor" || _arbiterDecision.source === "contract_fallback") {
+                // Reanchor/fallback surfaces are mechanical-safe, can be sent as final
+                st.__cognitive_v2_takes_final = Boolean(st.__cognitive_reply_prefix);
+              } else {
+                st.__cognitive_v2_takes_final = false;
+                st.__cognitive_reply_prefix = null;
+              }
+            }
+
+            // ── PR3: Arbiter telemetry ──
+            try {
+              console.log(JSON.stringify({
+                type: "cognitive_arbiter_telemetry",
+                timestamp: new Date().toISOString(),
+                wa_id: st.wa_id || null,
+                arbitration_triggered: _arbiterDecision?.arbitration_triggered || false,
+                arbitration_valid: _arbiterDecision?.valid ?? null,
+                arbitration_reason: _arbiterDecision?.reason_code || null,
+                arbitration_source_final: _arbiterDecision?.source || null,
+                arbitration_stage: stage,
+                arbitration_expected_slot: _arbiterDecision?.arbitration_details?.expected_slot || null,
+                arbitration_blocked_forbidden_topic: _arbiterDecision?.arbitration_details?.blocked_forbidden_topic || null,
+                arbitration_blocked_slot_mismatch: _arbiterDecision?.arbitration_details?.wrong_slot_detected || null,
+                arbitration_guardrails_used: _arbiterDecision?.used_contract_guardrails || [],
+                arbitration_details: _arbiterDecision?.arbitration_details || {}
+              }));
+            } catch (_arbTelErr) { /* telemetry must never break the flow */ }
+          } catch (_arbErr) {
+            console.error("COGNITIVE_ARBITER_ERROR:", _arbErr);
+            // On arbiter error, conservative: let LLM reply through (already validated by other guards)
+          }
+        }
+
+        // ── PR3: Inject arbiter decision into telemetry details ──
+        if (_arbiterDecision) {
+          telemetryDetails.pr3_arbiter_triggered = _arbiterDecision.arbitration_triggered || false;
+          telemetryDetails.pr3_arbiter_valid = _arbiterDecision.valid ?? null;
+          telemetryDetails.pr3_arbiter_reason = _arbiterDecision.reason_code || null;
+          telemetryDetails.pr3_arbiter_source = _arbiterDecision.source || null;
+          telemetryDetails.pr3_arbiter_guardrails = _arbiterDecision.used_contract_guardrails || [];
         }
 
         // ── SIGNAL VALIDATION GUARD ──────────────────────────────────

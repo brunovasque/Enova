@@ -207,6 +207,26 @@ async function step(env, st, messages, nextStage, options = {}) {
   // O mecânico permanece soberano em stage/gate/nextStage/persistência.
   const arr = renderCognitiveSpeech(st, currentStage, rawArr.filter(Boolean));
 
+  // ── PR6 FIX 5: Fallback obrigatório — nunca silêncio ──
+  // Se por qualquer razão arr ficou vazio ou sem conteúdo útil,
+  // inserir fallback seguro ancorado no stage para garantir resposta.
+  if (!arr || !arr.length || arr.every(m => !m || !String(m).trim())) {
+    const _stageFallback = _MINIMAL_FALLBACK_SPEECH_MAP.get(currentStage) || "Pode continuar 😊";
+    arr.length = 0;
+    arr.push(_stageFallback);
+    st.__speech_arbiter_source = "mandatory_fallback";
+    st.__render_path_used = "mandatory_fallback";
+    try {
+      console.log(JSON.stringify({
+        type: "pr6_mandatory_fallback_triggered",
+        timestamp: new Date().toISOString(),
+        wa_id: st.wa_id || null,
+        stage: currentStage,
+        reason: "empty_arr_after_render"
+      }));
+    } catch (_) { /* telemetry must never break the flow */ }
+  }
+
   // ── BLOCO D: Blindagem pós-LLM ──
   // Depois que o árbitro soberano decidiu a fala, nenhum helper pode reescrever
   // a semântica. Apenas guardrail mínimo estrito é permitido.
@@ -3734,6 +3754,8 @@ function hasClearStageAnswer(stage, text) {
   }
   if (stage === "inicio_nacionalidade") {
     const nt = normalizeText(text);
+    // PR6 FIX 1: Aceitar "sim"/"não" além de respostas categóricas explícitas
+    if (isYes(nt) || isNo(nt)) return true;
     return /^(brasileiro|brasileira|estrangeiro|estrangeira|sou brasileiro|sou brasileira|sou estrangeiro|sou estrangeira|daqui mesmo|sou daqui mesmo|daqui|gringo|nao sou brasileiro|não sou brasileiro|nascido no brasil|nascida no brasil|nasci no brasil|brasileiro mesmo|brasileira mesmo|sou daqui)$/i.test(nt);
   }
   if (stage === "inicio_rnm") return isYes(text) || isNo(text);
@@ -20635,6 +20657,18 @@ function resolveInicioNacionalidadeStructured(rawText) {
       safe_stage_signal: "inicio_nacionalidade:estrangeiro", reply_text: null };
   }
 
+  // ── PR6 FIX 1: Normalizar "sim"/"não" para o shape que o stage aceita ──
+  // A surface pergunta "Você é brasileiro(a) nato(a)?" (sim/não implícito).
+  // O parser precisa aceitar "sim" → brasileiro, "não" → estrangeiro.
+  if (isYes(nt)) {
+    return { ...base, detected_answer: "brasileiro", confidence: 0.90, needs_confirmation: false,
+      safe_stage_signal: "inicio_nacionalidade:brasileiro", reply_text: null };
+  }
+  if (isNo(nt)) {
+    return { ...base, detected_answer: "estrangeiro", confidence: 0.90, needs_confirmation: false,
+      safe_stage_signal: "inicio_nacionalidade:estrangeiro", reply_text: null };
+  }
+
   // Dúvida sobre RNM → redirecionar sem divergir do stage
   if (/\b(rnm|registro nacional|registro migrat)\b/i.test(nt)) {
     return { ...base, detected_answer: "ambiguous", confidence: 0.30, needs_confirmation: true,
@@ -26688,6 +26722,12 @@ case "somar_renda_solteiro": {
   /\bapenas\s+eu\b/i.test(tBase) ||
   /\bsem\s+composic/i.test(tBase) ||
   /\bn[aã]o\s+vou\s+somar\b/i.test(t) ||
+  // PR6 FIX 2: Normalizar respostas naturais curtas como "não, só um mesmo",
+  // "só um mesmo", "somente eu mesmo" que indicam composição solo
+  /\bso\s+um\s*(mesmo|mesma)?\b/i.test(tBase) ||
+  /\bsomente\s+eu\s*(mesmo|mesma)?\b/i.test(tBase) ||
+  /\bninguem\b/i.test(tBase) ||
+  /\bsem\s+ninguem\b/i.test(tBase) ||
   isNo(tBase);
   
   const parceiro =
@@ -31699,7 +31739,7 @@ case "dependente": {
     isYes(txt) || /(sim|tenho|filho|filha|filhos|crian[cç]a|menor|dependente|dependentes)/i.test(txt);
 
   const nao =
-    isNo(txt) || /^(nao|não|nao tenho|não tenho|sem dependente|sem dependentes|só eu|somente eu|nenhum filho)$/i.test(String(txt || "").trim());
+    isNo(txt) || /^(nao|não|nao tenho|não tenho|sem dependente|sem dependentes|só eu|somente eu|nenhum filho|nao tenho dependente|não tenho dependente|nao tenho dependentes|não tenho dependentes|nao tenho nenhum|não tenho nenhum|nenhum|nenhuma|nao possuo|não possuo)$/i.test(String(txt || "").trim());
 
   const talvez =
     /(não sei|nao sei|talvez|acho|não lembro|nao lembro)/i.test(txt);

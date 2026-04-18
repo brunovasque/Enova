@@ -3488,9 +3488,18 @@ function normalizeModelResponse({
         suggestedNextSlot
       });
 
+  // ── PR6 FIX 5: Garantir que reply_text nunca é vazio ──
+  // Se por qualquer razão finalReplyText ficou vazio após todos os caminhos,
+  // usar fallback seguro baseado no heurístico ou prompt genérico.
+  const safeFinalReplyText = (finalReplyText && String(finalReplyText).trim().length > 0)
+    ? finalReplyText
+    : (heuristicResponse.reply_text && String(heuristicResponse.reply_text).trim().length > 0)
+      ? heuristicResponse.reply_text
+      : "Entendi, pode continuar que eu sigo com a análise do seu perfil 😊";
+
   return {
-    reply_text: finalReplyText,
-    speech_origin: speechOrigin,
+    reply_text: safeFinalReplyText,
+    speech_origin: (safeFinalReplyText !== finalReplyText) ? "fallback_mechanical" : speechOrigin,
     slots_detected: slotsDetected,
     pending_slots: pendingSlots,
     conflicts,

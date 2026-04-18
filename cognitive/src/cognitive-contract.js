@@ -682,7 +682,8 @@ export function buildStageContract({ stage, state = {}, bucket = null } = {}) {
     brief_answer_allowed: meta?.brief_answer_allowed || false,
 
     // ── Recuperação e fallback ──
-    return_to_stage_prompt: meta?.return_to_stage_prompt || "Vamos continuar de onde paramos 😊",
+    // PR6 FIX 4: Usar prompt ancorado no stage, não "vamos continuar de onde paramos"
+    return_to_stage_prompt: meta?.return_to_stage_prompt || (meta?.canonical_prompt ? meta.canonical_prompt : "Pode continuar 😊"),
     fallback_prompt: meta?.fallback_prompt || "Pode continuar 😊",
 
     // ── Sinais permitidos (do ALLOWED_SIGNAL_PREFIXES existente) ──
@@ -1109,13 +1110,14 @@ const _MAX_SHORT_ANSWER_LENGTH = 50; // Acima disso, não é resposta curta
 const _MAX_UNKNOWN_SHORT_LENGTH = 15; // Até esse tamanho, classifica como "unknown_short"
 
 const _SHORT_ANSWER_PATTERNS = Object.freeze({
-  affirmative: /^(sim|ss|sii|isso|exato|exatamente|com certeza|claro|ok|pode ser|positivo|uhum|aham|afirmativo|isso mesmo|e isso|eh|isso ai|e sim|sim sim|bora|vamo|vamos)$/i,
-  negative: /^(nao|não|n|nn|nope|negativo|nunca|nem|nada|de jeito nenhum|não não|nao nao)$/i,
-  clt: /^(clt|carteira\s*assinada|registrad[oa]|empregad[oa])$/i,
+  affirmative: /^(sim|ss|sii|isso|exato|exatamente|com certeza|claro|ok|pode ser|positivo|uhum|aham|afirmativo|isso mesmo|e isso|eh|isso ai|e sim|sim sim|bora|vamo|vamos|sim esta correta|sim esta correto|sim, esta correta|sim, esta correto|sim esta certo|correto|correta|esta certo|esta correta|certo|certinho|certinha|esta sim|e isso mesmo|isso mesmo)$/i,
+  negative: /^(nao|não|n|nn|nope|negativo|nunca|nem|nada|de jeito nenhum|não não|nao nao|nao tenho|não tenho|nao tenho dependente|não tenho dependente|nao tenho dependentes|não tenho dependentes|nao tenho nenhum|não tenho nenhum|nenhum|nenhuma|nao possuo|não possuo)$/i,
+  negative_solo: /^(so\s*(a\s*)?minha|só\s*(a\s*)?minha|so\s*eu|só\s*eu|somente\s*eu|sozinh[oa]|nao\s*vou\s*somar|não\s*vou\s*somar|nao,?\s*so\s*(um|uma)\s*mesmo|não,?\s*só\s*(um|uma)\s*mesmo|so\s*(um|uma)\s*mesmo|só\s*(um|uma)\s*mesmo|nao,?\s*so\s*eu|não,?\s*só\s*eu)$/i,
+  clt: /^(clt|carteira\s*assinada|registrad[oa]|empregad[oa]|somente\s*(com\s*)?clt|só\s*(com\s*)?clt|so\s*(com\s*)?clt)$/i,
   autonomo: /^(autonomo|autônomo|autonoma|autônoma|pj|mei|liberal|conta\s*propria|conta\s*própria)$/i,
   servidor: /^(servidor|servidora|servidor\s*publico|servidor\s*público|concursad[oa]|funcionari[oa]|funcionári[oa])$/i,
   aposentado: /^(aposentad[oa]|pensionista|inss|beneficio|benefício)$/i,
-  fixo: /^(fixo|fixa|salario\s*fixo|salário\s*fixo)$/i,
+  fixo: /^(fixo|fixa|salario\s*fixo|salário\s*fixo|renda\s*fixa)$/i,
   numeric_value: /^r?\$?\s*\d[\d.,]*$/,
   already_know: /^(ja\s*conh|já\s*conh|ja\s*sei|já\s*sei|sei\s*sim|conheço|conheço\s*sim|to\s*por\s*dentro|tô\s*por\s*dentro|ja\s*conheço|já\s*conheço)/i,
   civil_status: /^(solteir[oa]|casad[oa]|divorc|separad[oa]|viuv[oa]|viúv[oa]|uni[aã]o\s*(est[aá]vel)?|amasiado|juntad[oa])$/i
@@ -1183,6 +1185,14 @@ const _INFORMATIVE_OUT_OF_TURN_PATTERNS = Object.freeze([
     topic: "consultoria_prematura",
     pattern: /\b(simul(?:acao|ação)|(?:qual|quanto)\s+(?:fica|seria|custa|vale)\s+(?:o\s+)?(?:imovel|imóvel|ap(?:artamento|ê)?|casa))\b/i,
     allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente", "agendamento_visita"])
+  },
+  {
+    // PR6 FIX 3: Bloquear consultoria prematura gerada pelo LLM durante stages de coleta.
+    // Padrões reais observados: "posso te ajudar a entender melhor", "quer saber como isso influencia",
+    // "posso te mostrar", "quer conversar sobre isso", "vou te explicar como funciona".
+    topic: "consultoria_prematura",
+    pattern: /\b(posso te (?:ajudar|mostrar|explicar)|quer (?:saber|conversar|entender)|vou te (?:explicar|mostrar|ajudar)|quer que eu (?:explique|mostre|ajude)|te (?:ajudo|explico|mostro) (?:como|melhor|isso))\b/i,
+    allowedStages: new Set(["finalizacao_processo", "aguardando_retorno_correspondente", "agendamento_visita", "envio_docs", "inicio_programa"])
   }
 ]);
 

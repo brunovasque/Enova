@@ -428,6 +428,8 @@ function normalizeRequest(input = {}) {
   const pendingSlotsRaw = input?.pending_slots ?? context?.pending_slots;
   const recentMessagesRaw = input?.recent_messages ?? context?.recent_messages;
   const normativeContextRaw = input?.normative_context ?? context?.normative_context;
+  // PR2: stage_contract passado pelo worker via buildCognitiveInput
+  const stageContractRaw = input?.stage_contract ?? null;
   const normalized = {
     version: String(input?.version || "read_only_test_v1"),
     channel: String(input?.channel || "meta_whatsapp"),
@@ -463,7 +465,11 @@ function normalizeRequest(input = {}) {
             };
           })
           .filter(Boolean)
-      : []
+      : [],
+    // PR2: Contrato cognitivo-mecânico — READ-ONLY para o renderer
+    stage_contract: stageContractRaw && typeof stageContractRaw === "object"
+      ? cloneJson(stageContractRaw)
+      : null
   };
 
   return normalized;
@@ -2851,8 +2857,8 @@ function buildNormativeContext(request, runtimeConfig) {
     : [];
 }
 
-function buildOpenAISystemPrompt() {
-  return [
+function buildOpenAISystemPrompt(stageContract) {
+  const baseRules = [
     "Você é a Enova, especialista consultiva no programa Minha Casa Minha Vida.",
     "Converse em português do Brasil de forma humana, natural, consultiva e objetiva.",
     "Interprete respostas abertas, extraia slots úteis, sugira a próxima melhor pergunta e aponte ambiguidades.",
@@ -2864,7 +2870,44 @@ function buildOpenAISystemPrompt() {
     "Cada turno tem UM ÚNICO objetivo: ou explicar, ou perguntar, ou confirmar, ou reorientar — nunca misturar explicação com coleta de outro stage.",
     "O campo goal_of_current_stage define O QUE você precisa obter do cliente neste turno. Use-o como âncora de objetivo — nunca como texto literal a ser repetido. Reescreva sempre de forma humana, natural e conversacional. Varie o tom e a estrutura da pergunta a cada turno: às vezes direta, às vezes acolhedora, às vezes com contexto breve antes de perguntar. O cliente não pode perceber que existe um script.",
     "Você NÃO pode aprovar financiamento, NÃO pode alterar o stage oficial, NÃO pode inventar regra fora do contrato ou do contexto normativo recebido.",
-    "Você NÃO pode acionar produção, Meta, Supabase oficial ou qualquer side effect.",
+    "Você NÃO pode acionar produção, Meta, Supabase oficial ou qualquer side effect."
+  ];
+
+  // ── PR2: Disciplina de superfície via Stage Contract ──
+  // O contrato é READ-ONLY e auxiliar. O mecânico permanece soberano.
+  // Estas regras disciplinam a SUPERFÍCIE da fala, não o avanço do funil.
+  if (stageContract && typeof stageContract === "object") {
+    baseRules.push(
+      "STAGE CONTRACT (disciplina de superfície — mecânico é soberano):"
+    );
+    if (stageContract.expected_slot) {
+      baseRules.push(
+        `SLOT ESPERADO neste turno: "${stageContract.expected_slot}". Sua reply_text deve focar em coletar exatamente este dado. Não colete dados de outro slot.`
+      );
+    }
+    if (Array.isArray(stageContract.forbidden_topics_now) && stageContract.forbidden_topics_now.length > 0) {
+      baseRules.push(
+        `TÓPICOS PROIBIDOS neste stage: ${stageContract.forbidden_topics_now.join(", ")}. NÃO aborde nenhum desses assuntos na reply_text.`
+      );
+    }
+    if (Array.isArray(stageContract.stage_micro_rules) && stageContract.stage_micro_rules.length > 0) {
+      baseRules.push(
+        `MICRO REGRAS do stage: ${stageContract.stage_micro_rules.join("; ")}.`
+      );
+    }
+    if (stageContract.brief_answer_allowed === true) {
+      baseRules.push(
+        "RESPOSTA BREVE PERMITIDA: o cliente pode responder com sim/não. Aceite respostas curtas sem pedir elaboração desnecessária."
+      );
+    }
+    if (stageContract.return_to_stage_prompt) {
+      baseRules.push(
+        `SE O CLIENTE SAIR DO FOCO: use como referência de reancoragem — "${stageContract.return_to_stage_prompt}". Reescreva de forma natural, sem copiar literalmente.`
+      );
+    }
+  }
+
+  baseRules.push(
     "Responda APENAS JSON válido compatível com este contrato:",
     JSON.stringify({
       reply_text: "string",
@@ -2886,11 +2929,13 @@ function buildOpenAISystemPrompt() {
     }),
     "Se faltar sinal suficiente, mantenha slots_detected vazio e use reply_text consultivo com chamada para ação.",
     "Sempre preserve should_advance_stage=false."
-  ].join(" ");
+  );
+
+  return baseRules.join(" ");
 }
 
 function buildOpenAIUserPrompt(request, analysis, normativeContext) {
-  return JSON.stringify({
+  const payload = {
     task: "enova_cognitive_phase_3_read_only",
     request: {
       version: request.version,
@@ -2921,7 +2966,29 @@ function buildOpenAIUserPrompt(request, analysis, normativeContext) {
       offtrack: analysis.offtrack,
       ambiguous: analysis.ambiguous
     }
-  });
+  };
+
+  // ── PR2: Injetar contrato cognitivo-mecânico no user prompt ──
+  // Expõe ao LLM: stage_goal, canonical_prompt, expected_slot, forbidden_topics,
+  // micro_rules, brief_answer, return_to_stage, fallback. READ-ONLY, auxiliar.
+  // mechanical_source_of_truth = true: se houver conflito, mecânico vence.
+  const sc = request.stage_contract;
+  if (sc && typeof sc === "object") {
+    payload.stage_contract = {
+      stage_current: sc.stage_current || request.current_stage,
+      stage_goal: sc.stage_goal || request.goal_of_current_stage || null,
+      canonical_prompt: sc.canonical_prompt || null,
+      expected_slot: sc.expected_slot || null,
+      forbidden_topics_now: Array.isArray(sc.forbidden_topics_now) ? sc.forbidden_topics_now : [],
+      stage_micro_rules: Array.isArray(sc.stage_micro_rules) ? sc.stage_micro_rules : [],
+      brief_answer_allowed: sc.brief_answer_allowed === true,
+      return_to_stage_prompt: sc.return_to_stage_prompt || null,
+      fallback_prompt: sc.fallback_prompt || null,
+      mechanical_source_of_truth: true
+    };
+  }
+
+  return JSON.stringify(payload);
 }
 
 async function callOpenAIReadOnly(runtimeConfig, prompt) {
@@ -3375,7 +3442,7 @@ export async function runReadOnlyCognitiveEngine(rawInput = {}, options = {}) {
   const runtimeConfig = resolveRuntimeConfig(options);
   const normativeContext = buildNormativeContext(request, runtimeConfig);
   const prompt = {
-    system: buildOpenAISystemPrompt(),
+    system: buildOpenAISystemPrompt(request.stage_contract),
     user: buildOpenAIUserPrompt(request, analysis, normativeContext)
   };
   const llmResult = await callOpenAIReadOnly(runtimeConfig, prompt);

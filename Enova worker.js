@@ -4689,6 +4689,9 @@ async function runCognitiveV2WithAdapter(env, stage, userText, st) {
     // Bucket-aware goal: se __topo_bucket_override estiver setado, usa goal específico do bucket
     const _bucketOverride = st.__topo_bucket_goal_override || null;
     const _stageGoal = _bucketOverride || getStageGoal(stage);
+    // ── PR2: Passar contrato completo ao cognitivo para disciplinar renderer ──
+    // O contrato é READ-ONLY: informa ao LLM o stage, slot esperado, regras,
+    // tópicos proibidos e prompts de recuperação. Mecânico permanece soberano.
     const rawInput = buildCognitiveInput({
       current_stage: stage,
       message_text: String(userText || ""),
@@ -4697,7 +4700,8 @@ async function runCognitiveV2WithAdapter(env, stage, userText, st) {
       forbidden_topics_for_stage: stageContract.forbidden_topics_now,
       allowed_signals_for_stage: getAllowedSignalsForStage(stage),
       normative_context: [],
-      recent_messages: []
+      recent_messages: [],
+      stage_contract: stageContract
     });
 
     const { apiKey } = getOpenAIConfig(env);

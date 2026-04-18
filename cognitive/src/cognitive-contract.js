@@ -28,6 +28,7 @@
  * @param {string[]} params.allowed_signals_for_stage — Sinais permitidos para este stage
  * @param {object[]} [params.normative_context] — Contexto normativo útil do MCMV
  * @param {object[]} [params.recent_messages] — Memória útil estritamente necessária
+ * @param {object} [params.stage_contract] — Contrato cognitivo-mecânico do stage (PR2)
  * @returns {CognitiveInput}
  */
 export function buildCognitiveInput({
@@ -38,7 +39,8 @@ export function buildCognitiveInput({
   forbidden_topics_for_stage = [],
   allowed_signals_for_stage = [],
   normative_context = [],
-  recent_messages = []
+  recent_messages = [],
+  stage_contract = null
 } = {}) {
   return Object.freeze({
     current_stage: String(current_stage || "inicio"),
@@ -48,7 +50,8 @@ export function buildCognitiveInput({
     forbidden_topics_for_stage: Array.isArray(forbidden_topics_for_stage) ? [...forbidden_topics_for_stage] : [],
     allowed_signals_for_stage: Array.isArray(allowed_signals_for_stage) ? [...allowed_signals_for_stage] : [],
     normative_context: Array.isArray(normative_context) ? [...normative_context] : [],
-    recent_messages: Array.isArray(recent_messages) ? [...recent_messages] : []
+    recent_messages: Array.isArray(recent_messages) ? [...recent_messages] : [],
+    stage_contract: stage_contract && typeof stage_contract === "object" ? { ...stage_contract } : null
   });
 }
 

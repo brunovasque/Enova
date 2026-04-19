@@ -25098,7 +25098,7 @@ case "inicio_decisao": {
   const opcao1 = /^(1|continuar|seguir|andar|prosseguir)$/i.test(nt) ||
     /\b(quero continuar|vou continuar|pode continuar|bora continuar|vamos continuar|prefiro continuar|continuar de onde parei|continuar de onde paramos|seguir de onde parei|seguir de onde paramos|vamos la|vamos lá)\b/i.test(nt);
   const opcao2 = /^(2|começar|comecar|do zero|reiniciar|reset)$/i.test(nt) ||
-    /\b(quero recomeçar|quero recomecar|prefiro recomeçar|prefiro recomecar|comecar de novo|começar de novo|começa de novo|comeca de novo|tudo de novo|do inicio|do início|quero começar|quero comecar|quero começar do zero|quero comecar do zero)\b/i.test(nt);
+    /\b(quero recomeçar|quero recomecar|prefiro recomeçar|prefiro recomecar|comecar de novo|começar de novo|começa de novo|comeca de novo|tudo de novo|do inicio|do início|quero começar|quero comecar|quero começar do zero|quero comecar do zero|comecar do zero|começar do zero)\b/i.test(nt);
 
   // ❌ Cliente mandou algo nada a ver → pede novamente
   if (!opcao1 && !opcao2) {

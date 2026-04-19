@@ -19760,6 +19760,27 @@ const TOP_SEALED_MAX_RETRIES = 2;
 // NÃO por bucket — o bucket classifier não se aplica a perguntas de coleta estrutural.
 const TOP_SEALED_BUCKET_STAGES = new Set(["inicio", "inicio_decisao", "inicio_programa"]);
 
+// ── COMPOSICAO_SEALED_STAGES — Zona selada da fase de composição ────────────
+// Equivalente ao TOP_SEALED_MODE para a fase de estado civil + composição de renda.
+// Contrato:
+//   1. Parser mecânico é SOBERANO em parse/gate/nextStage/state em TODAS as camadas.
+//   2. Em happy paths (clear answer), cognitive assist geral NÃO injeta fala.
+//   3. Flags transitórias (__cognitive_reply_prefix, __cognitive_v2_takes_final,
+//      __speech_arbiter_source) são LIMPAS antes de step() em happy paths.
+//   4. Em fallback paths (sem clear answer), cognitive assist PODE contribuir,
+//      mas sem competição implícita de cascas inline.
+//   5. A fala final é determinística: ou o LLM assume via soberania validada,
+//      ou o fallback mecânico assume via extreme_fallback. Sem corrida.
+const COMPOSICAO_SEALED_STAGES = new Set([
+  "estado_civil",
+  "confirmar_casamento",
+  "financiamento_conjunto",
+  "somar_renda_solteiro",
+  "somar_renda_familiar",
+  "quem_pode_somar",
+  "interpretar_composicao"
+]);
+
 // ── Classificador de intent bucket para prova de colapso no topo ───────────
 // Retorna um rótulo semântico para o input do cliente no topo.
 // Permite provar se inputs distintos estão caindo no mesmo bucket de resposta.
@@ -24206,6 +24227,27 @@ async function runFunnel(env, st, userText) {
             topo_sealed: true
           }
         });
+      } else if (COMPOSICAO_SEALED_STAGES.has(stage) && hasClearStageAnswer(stage, userText)) {
+        // ── COMPOSICAO_SEALED: bloquear cognitive assist geral em happy paths ──
+        // Se o parser mecânico já resolveu a resposta (clear answer), o cognitive
+        // assist geral NÃO injeta fala. A soberania é do parser mecânico.
+        // Em fallback paths (sem clear answer), o assist pode contribuir normalmente.
+        try { console.log("[COGPATH_V2_SKIP] reason=composicao_sealed_happy_path wa_id=" + (st.wa_id || "?") + " stage=" + stage); } catch (_) {}
+        st.__cognitive_reply_prefix = null;
+        st.__cognitive_v2_takes_final = false;
+        st.__speech_arbiter_source = null;
+        await telemetry(env, {
+          wa_id: st.wa_id,
+          event: "composicao_sealed_assist_blocked",
+          stage,
+          severity: "info",
+          message: "COMPOSICAO_SEALED: cognitive assist geral bloqueado no happy path",
+          details: {
+            user_text: userText,
+            clear_answer: true,
+            composicao_sealed: true
+          }
+        });
       } else
       // Guard: preservar abertura mecânica soberana no primeiro contato em "inicio"
       // step() em L159-168 lê st.__cognitive_reply_prefix e o prepende às mensagens;
@@ -26175,6 +26217,12 @@ case "estado_civil": {
     const _solSpeech = await getTopoHappyPathSpeech(env, "estado_civil:solteiro", st);
     setTopoHappyPathFlags(st, _solSpeech);
 
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    // Parser mecânico resolveu — fala final é mecânica, sem override do LLM.
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
     return step(
       env,
       st,
@@ -26209,6 +26257,11 @@ case "estado_civil": {
     const _casSpeech = await getTopoHappyPathSpeech(env, "estado_civil:casado", st);
     setTopoHappyPathFlags(st, _casSpeech);
 
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
     return step(
       env,
       st,
@@ -26241,6 +26294,11 @@ case "estado_civil": {
     // ── TOPO HAPPY PATH MIGRATION: estado_civil:uniao_estavel ──
     const _ueSpeech = await getTopoHappyPathSpeech(env, "estado_civil:uniao_estavel", st);
     setTopoHappyPathFlags(st, _ueSpeech);
+
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
 
     return step(
       env,
@@ -26275,6 +26333,11 @@ case "estado_civil": {
     const _sepSpeech = await getTopoHappyPathSpeech(env, "estado_civil:separado", st);
     setTopoHappyPathFlags(st, _sepSpeech);
 
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
     return step(
       env,
       st,
@@ -26308,6 +26371,11 @@ case "estado_civil": {
     const _divSpeech = await getTopoHappyPathSpeech(env, "estado_civil:divorciado", st);
     setTopoHappyPathFlags(st, _divSpeech);
 
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
     return step(
       env,
       st,
@@ -26340,6 +26408,11 @@ case "estado_civil": {
     // ── TOPO HAPPY PATH MIGRATION: estado_civil:viuvo ──
     const _viuSpeech = await getTopoHappyPathSpeech(env, "estado_civil:viuvo", st);
     setTopoHappyPathFlags(st, _viuSpeech);
+
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
 
     return step(
       env,
@@ -26458,6 +26531,11 @@ case "confirmar_casamento": {
       p2_tipo: "parceiro"
     });
 
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
     return step(
       env,
       st,
@@ -26489,6 +26567,11 @@ case "confirmar_casamento": {
       casamento_formal: "uniao_estavel",
       estado_civil: "uniao_estavel"
     });
+
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
 
     return step(
       env,
@@ -26580,6 +26663,11 @@ case "financiamento_conjunto": {
       p2_tipo: "parceiro"
     });
 
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
     return step(
       env,
       st,
@@ -26612,6 +26700,11 @@ case "financiamento_conjunto": {
       p2_tipo: null
     });
 
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
     return step(
       env,
       st,
@@ -26642,6 +26735,11 @@ case "financiamento_conjunto": {
       financiamento_conjunto: "se_precisar",
       p2_tipo: null
     });
+
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
 
     return step(
       env,
@@ -27170,9 +27268,10 @@ case "somar_renda_solteiro": {
     details: { userText, userText_normalized: t }
   });
 
-  // ── Casca cognitiva: reprompt natural com opções explícitas ──
-  st.__cognitive_reply_prefix = "Sobre a renda — você pretende seguir *só com a sua*, somar com *parceiro(a)*, ou somar com *familiar*?";
-  st.__cognitive_v2_takes_final = true;
+  // ── COMPOSICAO_SEALED: fallback determinístico — sem casca cognitiva inline ──
+  // A fala do fallback é determinada exclusivamente pelo mecânico ou pelo
+  // cognitive assist geral (se tiver disparado com boa resposta).
+  // Não setar flags parciais que criam competição implícita.
 
   return step(
     env,
@@ -27271,6 +27370,11 @@ await funnelTelemetry(env, {
 
     await upsertState(env, st.wa_id, { familiar_tipo: "mae", p2_tipo: "familiar", p3_required: false, p3_done: false, p3_tipo: null });
 
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
     return step(
       env,
       st,
@@ -27299,6 +27403,11 @@ await funnelTelemetry(env, {
 
     await upsertState(env, st.wa_id, { familiar_tipo: "pai", p2_tipo: "familiar", p3_required: false, p3_done: false, p3_tipo: null });
 
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
     return step(
       env,
       st,
@@ -27326,6 +27435,11 @@ await funnelTelemetry(env, {
     });
 
     await upsertState(env, st.wa_id, { familiar_tipo: "avo", p2_tipo: "familiar" });
+
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
 
     return step(
       env,
@@ -27357,6 +27471,11 @@ await funnelTelemetry(env, {
 
     await upsertState(env, st.wa_id, { familiar_tipo: "tio", p2_tipo: "familiar" });
 
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
     return step(
       env,
       st,
@@ -27385,6 +27504,11 @@ await funnelTelemetry(env, {
     });
 
     await upsertState(env, st.wa_id, { familiar_tipo: "irmao", p2_tipo: "familiar" });
+
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
 
     return step(
       env,
@@ -27415,6 +27539,11 @@ await funnelTelemetry(env, {
 
     await upsertState(env, st.wa_id, { familiar_tipo: "primo", p2_tipo: "familiar" });
 
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
     return step(
       env,
       st,
@@ -27444,6 +27573,11 @@ await funnelTelemetry(env, {
       details: { userText, txt }
     });
 
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (guard path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
     return step(
       env,
       st,
@@ -27471,9 +27605,10 @@ await funnelTelemetry(env, {
     details: { userText, txt }
   });
 
-  // ── Casca cognitiva: reprompt natural listando os parentescos válidos ──
-  st.__cognitive_reply_prefix = "Me diz com qual familiar você quer compor renda: pai, mãe, irmão(ã), avô(ó) ou tio(a)?";
-  st.__cognitive_v2_takes_final = true;
+  // ── COMPOSICAO_SEALED: fallback determinístico — sem casca cognitiva inline ──
+  // A fala do fallback é determinada exclusivamente pelo mecânico ou pelo
+  // cognitive assist geral (se tiver disparado com boa resposta).
+  // Não setar flags parciais que criam competição implícita.
 
   return step(
     env,
@@ -30332,6 +30467,11 @@ case "interpretar_composicao": {
       details: { userText }
     });
 
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
     return step(
       env,
       st,
@@ -30360,6 +30500,11 @@ case "interpretar_composicao": {
       details: { userText }
     });
 
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
     return step(
       env,
       st,
@@ -30387,6 +30532,11 @@ case "interpretar_composicao": {
       message: "Composição escolhida: seguir sozinho(a)",
       details: { userText }
     });
+
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
 
     return step(
       env,
@@ -30505,6 +30655,11 @@ case "quem_pode_somar": {
       details: { userText }
     });
 
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (guard path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
     return step(
       env,
       st,
@@ -30540,6 +30695,11 @@ case "quem_pode_somar": {
       funil_status: "ineligivel"
     });
 
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
     return step(
       env,
       st,
@@ -30567,6 +30727,11 @@ case "quem_pode_somar": {
       message: "Composição escolhida: parceiro(a)",
       details: { userText }
     });
+
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
 
     return step(
       env,
@@ -30635,6 +30800,11 @@ case "quem_pode_somar": {
           p3_tipo: null
         });
 
+        // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+        st.__cognitive_reply_prefix = null;
+        st.__cognitive_v2_takes_final = false;
+        st.__speech_arbiter_source = null;
+
         return step(
           env,
           st,
@@ -30648,6 +30818,11 @@ case "quem_pode_somar": {
       }
 
       await upsertState(env, st.wa_id, { familiar_tipo: fam, p2_tipo: "familiar" });
+
+      // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
+      st.__cognitive_reply_prefix = null;
+      st.__cognitive_v2_takes_final = false;
+      st.__speech_arbiter_source = null;
 
       return step(
         env,
@@ -30671,6 +30846,11 @@ case "quem_pode_somar": {
       message: "Composição escolhida: familiar (genérico)",
       details: { userText }
     });
+
+    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path familiar genérico) ──
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
 
     return step(
       env,
@@ -30697,9 +30877,10 @@ case "quem_pode_somar": {
     details: { userText }
   });
 
-  // ── Casca cognitiva: reprompt natural com opções explícitas ──
-  st.__cognitive_reply_prefix = "Com quem você pretende somar renda: *Parceiro(a)*, *familiar* (pai/mãe/irmão) ou *sozinho(a)*?";
-  st.__cognitive_v2_takes_final = true;
+  // ── COMPOSICAO_SEALED: fallback determinístico — sem casca cognitiva inline ──
+  // A fala do fallback é determinada exclusivamente pelo mecânico ou pelo
+  // cognitive assist geral (se tiver disparado com boa resposta).
+  // Não setar flags parciais que criam competição implícita.
 
   return step(
     env,

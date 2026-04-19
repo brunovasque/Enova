@@ -20745,6 +20745,16 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
   // (retries, LLM priority) sem bucket validation nem bucket static fallback.
   const _isBucketSealed = _isSealed && TOP_SEALED_BUCKET_STAGES.has(String(config?.cognitiveStage || "").toLowerCase());
 
+  // ── BRIDGE RETRY: habilita retries para transições cujo stage de ORIGEM ──
+  // está em TOP_SEALED_STAGES ou COMPOSICAO_SEALED_STAGES, mesmo que o
+  // stage DESTINO não esteja selado. Isso fecha o gap entre topo tardio e
+  // composição inicial, garantindo que o LLM tenha múltiplas tentativas
+  // para produzir fala soberana nos turns-ponte.
+  // CONTRATO: retries habilitados, mas sealed fallback NÃO se aplica.
+  // Se o LLM falhar após retries, o caminho normal fallback_mechanical é mantido.
+  const _originStage = (transitionKey.split(":")[0] || "").toLowerCase();
+  const _allowRetries = _isSealed || (TOP_SEALED_MODE && (TOP_SEALED_STAGES.has(_originStage) || COMPOSICAO_SEALED_STAGES.has(_originStage)));
+
   if (!config) {
     // Chave desconhecida — em modo selado, usar resposta estática do bucket (se bucket stage) ou stage fallback
     if (_isSealed) {
@@ -20775,7 +20785,7 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
   let _greetingReuseDetected = false;
   let _greetingVariantKey = null;
   let _recentOpeningMatched = false;
-  const _maxRetries = _isSealed ? TOP_SEALED_MAX_RETRIES : 0;
+  const _maxRetries = _allowRetries ? TOP_SEALED_MAX_RETRIES : 0;
 
   for (let attempt = 0; attempt <= _maxRetries; attempt++) {
     try {
@@ -20903,14 +20913,14 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
       }
 
       // Reply insuficiente — retry se possível
-      if (_isSealed && attempt < _maxRetries) {
+      if (_allowRetries && attempt < _maxRetries) {
         _retryCount++;
         _retryReason = "low_confidence_or_validation_fail";
         continue;
       }
     } catch (e) {
       console.error("TOPO_HAPPY_PATH_COGNITIVE_ERROR:", transitionKey, e?.message || e);
-      if (_isSealed && attempt < _maxRetries) {
+      if (_allowRetries && attempt < _maxRetries) {
         _retryCount++;
         _retryReason = "error:" + (e?.message || "unknown");
         continue;

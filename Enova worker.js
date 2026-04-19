@@ -2513,7 +2513,9 @@ function parseComposicaoRenda(text) {
   if (/(minha esposa|meu marido|companheira|companheiro|namorada|namorado|parceir|espos|marid)/.test(nt)) {
     return "parceiro";
   }
-  if (/(pai|mae|irmao|irma|filho|filha|familiar|familia)/.test(nt)) {
+  // GUARD: filho/filha/dependente NÃO são composição de renda — removidos desta regex.
+  // Dependentes ajudam no perfil mas não compõem renda no financiamento.
+  if (/(pai|mae|irmao|irma|familiar|familia)/.test(nt)) {
     return "familiar";
   }
   return null;
@@ -3647,7 +3649,7 @@ function hasClearStageAnswer(stage, text) {
     const nt = normalizeText(text);
     if (!nt) return false;
     const composicao = parseComposicaoRenda(text);
-    const solo = /(so\s*(a\s*)?minha|so\s*eu|sozinh|nao\s*vou\s*somar|não\s*vou\s*somar|sem\s*composicao|nao|não|sim)/i.test(nt);
+    const solo = /(so\s*(a\s*)?minha|so\s*eu|sozinh|nao\s*vou\s*somar|não\s*vou\s*somar|sem\s*composicao|nao|não)/i.test(nt);
     return Boolean(composicao || solo);
   }
   if (stage === "somar_renda_familiar") {
@@ -26267,7 +26269,8 @@ case "estado_civil": {
       st,
       [
         "Entendi! 👍",
-        "Seu casamento é **civil no papel** ou vocês vivem como **união estável**?"
+        "Seu casamento é **civil no papel** (com certidão) ou vocês vivem como **união estável**?",
+        "Se preferir, pode responder *sim* (civil) ou *não* (estável)."
       ],
       "confirmar_casamento"
     );
@@ -26733,6 +26736,7 @@ case "financiamento_conjunto": {
 
     await upsertState(env, st.wa_id, {
       financiamento_conjunto: "se_precisar",
+      somar_renda: false,
       p2_tipo: null
     });
 
@@ -26994,8 +26998,40 @@ case "somar_renda_solteiro": {
   /\bsem\s+ninguem\b/i.test(tBase) ||
   isNo(tBase);
   
+  // GUARD: filho/filha/dependente NÃO compõem renda — redirecionar antes de parceiro/familiar
+  const mencionouDependente =
+    /(filho|filha|filhos|filhas|dependente|dependentes|crianca|criancas|bebe|bebes)/i.test(tBase);
+
+  if (mencionouDependente) {
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "somar_renda_solteiro",
+      severity: "info",
+      message: "Usuário mencionou dependentes (não compõe renda) → repete orientação",
+      details: { userText }
+    });
+
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
+    return step(
+      env,
+      st,
+      [
+        "Entendi 👍",
+        "Filhos/dependentes ajudam no perfil, mas **não entram para somar renda** no financiamento.",
+        "Você pretende usar **só sua renda**, somar com **parceiro(a)**, ou somar com **familiar** (pai/mãe/irmão)?"
+      ],
+      "somar_renda_solteiro"
+    );
+  }
+
+  // BLOCO A FIX: removido "quero somar renda$" genérico — composição genérica não assume parceiro.
+  // Só entra como parceiro se houver menção explícita de COM QUEM.
   const parceiro =
-    /quero\s+somar\s+renda\s*$/i.test(tBase) ||
     /(parceiro|parceira|conjuge|marido|esposa|esposo|meu namorado|minha namorada)/i.test(tBase) ||
     /(somar com meu parceiro|somar com minha parceira|somar com meu conjuge)/i.test(tBase);
 
@@ -27340,6 +27376,39 @@ await funnelTelemetry(env, {
     txt
   }
 });
+
+  // --------------------------------------------------
+  // GUARD: filho/filha/dependente NÃO compõem renda
+  // --------------------------------------------------
+  const mencionouDependente =
+    /(filho|filha|filhos|filhas|dependente|dependentes|crianca|criancas|bebe|bebes)/i.test(txt);
+
+  if (mencionouDependente) {
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "somar_renda_familiar",
+      severity: "info",
+      message: "Usuário mencionou dependentes (não compõe renda) → repete orientação",
+      details: { userText }
+    });
+
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
+    return step(
+      env,
+      st,
+      [
+        "Entendi 👍",
+        "Filhos/dependentes ajudam no perfil, mas **não entram para somar renda** no financiamento.",
+        "Qual familiar você quer considerar? Pode ser **pai, mãe, irmão(ã), tio(a), avô/avó**…"
+      ],
+      "somar_renda_familiar"
+    );
+  }
 
   // --------------------------------------------------
   // MATCHES (com variações comuns)
@@ -30447,6 +30516,38 @@ case "interpretar_composicao": {
   });
 
   const composicaoSignal = parseComposicaoRenda(t);
+
+  // GUARD: filho/filha/dependente NÃO compõem renda
+  const mencionouDependente =
+    /(filho|filha|filhos|filhas|dependente|dependentes|crianca|criancas|bebe|bebes)/i.test(t);
+
+  if (mencionouDependente) {
+    await funnelTelemetry(env, {
+      wa_id: st.wa_id,
+      event: "exit_stage",
+      stage,
+      next_stage: "interpretar_composicao",
+      severity: "info",
+      message: "Usuário mencionou dependentes (não compõe renda) → repete orientação",
+      details: { userText }
+    });
+
+    st.__cognitive_reply_prefix = null;
+    st.__cognitive_v2_takes_final = false;
+    st.__speech_arbiter_source = null;
+
+    return step(
+      env,
+      st,
+      [
+        "Entendi 👍",
+        "Filhos/dependentes ajudam no perfil, mas **não entram para somar renda** no financiamento.",
+        "Você pretende usar renda de *parceiro(a)*, *familiar* (pai/mãe/irmão), ou seguir *sozinho(a)*?"
+      ],
+      "interpretar_composicao"
+    );
+  }
+
   const parceiro = composicaoSignal === "parceiro" || /(parceir|namorad|espos|marid|mulher|boy|girl)/i.test(t);
   const familia  = composicaoSignal === "familiar" || /(pai|m[aã]e|mae|irm[aã]|av[oó]|tia|tio|primo|prima|famil)/i.test(t);
   const sozinho  = /(s[oó]\s*(a\s*)?minha(\s+renda)?|s[oó]\s*eu|apenas eu|somente eu|solo|sozinh|nao tenho ninguem|não tenho ningu[eé]m|ninguem para somar|ningu[eé]m pra somar|sem ningu[eé]m|sem composi[çc]|n[aã]o vou somar)/i.test(t);
@@ -30521,7 +30622,12 @@ case "interpretar_composicao": {
   // OPÇÃO 3 — SEGUIR SOZINHO(A)
   // ============================================================
   if (sozinho) {
-    await upsertState(env, st.wa_id, { p2_tipo: null });
+    await upsertState(env, st.wa_id, {
+      somar_renda: false,
+      financiamento_conjunto: false,
+      p2_tipo: null,
+      renda_familiar: false
+    });
 
     await funnelTelemetry(env, {
       wa_id: st.wa_id,

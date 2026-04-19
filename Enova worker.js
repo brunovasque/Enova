@@ -4448,9 +4448,9 @@ const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
   ["inicio",                  "Oi! 😊 Pode falar, tô por aqui."],
   ["inicio_programa",         "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Você já sabe como funciona ou prefere que eu explique rapidinho?"],
   ["inicio_nome",             "Pode me dizer seu nome completo? 😊"],
-  ["inicio_nacionalidade",    "Você é brasileiro(a) nato(a)?"],
-  ["inicio_rnm",              "Qual o número do seu Registro Nacional Migratório?"],
-  ["inicio_rnm_validade",     "Qual a validade do seu RNM?"],
+  ["inicio_nacionalidade",    "Você é *brasileiro(a)* ou *estrangeiro(a)*?"],
+  ["inicio_rnm",              "Você possui RNM — Registro Nacional Migratório? Responda *sim* ou *não*."],
+  ["inicio_rnm_validade",     "Seu RNM é *com validade* ou *indeterminado*?"],
   ["estado_civil",            "Me conta seu estado civil — solteiro(a), casado(a) ou outra situação? 😊"],
   ["confirmar_casamento",     "Esse casamento é civil registrado ou é união estável?"],
   ["financiamento_conjunto",  "Vai financiar sozinho(a) ou junto com alguém?"],
@@ -25095,8 +25095,10 @@ case "inicio_decisao": {
 
   const nt = normalizeText(userText || st.last_user_text || "");
 
-  const opcao1 = /^(1|continuar|seguir|andar|prosseguir)$/i.test(nt);
-  const opcao2 = /^(2|começar|comecar|do zero|reiniciar|reset)$/i.test(nt);
+  const opcao1 = /^(1|continuar|seguir|andar|prosseguir)$/i.test(nt) ||
+    /\b(quero continuar|vou continuar|pode continuar|bora continuar|vamos continuar|prefiro continuar|continuar de onde parei|continuar de onde paramos|seguir de onde parei|seguir de onde paramos|vamos la|vamos lá)\b/i.test(nt);
+  const opcao2 = /^(2|começar|comecar|do zero|reiniciar|reset)$/i.test(nt) ||
+    /\b(quero recomeçar|quero recomecar|prefiro recomeçar|prefiro recomecar|comecar de novo|começar de novo|começa de novo|comeca de novo|tudo de novo|do inicio|do início|quero começar|quero comecar|quero começar do zero|quero comecar do zero)\b/i.test(nt);
 
   // ❌ Cliente mandou algo nada a ver → pede novamente
   if (!opcao1 && !opcao2) {
@@ -25708,6 +25710,65 @@ case "inicio_nacionalidade": {
   }
 
   // -------------------------------------------
+  // 🇧🇷 SIM → brasileiro (resposta a "Você é brasileiro(a)?")
+  // Harmonização: LLM pode perguntar "Você é brasileiro(a) nato(a)?"
+  // e o cliente responder "sim" — parser precisa aceitar.
+  // -------------------------------------------
+  if (!(/^(estrangeiro|estrangeira|sou estrangeiro|sou estrangeira|gringo|nao sou brasileiro|não sou brasileiro)$/i.test(nt)) && isYes(nt)) {
+
+    await upsertState(env, st.wa_id, {
+      nacionalidade: "brasileiro",
+      fase_conversa: "estado_civil"
+    });
+
+    st.nacionalidade = "brasileiro";
+    st.fase_conversa = "estado_civil";
+
+    const _brSimSpeech = await getTopoHappyPathSpeech(env, "inicio_nacionalidade:brasileiro", st);
+    setTopoHappyPathFlags(st, _brSimSpeech);
+
+    return step(
+      env,
+      st,
+      [
+        "Perfeito! 🇧🇷",
+        "Vamos seguir… Qual é o seu estado civil?"
+      ],
+      "estado_civil"
+    );
+  }
+
+  // -------------------------------------------
+  // 🌎 NÃO → estrangeiro (resposta a "Você é brasileiro(a)?")
+  // Harmonização: LLM pode perguntar "Você é brasileiro(a) nato(a)?"
+  // e o cliente responder "não" — parser precisa aceitar.
+  // -------------------------------------------
+  if (!(/^(brasileiro|brasileiro mesmo|brasileira|brasileira mesmo|daqui mesmo|sou daqui mesmo|sou brasileiro|sou brasileiro mesmo|sou brasileira mesmo|sou brasileira|nascido no brasil|nascida no brasil|nasci no brasil)$/i.test(nt)) && isNo(nt)) {
+
+    await upsertState(env, st.wa_id, {
+      nacionalidade: "estrangeiro",
+      fase_conversa: "inicio_rnm"
+    });
+
+    st.nacionalidade = "estrangeiro";
+    st.fase_conversa = "inicio_rnm";
+
+    const _estNaoSpeech = await getTopoHappyPathSpeech(env, "inicio_nacionalidade:estrangeiro", st);
+    setTopoHappyPathFlags(st, _estNaoSpeech);
+
+    return step(
+      env,
+      st,
+      [
+        "Obrigado! 😊",
+        "Você possui *RNM — Registro Nacional Migratório*?",
+        "Responda: *sim* ou *não*."
+      ],
+      "inicio_rnm"
+    );
+  }
+
+  // -------------------------------------------
   // 🌎 ESTRANGEIRO
   // -------------------------------------------
   if (/^(estrangeiro|estrangeira|sou estrangeiro|sou estrangeira|gringo|nao sou brasileiro|não sou brasileiro)$/i.test(nt)) {
@@ -25876,8 +25937,10 @@ case "inicio_rnm_validade": {
 
   // -------------------------------------------
   // ❌ RNM COM VALIDADE DEFINIDA → INELEGÍVEL
+  // Harmonização: aceita variantes naturais que indicam validade definida.
   // -------------------------------------------
-  if (/^(valido|válido|com validade|definida)$/i.test(nt)) {
+  if (/^(valido|válido|com validade|definida)$/i.test(nt) ||
+      /\b(tem validade|com prazo|tem prazo|tem data|vence|tem vencimento|e valido|é válido|validade definida)\b/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       rnm_validade: "definida",
@@ -25908,8 +25971,9 @@ case "inicio_rnm_validade": {
 
   // -------------------------------------------
   // ✅ RNM INDETERMINADO → CONTINUA O FLUXO
+  // Harmonização: aceita variantes naturais que indicam indeterminado.
   // -------------------------------------------
-  if (/\bindeterminado\b/i.test(nt)) {
+  if (/\b(indeterminado|permanente|definitivo|sem validade|nao vence|não vence|nao tem validade|não tem validade|sem prazo|sem vencimento)\b/i.test(nt)) {
 
     await upsertState(env, st.wa_id, {
       rnm_validade: "indeterminado",

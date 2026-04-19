@@ -191,9 +191,9 @@ const STAGE_GOALS = Object.freeze({
   inicio_decisao: "Confirmar se o cliente quer seguir com o Minha Casa Minha Vida",
   inicio_programa: "Confirmar interesse e apresentar o programa",
   inicio_nome: "Coletar o nome do cliente",
-  inicio_nacionalidade: "Verificar nacionalidade do cliente",
-  inicio_rnm: "Coletar RNM do cliente estrangeiro",
-  inicio_rnm_validade: "Verificar validade do RNM",
+  inicio_nacionalidade: "Verificar se o cliente é brasileiro(a) ou estrangeiro(a)",
+  inicio_rnm: "Verificar se o cliente estrangeiro possui RNM",
+  inicio_rnm_validade: "Verificar se o RNM é com validade definida ou indeterminado",
   estado_civil: "Coletar o estado civil do cliente",
   confirmar_casamento: "Confirmar tipo de casamento",
   financiamento_conjunto: "Definir se financiamento será conjunto",
@@ -338,14 +338,15 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
     allowed_topics_now: ["coleta_nacionalidade", "duvida_estrangeiro", "duvida_por_que_nacionalidade"],
     forbidden_topics_now: ["coleta_renda", "coleta_documentos", "valor_parcela", "aprovacao"],
     stage_micro_rules: [
-      "Perguntar se é brasileiro(a) nato(a)",
+      "Perguntar se é brasileiro(a) ou estrangeiro(a)",
+      "Aceitar: brasileiro, estrangeiro, sim (=brasileiro), não (=estrangeiro)",
       "Se estrangeiro, seguir para RNM",
       "NÃO coletar outros dados aqui"
     ],
     brief_answer_allowed: true,
-    canonical_prompt: "Você é brasileiro(a) nato(a)?",
-    return_to_stage_prompt: "Preciso confirmar sua nacionalidade para seguir 😊",
-    fallback_prompt: "Você é brasileiro(a) nato(a)?"
+    canonical_prompt: "Você é *brasileiro(a)* ou *estrangeiro(a)*?",
+    return_to_stage_prompt: "Preciso confirmar sua nacionalidade para seguir 😊 Você é *brasileiro(a)* ou *estrangeiro(a)*?",
+    fallback_prompt: "Você é *brasileiro(a)* ou *estrangeiro(a)*?"
   },
   inicio_rnm: {
     expected_slot: "rnm_status",

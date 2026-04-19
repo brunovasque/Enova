@@ -51,7 +51,10 @@ const _TOPO_STAGES = new Set([
   "inicio",
   "inicio_decisao",
   "inicio_programa",
-  "nome"
+  "inicio_nome",
+  "inicio_nacionalidade",
+  "inicio_rnm",
+  "inicio_rnm_validade"
 ]);
 
 // ── API pública ───────────────────────────────────────────────────────────────

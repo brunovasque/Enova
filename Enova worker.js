@@ -20368,6 +20368,358 @@ const TOPO_HAPPY_PATH_SPEECH = {
       "Seu RNM é *com validade* ou *indeterminado*?"
     ],
     validate: (reply) => reply && reply.length > 10 && /validade|indeterminado/i.test(reply)
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // BLOCO DE COMPOSIÇÃO — SPEECH COGNITIVO
+  // Contrato: mecânico soberano em parse/gate/nextStage. Fala nasce do LLM.
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ── confirmar_casamento: civil no papel → regime_trabalho ──
+  "confirmar_casamento:civil": {
+    cognitiveStage: "regime_trabalho",
+    cognitiveMessage: "casamento é civil no papel",
+    fallback: [
+      "Beleza, casamento civil! Seguimos com vocês juntos no financiamento.",
+      "Me conta: qual o seu tipo de trabalho — CLT, autônomo(a) ou servidor(a)?"
+    ],
+    validate: (reply) => reply && reply.length > 15 && /trabalho|CLT|aut[oô]nom|servidor/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── confirmar_casamento: união estável → financiamento_conjunto ──
+  "confirmar_casamento:uniao_estavel": {
+    cognitiveStage: "financiamento_conjunto",
+    cognitiveMessage: "é união estável",
+    fallback: [
+      "Entendi, união estável.",
+      "Vocês pretendem comprar juntos, só você, ou apenas se precisar?"
+    ],
+    validate: (reply) => reply && reply.length > 15 && /juntos|sozinho|precisar|comprar/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── confirmar_casamento: fallback ──
+  "confirmar_casamento:fallback": {
+    cognitiveStage: "confirmar_casamento",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "É casamento civil no papel ou união estável?",
+      "Pode responder *sim* (civil) ou *não* (estável)."
+    ],
+    validate: (reply) => reply && reply.length > 10 && /civil|uni[aã]o|est[aá]vel|papel/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── financiamento_conjunto: juntos → regime_trabalho ──
+  "financiamento_conjunto:juntos": {
+    cognitiveStage: "regime_trabalho",
+    cognitiveMessage: "vamos comprar juntos",
+    fallback: [
+      "Beleza, vamos considerar a renda de vocês dois.",
+      "Me conta: qual o seu tipo de trabalho — CLT, autônomo(a) ou servidor(a)?"
+    ],
+    validate: (reply) => reply && reply.length > 15 && /trabalho|CLT|aut[oô]nom|servidor/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── financiamento_conjunto: solo → regime_trabalho ──
+  "financiamento_conjunto:solo": {
+    cognitiveStage: "regime_trabalho",
+    cognitiveMessage: "só eu, sozinho",
+    fallback: [
+      "Beleza, seguimos só com a sua renda.",
+      "Qual o seu tipo de trabalho — CLT, autônomo(a) ou servidor(a)?"
+    ],
+    validate: (reply) => reply && reply.length > 15 && /trabalho|CLT|aut[oô]nom|servidor/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── financiamento_conjunto: se_precisar → regime_trabalho ──
+  "financiamento_conjunto:se_precisar": {
+    cognitiveStage: "regime_trabalho",
+    cognitiveMessage: "só se precisar somar",
+    fallback: [
+      "Certo, vamos começar analisando só a sua renda.",
+      "Qual o seu tipo de trabalho — CLT, autônomo(a) ou servidor(a)?"
+    ],
+    validate: (reply) => reply && reply.length > 15 && /trabalho|CLT|aut[oô]nom|servidor/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── financiamento_conjunto: fallback ──
+  "financiamento_conjunto:fallback": {
+    cognitiveStage: "financiamento_conjunto",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Vocês querem comprar juntos, só você, ou apenas se precisar somar renda?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /juntos|sozinho|precisar|comprar|somar/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── somar_renda_solteiro: sozinho → regime_trabalho ──
+  "somar_renda_solteiro:sozinho": {
+    cognitiveStage: "regime_trabalho",
+    cognitiveMessage: "vou seguir só com minha renda",
+    fallback: [
+      "Certo, seguimos só com a sua renda.",
+      "Qual o seu tipo de trabalho — CLT, autônomo(a) ou servidor(a)?"
+    ],
+    validate: (reply) => reply && reply.length > 15 && /trabalho|CLT|aut[oô]nom|servidor/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── somar_renda_solteiro: parceiro → regime_trabalho_parceiro ──
+  "somar_renda_solteiro:parceiro": {
+    cognitiveStage: "regime_trabalho_parceiro",
+    cognitiveMessage: "quero somar com parceiro(a)",
+    fallback: [
+      "Beleza, vamos incluir a renda do(a) parceiro(a).",
+      "Ele(a) é CLT, autônomo(a) ou servidor(a)?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /CLT|aut[oô]nom|servidor|trabalh/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── somar_renda_solteiro: familiar_mae_pai → pais_casados_civil_pergunta ──
+  "somar_renda_solteiro:familiar_mae_pai": {
+    cognitiveStage: "pais_casados_civil_pergunta",
+    cognitiveMessage: "quero somar com minha mãe/pai",
+    fallback: [
+      "Certo, vamos considerar.",
+      "Seus pais são casados no civil atualmente?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /pais|casad|civil/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── somar_renda_solteiro: familiar_generico → somar_renda_familiar ──
+  "somar_renda_solteiro:familiar_generico": {
+    cognitiveStage: "somar_renda_familiar",
+    cognitiveMessage: "quero somar com familiar",
+    fallback: [
+      "Beleza! Qual familiar você quer considerar?",
+      "Pai, mãe, irmão(ã), tio(a), avô/avó…"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /familiar|pai|m[aã]e|irm|tio|av[oó]/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── somar_renda_solteiro: dependente (guard) ──
+  "somar_renda_solteiro:dependente_guard": {
+    cognitiveStage: "somar_renda_solteiro",
+    cognitiveMessage: "quero somar com meu filho",
+    fallback: [
+      "Filhos e dependentes ajudam no perfil, mas não entram pra somar renda no financiamento.",
+      "Você pretende usar só sua renda, somar com parceiro(a), ou com familiar?"
+    ],
+    validate: (reply) => reply && reply.length > 15 && /renda|parceiro|familiar|sozinho/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── somar_renda_solteiro: sozinho ineligível ──
+  "somar_renda_solteiro:sozinho_ineligivel": {
+    cognitiveStage: "fim_ineligivel",
+    cognitiveMessage: "vou seguir sozinho, mas minha renda é baixa",
+    fallback: [
+      "Entendi.",
+      "Pela renda que me informou, sozinho(a) hoje não fecha aprovação no Minha Casa Minha Vida.",
+      "Vou te explicar o que isso significa."
+    ],
+    validate: (reply) => reply && reply.length > 15 && /renda|aprova/i.test(reply)
+  },
+
+  // ── somar_renda_solteiro: fallback ──
+  "somar_renda_solteiro:fallback": {
+    cognitiveStage: "somar_renda_solteiro",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Você pretende usar só sua renda, somar com parceiro(a), ou com familiar?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /renda|parceiro|familiar|sozinho/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── somar_renda_familiar: mae/pai → pais_casados_civil_pergunta ──
+  "somar_renda_familiar:mae_pai": {
+    cognitiveStage: "pais_casados_civil_pergunta",
+    cognitiveMessage: "quero somar com minha mãe/pai",
+    fallback: [
+      "Certo! Seus pais são casados no civil atualmente?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /pais|casad|civil/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── somar_renda_familiar: avo → confirmar_avo_familiar ──
+  "somar_renda_familiar:avo": {
+    cognitiveStage: "confirmar_avo_familiar",
+    cognitiveMessage: "quero somar com meu avô/avó",
+    fallback: [
+      "Certo! Seu avô/avó recebe aposentadoria rural, urbana ou outro benefício?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /av[oó]|aposentadoria|benef/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── somar_renda_familiar: irmao/tio/primo → regime_trabalho_parceiro_familiar ──
+  "somar_renda_familiar:outro_familiar": {
+    cognitiveStage: "regime_trabalho_parceiro_familiar",
+    cognitiveMessage: "quero somar com familiar",
+    fallback: [
+      "Certo! Esse familiar trabalha com carteira assinada, é autônomo(a) ou servidor(a)?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /CLT|carteira|aut[oô]nom|servidor|trabalh/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── somar_renda_familiar: genérico → somar_renda_familiar ──
+  "somar_renda_familiar:generico": {
+    cognitiveStage: "somar_renda_familiar",
+    cognitiveMessage: "quero compor com familiar",
+    fallback: [
+      "Entendi que é familiar, mas preciso saber qual exatamente:",
+      "Pai, mãe, irmão(ã), tio(a), avô/avó, primo(a)…"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /pai|m[aã]e|irm|tio|av[oó]|primo|familiar/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── somar_renda_familiar: dependente (guard) ──
+  "somar_renda_familiar:dependente_guard": {
+    cognitiveStage: "somar_renda_familiar",
+    cognitiveMessage: "quero somar com meu filho",
+    fallback: [
+      "Filhos e dependentes ajudam no perfil, mas não entram pra somar renda.",
+      "Qual familiar você quer considerar? Pai, mãe, irmão(ã), tio(a), avô/avó…"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /familiar|pai|m[aã]e|irm|tio|av[oó]/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── somar_renda_familiar: fallback ──
+  "somar_renda_familiar:fallback": {
+    cognitiveStage: "somar_renda_familiar",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Qual familiar você quer considerar?",
+      "Pai, mãe, irmão(ã), tio(a), avô/avó, primo(a)…"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /pai|m[aã]e|irm|tio|av[oó]|primo|familiar/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── quem_pode_somar: parceiro → regime_trabalho_parceiro ──
+  "quem_pode_somar:parceiro": {
+    cognitiveStage: "regime_trabalho_parceiro",
+    cognitiveMessage: "quero somar com parceiro(a)",
+    fallback: [
+      "Beleza, vamos considerar renda com parceiro(a).",
+      "Ele(a) é CLT, autônomo(a) ou servidor(a)?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /CLT|aut[oô]nom|servidor|trabalh/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── quem_pode_somar: familiar_mae_pai → pais_casados_civil_pergunta ──
+  "quem_pode_somar:familiar_mae_pai": {
+    cognitiveStage: "pais_casados_civil_pergunta",
+    cognitiveMessage: "quero somar com minha mãe/pai",
+    fallback: [
+      "Certo, vamos considerar.",
+      "Seus pais são casados no civil atualmente?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /pais|casad|civil/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── quem_pode_somar: familiar_outros → regime_trabalho_parceiro_familiar ──
+  "quem_pode_somar:familiar_outros": {
+    cognitiveStage: "regime_trabalho_parceiro_familiar",
+    cognitiveMessage: "quero somar com familiar",
+    fallback: [
+      "Certo! Esse familiar trabalha com carteira assinada, é autônomo(a) ou servidor(a)?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /CLT|carteira|aut[oô]nom|servidor|trabalh/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── quem_pode_somar: familiar_generico → somar_renda_familiar ──
+  "quem_pode_somar:familiar_generico": {
+    cognitiveStage: "somar_renda_familiar",
+    cognitiveMessage: "quero compor com familiar",
+    fallback: [
+      "Beleza, vamos compor com familiar.",
+      "Qual familiar? Pai, mãe, irmão(ã), tio(a), avô/avó…"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /pai|m[aã]e|irm|tio|av[oó]|familiar/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── quem_pode_somar: sozinho → fim_ineligivel ──
+  "quem_pode_somar:sozinho": {
+    cognitiveStage: "fim_ineligivel",
+    cognitiveMessage: "vou seguir sozinho",
+    fallback: [
+      "Entendi.",
+      "Sem alguém pra compor renda, com esse valor não consigo seguir no fluxo de aprovação agora.",
+      "Vou te explicar o que isso significa."
+    ],
+    validate: (reply) => reply && reply.length > 15 && /renda|aprova/i.test(reply)
+  },
+
+  // ── quem_pode_somar: dependente (guard) ──
+  "quem_pode_somar:dependente_guard": {
+    cognitiveStage: "quem_pode_somar",
+    cognitiveMessage: "quero somar com meu filho",
+    fallback: [
+      "Filhos e dependentes ajudam no perfil, mas não entram pra somar renda.",
+      "Vai somar com parceiro(a), com familiar, ou vai seguir só com sua renda?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /parceiro|familiar|renda|sozinho/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── quem_pode_somar: fallback ──
+  "quem_pode_somar:fallback": {
+    cognitiveStage: "quem_pode_somar",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "De quem você pretende usar renda pra somar?",
+      "Parceiro(a)? Familiar? Ou só você?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /parceiro|familiar|renda|sozinho|s[oó]/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── interpretar_composicao: parceiro → regime_trabalho_parceiro ──
+  "interpretar_composicao:parceiro": {
+    cognitiveStage: "regime_trabalho_parceiro",
+    cognitiveMessage: "quero compor com parceiro(a)",
+    fallback: [
+      "Beleza, vamos considerar renda com parceiro(a).",
+      "Ele(a) é CLT, autônomo(a) ou servidor(a)?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /CLT|aut[oô]nom|servidor|trabalh/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── interpretar_composicao: familiar → somar_renda_familiar ──
+  "interpretar_composicao:familiar": {
+    cognitiveStage: "somar_renda_familiar",
+    cognitiveMessage: "quero compor com familiar",
+    fallback: [
+      "Beleza, vamos compor com familiar.",
+      "Qual familiar? Pai, mãe, irmão(ã), tio(a), avô/avó…"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /pai|m[aã]e|irm|tio|av[oó]|familiar/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── interpretar_composicao: sozinho → ir_declarado ──
+  "interpretar_composicao:sozinho": {
+    cognitiveStage: "ir_declarado",
+    cognitiveMessage: "vou seguir sozinho com minha renda",
+    fallback: [
+      "Certo, seguimos só com a sua renda.",
+      "Você declara Imposto de Renda?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /renda|imposto|IR/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── interpretar_composicao: dependente (guard) ──
+  "interpretar_composicao:dependente_guard": {
+    cognitiveStage: "interpretar_composicao",
+    cognitiveMessage: "quero somar com meu filho",
+    fallback: [
+      "Filhos e dependentes ajudam no perfil, mas não entram pra somar renda.",
+      "Pretende usar renda de parceiro(a), familiar, ou seguir sozinho(a)?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /parceiro|familiar|renda|sozinho/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ── interpretar_composicao: fallback ──
+  "interpretar_composicao:fallback": {
+    cognitiveStage: "interpretar_composicao",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Pretende usar renda de parceiro(a), familiar, ou seguir sozinho(a)?"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /parceiro|familiar|renda|sozinho/i.test(reply) && /\?/.test(reply)
   }
 };
 
@@ -26215,22 +26567,17 @@ case "estado_civil": {
       p2_tipo: null
     });
 
-    // ── TOPO HAPPY PATH MIGRATION: estado_civil:solteiro ──
+    // ── COGNITIVE SURFACE: estado_civil:solteiro ──
+    // LLM gera fala cognitiva. Mecânico soberano em parse/gate/nextStage.
     const _solSpeech = await getTopoHappyPathSpeech(env, "estado_civil:solteiro", st);
     setTopoHappyPathFlags(st, _solSpeech);
-
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-    // Parser mecânico resolveu — fala final é mecânica, sem override do LLM.
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
 
     return step(
       env,
       st,
       [
-        "Perfeito 👌",
-        "E sobre renda… você pretende usar **só sua renda**, ou quer considerar **parceiro(a)** ou **familiar**?"
+        "Certo, solteiro(a).",
+        "Você pretende usar só sua renda, somar com parceiro(a), ou com familiar?"
       ],
       "somar_renda_solteiro"
     );
@@ -26255,22 +26602,16 @@ case "estado_civil": {
       solteiro_sozinho: false
     });
 
-    // ── TOPO HAPPY PATH MIGRATION: estado_civil:casado ──
+    // ── COGNITIVE SURFACE: estado_civil:casado ──
     const _casSpeech = await getTopoHappyPathSpeech(env, "estado_civil:casado", st);
     setTopoHappyPathFlags(st, _casSpeech);
-
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
 
     return step(
       env,
       st,
       [
-        "Entendi! 👍",
-        "Seu casamento é **civil no papel** (com certidão) ou vocês vivem como **união estável**?",
-        "Se preferir, pode responder *sim* (civil) ou *não* (estável)."
+        "Entendi, casado(a).",
+        "Seu casamento é civil no papel ou é união estável?"
       ],
       "confirmar_casamento"
     );
@@ -26294,21 +26635,16 @@ case "estado_civil": {
       estado_civil: "uniao_estavel"
     });
 
-    // ── TOPO HAPPY PATH MIGRATION: estado_civil:uniao_estavel ──
+    // ── COGNITIVE SURFACE: estado_civil:uniao_estavel ──
     const _ueSpeech = await getTopoHappyPathSpeech(env, "estado_civil:uniao_estavel", st);
     setTopoHappyPathFlags(st, _ueSpeech);
-
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
 
     return step(
       env,
       st,
       [
-        "Perfeito! ✍️",
-        "Vocês querem **comprar juntos**, só você, ou **apenas se precisar**?"
+        "Entendi, união estável.",
+        "Vocês pretendem comprar juntos, só você, ou apenas se precisar?"
       ],
       "financiamento_conjunto"
     );
@@ -26332,21 +26668,16 @@ case "estado_civil": {
       estado_civil: "separado"
     });
 
-    // ── TOPO HAPPY PATH MIGRATION: estado_civil:separado ──
+    // ── COGNITIVE SURFACE: estado_civil:separado ──
     const _sepSpeech = await getTopoHappyPathSpeech(env, "estado_civil:separado", st);
     setTopoHappyPathFlags(st, _sepSpeech);
-
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
 
     return step(
       env,
       st,
       [
-        "Entendi 👍",
-        "Sua separação está **averbada no documento** (RG/Certidão)?"
+        "Entendi.",
+        "Sua separação está averbada no documento?"
       ],
       "verificar_averbacao"
     );
@@ -26370,21 +26701,16 @@ case "estado_civil": {
       estado_civil: "divorciado"
     });
 
-    // ── TOPO HAPPY PATH MIGRATION: estado_civil:divorciado ──
+    // ── COGNITIVE SURFACE: estado_civil:divorciado ──
     const _divSpeech = await getTopoHappyPathSpeech(env, "estado_civil:divorciado", st);
     setTopoHappyPathFlags(st, _divSpeech);
-
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
 
     return step(
       env,
       st,
       [
-        "Perfeito 👌",
-        "Seu divórcio está **averbado no documento**?"
+        "Entendi.",
+        "Seu divórcio está averbado no documento?"
       ],
       "verificar_averbacao"
     );
@@ -26408,21 +26734,16 @@ case "estado_civil": {
       estado_civil: "viuvo"
     });
 
-    // ── TOPO HAPPY PATH MIGRATION: estado_civil:viuvo ──
+    // ── COGNITIVE SURFACE: estado_civil:viuvo ──
     const _viuSpeech = await getTopoHappyPathSpeech(env, "estado_civil:viuvo", st);
     setTopoHappyPathFlags(st, _viuSpeech);
-
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
 
     return step(
       env,
       st,
       [
-        "Entendi, sinto muito pela sua perda 💛",
-        "Pra eu montar certinho sua lista de documentos: você já tem a *certidão de óbito* do(a) ex-cônjuge e a *certidão de casamento* já *averbada com o óbito*?"
+        "Sinto muito pela sua perda 💛",
+        "Você já tem a certidão de óbito e a certidão de casamento averbada com o óbito?"
       ],
       "verificar_inventario"
     );
@@ -26534,19 +26855,17 @@ case "confirmar_casamento": {
       p2_tipo: "parceiro"
     });
 
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
+    // ── COGNITIVE SURFACE: confirmar_casamento:civil ──
+    const _ccCivilSpeech = await getHappyPathSpeech(env, "confirmar_casamento:civil", st);
+    setHappyPathFlags(st, _ccCivilSpeech);
 
     return step(
       env,
       st,
       [
-        "Perfeito! 📄",
-        "Então seguimos com vocês **juntos no financiamento**.",
-        "Mesmo que só um tenha renda, o processo continua em conjunto e a documentação final será dos dois.",
-        "Agora me fale seu **tipo de trabalho** (CLT, autônomo(a) ou servidor(a))."
+        "Beleza, casamento civil.",
+        "Seguimos com vocês juntos no financiamento.",
+        "Me conta: qual o seu tipo de trabalho — CLT, autônomo(a) ou servidor(a)?"
       ],
       "regime_trabalho"
     );
@@ -26571,17 +26890,16 @@ case "confirmar_casamento": {
       estado_civil: "uniao_estavel"
     });
 
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
+    // ── COGNITIVE SURFACE: confirmar_casamento:uniao_estavel ──
+    const _ccUeSpeech = await getHappyPathSpeech(env, "confirmar_casamento:uniao_estavel", st);
+    setHappyPathFlags(st, _ccUeSpeech);
 
     return step(
       env,
       st,
       [
-        "Perfeito! ✍️",
-        "Nesse caso, vocês pretendem **comprar juntos**, só você, ou **apenas se precisar**?"
+        "Entendi, união estável.",
+        "Vocês pretendem comprar juntos, só você, ou apenas se precisar?"
       ],
       "financiamento_conjunto"
     );
@@ -26607,12 +26925,18 @@ case "confirmar_casamento": {
     }
   });
 
+  // ── COGNITIVE SURFACE: confirmar_casamento:fallback ──
+  const _ccFallbackSpeech = await getHappyPathSpeech(env, "confirmar_casamento:fallback", st, {
+    cognitiveMessage: t || "hmm"
+  });
+  setHappyPathFlags(st, _ccFallbackSpeech);
+
   return step(
     env,
     st,
     [
-      "É *casamento civil no papel* (com certidão) ou *união estável*?",
-      "Se preferir, responda *sim* (civil) ou *não* (estável)."
+      "É casamento civil no papel ou união estável?",
+      "Pode responder sim (civil) ou não (estável)."
     ],
     "confirmar_casamento"
   );
@@ -26666,18 +26990,16 @@ case "financiamento_conjunto": {
       p2_tipo: "parceiro"
     });
 
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
+    // ── COGNITIVE SURFACE: financiamento_conjunto:juntos ──
+    const _fcJuntosSpeech = await getHappyPathSpeech(env, "financiamento_conjunto:juntos", st);
+    setHappyPathFlags(st, _fcJuntosSpeech);
 
     return step(
       env,
       st,
       [
-        "Perfeito! 👏",
-        "Então vamos considerar a renda de vocês dois.",
-        "Primeiro, me fala sobre **você**: trabalha com carteira assinada (CLT), é autônomo(a) ou servidor(a)?"
+        "Beleza, vamos considerar a renda de vocês dois.",
+        "Me conta: qual o seu tipo de trabalho — CLT, autônomo(a) ou servidor(a)?"
       ],
       "regime_trabalho"
     );
@@ -26703,18 +27025,16 @@ case "financiamento_conjunto": {
       p2_tipo: null
     });
 
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
+    // ── COGNITIVE SURFACE: financiamento_conjunto:solo ──
+    const _fcSoloSpeech = await getHappyPathSpeech(env, "financiamento_conjunto:solo", st);
+    setHappyPathFlags(st, _fcSoloSpeech);
 
     return step(
       env,
       st,
       [
-        "Perfeito 👍",
-        "Então seguimos só com a sua renda.",
-        "Qual é o seu **tipo de trabalho**? CLT, autônomo(a) ou servidor(a)?"
+        "Certo, seguimos só com a sua renda.",
+        "Qual o seu tipo de trabalho — CLT, autônomo(a) ou servidor(a)?"
       ],
       "regime_trabalho"
     );
@@ -26740,18 +27060,16 @@ case "financiamento_conjunto": {
       p2_tipo: null
     });
 
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
+    // ── COGNITIVE SURFACE: financiamento_conjunto:se_precisar ──
+    const _fcSePrecisarSpeech = await getHappyPathSpeech(env, "financiamento_conjunto:se_precisar", st);
+    setHappyPathFlags(st, _fcSePrecisarSpeech);
 
     return step(
       env,
       st,
       [
-        "Sem problema! 😊",
-        "Vamos começar analisando **só a sua renda**.",
-        "Qual é o seu **tipo de trabalho**? CLT, autônomo(a) ou servidor(a)?"
+        "Certo, vamos começar analisando só a sua renda.",
+        "Qual o seu tipo de trabalho — CLT, autônomo(a) ou servidor(a)?"
       ],
       "regime_trabalho"
     );
@@ -26777,11 +27095,17 @@ case "financiamento_conjunto": {
     }
   });
 
+  // ── COGNITIVE SURFACE: financiamento_conjunto:fallback ──
+  const _fcFallbackSpeech = await getHappyPathSpeech(env, "financiamento_conjunto:fallback", st, {
+    cognitiveMessage: t || "hmm"
+  });
+  setHappyPathFlags(st, _fcFallbackSpeech);
+
   return step(
     env,
     st,
     [
-      "Vocês querem *comprar juntos*, *só você*, ou *apenas se precisar* somar renda?"
+      "Vocês querem comprar juntos, só você, ou apenas se precisar somar renda?"
     ],
     "financiamento_conjunto"
   );

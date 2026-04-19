@@ -20175,8 +20175,7 @@ const TOPO_HAPPY_PATH_SPEECH = {
     cognitiveStage: "estado_civil",
     cognitiveMessage: "sou brasileiro",
     fallback: [
-      "Perfeito! 🇧🇷",
-      "Vamos seguir… Qual é o seu estado civil?"
+      "Agora me fala seu estado civil 😊"
     ],
     validate: (reply) => reply && reply.length > 15 && /estado civil|solteiro|casad|uni[aã]o|separad|divorciad|vi[uú]v/i.test(reply) && /\?/.test(reply)
   },
@@ -20355,7 +20354,7 @@ const TOPO_HAPPY_PATH_SPEECH = {
     cognitiveStage: "estado_civil",
     cognitiveMessage: "meu RNM é indeterminado",
     fallback: [
-      "Qual é o seu estado civil?"
+      "Agora me fala seu estado civil 😊"
     ],
     validate: (reply) => reply && reply.length > 10 && /estado civil/i.test(reply) && /\?/.test(reply)
   },
@@ -26195,10 +26194,7 @@ case "inicio_nacionalidade": {
     return step(
       env,
       st,
-      [
-        "Perfeito! 🇧🇷",
-        "Vamos seguir… Qual é o seu estado civil?"
-      ],
+      _brSpeech.speech,
       "estado_civil"
     );
   }
@@ -26224,10 +26220,7 @@ case "inicio_nacionalidade": {
     return step(
       env,
       st,
-      [
-        "Perfeito! 🇧🇷",
-        "Vamos seguir… Qual é o seu estado civil?"
-      ],
+      _brSimSpeech.speech,
       "estado_civil"
     );
   }
@@ -26489,7 +26482,7 @@ case "inicio_rnm_validade": {
     return step(
       env,
       st,
-      ["Qual é o seu estado civil?"],
+      _rnmIndetSpeech.speech,
       "estado_civil"
     );
   }

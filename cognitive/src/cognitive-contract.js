@@ -399,7 +399,7 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
     brief_answer_allowed: false,
     canonical_prompt: "Agora me fala seu estado civil.",
     return_to_stage_prompt: "Ainda preciso saber seu estado civil pra continuar.",
-    fallback_prompt: "Agora me fala seu estado civil.",
+    fallback_prompt: "Qual o seu estado civil? Solteiro(a), casado(a), divorciado(a)…",
     cognitive_speech_guidance: {
       objective: "Coletar estado civil de forma direta e natural",
       surface_intent: "Pergunta curta e humana sobre estado civil",
@@ -421,7 +421,7 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
     brief_answer_allowed: false,
     canonical_prompt: "Pretende usar só sua renda, somar com parceiro(a), ou com familiar?",
     return_to_stage_prompt: "Preciso saber se vai somar renda com alguém ou seguir sozinho(a).",
-    fallback_prompt: "Pretende usar só sua renda, somar com parceiro(a), ou com familiar?",
+    fallback_prompt: "Vai usar só sua renda, somar com parceiro(a), ou compor com familiar?",
     cognitive_speech_guidance: {
       objective: "Descobrir se o cliente quer seguir solo, com parceiro ou familiar",
       surface_intent: "Pergunta direta sobre composição de renda",
@@ -531,7 +531,7 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
     brief_answer_allowed: true,
     canonical_prompt: "É casamento civil no papel ou união estável?",
     return_to_stage_prompt: "Preciso confirmar o tipo de casamento pra seguir.",
-    fallback_prompt: "É casamento civil no papel ou união estável?",
+    fallback_prompt: "Seu casamento é civil registrado ou é união estável?",
     cognitive_speech_guidance: {
       objective: "Confirmar tipo exato do casamento — civil ou estável",
       surface_intent: "Pergunta curta e direta sobre tipo de casamento",
@@ -553,7 +553,7 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
     brief_answer_allowed: true,
     canonical_prompt: "Vocês pretendem comprar juntos, só você, ou apenas se precisar?",
     return_to_stage_prompt: "Preciso saber se o financiamento será junto ou separado.",
-    fallback_prompt: "Vocês pretendem comprar juntos, só você, ou apenas se precisar?",
+    fallback_prompt: "O financiamento vai ser junto, só você, ou apenas se precisar somar?",
     cognitive_speech_guidance: {
       objective: "Definir se o financiamento será conjunto, solo ou condicional",
       surface_intent: "Pergunta direta sobre como querem financiar",
@@ -575,7 +575,7 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
     brief_answer_allowed: false,
     canonical_prompt: "De quem pretende usar renda pra somar? Parceiro(a)? Familiar? Ou só você?",
     return_to_stage_prompt: "Preciso saber de quem vai usar renda pra somar.",
-    fallback_prompt: "De quem pretende usar renda pra somar? Parceiro(a)? Familiar? Ou só você?",
+    fallback_prompt: "Vai somar com parceiro(a), familiar, ou seguir só com sua renda?",
     cognitive_speech_guidance: {
       objective: "Descobrir quem vai compor renda — parceiro, familiar ou sozinho",
       surface_intent: "Pergunta direta sobre composição de renda",
@@ -597,7 +597,7 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
     brief_answer_allowed: false,
     canonical_prompt: "Pretende usar renda de parceiro(a), familiar, ou seguir sozinho(a)?",
     return_to_stage_prompt: "Preciso entender a composição de renda pra continuar.",
-    fallback_prompt: "Pretende usar renda de parceiro(a), familiar, ou seguir sozinho(a)?",
+    fallback_prompt: "Com quem quer compor renda? Parceiro(a), familiar, ou sozinho(a)?",
     cognitive_speech_guidance: {
       objective: "Interpretar e confirmar tipo de composição de renda",
       surface_intent: "Pergunta direta sobre como quer compor renda",
@@ -619,7 +619,7 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
     brief_answer_allowed: false,
     canonical_prompt: "Qual familiar quer considerar? Pai, mãe, irmão(ã), tio(a), avô/avó…",
     return_to_stage_prompt: "Preciso saber qual familiar quer compor renda.",
-    fallback_prompt: "Qual familiar quer considerar? Pai, mãe, irmão(ã), tio(a), avô/avó…",
+    fallback_prompt: "Me diz qual familiar: pai, mãe, irmão(ã), tio(a), avô/avó, primo(a)…",
     cognitive_speech_guidance: {
       objective: "Identificar qual familiar específico vai compor renda",
       surface_intent: "Pergunta direta sobre qual familiar",

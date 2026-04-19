@@ -205,7 +205,7 @@ async function step(env, st, messages, nextStage, options = {}) {
   // Camada canônica de fala cognitiva soberana.
   // Toda fala visível ao cliente passa por renderCognitiveSpeech().
   // O mecânico permanece soberano em stage/gate/nextStage/persistência.
-  const arr = renderCognitiveSpeech(st, currentStage, rawArr.filter(Boolean));
+  const arr = renderCognitiveSpeech(st, currentStage, rawArr.filter(Boolean), nextStage);
 
   // ── PR6 FIX 5: Fallback obrigatório — nunca silêncio ──
   // Prioridade: prompt parser-safe do stage atual > mapa estático do stage > genérico absoluto.
@@ -4539,7 +4539,7 @@ function buildMinimalCognitiveFallback(stage, rawArr, roundIntent) {
  *
  * CONTRATO: rawArr como texto cru NUNCA chega ao cliente. Sem exceções.
  */
-function renderCognitiveSpeech(st, stage, rawArr) {
+function renderCognitiveSpeech(st, stage, rawArr, nextStage) {
   const cognitivePrefix = String(st?.__cognitive_reply_prefix || "").trim();
   const v2TakesFinal = st?.__cognitive_v2_takes_final === true;
   const arbiterSource = st?.__speech_arbiter_source || null;
@@ -4563,7 +4563,18 @@ function renderCognitiveSpeech(st, stage, rawArr) {
   // ── TOP_SEALED_MODE: no topo selado, fallback extremo usa resposta estática do bucket ──
   // NUNCA usa fala mecânica (_MINIMAL_FALLBACK_SPEECH_MAP ou _renderCognitiveFromIntent)
   // no topo selado. Usa a resposta cognitiva estática do bucket classificado.
+  // CORREÇÃO CIRÚRGICA: quando o mecânico avança PARA FORA do topo selado
+  // (ex: inicio_programa → inicio_nome), o sealed bucket NÃO pode sobrescrever
+  // a superfície. A fala de transição vem do fallback do NEXT stage, não do bucket
+  // do stage atual. Sem isso, "Já conheço" gera surface do bucket program_choice
+  // (repete a mesma pergunta) mesmo com o state já em inicio_nome.
   if (TOP_SEALED_MODE && TOP_SEALED_STAGES.has(stage)) {
+    // Se avançando para fora da zona selada, usar fallback do próximo stage
+    if (nextStage && nextStage !== stage && !TOP_SEALED_STAGES.has(nextStage)) {
+      st.__speech_arbiter_source = "extreme_fallback";
+      st.__render_path_used = "extreme_fallback_transition_out";
+      return buildMinimalCognitiveFallback(nextStage, rawArr, roundIntent);
+    }
     const _bucket = st?.__topo_bucket || _classifyTopoIntentBucket(st?.last_user_text || "");
     const _staticReply = _TOPO_BUCKET_STATIC_REPLIES[_bucket] || _TOPO_BUCKET_STATIC_REPLIES.unknown_topo;
     st.__speech_arbiter_source = "topo_sealed_bucket_static";

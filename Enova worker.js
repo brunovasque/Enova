@@ -4629,7 +4629,26 @@ function renderCognitiveSpeech(st, stage, rawArr, nextStage) {
   const _SOVEREIGN_SOURCES = new Set(["llm_real", "heuristic_guidance", "contract_reanchor", "contract_fallback"]);
   if (v2TakesFinal && cognitivePrefix && _SOVEREIGN_SOURCES.has(arbiterSource)) {
     // ── PASSO 2 TELEMETRIA: prova que cognitive path é principal ──
-    st.__render_path_used = arbiterSource === "llm_real" ? "cognitive_canonical" : "cognitive_unified_" + arbiterSource;
+    const _sovereignPath = arbiterSource === "llm_real" ? "cognitive_canonical" : "cognitive_unified_" + arbiterSource;
+
+    // ── COMPOSICAO_SEALED bridge continuidade: se a confirmação do LLM não contém
+    // pergunta (`?`) e estamos num turn-ponte avançando stage, appenda a pergunta
+    // canônica do stage destino para garantir continuidade sem silêncio operacional.
+    // CONTRATO: a confirmação é do stage atual; a pergunta é exclusiva do destino.
+    // Não há duplicação porque o destino não repetirá: o nextStage aceitará a resposta.
+    if (
+      COMPOSICAO_SEALED_STAGES.has(stage) &&
+      nextStage && nextStage !== stage &&
+      !cognitivePrefix.includes("?")
+    ) {
+      const _nextStageFallback = _MINIMAL_FALLBACK_SPEECH_MAP.get(nextStage);
+      if (_nextStageFallback) {
+        st.__render_path_used = _sovereignPath + "_with_next_stage";
+        return [cognitivePrefix, _nextStageFallback];
+      }
+    }
+
+    st.__render_path_used = _sovereignPath;
     return [cognitivePrefix];
   }
 
@@ -4673,17 +4692,20 @@ function renderCognitiveSpeech(st, stage, rawArr, nextStage) {
   // fallback de destino em vez de transformar o rawArr mecânico.
   // Remove a surface mecânica indevida nos turns-ponte (estado_civil:solteiro,
   // somar_renda_solteiro:sozinho etc.) quando o LLM real não está disponível.
-  // _COMPOSICAO_BRIDGE_CONFIRM tem precedência: pontes que só confirmam a decisão
-  // não devem coletar o slot do stage destino (contrato de separação de responsabilidades).
+  // _COMPOSICAO_BRIDGE_CONFIRM tem precedência: pontes que confirmam a decisão
+  // são seguidas da pergunta canônica do stage destino para garantir continuidade.
+  // CONTRATO: confirmação (origin) + pergunta (destino) — cada stage pergunta o seu.
   if (COMPOSICAO_SEALED_STAGES.has(stage) && nextStage && nextStage !== stage) {
-    const _composicaoNextFallback =
-      _COMPOSICAO_BRIDGE_CONFIRM.get(`${stage}|${nextStage}`) ||
-      _MINIMAL_FALLBACK_SPEECH_MAP.get(nextStage) ||
-      _MINIMAL_FALLBACK_SPEECH_MAP.get(stage) ||
-      "Pode continuar 😊";
+    const _bridgeConfirm = _COMPOSICAO_BRIDGE_CONFIRM.get(`${stage}|${nextStage}`);
+    const _nextStageFallback = _MINIMAL_FALLBACK_SPEECH_MAP.get(nextStage);
     st.__speech_arbiter_source = "composicao_sealed_transition_fallback";
     st.__render_path_used = "composicao_sealed_transition_next";
-    return [_composicaoNextFallback];
+    if (_bridgeConfirm && _nextStageFallback) {
+      // Bridge confirma a decisão do stage atual; destino faz sua pergunta.
+      return [_bridgeConfirm, _nextStageFallback];
+    }
+    // Sem bridge confirm: usar pergunta do destino diretamente.
+    return [_bridgeConfirm || _nextStageFallback || _MINIMAL_FALLBACK_SPEECH_MAP.get(stage) || "Pode continuar 😊"];
   }
 
   // Tudo que não passou pelo controle unificado → fallback extremo mínimo (mapa por stage).

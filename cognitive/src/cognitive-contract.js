@@ -397,9 +397,17 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
       "NÃO coletar renda ou documentos aqui"
     ],
     brief_answer_allowed: false,
-    canonical_prompt: "Me conta seu estado civil — solteiro(a), casado(a) ou outra situação?",
-    return_to_stage_prompt: "Ainda preciso saber seu estado civil pra continuar a análise 😊",
-    fallback_prompt: "Me conta seu estado civil — solteiro(a), casado(a) ou outra situação? 😊"
+    canonical_prompt: "Agora me fala seu estado civil.",
+    return_to_stage_prompt: "Ainda preciso saber seu estado civil pra continuar.",
+    fallback_prompt: "Qual o seu estado civil? Solteiro(a), casado(a), divorciado(a)…",
+    cognitive_speech_guidance: {
+      objective: "Coletar estado civil de forma direta e natural",
+      surface_intent: "Pergunta curta e humana sobre estado civil",
+      allowed_tone: ["natural", "direto", "profissional", "curto"],
+      forbidden_tone: ["burocrático", "bot", "template escancarado", "Perfeito! Vamos seguir..."],
+      short_reply_strategy: "Uma frase curta perguntando estado civil, sem floreios",
+      examples_direction: ["Agora me fala seu estado civil.", "E seu estado civil, qual é?", "Qual o seu estado civil?"]
+    }
   },
   somar_renda_solteiro: {
     expected_slot: "composicao",
@@ -411,9 +419,17 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
       "NÃO decidir por conta própria"
     ],
     brief_answer_allowed: false,
-    canonical_prompt: "Sobre renda — vai somar com parceiro(a), familiar, ou segue sozinho(a)?",
-    return_to_stage_prompt: "Preciso saber se vai somar renda com alguém ou seguir sozinho(a) 😊",
-    fallback_prompt: "Sobre renda — vai somar com parceiro(a), familiar, ou segue sozinho(a)? 😊"
+    canonical_prompt: "Pretende usar só sua renda, somar com parceiro(a), ou com familiar?",
+    return_to_stage_prompt: "Preciso saber se vai somar renda com alguém ou seguir sozinho(a).",
+    fallback_prompt: "Vai usar só sua renda, somar com parceiro(a), ou compor com familiar?",
+    cognitive_speech_guidance: {
+      objective: "Descobrir se o cliente quer seguir solo, com parceiro ou familiar",
+      surface_intent: "Pergunta direta sobre composição de renda",
+      allowed_tone: ["natural", "direto", "profissional", "curto"],
+      forbidden_tone: ["burocrático", "bot", "template", "Perfeito! Vamos seguir..."],
+      short_reply_strategy: "Pergunta única sobre composição sem rodeios",
+      examples_direction: ["Pretende seguir só com sua renda ou quer compor com alguém?", "Vai usar só sua renda, somar com parceiro(a) ou familiar?"]
+    }
   },
   regime_trabalho: {
     expected_slot: "regime_trabalho",
@@ -513,9 +529,17 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
       "NÃO coletar renda ou documentos aqui"
     ],
     brief_answer_allowed: true,
-    canonical_prompt: "Esse casamento é civil registrado ou é união estável?",
-    return_to_stage_prompt: "Preciso confirmar o tipo de casamento pra seguir 😊",
-    fallback_prompt: "Esse casamento é civil registrado ou é união estável?"
+    canonical_prompt: "É casamento civil no papel ou união estável?",
+    return_to_stage_prompt: "Preciso confirmar o tipo de casamento pra seguir.",
+    fallback_prompt: "Seu casamento é civil registrado ou é união estável?",
+    cognitive_speech_guidance: {
+      objective: "Confirmar tipo exato do casamento — civil ou estável",
+      surface_intent: "Pergunta curta e direta sobre tipo de casamento",
+      allowed_tone: ["natural", "direto", "profissional", "curto"],
+      forbidden_tone: ["burocrático", "bot", "template", "Perfeito!"],
+      short_reply_strategy: "Pergunta única: civil no papel ou união estável",
+      examples_direction: ["Seu casamento é no papel ou união estável?", "É casamento civil ou estável?"]
+    }
   },
   financiamento_conjunto: {
     expected_slot: "composicao",
@@ -527,9 +551,17 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
       "NÃO expandir para outros temas"
     ],
     brief_answer_allowed: true,
-    canonical_prompt: "Vai financiar sozinho(a) ou junto com alguém?",
-    return_to_stage_prompt: "Preciso saber se o financiamento será sozinho ou conjunto 😊",
-    fallback_prompt: "Vai financiar sozinho(a) ou junto com alguém?"
+    canonical_prompt: "Vocês pretendem comprar juntos, só você, ou apenas se precisar?",
+    return_to_stage_prompt: "Preciso saber se o financiamento será junto ou separado.",
+    fallback_prompt: "O financiamento vai ser junto, só você, ou apenas se precisar somar?",
+    cognitive_speech_guidance: {
+      objective: "Definir se o financiamento será conjunto, solo ou condicional",
+      surface_intent: "Pergunta direta sobre como querem financiar",
+      allowed_tone: ["natural", "direto", "profissional", "curto"],
+      forbidden_tone: ["burocrático", "bot", "template", "Perfeito!"],
+      short_reply_strategy: "Apresentar 3 opções: juntos / só você / se precisar",
+      examples_direction: ["Vocês pretendem comprar juntos, só você, ou só se precisar?", "O financiamento vai ser junto ou separado?"]
+    }
   },
   quem_pode_somar: {
     expected_slot: "composicao",
@@ -541,9 +573,17 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
       "NÃO decidir por conta própria"
     ],
     brief_answer_allowed: false,
-    canonical_prompt: "Quem mais compõe renda com você?",
-    return_to_stage_prompt: "Preciso saber quem compõe renda com você 😊",
-    fallback_prompt: "Quem mais compõe renda com você?"
+    canonical_prompt: "De quem pretende usar renda pra somar? Parceiro(a)? Familiar? Ou só você?",
+    return_to_stage_prompt: "Preciso saber de quem vai usar renda pra somar.",
+    fallback_prompt: "Vai somar com parceiro(a), familiar, ou seguir só com sua renda?",
+    cognitive_speech_guidance: {
+      objective: "Descobrir quem vai compor renda — parceiro, familiar ou sozinho",
+      surface_intent: "Pergunta direta sobre composição de renda",
+      allowed_tone: ["natural", "direto", "profissional", "curto"],
+      forbidden_tone: ["burocrático", "bot", "template", "Perfeito!"],
+      short_reply_strategy: "Pergunta única: parceiro, familiar ou só você",
+      examples_direction: ["Vai somar com parceiro(a), familiar, ou segue sozinho(a)?", "De quem pretende usar renda?"]
+    }
   },
   interpretar_composicao: {
     expected_slot: "composicao",
@@ -555,9 +595,17 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
       "NÃO decidir por conta própria"
     ],
     brief_answer_allowed: false,
-    canonical_prompt: "Me conta mais sobre a composição de renda 😊",
-    return_to_stage_prompt: "Preciso entender a composição de renda pra continuar 😊",
-    fallback_prompt: "Me conta mais sobre a composição de renda 😊"
+    canonical_prompt: "Pretende usar renda de parceiro(a), familiar, ou seguir sozinho(a)?",
+    return_to_stage_prompt: "Preciso entender a composição de renda pra continuar.",
+    fallback_prompt: "Com quem quer compor renda? Parceiro(a), familiar, ou sozinho(a)?",
+    cognitive_speech_guidance: {
+      objective: "Interpretar e confirmar tipo de composição de renda",
+      surface_intent: "Pergunta direta sobre como quer compor renda",
+      allowed_tone: ["natural", "direto", "profissional", "curto"],
+      forbidden_tone: ["burocrático", "bot", "template", "Perfeito!"],
+      short_reply_strategy: "Pergunta única: parceiro, familiar ou sozinho",
+      examples_direction: ["Pretende usar renda de parceiro(a), familiar, ou seguir sozinho(a)?", "Com quem quer compor renda?"]
+    }
   },
   somar_renda_familiar: {
     expected_slot: "composicao",
@@ -569,9 +617,17 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
       "NÃO decidir por conta própria"
     ],
     brief_answer_allowed: false,
-    canonical_prompt: "Com quem quer somar renda? Pode ser pai, mãe, irmão(ã) ou tio(a).",
-    return_to_stage_prompt: "Preciso saber com qual familiar quer compor renda 😊",
-    fallback_prompt: "Com quem quer somar renda? Pode ser pai, mãe, irmão(ã) ou tio(a). 😊"
+    canonical_prompt: "Qual familiar quer considerar? Pai, mãe, irmão(ã), tio(a), avô/avó…",
+    return_to_stage_prompt: "Preciso saber qual familiar quer compor renda.",
+    fallback_prompt: "Me diz qual familiar: pai, mãe, irmão(ã), tio(a), avô/avó, primo(a)…",
+    cognitive_speech_guidance: {
+      objective: "Identificar qual familiar específico vai compor renda",
+      surface_intent: "Pergunta direta sobre qual familiar",
+      allowed_tone: ["natural", "direto", "profissional", "curto"],
+      forbidden_tone: ["burocrático", "bot", "template", "Perfeito!"],
+      short_reply_strategy: "Listar opções de familiar de forma natural e curta",
+      examples_direction: ["Qual familiar você quer considerar?", "Me diz qual familiar: pai, mãe, irmão(ã), tio(a), avô/avó…"]
+    }
   },
   autonomo_ir_pergunta: {
     expected_slot: "ir_declarado",

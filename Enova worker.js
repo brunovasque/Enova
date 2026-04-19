@@ -4481,6 +4481,9 @@ const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
   ["somar_renda_familiar",    "Qual familiar quer considerar? Pai, mãe, irmão(ã), tio(a), avô/avó…"],
   ["quem_pode_somar",         "De quem pretende usar renda pra somar? Parceiro(a)? Familiar? Ou só você?"],
   ["interpretar_composicao",  "Pretende usar renda de parceiro(a), familiar, ou seguir sozinho(a)?"],
+  ["parceiro_tem_renda",      "Seu(sua) parceiro(a) tem renda própria? Sim ou não."],
+  ["pais_casados_civil_pergunta", "Seus pais são casados no civil atualmente?"],
+  ["confirmar_avo_familiar",  "Seu avô/avó recebe aposentadoria rural, urbana ou outro benefício?"],
   ["verificar_averbacao",     "Você tem averbação de separação judicial?"],
   ["verificar_inventario",    "O inventário já foi concluído?"],
   // ── gates_finais — mesma exigência técnica, fala cognitiva ──
@@ -4516,6 +4519,36 @@ const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
 const _COMPOSICAO_BRIDGE_CONFIRM = new Map([
   // somar_renda_solteiro:sozinho → regime_trabalho: confirmar só; regime_trabalho pergunta o regime
   ["somar_renda_solteiro|regime_trabalho", "Certo! Seguiremos só com a sua renda."],
+  // confirmar_casamento → regime_trabalho: confirmar casamento civil; regime_trabalho pergunta depois
+  ["confirmar_casamento|regime_trabalho", "Beleza, casamento civil confirmado! Seguimos juntos no financiamento."],
+  // financiamento_conjunto → regime_trabalho: confirmar decisão conjunta; regime_trabalho pergunta depois
+  ["financiamento_conjunto|regime_trabalho", "Perfeito, anotei! 👍"],
+  // somar_renda_solteiro → regime_trabalho_parceiro: confirmar parceiro; regime_trabalho_parceiro pergunta depois
+  ["somar_renda_solteiro|regime_trabalho_parceiro", "Beleza, vamos incluir a renda do(a) parceiro(a)!"],
+  // somar_renda_solteiro → fim_ineligivel
+  ["somar_renda_solteiro|fim_ineligivel", "Entendi."],
+  // somar_renda_familiar → regime_trabalho_parceiro_familiar
+  ["somar_renda_familiar|regime_trabalho_parceiro_familiar", "Perfeito, vamos considerar a renda do familiar! 👍"],
+  // quem_pode_somar → regime_trabalho_parceiro
+  ["quem_pode_somar|regime_trabalho_parceiro", "Beleza, vamos considerar renda com parceiro(a)!"],
+  // quem_pode_somar → regime_trabalho_parceiro_familiar
+  ["quem_pode_somar|regime_trabalho_parceiro_familiar", "Certo, vamos considerar a renda do familiar!"],
+  // quem_pode_somar → fim_ineligivel
+  ["quem_pode_somar|fim_ineligivel", "Entendi."],
+  // interpretar_composicao → regime_trabalho_parceiro
+  ["interpretar_composicao|regime_trabalho_parceiro", "Beleza, vamos considerar renda com parceiro(a)!"],
+  // interpretar_composicao → ir_declarado (sozinho segue com renda própria)
+  ["interpretar_composicao|ir_declarado", "Certo, seguimos só com a sua renda."],
+  // parceiro_tem_renda → regime_trabalho_parceiro: confirmar; regime_trabalho_parceiro pergunta depois
+  ["parceiro_tem_renda|regime_trabalho_parceiro", "Perfeito! Vamos incluir a renda dele(a). 👍"],
+  // parceiro_tem_renda → ctps_36: parceiro sem renda, seguir com titular
+  ["parceiro_tem_renda|ctps_36", "Entendi! Sem problema — seguimos com a sua renda no financiamento conjunto."],
+  // parceiro_tem_renda → regime_trabalho: parceiro sem renda, titular precisa informar regime
+  ["parceiro_tem_renda|regime_trabalho", "Entendi! Sem problema — seguimos com a sua renda no financiamento conjunto."],
+  // pais_casados_civil_pergunta → regime_trabalho_parceiro_familiar
+  ["pais_casados_civil_pergunta|regime_trabalho_parceiro_familiar", "Perfeito, anotado! 👌"],
+  // confirmar_avo_familiar → regime_trabalho_parceiro_familiar
+  ["confirmar_avo_familiar|regime_trabalho_parceiro_familiar", "Certo, vamos considerar! 👌"],
 ]);
 
 /**
@@ -19815,7 +19848,10 @@ const COMPOSICAO_SEALED_STAGES = new Set([
   "somar_renda_solteiro",
   "somar_renda_familiar",
   "quem_pode_somar",
-  "interpretar_composicao"
+  "interpretar_composicao",
+  "parceiro_tem_renda",
+  "pais_casados_civil_pergunta",
+  "confirmar_avo_familiar"
 ]);
 
 // ── Classificador de intent bucket para prova de colapso no topo ───────────
@@ -20755,6 +20791,130 @@ const TOPO_HAPPY_PATH_SPEECH = {
       "Pretende usar renda de parceiro(a), familiar, ou seguir sozinho(a)?"
     ],
     validate: (reply) => reply && reply.length > 10 && /parceiro|familiar|renda|sozinho/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // PARCEIRO TEM RENDA — confirmações sem coletar slot do próximo stage
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ── parceiro_tem_renda: sim → ponte de confirmação ──
+  // CONTRATO: ponte confirma que parceiro tem renda, sem perguntar regime/trabalho.
+  "parceiro_tem_renda:sim": {
+    cognitiveStage: "parceiro_tem_renda",
+    cognitiveMessage: "sim, meu parceiro tem renda",
+    fallback: [
+      "Perfeito! Vamos incluir a renda dele(a). 👍"
+    ],
+    validate: (reply) => Boolean(reply && reply.length > 3 && !/CLT|aut[oô]nom|servidor|aposentad|MEI|\bregime\b|\btrabalho\b|carteira/i.test(reply) && !/\?/.test(reply))
+  },
+
+  // ── parceiro_tem_renda: nao → ponte de confirmação ──
+  "parceiro_tem_renda:nao": {
+    cognitiveStage: "parceiro_tem_renda",
+    cognitiveMessage: "não, meu parceiro não tem renda",
+    fallback: [
+      "Entendi! Sem problema — seguimos com a sua renda no financiamento conjunto."
+    ],
+    validate: (reply) => Boolean(reply && reply.length > 3 && !/CLT|aut[oô]nom|servidor|aposentad|MEI|\bregime\b|\btrabalho\b|carteira|ctps|36 meses/i.test(reply) && !/\?/.test(reply))
+  },
+
+  // ── parceiro_tem_renda: fallback ──
+  "parceiro_tem_renda:fallback": {
+    cognitiveStage: "parceiro_tem_renda",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Seu(sua) parceiro(a) tem renda própria? Sim ou não."
+    ],
+    validate: (reply) => reply && reply.length > 10 && /parceir|renda|trabalh/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // PAIS CASADOS CIVIL PERGUNTA — confirmações sem coletar slot do próximo stage
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ── pais_casados_civil_pergunta: sim → ponte de confirmação ──
+  "pais_casados_civil_pergunta:sim": {
+    cognitiveStage: "pais_casados_civil_pergunta",
+    cognitiveMessage: "sim, meus pais são casados no civil",
+    fallback: [
+      "Perfeito, anotado! 👌"
+    ],
+    validate: (reply) => Boolean(reply && reply.length > 3 && !/CLT|aut[oô]nom|servidor|aposentad|MEI|\bregime\b|\btrabalho\b|carteira/i.test(reply) && !/\?/.test(reply))
+  },
+
+  // ── pais_casados_civil_pergunta: nao → ponte de confirmação ──
+  "pais_casados_civil_pergunta:nao": {
+    cognitiveStage: "pais_casados_civil_pergunta",
+    cognitiveMessage: "não, meus pais não são casados",
+    fallback: [
+      "Entendi, anotado! 👌"
+    ],
+    validate: (reply) => Boolean(reply && reply.length > 3 && !/CLT|aut[oô]nom|servidor|aposentad|MEI|\bregime\b|\btrabalho\b|carteira/i.test(reply) && !/\?/.test(reply))
+  },
+
+  // ── pais_casados_civil_pergunta: fallback ──
+  "pais_casados_civil_pergunta:fallback": {
+    cognitiveStage: "pais_casados_civil_pergunta",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Seus pais são casados no civil atualmente? (sim/não)"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /pais|casad|civil/i.test(reply) && /\?/.test(reply)
+  },
+
+  // ════════════════════════════════════════════════════════════════════════════
+  // CONFIRMAR AVO FAMILIAR — confirmações sem coletar slot do próximo stage
+  // ════════════════════════════════════════════════════════════════════════════
+
+  // ── confirmar_avo_familiar: rural → ponte de confirmação ──
+  "confirmar_avo_familiar:rural": {
+    cognitiveStage: "confirmar_avo_familiar",
+    cognitiveMessage: "aposentadoria rural",
+    fallback: [
+      "Perfeito, vamos considerar a aposentadoria rural! 👌"
+    ],
+    validate: (reply) => Boolean(reply && reply.length > 3 && !/CLT|aut[oô]nom|servidor|MEI|\bregime\b|\btrabalho\b|carteira/i.test(reply) && !/\?/.test(reply))
+  },
+
+  // ── confirmar_avo_familiar: urbana → ponte de confirmação ──
+  "confirmar_avo_familiar:urbana": {
+    cognitiveStage: "confirmar_avo_familiar",
+    cognitiveMessage: "aposentadoria urbana",
+    fallback: [
+      "Perfeito, vamos considerar a aposentadoria urbana! 👍"
+    ],
+    validate: (reply) => Boolean(reply && reply.length > 3 && !/CLT|aut[oô]nom|servidor|MEI|\bregime\b|\btrabalho\b|carteira/i.test(reply) && !/\?/.test(reply))
+  },
+
+  // ── confirmar_avo_familiar: outro_beneficio → ponte de confirmação ──
+  "confirmar_avo_familiar:outro_beneficio": {
+    cognitiveStage: "confirmar_avo_familiar",
+    cognitiveMessage: "outro benefício",
+    fallback: [
+      "Entendi, vamos considerar o benefício informado! 👌"
+    ],
+    validate: (reply) => Boolean(reply && reply.length > 3 && !/CLT|aut[oô]nom|servidor|MEI|\bregime\b|\btrabalho\b|carteira/i.test(reply) && !/\?/.test(reply))
+  },
+
+  // ── confirmar_avo_familiar: nao_sabe → ponte de confirmação ──
+  "confirmar_avo_familiar:nao_sabe": {
+    cognitiveStage: "confirmar_avo_familiar",
+    cognitiveMessage: "não sei qual benefício",
+    fallback: [
+      "Sem problema! Se souber depois, me avisa. 😊"
+    ],
+    validate: (reply) => Boolean(reply && reply.length > 3 && !/CLT|aut[oô]nom|servidor|MEI|\bregime\b|\btrabalho\b|carteira/i.test(reply) && !/\?/.test(reply))
+  },
+
+  // ── confirmar_avo_familiar: fallback ──
+  "confirmar_avo_familiar:fallback": {
+    cognitiveStage: "confirmar_avo_familiar",
+    cognitiveMessage: "hmm",
+    fallback: [
+      "Consegue me dizer qual tipo de benefício do seu avô/avó?",
+      "Pode ser: rural, urbana, pensão, BPC/LOAS ou outro benefício 👍"
+    ],
+    validate: (reply) => reply && reply.length > 10 && /av[oó]|aposentadoria|benef|rural|urban/i.test(reply) && /\?/.test(reply)
   }
 };
 
@@ -27218,13 +27378,16 @@ const sim =
       p2_tipo: "parceiro"
     });
 
+    // ── COGNITIVE SURFACE: parceiro_tem_renda:sim ──
+    // CONTRATO: ponte confirma que parceiro tem renda. Não coleta regime/trabalho.
+    const _ptrSimSpeech = await getHappyPathSpeech(env, "parceiro_tem_renda:sim", st);
+    setHappyPathFlags(st, _ptrSimSpeech);
+
     return step(
       env,
       st,
       [
-        "Perfeito! 👍",
-        "Então vamos incluir a renda dele(a).",
-        "Me diga qual é o **tipo de trabalho** do parceiro(a): CLT, autônomo(a) ou servidor(a)?"
+        "Perfeito! Vamos incluir a renda dele(a). 👍"
       ],
       "regime_trabalho_parceiro"
     );
@@ -27260,30 +27423,18 @@ const sim =
     p2_tipo: "parceiro"
   });
 
-  if (titularTemDadosBasicos) {
-    return step(
-      env,
-      st,
-      [
-        "Perfeito, entendi 👍",
-        "Sem problema — no financiamento em conjunto pode seguir mesmo se só um dos dois tiver renda.",
-        "Vou seguir com a renda de quem trabalha, e no final a documentação continua dos dois, combinado?",
-        "Agora me confirma:",
-        "Você tem **36 meses de carteira assinada (CTPS)** nos últimos 3 anos?"
-      ],
-      "ctps_36"
-    );
-  }
+  // ── COGNITIVE SURFACE: parceiro_tem_renda:nao ──
+  // CONTRATO: ponte confirma parceiro sem renda. Não coleta ctps/regime/trabalho.
+  const _ptrNaoSpeech = await getHappyPathSpeech(env, "parceiro_tem_renda:nao", st);
+  setHappyPathFlags(st, _ptrNaoSpeech);
 
   return step(
     env,
     st,
     [
-      "Perfeito, entendi 👍",
-      "Sem problema — no financiamento em conjunto pode seguir mesmo se só um dos dois tiver renda.",
-      "Me diga o seu **tipo de trabalho**: CLT, autônomo(a) ou servidor(a)?"
+      "Entendi! Sem problema — seguimos com a sua renda no financiamento conjunto."
     ],
-    "regime_trabalho"
+    nextStage
   );
 }
 
@@ -27301,6 +27452,12 @@ const sim =
     message: "Saindo da fase: parceiro_tem_renda → parceiro_tem_renda (fallback)",
     details: { userText }
   });
+
+  // ── COGNITIVE SURFACE: parceiro_tem_renda:fallback ──
+  const _ptrFallbackSpeech = await getHappyPathSpeech(env, "parceiro_tem_renda:fallback", st, {
+    cognitiveMessage: t || "hmm"
+  });
+  setHappyPathFlags(st, _ptrFallbackSpeech);
 
   return step(
     env,
@@ -28047,6 +28204,12 @@ case "pais_casados_civil_pergunta": {
   const nao = isNo(nt) || /^n[aã]o(\s+(sei|tenho))?$/i.test(nt);
 
   if (!sim && !nao) {
+    // ── COGNITIVE SURFACE: pais_casados_civil_pergunta:fallback ──
+    const _pccpFallbackSpeech = await getHappyPathSpeech(env, "pais_casados_civil_pergunta:fallback", st, {
+      cognitiveMessage: nt || "hmm"
+    });
+    setHappyPathFlags(st, _pccpFallbackSpeech);
+
     return step(
       env,
       st,
@@ -28069,6 +28232,11 @@ case "pais_casados_civil_pergunta": {
       p3_done: false,
       p3_tipo: p3TipoDefinido
     });
+
+    // ── COGNITIVE SURFACE: pais_casados_civil_pergunta:sim ──
+    // CONTRATO: ponte confirma pais casados. Não coleta regime/trabalho.
+    const _pccpSimSpeech = await getHappyPathSpeech(env, "pais_casados_civil_pergunta:sim", st);
+    setHappyPathFlags(st, _pccpSimSpeech);
   } else {
     st.p3_required = false;
     st.p3_done = false;
@@ -28076,16 +28244,18 @@ case "pais_casados_civil_pergunta": {
       p3_required: false,
       p3_done: false
     });
+
+    // ── COGNITIVE SURFACE: pais_casados_civil_pergunta:nao ──
+    // CONTRATO: ponte confirma pais não casados. Não coleta regime/trabalho.
+    const _pccpNaoSpeech = await getHappyPathSpeech(env, "pais_casados_civil_pergunta:nao", st);
+    setHappyPathFlags(st, _pccpNaoSpeech);
   }
 
   return step(
     env,
     st,
     [
-      "Perfeito 👌",
-      fam === "mae"
-        ? "Sua mãe trabalha com **carteira assinada**, é **autônoma** ou **servidora**?"
-        : "Seu pai trabalha com **carteira assinada**, é **autônomo** ou **servidor**?"
+      "Perfeito, anotado! 👌"
     ],
     "regime_trabalho_parceiro_familiar"
   );
@@ -28138,13 +28308,16 @@ case "confirmar_avo_familiar": {
       avo_beneficio: "rural"
     });
 
+    // ── COGNITIVE SURFACE: confirmar_avo_familiar:rural ──
+    // CONTRATO: ponte confirma benefício rural. Não coleta regime/trabalho.
+    const _cafRuralSpeech = await getHappyPathSpeech(env, "confirmar_avo_familiar:rural", st);
+    setHappyPathFlags(st, _cafRuralSpeech);
+
     return step(
       env,
       st,
       [
-        "Perfeito 👌",
-        "Então vamos considerar a renda da aposentadoria rural.",
-        "Agora me fala: esse familiar é **CLT**, **autônomo(a)** ou **servidor(a)**? Ou só recebe o benefício?"
+        "Perfeito, vamos considerar a aposentadoria rural! 👌"
       ],
       "regime_trabalho_parceiro_familiar"
     );
@@ -28170,13 +28343,16 @@ case "confirmar_avo_familiar": {
       avo_beneficio: "urbana"
     });
 
+    // ── COGNITIVE SURFACE: confirmar_avo_familiar:urbana ──
+    // CONTRATO: ponte confirma benefício urbano. Não coleta regime/trabalho.
+    const _cafUrbanaSpeech = await getHappyPathSpeech(env, "confirmar_avo_familiar:urbana", st);
+    setHappyPathFlags(st, _cafUrbanaSpeech);
+
     return step(
       env,
       st,
       [
-        "Perfeito! 👍",
-        "Então vamos considerar a aposentadoria urbana.",
-        "E sobre atividade atual… esse familiar trabalha (CLT/autônomo/servidor) ou só recebe o benefício?"
+        "Perfeito, vamos considerar a aposentadoria urbana! 👍"
       ],
       "regime_trabalho_parceiro_familiar"
     );
@@ -28202,13 +28378,16 @@ case "confirmar_avo_familiar": {
       avo_beneficio: "outro_beneficio"
     });
 
+    // ── COGNITIVE SURFACE: confirmar_avo_familiar:outro_beneficio ──
+    // CONTRATO: ponte confirma benefício. Não coleta regime/trabalho.
+    const _cafOutroSpeech = await getHappyPathSpeech(env, "confirmar_avo_familiar:outro_beneficio", st);
+    setHappyPathFlags(st, _cafOutroSpeech);
+
     return step(
       env,
       st,
       [
-        "Entendi 👌",
-        "Vamos considerar o benefício informado.",
-        "Esse familiar exerce alguma atividade além do benefício?"
+        "Entendi, vamos considerar o benefício informado! 👌"
       ],
       "regime_trabalho_parceiro_familiar"
     );
@@ -28234,13 +28413,16 @@ case "confirmar_avo_familiar": {
       avo_beneficio: "nao_sabe"
     });
 
+    // ── COGNITIVE SURFACE: confirmar_avo_familiar:nao_sabe ──
+    // CONTRATO: ponte confirma incerteza. Não coleta regime/trabalho.
+    const _cafNaoSabeSpeech = await getHappyPathSpeech(env, "confirmar_avo_familiar:nao_sabe", st);
+    setHappyPathFlags(st, _cafNaoSabeSpeech);
+
     return step(
       env,
       st,
       [
-        "Sem problema 😊",
-        "Se souber depois, só me avisar!",
-        "Agora me diga: esse familiar é **CLT**, **autônomo(a)** ou **servidor(a)**?"
+        "Sem problema! Se souber depois, me avisa. 😊"
       ],
       "regime_trabalho_parceiro_familiar"
     );
@@ -28260,6 +28442,12 @@ case "confirmar_avo_familiar": {
     message: "Saindo da fase: confirmar_avo_familiar → confirmar_avo_familiar (fallback)",
     details: { userText }
   });
+
+  // ── COGNITIVE SURFACE: confirmar_avo_familiar:fallback ──
+  const _cafFallbackSpeech = await getHappyPathSpeech(env, "confirmar_avo_familiar:fallback", st, {
+    cognitiveMessage: t || "hmm"
+  });
+  setHappyPathFlags(st, _cafFallbackSpeech);
 
   return step(
     env,

@@ -442,7 +442,7 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
     ],
     brief_answer_allowed: false,
     canonical_prompt: "Qual é o seu regime de trabalho? CLT, autônomo, MEI, servidor ou aposentado?",
-    return_to_stage_prompt: "Qual o seu tipo de trabalho? CLT, autônomo(a), servidor(a) ou aposentado(a)?",
+    return_to_stage_prompt: "Qual o seu tipo de trabalho? CLT, autônomo(a)/MEI, servidor(a) ou aposentado(a)?",
     fallback_prompt: "Qual é o seu regime de trabalho? CLT, autônomo, MEI, servidor ou aposentado?"
   },
   renda: {

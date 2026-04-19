@@ -270,6 +270,39 @@ export function getAllowedSignalsForStage(stage) {
  * _MINIMAL_FALLBACK_SPEECH_MAP, ALLOWED_SIGNAL_PREFIXES). Nenhuma regra nova inventada.
  */
 const STAGE_CONTRACT_METADATA = Object.freeze({
+  inicio: {
+    expected_slot: null,
+    allowed_topics_now: ["saudacao", "apresentacao_programa", "duvida_mcmv"],
+    forbidden_topics_now: ["coleta_nome", "coleta_estado_civil", "coleta_renda", "coleta_documentos", "valor_parcela", "valor_entrada", "aprovacao"],
+    stage_micro_rules: [
+      "Acolher o cliente com saudação natural",
+      "Identificar se é primeira visita, retomada ou reset",
+      "NÃO iniciar coleta de dados neste stage",
+      "NÃO prometer aprovação ou valores",
+      "Se for retomada (já tem progresso), encaminhar para inicio_decisao",
+      "Se for primeira interação ou saudação, encaminhar para inicio_programa"
+    ],
+    brief_answer_allowed: false,
+    canonical_prompt: "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Posso te ajudar?",
+    return_to_stage_prompt: "Oi! Eu sou a Enova, assistente do Minha Casa Minha Vida. Em que posso te ajudar?",
+    fallback_prompt: "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Posso te ajudar?"
+  },
+  inicio_decisao: {
+    expected_slot: null,
+    allowed_topics_now: ["decisao_continuar_ou_resetar"],
+    forbidden_topics_now: ["coleta_nome", "coleta_estado_civil", "coleta_renda", "coleta_documentos", "valor_parcela", "valor_entrada", "aprovacao"],
+    stage_micro_rules: [
+      "Perguntar se quer continuar de onde parou ou começar do zero",
+      "Aceitar: 1/continuar ou 2/começar do zero",
+      "NÃO iniciar coleta de dados neste stage",
+      "NÃO prometer aprovação ou valores",
+      "NÃO pular a escolha do cliente — esperar resposta explícita"
+    ],
+    brief_answer_allowed: true,
+    canonical_prompt: "Me diz: *1* pra continuar ou *2* pra começar do zero.",
+    return_to_stage_prompt: "Quer continuar de onde paramos ou começar do zero? Me diz *1* ou *2*.",
+    fallback_prompt: "Me diz: *1* pra continuar de onde paramos ou *2* pra começar do zero."
+  },
   inicio_programa: {
     expected_slot: null,
     allowed_topics_now: ["apresentacao_programa", "duvida_mcmv", "duvida_fgts", "duvida_entrada", "duvida_renda_minima"],
@@ -313,6 +346,38 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
     canonical_prompt: "Você é brasileiro(a) nato(a)?",
     return_to_stage_prompt: "Preciso confirmar sua nacionalidade para seguir 😊",
     fallback_prompt: "Você é brasileiro(a) nato(a)?"
+  },
+  inicio_rnm: {
+    expected_slot: "rnm_status",
+    allowed_topics_now: ["coleta_rnm", "duvida_rnm", "duvida_estrangeiro"],
+    forbidden_topics_now: ["coleta_nome", "coleta_estado_civil", "coleta_renda", "coleta_documentos", "valor_parcela", "valor_entrada", "aprovacao"],
+    stage_micro_rules: [
+      "Perguntar se o estrangeiro possui RNM (Registro Nacional Migratório)",
+      "Aceitar: sim ou não",
+      "Se não possui, informar inelegibilidade (RNM indeterminado é obrigatório para MCMV)",
+      "Se possui, seguir para verificar validade do RNM",
+      "NÃO coletar outros dados aqui"
+    ],
+    brief_answer_allowed: true,
+    canonical_prompt: "Você possui *RNM*? Responda *sim* ou *não*.",
+    return_to_stage_prompt: "Preciso saber se você possui RNM — Registro Nacional Migratório 😊",
+    fallback_prompt: "Você possui *RNM*? Responda *sim* ou *não*."
+  },
+  inicio_rnm_validade: {
+    expected_slot: "rnm_validade",
+    allowed_topics_now: ["coleta_rnm_validade", "duvida_rnm_validade", "duvida_indeterminado"],
+    forbidden_topics_now: ["coleta_nome", "coleta_estado_civil", "coleta_renda", "coleta_documentos", "valor_parcela", "valor_entrada", "aprovacao"],
+    stage_micro_rules: [
+      "Perguntar se o RNM é com validade definida ou indeterminado",
+      "Aceitar: com validade ou indeterminado",
+      "Se com validade definida, informar inelegibilidade (MCMV exige RNM indeterminado)",
+      "Se indeterminado, seguir para estado civil",
+      "NÃO coletar outros dados aqui"
+    ],
+    brief_answer_allowed: true,
+    canonical_prompt: "Seu RNM é *com validade* ou *indeterminado*?",
+    return_to_stage_prompt: "Preciso saber se seu RNM é com validade definida ou indeterminado 😊",
+    fallback_prompt: "Seu RNM é *com validade* ou *indeterminado*?"
   },
   estado_civil: {
     expected_slot: "estado_civil",

@@ -216,11 +216,11 @@ const STAGE_GOALS = Object.freeze({
 // When the topo bucket is known, the goal is more specific than the generic
 // inicio_programa goal. This prevents how_it_works from collapsing with greeting.
 const INICIO_PROGRAMA_BUCKET_GOALS = Object.freeze({
-  greeting: "Saudação acolhedora: apresente-se como Enova, assistente do Minha Casa Minha Vida. Pergunte se o cliente já sabe como funciona ou quer explicação. REGRA DE VARIAÇÃO: varie o tom e a forma da saudação a cada interação — use abordagens diferentes (calorosa, leve, direta, simpática, curiosa). NÃO repita a mesma estrutura fixa de abertura. Seja natural e humana, como uma pessoa real que cumprimenta de formas diferentes a cada vez. Mantenha curto (2-3 frases no máximo).",
-  identity: "O cliente perguntou quem você é. Explique que você é a Enova, assistente virtual do Minha Casa Minha Vida. NÃO repita saudação de boas-vindas.",
-  how_it_works: "O cliente pediu explicação do programa. EXPLIQUE o Minha Casa Minha Vida: programa do governo que oferece subsídio na entrada e parcela reduzida conforme renda familiar. Mencione benefícios reais (subsídio, faixas, parcela). NÃO pergunte 'já sabe como funciona?' — ele já disse que quer explicação. Ao final, pergunte se quer seguir com a análise.",
-  program_choice: "Pergunte ao cliente se já sabe como funciona o Minha Casa Minha Vida ou se quer explicação.",
-  unknown_topo: "Confirmar interesse e apresentar o programa Minha Casa Minha Vida"
+  greeting: "Saudação natural: apresente-se como Enova, do Minha Casa Minha Vida. Pergunte se o cliente já conhece o programa ou quer explicação. REGRA DE VARIAÇÃO: varie o tom a cada interação — calorosa, leve, direta, simpática. NÃO repita a mesma estrutura. Fale como pessoa, não como template. Máximo 2-3 frases. PROIBIDO: 'Obrigado por compartilhar', 'Para continuarmos, preciso', 'Pode me informar'.",
+  identity: "O cliente perguntou quem você é. Diga que é a Enova, assistente do Minha Casa Minha Vida. NÃO repita saudação. Seja breve e natural.",
+  how_it_works: "O cliente pediu explicação. EXPLIQUE o Minha Casa Minha Vida: programa do governo com subsídio na entrada e parcela reduzida conforme renda. Mencione benefícios reais. NÃO pergunte 'já sabe como funciona?' — ele já pediu explicação. Ao final, pergunte se quer seguir com a análise.",
+  program_choice: "Pergunte se já conhece o Minha Casa Minha Vida ou quer explicação. Direto, sem preâmbulo.",
+  unknown_topo: "Apresente-se brevemente e pergunte se já conhece o programa"
 });
 
 /**
@@ -275,17 +275,18 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
     allowed_topics_now: ["saudacao", "apresentacao_programa", "duvida_mcmv"],
     forbidden_topics_now: ["coleta_nome", "coleta_estado_civil", "coleta_renda", "coleta_documentos", "valor_parcela", "valor_entrada", "aprovacao"],
     stage_micro_rules: [
-      "Acolher o cliente com saudação natural",
+      "Acolher o cliente de forma natural e breve — como uma pessoa real, não um script",
       "Identificar se é primeira visita, retomada ou reset",
       "NÃO iniciar coleta de dados neste stage",
       "NÃO prometer aprovação ou valores",
       "Se for retomada (já tem progresso), encaminhar para inicio_decisao",
-      "Se for primeira interação ou saudação, encaminhar para inicio_programa"
+      "Se for primeira interação ou saudação, encaminhar para inicio_programa",
+      "ESTILO: fala curta, leve, sem frase burocrática. Proibido 'Obrigado por compartilhar', 'Para continuarmos', 'Pode me informar'."
     ],
     brief_answer_allowed: false,
-    canonical_prompt: "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Posso te ajudar?",
-    return_to_stage_prompt: "Oi! Eu sou a Enova, assistente do Minha Casa Minha Vida. Em que posso te ajudar?",
-    fallback_prompt: "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Posso te ajudar?"
+    canonical_prompt: "Oi! Sou a Enova, do Minha Casa Minha Vida. Como posso te ajudar?",
+    return_to_stage_prompt: "Oi! Sou a Enova, do Minha Casa Minha Vida. Em que posso te ajudar?",
+    fallback_prompt: "Oi! Sou a Enova, do Minha Casa Minha Vida. Como posso te ajudar?"
   },
   inicio_decisao: {
     expected_slot: null,
@@ -296,12 +297,13 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
       "Aceitar: 1/continuar ou 2/começar do zero",
       "NÃO iniciar coleta de dados neste stage",
       "NÃO prometer aprovação ou valores",
-      "NÃO pular a escolha do cliente — esperar resposta explícita"
+      "NÃO pular a escolha do cliente — esperar resposta explícita",
+      "ESTILO: direto, sem frase burocrática. Proibido 'Para continuarmos, preciso confirmar'."
     ],
     brief_answer_allowed: true,
-    canonical_prompt: "Me diz: *1* pra continuar ou *2* pra começar do zero.",
-    return_to_stage_prompt: "Quer continuar de onde paramos ou começar do zero? Me diz *1* ou *2*.",
-    fallback_prompt: "Me diz: *1* pra continuar de onde paramos ou *2* pra começar do zero."
+    canonical_prompt: "Você quer continuar de onde parou ou começar do zero? *1* continua, *2* recomeça.",
+    return_to_stage_prompt: "Quer continuar de onde paramos ou começar do zero? *1* ou *2*.",
+    fallback_prompt: "Quer continuar de onde paramos ou começar do zero? *1* ou *2*."
   },
   inicio_programa: {
     expected_slot: null,
@@ -312,12 +314,13 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
       "Perguntar se cliente já sabe como funciona ou quer explicação",
       "NÃO iniciar coleta de dados neste stage",
       "NÃO prometer aprovação ou valores",
-      "Variar tom de abertura — não repetir mesma saudação"
+      "Variar tom de abertura — não repetir mesma saudação",
+      "ESTILO: leve e direto. Proibido 'Obrigado por compartilhar', 'Para continuarmos, preciso saber'. Falar como pessoa, não como robô."
     ],
     brief_answer_allowed: false,
-    canonical_prompt: "Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Você já sabe como funciona ou prefere que eu explique rapidinho?",
-    return_to_stage_prompt: "Antes de continuar, você quer saber como funciona o programa ou já conhece?",
-    fallback_prompt: "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Você já sabe como funciona ou prefere que eu explique rapidinho?"
+    canonical_prompt: "Sou a Enova, do Minha Casa Minha Vida. Você já sabe como funciona ou quer que eu explique?",
+    return_to_stage_prompt: "Você já conhece o Minha Casa Minha Vida ou quer que eu explique?",
+    fallback_prompt: "Sou a Enova, do Minha Casa Minha Vida. Você já sabe como funciona ou quer que eu explique?"
   },
   inicio_nome: {
     expected_slot: "nome",
@@ -326,12 +329,13 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
     stage_micro_rules: [
       "Pedir nome COMPLETO do cliente",
       "Se der só apelido/primeiro nome, pedir novamente o nome completo",
-      "NÃO pular para próximo stage sem nome"
+      "NÃO pular para próximo stage sem nome",
+      "ESTILO: pedir o nome de forma direta e simples, sem 'Pode me informar', sem 'Para continuarmos'. Preferir 'Me diz seu nome completo?'"
     ],
     brief_answer_allowed: false,
-    canonical_prompt: "Pode me dizer seu nome completo?",
-    return_to_stage_prompt: "Preciso do seu nome completo pra seguir com a análise 😊",
-    fallback_prompt: "Pode me dizer seu nome completo? 😊"
+    canonical_prompt: "Me diz seu nome completo?",
+    return_to_stage_prompt: "Só preciso do seu nome completo pra seguir.",
+    fallback_prompt: "Me diz seu nome completo?"
   },
   inicio_nacionalidade: {
     expected_slot: "nacionalidade",
@@ -341,11 +345,12 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
       "Perguntar se é brasileiro(a) ou estrangeiro(a)",
       "Aceitar: brasileiro, estrangeiro, sim (=brasileiro), não (=estrangeiro)",
       "Se estrangeiro, seguir para RNM",
-      "NÃO coletar outros dados aqui"
+      "NÃO coletar outros dados aqui",
+      "ESTILO: pergunta direta sem preâmbulo. Proibido 'Obrigado por compartilhar que você é...', 'Para continuar, preciso confirmar'."
     ],
     brief_answer_allowed: true,
     canonical_prompt: "Você é *brasileiro(a)* ou *estrangeiro(a)*?",
-    return_to_stage_prompt: "Preciso confirmar sua nacionalidade para seguir 😊 Você é *brasileiro(a)* ou *estrangeiro(a)*?",
+    return_to_stage_prompt: "Você é *brasileiro(a)* ou *estrangeiro(a)*?",
     fallback_prompt: "Você é *brasileiro(a)* ou *estrangeiro(a)*?"
   },
   inicio_rnm: {
@@ -357,12 +362,13 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
       "Aceitar: sim ou não",
       "Se não possui, informar inelegibilidade (RNM é obrigatório para MCMV)",
       "Se possui, seguir para verificar validade do RNM",
-      "NÃO coletar outros dados aqui"
+      "NÃO coletar outros dados aqui",
+      "ESTILO: direto e simples. Proibido preâmbulo burocrático antes da pergunta."
     ],
     brief_answer_allowed: true,
-    canonical_prompt: "Você possui *RNM*? Responda *sim* ou *não*.",
-    return_to_stage_prompt: "Preciso saber se você possui RNM — Registro Nacional Migratório 😊",
-    fallback_prompt: "Você possui *RNM*? Responda *sim* ou *não*."
+    canonical_prompt: "Você tem *RNM*? *Sim* ou *não*.",
+    return_to_stage_prompt: "Você tem RNM — Registro Nacional Migratório? *Sim* ou *não*.",
+    fallback_prompt: "Você tem *RNM*? *Sim* ou *não*."
   },
   inicio_rnm_validade: {
     expected_slot: "rnm_validade",
@@ -373,11 +379,12 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
       "Aceitar: com validade ou indeterminado",
       "Se com validade definida, informar inelegibilidade (MCMV exige RNM indeterminado)",
       "Se indeterminado, seguir para estado civil",
-      "NÃO coletar outros dados aqui"
+      "NÃO coletar outros dados aqui",
+      "ESTILO: pergunta direta. Sem preâmbulo."
     ],
     brief_answer_allowed: true,
     canonical_prompt: "Seu RNM é *com validade* ou *indeterminado*?",
-    return_to_stage_prompt: "Preciso saber se seu RNM é com validade definida ou indeterminado 😊",
+    return_to_stage_prompt: "Seu RNM é *com validade* ou *indeterminado*?",
     fallback_prompt: "Seu RNM é *com validade* ou *indeterminado*?"
   },
   estado_civil: {

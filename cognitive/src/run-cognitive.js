@@ -2151,16 +2151,16 @@ function buildTopoFunilGuidance(request) {
     }
     // Reentrada sem greeting — reancoragem humana no topo
     if (REENTRY_TOPO.test(normalizedMessage)) {
-      return "Oi! Que bom ter você aqui 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Posso te ajudar com dúvidas ou, se quiser, já começamos a pré-análise rapidinho.";
+      return "Oi! Que bom ter você aqui 😊 Sou a Enova, do Minha Casa Minha Vida. Quer tirar dúvidas ou já começar a pré-análise?";
     }
     // Etapa 7 — precedence-aware global layer: stage context guard + objection priority
     const globalReply = resolveWithPrecedence(normalizedMessage, _TOPO_FAQ_MAP, "topo");
     if (globalReply) return wrapWithReanchor(globalReply.reply, stage);
     if (FEAR_PATTERN.test(normalizedMessage)) {
-      return "Entendo, e pode ficar tranquilo(a). É um processo seguro e transparente.";
+      return "Fica tranquilo(a), é um processo seguro e transparente.";
     }
     if (NO_TIME_PATTERN.test(normalizedMessage)) {
-      return "É rápido mesmo, são poucas perguntas diretas para entender seu perfil.";
+      return "É rápido, são poucas perguntas diretas.";
     }
     return null;
   }
@@ -2172,31 +2172,31 @@ function buildTopoFunilGuidance(request) {
     }
     // Reentrada sem greeting — manter lógica de continuar/recomeçar
     if (REENTRY_TOPO.test(normalizedMessage)) {
-      return "Oi! Que bom te ver de volta 😊 Você já tem um atendimento aqui. Quer continuar de onde paramos (*1*) ou prefere começar do zero (*2*)?";
+      return "Oi! Você já tem um atendimento aqui. Quer continuar de onde parou (*1*) ou começar do zero (*2*)?";
     }
     if (/\b(onde parei|onde estava|em que fase|em que etapa)\b/.test(normalizedMessage)) {
-      return "Você já tinha iniciado o atendimento por aqui. Continuando, eu retomo de onde paramos com seus dados anteriores.";
+      return "Você já tinha começado por aqui. Continuando, retomo de onde paramos com seus dados anteriores.";
     }
     if (/\b(precisa|necessario|necessário|tudo de novo|recomecar|recomeçar|perder)\b/.test(normalizedMessage)) {
-      return "Não precisa perder o que já avançou. Pode continuar de onde parou. Se preferir, também pode começar do zero.";
+      return "Não precisa perder o que já avançou. Pode continuar de onde parou, ou começar do zero se preferir.";
     }
     // Etapa 7 — precedence-aware global layer no inicio_decisao
     const globalReply = resolveWithPrecedence(normalizedMessage, _TOPO_FAQ_MAP, "topo");
     if (globalReply) return wrapWithReanchor(globalReply.reply, stage);
-    return "É só escolher: *1* para continuar de onde paramos ou *2* para começar do zero.";
+    return "Quer continuar de onde paramos ou começar do zero? *1* ou *2*.";
   }
 
   if (stage === "inicio_programa") {
     // ── how_it_works: cliente pediu explicação do programa ──
     // DEVE explicar, NÃO re-perguntar "já sabe como funciona?"
     if (/(?:como funciona|explic[ao]|explique|me explic[ao]|me explique|n[aã]o.*me explic[ao]|n[aã]o.*me explique|como [eé]|que [eé] isso|como que funciona|funciona como)/i.test(normalizedMessage)) {
-      return "O Minha Casa Minha Vida é um programa do governo federal que oferece subsídio na entrada do imóvel e reduz a parcela do financiamento, de acordo com a renda da família 😊 Vou analisar seu perfil e mostrar exatamente quanto de subsídio você pode ter. Quer seguir com a análise? Me diz *sim* pra gente começar.";
+      return "O Minha Casa Minha Vida é um programa do governo que dá subsídio na entrada do imóvel e reduz a parcela conforme a renda da família 😊 Vou analisar seu perfil e mostrar quanto de subsídio você pode ter. Quer seguir? Me diz *sim*.";
     }
     // Saudação curta / reentrada (inclui pós-reset) — delegar ao LLM para variação cognitiva
     // Não retornar hardcoded para greeting: o LLM vai gerar com goal_of_current_stage variado.
     // Apenas REENTRY_TOPO mantém resposta fixa (não é greeting puro).
     if (REENTRY_TOPO.test(normalizedMessage) && !GREETING_TOPO.test(normalizedMessage)) {
-      return "Oi! Fico feliz em te ajudar 😊 Você já sabe como funciona o Minha Casa Minha Vida ou prefere que eu explique rapidinho? Responda *sim* (já sei) ou *não* (explica).";
+      return "Oi! Você já conhece o Minha Casa Minha Vida ou quer que eu explique? *Sim* (já sei) ou *não* (explica).";
     }
     // Greeting puro: retorna null para delegar ao LLM cognitivo com variação
     if (GREETING_TOPO.test(normalizedMessage)) {
@@ -2212,73 +2212,73 @@ function buildTopoFunilGuidance(request) {
     const globalReply = resolveWithPrecedence(normalizedMessage, _TOPO_FAQ_MAP, "topo");
     if (globalReply) return wrapWithReanchor(globalReply.reply, stage);
     if (NO_TIME_PATTERN.test(normalizedMessage) || /\b(rapido|rapida|demora|demorar|tempo|quanto tempo)\b/.test(normalizedMessage)) {
-      return "São poucas perguntas diretas, leva poucos minutos. Você já sabe como funciona o programa? Responda *sim* ou *não*.";
+      return "São poucas perguntas diretas, leva poucos minutos. Você já sabe como funciona o programa? *Sim* ou *não*.";
     }
     if (FEAR_PATTERN.test(normalizedMessage)) {
-      return "Entendo. É um processo transparente e seguro, sem custo. Você já sabe como funciona o MCMV? Responda *sim* ou *não*.";
+      return "Fica tranquilo(a), é um processo transparente e seguro, sem custo. Você já conhece o MCMV? *Sim* ou *não*.";
     }
-    return "Você já sabe como funciona o programa ou prefere que eu explique rapidinho? Responda *sim* ou *não*.";
+    return "Você já conhece o Minha Casa Minha Vida ou quer que eu explique? *Sim* ou *não*.";
   }
 
   if (stage === "inicio_nome") {
     if (/\b(pra que|para que|por que|porque)\b.*\b(nome|chamar|precisar?)\b/i.test(normalizedMessage) ||
         /\b(precisar? do|usar o|guardar o|registrar o)\b.*\bnome\b/i.test(normalizedMessage)) {
-      return "Seu nome é usado para identificar seu atendimento aqui e facilitar a comunicação.";
+      return "O nome é pra identificar seu atendimento aqui e facilitar a comunicação.";
     }
     if (/\b(so o primeiro|só o primeiro|primeiro nome|apelido|me chama de|pode ser so|pode ser só)\b/i.test(normalizedMessage)) {
-      return "Pode me passar o nome completo, com nome e sobrenome — assim fica certinho no sistema.";
+      return "Passa o nome completo, com nome e sobrenome — assim fica certinho no sistema.";
     }
     if (DEFER_ACTION_PATTERN.test(normalizedMessage)) {
-      return "Não tem problema, é rapidinho. Me manda só o *nome completo* para eu registrar certinho.";
+      return "Sem problema, é rapidinho. Me manda só o *nome completo*.";
     }
-    return "Me passa seu *nome completo* (nome e sobrenome) para eu registrar no seu atendimento.";
+    return "Me diz seu *nome completo* (nome e sobrenome).";
   }
 
   if (stage === "inicio_nacionalidade") {
     if (/\b(o que e|o que é|o que significa|significa|rnm|registro nacional|registro migrat)\b/i.test(normalizedMessage)) {
-      return "RNM é o Registro Nacional Migratório, documento oficial para estrangeiros residentes no Brasil. O sistema precisa verificar essa situação para seguir corretamente.";
+      return "RNM é o Registro Nacional Migratório, documento pra estrangeiros residentes no Brasil. Preciso verificar isso pra seguir.";
     }
     if (/\b(estrangeiro|estrangeira)\b.*\b(pode|consigo|conseg|tentar|tenho chance|funciona)\b/i.test(normalizedMessage) ||
         /\b(ainda posso|posso sim|posso tentar)\b/i.test(normalizedMessage)) {
-      return "Estrangeiro pode sim avançar, mas o sistema precisa verificar a situação documental para te orientar corretamente.";
+      return "Estrangeiro pode avançar sim, mas preciso verificar a documentação pra te orientar direitinho.";
     }
     if (/\b(muda|diferente|diferenca|diferença|muda alguma)\b/i.test(normalizedMessage)) {
-      return "Para estrangeiro, o sistema verifica a situação do RNM antes de seguir. O caminho pode ser diferente dependendo da documentação.";
+      return "Pra estrangeiro, verifico a situação do RNM antes de seguir. O caminho pode ser diferente dependendo da documentação.";
     }
     if (/\b(por que|pra que|para que|porque)\b.*\b(nacionalidade|brasileiro|estrangeiro)\b/i.test(normalizedMessage)) {
-      return "A nacionalidade define qual caminho o sistema vai seguir — o processo para estrangeiros tem etapas adicionais de documentação.";
+      return "A nacionalidade define o caminho que vamos seguir — pra estrangeiros tem etapas adicionais de documentação.";
     }
     return "Você é *brasileiro(a)* ou *estrangeiro(a)*?";
   }
 
   if (stage === "inicio_rnm") {
     if (/\b(o que e|o que é|o que significa|significa|rnm|registro nacional|registro migrat[oó]rio)\b/i.test(normalizedMessage)) {
-      return "RNM é o Registro Nacional Migratório — documento oficial emitido pela Polícia Federal para estrangeiros residentes no Brasil. O sistema precisa confirmar o RNM para seguir corretamente.";
+      return "RNM é o Registro Nacional Migratório — documento da Polícia Federal pra estrangeiros residentes no Brasil. Preciso confirmar isso pra seguir.";
     }
     if (/\b(nao sei|não sei|nao tenho certeza|não tenho certeza|nao sei se|não sei se|meu documento|conta|serve|funciona|vale)\b/i.test(normalizedMessage)) {
-      return "Entendo a dúvida. O sistema precisa confirmar o RNM especificamente para seguir no trilho correto. Você possui RNM?";
+      return "Entendo a dúvida. Preciso confirmar o RNM especificamente pra seguir no caminho certo. Você tem RNM?";
     }
     if (/\b(estrangeiro|estrangeira)\b.*\b(pode|consigo|conseg|tentar|tenho chance)\b|\b(sou estrangeiro|sou estrangeira|pessoa estrangeira)\b/i.test(normalizedMessage)) {
-      return "Estrangeiro pode avançar no processo, desde que o sistema confirme o RNM. Você possui RNM?";
+      return "Estrangeiro pode avançar, desde que tenha RNM. Você tem?";
     }
     if (/\b(documento de estrangeiro|documento estrangeiro|doc estrangeiro)\b/i.test(normalizedMessage)) {
-      return "O sistema precisa confirmar o RNM especificamente para seguir no trilho correto — não posso informar se outro documento serve sem essa confirmação. Você possui RNM?";
+      return "Preciso confirmar o RNM especificamente pra seguir. Você tem *RNM*?";
     }
-    return "Você possui *RNM*? Responda *sim* ou *não*.";
+    return "Você tem *RNM*? *Sim* ou *não*.";
   }
 
   if (stage === "inicio_rnm_validade") {
     if (/\b(como sei|como saber|onde vejo|onde fica|onde esta|onde está|como descubro|onde descobre)\b/i.test(normalizedMessage)) {
-      return "O prazo de validade aparece na frente do documento RNM. Se não houver data de validade impressa, é prazo indeterminado. O sistema precisa confirmar essa condição documental para seguir.";
+      return "O prazo de validade aparece na frente do documento RNM. Se não tiver data de validade impressa, é indeterminado.";
     }
     if (/\b(nao entendi|não entendi|o que e|o que é|o que significa|diferenca|diferença|explica|o que quer dizer)\b/i.test(normalizedMessage)) {
-      return "Validade *determinada* significa que há uma data de vencimento no documento. *Indeterminado* significa que não há prazo de vencimento — o documento é permanente. O sistema precisa confirmar essa condição para seguir.";
+      return "Validade *determinada* = tem data de vencimento no documento. *Indeterminado* = sem prazo, documento permanente. Qual é o seu caso?";
     }
     if (/\b(se tiver validade|ainda da|ainda dá|tem validade|validade definida|com validade)\b/i.test(normalizedMessage) &&
         /\b(da|dá|funciona|ainda|posso|seguir|consigo)\b/i.test(normalizedMessage)) {
-      return "O sistema verifica essa condição documental para seguir no trilho correto. Não é possível avançar sem essa confirmação. Seu RNM é *com validade* ou *indeterminado*?";
+      return "Preciso confirmar isso pra seguir. Seu RNM é *com validade* ou *indeterminado*?";
     }
-    return "Seu RNM é *com validade* (data definida) ou *indeterminado* (sem prazo)?";
+    return "Seu RNM é *com validade* ou *indeterminado*?";
   }
 
   return null;
@@ -2674,13 +2674,12 @@ function buildNextActionPrompt({ request, suggestedNextSlot, pendingSlots }) {
 
   const topoStage = normalizeText(request?.current_stage);
   if (TOPO_FUNIL_STAGES.has(topoStage)) {
-    if (topoStage === "inicio_decisao") return "Digite *1* para continuar de onde paramos ou *2* para começar do zero.";
-    if (topoStage === "inicio_programa") return "Você *já sabe como funciona* o programa ou prefere que eu explique rapidinho?";
-    if (topoStage === "inicio_nome") return "Me manda seu *nome completo* (nome e sobrenome).";
+    if (topoStage === "inicio_decisao") return "Quer continuar de onde paramos ou começar do zero? *1* ou *2*.";
+    if (topoStage === "inicio_programa") return "Você já conhece o Minha Casa Minha Vida ou quer que eu explique?";
+    if (topoStage === "inicio_nome") return "Me diz seu *nome completo* (nome e sobrenome).";
     if (topoStage === "inicio_nacionalidade") return "Você é *brasileiro(a)* ou *estrangeiro(a)*?";
-    if (topoStage === "inicio_rnm") return "Você possui *RNM*? Responda *sim* ou *não*.";
-    if (topoStage === "inicio_rnm_validade") return "Seu RNM é *com validade* (data definida) ou *indeterminado* (sem prazo)?";
-    return "Pode continuar por aqui — são só algumas perguntas rápidas.";
+    if (topoStage === "inicio_rnm") return "Você tem *RNM*? *Sim* ou *não*.";
+    if (topoStage === "inicio_rnm_validade") return "Seu RNM é *com validade* ou *indeterminado*?";    return "Pode continuar por aqui — são só algumas perguntas rápidas.";
   }
 
   if (COMPOSICAO_INICIAL_STAGES.has(topoStage)) {
@@ -2986,6 +2985,7 @@ function buildOpenAISystemPrompt(stageContract) {
     "Se o stage atual é inicio_programa, NÃO pergunte estado civil, renda, regime de trabalho ou qualquer coleta de stage posterior.",
     "Cada turno tem UM ÚNICO objetivo: ou explicar, ou perguntar, ou confirmar, ou reorientar — nunca misturar explicação com coleta de outro stage.",
     "O campo goal_of_current_stage define O QUE você precisa obter do cliente neste turno. Use-o como âncora de objetivo — nunca como texto literal a ser repetido. Reescreva sempre de forma humana, natural e conversacional. Varie o tom e a estrutura da pergunta a cada turno: às vezes direta, às vezes acolhedora, às vezes com contexto breve antes de perguntar. O cliente não pode perceber que existe um script.",
+    "ESTILO OBRIGATÓRIO NO TOPO (inicio até inicio_rnm_validade): fala curta, natural, humana, profissional. Ir direto ao ponto. PROIBIDO: 'Obrigado por compartilhar...', 'Para continuarmos, preciso confirmar...', 'Pode me informar...', 'Agora, para continuar...'. Prefira formas simples: 'Me diz seu nome completo?', 'Você é brasileiro ou estrangeiro?', 'Você tem RNM?'. Sem exagero de emoji. Sem tom robótico ou scriptado.",
     "Você NÃO pode aprovar financiamento, NÃO pode alterar o stage oficial, NÃO pode inventar regra fora do contrato ou do contexto normativo recebido.",
     "Você NÃO pode acionar produção, Meta, Supabase oficial ou qualquer side effect."
   ];

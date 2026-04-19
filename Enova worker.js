@@ -4466,11 +4466,11 @@ function _renderCognitiveFromIntent(mechanicalSource, stage) {
  */
 const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
   // ── topo ──
-  ["inicio",                  "Oi! 😊 Pode falar, tô por aqui."],
-  ["inicio_programa",         "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Você já sabe como funciona ou prefere que eu explique rapidinho?"],
-  ["inicio_nome",             "Pode me dizer seu nome completo? 😊"],
+  ["inicio",                  "Oi! Pode falar, tô por aqui."],
+  ["inicio_programa",         "Sou a Enova, do Minha Casa Minha Vida. Você já conhece o programa ou quer que eu explique?"],
+  ["inicio_nome",             "Me diz seu nome completo?"],
   ["inicio_nacionalidade",    "Você é *brasileiro(a)* ou *estrangeiro(a)*?"],
-  ["inicio_rnm",              "Você possui RNM — Registro Nacional Migratório? Responda *sim* ou *não*."],
+  ["inicio_rnm",              "Você tem RNM — Registro Nacional Migratório? *Sim* ou *não*."],
   ["inicio_rnm_validade",     "Seu RNM é *com validade* ou *indeterminado*?"],
   ["estado_civil",            "Me conta seu estado civil — solteiro(a), casado(a) ou outra situação? 😊"],
   ["confirmar_casamento",     "Esse casamento é civil registrado ou é união estável?"],
@@ -19789,11 +19789,11 @@ function _classifyTopoIntentBucket(userText) {
 // Estas NÃO são fala mecânica — são surface cognitiva mínima do bucket.
 // Usadas SOMENTE quando LLM falha após todos os retries.
 const _TOPO_BUCKET_STATIC_REPLIES = Object.freeze({
-  greeting:       "Oi! 😊 Eu sou a Enova, assistente do programa Minha Casa Minha Vida. Posso te ajudar a entender se você se enquadra. Você já sabe como funciona ou quer que eu te explique?",
-  identity:       "Sou a Enova, uma assistente virtual especializada no programa Minha Casa Minha Vida 😊 Fui criada pra te ajudar a entender se você se enquadra no programa e te guiar pelo processo. Como posso te ajudar?",
-  how_it_works:   "O Minha Casa Minha Vida é um programa do governo que ajuda na entrada e reduz a parcela do financiamento, de acordo com a faixa da família 😊 Eu vou analisar seu perfil e mostrar quanto de subsídio você pode ter. Quer seguir com a análise? Me diz *sim* pra gente começar.",
-  program_choice: "Você já sabe como funciona o Minha Casa Minha Vida ou quer que eu te explique rapidinho? 😊",
-  unknown_topo:   "Oi! 😊 Eu sou a Enova, assistente do Minha Casa Minha Vida. Posso te ajudar? Você já sabe como funciona o programa ou prefere que eu explique?"
+  greeting:       "Oi! Sou a Enova, do Minha Casa Minha Vida 😊 Posso te ajudar a entender se você se enquadra. Já conhece o programa ou quer que eu explique?",
+  identity:       "Sou a Enova, assistente do Minha Casa Minha Vida 😊 Fui feita pra te ajudar a entender se você se enquadra e te guiar pelo processo. Como posso te ajudar?",
+  how_it_works:   "O Minha Casa Minha Vida é um programa do governo que ajuda na entrada e reduz a parcela conforme a renda da família 😊 Vou analisar seu perfil e mostrar quanto de subsídio você pode ter. Quer seguir? Me diz *sim*.",
+  program_choice: "Você já conhece o Minha Casa Minha Vida ou quer que eu explique? 😊",
+  unknown_topo:   "Oi! Sou a Enova, do Minha Casa Minha Vida. Posso te ajudar? Já conhece o programa ou quer que eu explique?"
 });
 
 // ── Validação de compatibilidade bucket × reply ────────────────────────────

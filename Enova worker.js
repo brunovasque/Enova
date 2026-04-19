@@ -4499,6 +4499,8 @@ const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
   ["agendamento_visita",      "Vamos agendar a visita ao empreendimento? Me diz uma data boa pra você 📅"],
   ["finalizacao_processo",    "Estamos na reta final! Vou te orientar nos últimos passos 😊"],
   ["fim_ineligivel",          "Infelizmente não foi possível seguir com o processo nesse momento. Se precisar, estou por aqui 💛"],
+  // ── turns-ponte de composição → renda/trabalho ──
+  ["regime_trabalho",         "Qual o seu tipo de trabalho? *CLT*, *autônomo(a)*, *servidor(a)* ou *aposentado(a)*?"],
 ]);
 
 /**
@@ -4616,6 +4618,21 @@ function renderCognitiveSpeech(st, stage, rawArr, nextStage) {
     st.__topo_mechanical_surface_blocked = true;
     st.__render_path_used = "topo_sealed_stage_fallback";
     return [_MINIMAL_FALLBACK_SPEECH_MAP.get(stage) || "Pode continuar 😊"];
+  }
+
+  // ── COMPOSICAO_SEALED: turn-ponte → próximo stage ──
+  // Em happy paths de COMPOSICAO_SEALED avançando para outro stage, usar o
+  // fallback de destino em vez de transformar o rawArr mecânico.
+  // Remove a surface mecânica indevida nos turns-ponte (estado_civil:solteiro,
+  // somar_renda_solteiro:sozinho etc.) quando o LLM real não está disponível.
+  if (COMPOSICAO_SEALED_STAGES.has(stage) && nextStage && nextStage !== stage) {
+    const _composicaoNextFallback =
+      _MINIMAL_FALLBACK_SPEECH_MAP.get(nextStage) ||
+      _MINIMAL_FALLBACK_SPEECH_MAP.get(stage) ||
+      "Pode continuar 😊";
+    st.__speech_arbiter_source = "composicao_sealed_transition_fallback";
+    st.__render_path_used = "composicao_sealed_transition_next";
+    return [_composicaoNextFallback];
   }
 
   // Tudo que não passou pelo controle unificado → fallback extremo mínimo (mapa por stage).

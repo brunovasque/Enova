@@ -4504,6 +4504,21 @@ const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
 ]);
 
 /**
+ * _COMPOSICAO_BRIDGE_CONFIRM — Overrides de confirmação para turns-ponte da composição.
+ *
+ * Usada no COMPOSICAO_SEALED fallback de renderCognitiveSpeech quando o LLM não está
+ * disponível. Garante que a ponte confirme apenas a decisão sem coletar o slot do
+ * stage destino (contrato de separação de responsabilidades).
+ *
+ * Chave: "${stage_origem}|${stage_destino}"
+ * Valor: fala de confirmação (sem pergunta, sem opções do próximo stage).
+ */
+const _COMPOSICAO_BRIDGE_CONFIRM = new Map([
+  // somar_renda_solteiro:sozinho → regime_trabalho: confirmar só; regime_trabalho pergunta o regime
+  ["somar_renda_solteiro|regime_trabalho", "Certo! Seguiremos só com a sua renda."],
+]);
+
+/**
  * buildMinimalCognitiveFallback — Render cognitivo baseado em intenção.
  *
  * Hierarquia:
@@ -4625,8 +4640,11 @@ function renderCognitiveSpeech(st, stage, rawArr, nextStage) {
   // fallback de destino em vez de transformar o rawArr mecânico.
   // Remove a surface mecânica indevida nos turns-ponte (estado_civil:solteiro,
   // somar_renda_solteiro:sozinho etc.) quando o LLM real não está disponível.
+  // _COMPOSICAO_BRIDGE_CONFIRM tem precedência: pontes que só confirmam a decisão
+  // não devem coletar o slot do stage destino (contrato de separação de responsabilidades).
   if (COMPOSICAO_SEALED_STAGES.has(stage) && nextStage && nextStage !== stage) {
     const _composicaoNextFallback =
+      _COMPOSICAO_BRIDGE_CONFIRM.get(`${stage}|${nextStage}`) ||
       _MINIMAL_FALLBACK_SPEECH_MAP.get(nextStage) ||
       _MINIMAL_FALLBACK_SPEECH_MAP.get(stage) ||
       "Pode continuar 😊";
@@ -20468,14 +20486,15 @@ const TOPO_HAPPY_PATH_SPEECH = {
   },
 
   // ── somar_renda_solteiro: sozinho → regime_trabalho ──
+  // CONTRATO: ponte confirma decisão sem coletar slot do próximo stage.
+  // regime_trabalho é a única surface autorizada a perguntar o regime.
   "somar_renda_solteiro:sozinho": {
-    cognitiveStage: "regime_trabalho",
+    cognitiveStage: "somar_renda_solteiro",
     cognitiveMessage: "vou seguir só com minha renda",
     fallback: [
-      "Certo, seguimos só com a sua renda.",
-      "Qual o seu tipo de trabalho — CLT, autônomo(a) ou servidor(a)?"
+      "Certo! Seguiremos só com a sua renda."
     ],
-    validate: (reply) => reply && reply.length > 15 && /trabalho|CLT|aut[oô]nom|servidor/i.test(reply) && /\?/.test(reply)
+    validate: (reply) => Boolean(reply && reply.length > 3 && !/CLT|aut[oô]nom|servidor|aposentad|MEI|\bregime\b|\btrabalho\b/i.test(reply) && !/\?/.test(reply))
   },
 
   // ── somar_renda_solteiro: parceiro → regime_trabalho_parceiro ──
@@ -27481,8 +27500,7 @@ case "somar_renda_solteiro": {
       env,
       st,
       [
-        "Certo, seguimos só com a sua renda.",
-        "Qual o seu tipo de trabalho — CLT, autônomo(a) ou servidor(a)?"
+        "Certo! Seguiremos só com a sua renda."
       ],
       "regime_trabalho"
     );

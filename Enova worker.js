@@ -207,6 +207,27 @@ async function step(env, st, messages, nextStage, options = {}) {
   // O mecânico permanece soberano em stage/gate/nextStage/persistência.
   const arr = renderCognitiveSpeech(st, currentStage, rawArr.filter(Boolean), nextStage);
 
+  // ── BLOCO D: Anti-repetição de saudação inter-turno (SURFACE SOBERANA) ──
+  // Se o turno anterior já saudou o cliente (last_bot_msg começa com Oi/Olá),
+  // e o turno atual abre com saudação novamente, remove o prefixo de saudação.
+  // Só atua no topo selado para evitar cascatas "Olá! ... Olá! ... Olá!..."
+  if (TOP_SEALED_STAGES.has(currentStage) && arr && arr.length > 0) {
+    const _prevBotMsg = String(st.last_bot_msg || "").trim();
+    const _prevTurnGreeted = /^(?:oi|ol[aá])\b/i.test(_prevBotMsg);
+    if (_prevTurnGreeted) {
+      const _firstMsg = String(arr[0] || "").trim();
+      // Pattern: "Oi! 😊 ...", "Olá! ...", "Oi, ..."
+      const _greetPrefixRe = /^(?:oi[!,.\s]*(?:😊\s*)?|ol[aá][!,.\s]*(?:😊\s*)?)/i;
+      if (_greetPrefixRe.test(_firstMsg)) {
+        const _stripped = _firstMsg.replace(_greetPrefixRe, "").trim();
+        if (_stripped.length > 10) {
+          arr[0] = _stripped.charAt(0).toUpperCase() + _stripped.slice(1);
+          st.__topo_greeting_stripped_inter_turn = true;
+        }
+      }
+    }
+  }
+
   // ── PR6 FIX 5: Fallback obrigatório — nunca silêncio ──
   // Prioridade: prompt parser-safe do stage atual > mapa estático do stage > genérico absoluto.
   // O fallback do stage é a pergunta canônica que o parser daquele stage aceita —
@@ -4560,27 +4581,39 @@ function renderCognitiveSpeech(st, stage, rawArr, nextStage) {
     return [cognitivePrefix];
   }
 
-  // ── TOP_SEALED_MODE: no topo selado, fallback extremo usa resposta estática do bucket ──
-  // NUNCA usa fala mecânica (_MINIMAL_FALLBACK_SPEECH_MAP ou _renderCognitiveFromIntent)
-  // no topo selado. Usa a resposta cognitiva estática do bucket classificado.
-  // CORREÇÃO CIRÚRGICA: quando o mecânico avança PARA FORA do topo selado
-  // (ex: inicio_programa → inicio_nome), o sealed bucket NÃO pode sobrescrever
-  // a superfície. A fala de transição vem do fallback do NEXT stage, não do bucket
-  // do stage atual. Sem isso, "Já conheço" gera surface do bucket program_choice
-  // (repete a mesma pergunta) mesmo com o state já em inicio_nome.
+  // ── SURFACE SOBERANA DO TOPO (7 stages unificados) ──────────────────────────
+  // Política única: LLM real → fallback por stage → último recurso genérico.
+  // Bucket static apenas para stages de abertura (inicio/inicio_decisao/inicio_programa).
+  // Stages de coleta (nome/nacionalidade/rnm/rnm_validade) usam _MINIMAL_FALLBACK_SPEECH_MAP.
+  // Nenhuma camada intermediária (_renderCognitiveFromIntent, buildMinimalCognitiveFallback)
+  // pode competir com a surface soberana no topo selado.
   if (TOP_SEALED_MODE && TOP_SEALED_STAGES.has(stage)) {
-    // Se avançando para fora da zona selada, usar fallback do próximo stage
-    if (nextStage && nextStage !== stage && !TOP_SEALED_STAGES.has(nextStage)) {
-      st.__speech_arbiter_source = "extreme_fallback";
-      st.__render_path_used = "extreme_fallback_transition_out";
-      return buildMinimalCognitiveFallback(nextStage, rawArr, roundIntent);
+    // Se avançando para outro stage, usar fallback do PRÓXIMO stage
+    // (independente de ser selado ou não — a fala é do destino, não da origem)
+    if (nextStage && nextStage !== stage) {
+      st.__speech_arbiter_source = "topo_sealed_stage_fallback";
+      st.__topo_mechanical_surface_blocked = true;
+      st.__render_path_used = "topo_sealed_transition_next";
+      const _nextFallback = _MINIMAL_FALLBACK_SPEECH_MAP.get(nextStage) || "Pode continuar 😊";
+      return [_nextFallback];
     }
-    const _bucket = st?.__topo_bucket || _classifyTopoIntentBucket(st?.last_user_text || "");
-    const _staticReply = _TOPO_BUCKET_STATIC_REPLIES[_bucket] || _TOPO_BUCKET_STATIC_REPLIES.unknown_topo;
-    st.__speech_arbiter_source = "topo_sealed_bucket_static";
+
+    // Mesmo stage (retry/fallback dentro do stage):
+    // Bucket-classified stages (inicio/inicio_decisao/inicio_programa) → bucket static
+    if (TOP_SEALED_BUCKET_STAGES.has(stage)) {
+      const _bucket = st?.__topo_bucket || _classifyTopoIntentBucket(st?.last_user_text || "");
+      const _staticReply = _TOPO_BUCKET_STATIC_REPLIES[_bucket] || _TOPO_BUCKET_STATIC_REPLIES.unknown_topo;
+      st.__speech_arbiter_source = "topo_sealed_bucket_static";
+      st.__topo_mechanical_surface_blocked = true;
+      st.__render_path_used = "topo_sealed_bucket_static";
+      return [_staticReply];
+    }
+
+    // Collection stages (nome/nacionalidade/rnm/rnm_validade) → fallback por stage
+    st.__speech_arbiter_source = "topo_sealed_stage_fallback";
     st.__topo_mechanical_surface_blocked = true;
-    st.__render_path_used = "topo_sealed_bucket_static";
-    return [_staticReply];
+    st.__render_path_used = "topo_sealed_stage_fallback";
+    return [_MINIMAL_FALLBACK_SPEECH_MAP.get(stage) || "Pode continuar 😊"];
   }
 
   // Tudo que não passou pelo controle unificado → fallback extremo mínimo (mapa por stage).
@@ -19719,8 +19752,13 @@ function _classifyReplySemanticClass(reply) {
 // A fala do topo é LLM-only. Se o LLM falhar, a fala vem da resposta
 // cognitiva estática do bucket — NUNCA de happy path mecânico.
 const TOP_SEALED_MODE = true;
-const TOP_SEALED_STAGES = new Set(["inicio", "inicio_decisao", "inicio_programa"]);
+const TOP_SEALED_STAGES = new Set(["inicio", "inicio_decisao", "inicio_programa", "inicio_nome", "inicio_nacionalidade", "inicio_rnm", "inicio_rnm_validade"]);
 const TOP_SEALED_MAX_RETRIES = 2;
+
+// ── Subset: stages que usam bucket classification (greeting/identity/how_it_works/program_choice).
+// Os 4 stages de coleta (nome, nacionalidade, rnm, rnm_validade) usam fallback por stage,
+// NÃO por bucket — o bucket classifier não se aplica a perguntas de coleta estrutural.
+const TOP_SEALED_BUCKET_STAGES = new Set(["inicio", "inicio_decisao", "inicio_programa"]);
 
 // ── Classificador de intent bucket para prova de colapso no topo ───────────
 // Retorna um rótulo semântico para o input do cliente no topo.
@@ -20328,12 +20366,21 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
   // ── TOP_SEALED_MODE: bucket classification ──
   const _topoBucket = _classifyTopoIntentBucket(overrides?.cognitiveMessage || config?.cognitiveMessage || "");
   const _isSealed = TOP_SEALED_MODE && TOP_SEALED_STAGES.has(String(config?.cognitiveStage || "").toLowerCase());
+  // ── SURFACE SOBERANA: bucket validation apenas para stages de abertura ──
+  // Collection stages (nome/nacionalidade/rnm/rnm_validade) recebem proteção selada
+  // (retries, LLM priority) sem bucket validation nem bucket static fallback.
+  const _isBucketSealed = _isSealed && TOP_SEALED_BUCKET_STAGES.has(String(config?.cognitiveStage || "").toLowerCase());
 
   if (!config) {
-    // Chave desconhecida — em modo selado, usar resposta estática do bucket
+    // Chave desconhecida — em modo selado, usar resposta estática do bucket (se bucket stage) ou stage fallback
     if (_isSealed) {
-      const staticReply = _TOPO_BUCKET_STATIC_REPLIES[_topoBucket] || _TOPO_BUCKET_STATIC_REPLIES.unknown_topo;
-      return { speech: [staticReply], source: "cognitive_real", _topo_sealed: true, _topo_bucket: _topoBucket, _topo_surface_source: "bucket_static" };
+      if (_isBucketSealed) {
+        const staticReply = _TOPO_BUCKET_STATIC_REPLIES[_topoBucket] || _TOPO_BUCKET_STATIC_REPLIES.unknown_topo;
+        return { speech: [staticReply], source: "cognitive_real", _topo_sealed: true, _topo_bucket: _topoBucket, _topo_surface_source: "bucket_static" };
+      }
+      const _cogStage = String(config?.cognitiveStage || "").toLowerCase();
+      const _stageFallback = _MINIMAL_FALLBACK_SPEECH_MAP.get(_cogStage) || "Pode continuar 😊";
+      return { speech: [_stageFallback], source: "cognitive_real", _topo_sealed: true, _topo_bucket: _topoBucket, _topo_surface_source: "stage_fallback" };
     }
     return {
       speech: overrides?.fallback || ["Pode continuar por aqui 😊"],
@@ -20360,7 +20407,9 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
     try {
       const _cogMsg = attempt === 0
         ? (overrides?.cognitiveMessage || config.cognitiveMessage)
-        : `[INSTRUÇÃO DE RETRY #${attempt}] ${_getTopoBucketRetryInstruction(_topoBucket)} Mensagem original do cliente: "${overrides?.cognitiveMessage || config.cognitiveMessage}"`;
+        : _isBucketSealed
+          ? `[INSTRUÇÃO DE RETRY #${attempt}] ${_getTopoBucketRetryInstruction(_topoBucket)} Mensagem original do cliente: "${overrides?.cognitiveMessage || config.cognitiveMessage}"`
+          : (overrides?.cognitiveMessage || config.cognitiveMessage);
 
       // ── Bucket-aware goal: inject specific goal for the detected bucket ──
       // This ensures the cognitive engine receives a goal that matches the bucket,
@@ -20373,6 +20422,15 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
         _bucketGoal += " IMPORTANTE: sua última saudação começava com '" +
           (st.__topo_recent_greeting_sig || "").substring(0, 40) +
           "'. Use uma abertura DIFERENTE desta vez.";
+      }
+
+      // ── BLOCO D: Anti-repetição de saudação inter-turno ──
+      // Se o turno anterior já saudou o cliente, proíbe reabertura de saudação.
+      // Usa last_bot_msg (persistido em Supabase) como prova do turno anterior.
+      const _prevBotMsg = String(st.last_bot_msg || "").trim();
+      const _prevTurnGreeted = /^(?:oi|ol[aá])\b/i.test(_prevBotMsg);
+      if (_prevTurnGreeted && _isSealed) {
+        _bucketGoal += " REGRA ABSOLUTA: o turno anterior já saudou o cliente. NÃO abra com saudação (Oi, Olá, Bom dia, etc.). Vá direto ao objetivo do stage sem reabrir saudação.";
       }
       st.__topo_bucket_goal_override = _bucketGoal;
 
@@ -20412,8 +20470,8 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
         confidence >= COGNITIVE_V1_CONFIDENCE_MIN &&
         config.validate(replyText)
       ) {
-        // ── TOP_SEALED_MODE: validação de bucket ──
-        if (_isSealed && !_isTopoBucketReplyCompatible(_topoBucket, replyText)) {
+        // ── TOP_SEALED_MODE: validação de bucket (apenas stages de abertura) ──
+        if (_isBucketSealed && !_isTopoBucketReplyCompatible(_topoBucket, replyText)) {
           _retryCount++;
           _bucketIncompatible = true;
           _retryReason = `bucket_incompatible:${_topoBucket}`;
@@ -20430,7 +20488,7 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
         }
 
         // ── Greeting reuse incompatibility: retry if same greeting as last time ──
-        if (_isSealed && _topoBucket === "greeting" && _recentOpeningMatched && attempt < _maxRetries) {
+        if (_isBucketSealed && _topoBucket === "greeting" && _recentOpeningMatched && attempt < _maxRetries) {
           _retryCount++;
           _retryReason = "greeting_reuse_detected";
           console.log(JSON.stringify({
@@ -20486,36 +20544,65 @@ async function getTopoHappyPathSpeech(env, transitionKey, st, overrides) {
     }
   }
 
-  // ── TOP_SEALED_MODE: fallback = resposta cognitiva estática do bucket ──
-  // NUNCA usa fala mecânica no topo selado.
+  // ── SURFACE SOBERANA: fallback selado diferenciado por tipo de stage ──
   if (_isSealed) {
-    const staticReply = _TOPO_BUCKET_STATIC_REPLIES[_topoBucket] || _TOPO_BUCKET_STATIC_REPLIES.unknown_topo;
+    // Bucket-classified stages → bucket static fallback
+    if (_isBucketSealed) {
+      const staticReply = _TOPO_BUCKET_STATIC_REPLIES[_topoBucket] || _TOPO_BUCKET_STATIC_REPLIES.unknown_topo;
+      console.log(JSON.stringify({
+        _tag: "TOPO_SEALED_BUCKET_STATIC_FALLBACK",
+        bucket: _topoBucket,
+        retry_count: _retryCount,
+        retry_reason: _retryReason,
+        last_reply_snippet: (_lastReply || "").slice(0, 100)
+      }));
+      // ── Store greeting signature even on static fallback ──
+      if (_topoBucket === "greeting") {
+        _storeGreetingSignature(staticReply, st);
+      }
+      return {
+        speech: [staticReply],
+        source: "cognitive_real", // surface cognitiva do bucket, não mecânica
+        _topo_sealed: true,
+        _topo_bucket: _topoBucket,
+        _topo_retry_count: _retryCount,
+        _topo_retry_reason: _retryReason,
+        _topo_surface_source: "bucket_static",
+        _topo_reply_semantic_class: _classifyReplySemanticClass(staticReply),
+        _topo_bucket_incompatible: _bucketIncompatible,
+        _topo_how_it_works_explanation_present: _topoBucket === "how_it_works" && _classifyReplySemanticClass(staticReply) === "explanation",
+        _topo_reused_opening_shell: false, // static replies are pre-validated
+        _topo_greeting_variant_key: _topoBucket === "greeting" ? _greetingSignature(staticReply) : null,
+        _topo_greeting_reuse_detected: _greetingReuseDetected,
+        _topo_recent_opening_matched: _recentOpeningMatched
+      };
+    }
+
+    // Collection stages → fallback por stage (nome/nacionalidade/rnm/rnm_validade)
+    const _cogStage = String(config?.cognitiveStage || "").toLowerCase();
+    const _stageFallback = _MINIMAL_FALLBACK_SPEECH_MAP.get(_cogStage) || (fallback && fallback[0]) || "Pode continuar 😊";
     console.log(JSON.stringify({
-      _tag: "TOPO_SEALED_BUCKET_STATIC_FALLBACK",
-      bucket: _topoBucket,
+      _tag: "TOPO_SEALED_STAGE_FALLBACK",
+      stage: _cogStage,
       retry_count: _retryCount,
       retry_reason: _retryReason,
       last_reply_snippet: (_lastReply || "").slice(0, 100)
     }));
-    // ── Store greeting signature even on static fallback ──
-    if (_topoBucket === "greeting") {
-      _storeGreetingSignature(staticReply, st);
-    }
     return {
-      speech: [staticReply],
-      source: "cognitive_real", // surface cognitiva do bucket, não mecânica
+      speech: [_stageFallback],
+      source: "cognitive_real", // surface cognitiva por stage, não mecânica
       _topo_sealed: true,
       _topo_bucket: _topoBucket,
       _topo_retry_count: _retryCount,
       _topo_retry_reason: _retryReason,
-      _topo_surface_source: "bucket_static",
-      _topo_reply_semantic_class: _classifyReplySemanticClass(staticReply),
-      _topo_bucket_incompatible: _bucketIncompatible,
-      _topo_how_it_works_explanation_present: _topoBucket === "how_it_works" && _classifyReplySemanticClass(staticReply) === "explanation",
-      _topo_reused_opening_shell: false, // static replies are pre-validated
-      _topo_greeting_variant_key: _topoBucket === "greeting" ? _greetingSignature(staticReply) : null,
-      _topo_greeting_reuse_detected: _greetingReuseDetected,
-      _topo_recent_opening_matched: _recentOpeningMatched
+      _topo_surface_source: "stage_fallback",
+      _topo_reply_semantic_class: null,
+      _topo_bucket_incompatible: false,
+      _topo_how_it_works_explanation_present: false,
+      _topo_reused_opening_shell: false,
+      _topo_greeting_variant_key: null,
+      _topo_greeting_reuse_detected: false,
+      _topo_recent_opening_matched: false
     };
   }
 

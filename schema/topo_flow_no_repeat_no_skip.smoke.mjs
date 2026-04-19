@@ -124,15 +124,15 @@ test("7. step() passes nextStage to renderCognitiveSpeech", () => {
   assert.ok(callPattern.test(workerSrc), "step() should pass nextStage");
 });
 
-test("8. renderCognitiveSpeech has transition-out guard for TOP_SEALED_STAGES", () => {
-  // Verify the new guard exists in the source
-  const guardPattern = /nextStage\s*&&\s*nextStage\s*!==\s*stage\s*&&\s*!TOP_SEALED_STAGES\.has\(nextStage\)/;
-  assert.ok(guardPattern.test(workerSrc), "transition-out guard should exist in renderCognitiveSpeech");
+test("8. renderCognitiveSpeech has transition guard for inter-stage advancement", () => {
+  // Verify the new guard exists for advancing to another stage within the sealed zone
+  const guardPattern = /nextStage\s*&&\s*nextStage\s*!==\s*stage/;
+  assert.ok(guardPattern.test(workerSrc), "transition guard should exist in renderCognitiveSpeech");
 });
 
-test("9. Transition-out path uses buildMinimalCognitiveFallback with nextStage", () => {
-  const pathPattern = /return buildMinimalCognitiveFallback\(nextStage,\s*rawArr,\s*roundIntent\)/;
-  assert.ok(pathPattern.test(workerSrc), "transition-out should use nextStage for fallback");
+test("9. Transition path uses _MINIMAL_FALLBACK_SPEECH_MAP for next stage fallback", () => {
+  const pathPattern = /_MINIMAL_FALLBACK_SPEECH_MAP\.get\(nextStage\)/;
+  assert.ok(pathPattern.test(workerSrc), "transition should use nextStage for stage-specific fallback");
 });
 
 console.log("\n── BUG 2: inicio_nome must NOT be skipped ──");
@@ -142,17 +142,17 @@ test("10. _MINIMAL_FALLBACK_SPEECH_MAP has inicio_nome fallback with 'nome'", ()
   assert.ok(mapPattern.test(workerSrc), "inicio_nome fallback should mention 'nome'");
 });
 
-test("11. inicio_nome is NOT in TOP_SEALED_STAGES", () => {
+test("11. inicio_nome IS in TOP_SEALED_STAGES (surface soberana unificada)", () => {
   const sealedPattern = /const TOP_SEALED_STAGES\s*=\s*new Set\(\[.*?\]\)/;
   const match = workerSrc.match(sealedPattern);
   assert.ok(match, "TOP_SEALED_STAGES should exist");
-  assert.ok(!match[0].includes("inicio_nome"), "inicio_nome must NOT be in TOP_SEALED_STAGES");
+  assert.ok(match[0].includes("inicio_nome"), "inicio_nome must be in TOP_SEALED_STAGES");
 });
 
-test("12. inicio_nacionalidade is NOT in TOP_SEALED_STAGES", () => {
+test("12. inicio_nacionalidade IS in TOP_SEALED_STAGES (surface soberana unificada)", () => {
   const sealedPattern = /const TOP_SEALED_STAGES\s*=\s*new Set\(\[.*?\]\)/;
   const match = workerSrc.match(sealedPattern);
-  assert.ok(!match[0].includes("inicio_nacionalidade"), "inicio_nacionalidade must NOT be in TOP_SEALED_STAGES");
+  assert.ok(match[0].includes("inicio_nacionalidade"), "inicio_nacionalidade must be in TOP_SEALED_STAGES");
 });
 
 console.log("\n── FLOW PROOF: inicio_programa → inicio_nome → inicio_nacionalidade ──");

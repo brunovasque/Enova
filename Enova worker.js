@@ -19792,7 +19792,7 @@ const _TOPO_BUCKET_STATIC_REPLIES = Object.freeze({
   greeting:       "Oi! Sou a Enova, do Minha Casa Minha Vida 😊 Posso te ajudar a entender se você se enquadra. Já conhece o programa ou quer que eu explique?",
   identity:       "Sou a Enova, assistente do Minha Casa Minha Vida 😊 Fui feita pra te ajudar a entender se você se enquadra e te guiar pelo processo. Como posso te ajudar?",
   how_it_works:   "O Minha Casa Minha Vida é um programa do governo que ajuda na entrada e reduz a parcela conforme a renda da família 😊 Vou analisar seu perfil e mostrar quanto de subsídio você pode ter. Quer seguir? Me diz *sim*.",
-  program_choice: "Você já conhece o Minha Casa Minha Vida ou quer que eu explique? 😊",
+  program_choice: "Você já sabe como funciona o Minha Casa Minha Vida ou quer que eu explique? 😊",
   unknown_topo:   "Oi! Sou a Enova, do Minha Casa Minha Vida. Posso te ajudar? Já conhece o programa ou quer que eu explique?"
 });
 

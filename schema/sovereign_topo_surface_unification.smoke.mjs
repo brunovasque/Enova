@@ -61,7 +61,7 @@ test("A2. TOP_SEALED_BUCKET_STAGES contém apenas os 3 stages de abertura", () =
   assert.ok(match[1].includes('"inicio_programa"'), "inicio_programa must be in bucket stages");
   assert.ok(!match[1].includes('"inicio_nome"'), "inicio_nome must NOT be in bucket stages");
   assert.ok(!match[1].includes('"inicio_nacionalidade"'), "inicio_nacionalidade must NOT be in bucket stages");
-  assert.ok(!match[1].includes('"inicio_rnm"'), "inicio_rnm must NOT be in bucket stages (excluding inicio_rnm_validade)");
+  assert.ok(!match[1].includes('"inicio_rnm"'), "inicio_rnm must NOT be in bucket stages");
 });
 
 test("A3. TOP_SEALED_MODE está ativo", () => {

@@ -67,9 +67,9 @@ const isNo = new Function("text", `
 function detectInicioProgramaIntent(userText) {
   const nt = normalizeText(userText || "");
   const sim = isYes(nt) ||
-    nt.includes("ja sei") || nt.includes("ja sei") ||
+    nt.includes("ja sei") ||
     nt.includes("sei sim") || nt.includes("to ligado") ||
-    nt.includes("to ligado") || nt.includes("conheco") ||
+    nt.includes("conheco") ||
     nt.includes("conheço") || nt.includes("já conheço") ||
     nt.includes("ja conheco");
   const nao = isNo(nt) ||

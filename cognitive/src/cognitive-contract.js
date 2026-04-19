@@ -354,7 +354,7 @@ const STAGE_CONTRACT_METADATA = Object.freeze({
     stage_micro_rules: [
       "Perguntar se o estrangeiro possui RNM (Registro Nacional Migratório)",
       "Aceitar: sim ou não",
-      "Se não possui, informar inelegibilidade (RNM indeterminado é obrigatório para MCMV)",
+      "Se não possui, informar inelegibilidade (RNM é obrigatório para MCMV)",
       "Se possui, seguir para verificar validade do RNM",
       "NÃO coletar outros dados aqui"
     ],

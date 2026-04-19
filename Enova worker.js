@@ -4474,13 +4474,13 @@ const _MINIMAL_FALLBACK_SPEECH_MAP = new Map([
   ["inicio_nacionalidade",    "Você é *brasileiro(a)* ou *estrangeiro(a)*?"],
   ["inicio_rnm",              "Você tem RNM — Registro Nacional Migratório? *Sim* ou *não*."],
   ["inicio_rnm_validade",     "Seu RNM é *com validade* ou *indeterminado*?"],
-  ["estado_civil",            "Me conta seu estado civil — solteiro(a), casado(a) ou outra situação? 😊"],
-  ["confirmar_casamento",     "Esse casamento é civil registrado ou é união estável?"],
-  ["financiamento_conjunto",  "Vai financiar sozinho(a) ou junto com alguém?"],
-  ["somar_renda_solteiro",    "Sobre renda — vai somar com parceiro(a), familiar, ou segue sozinho(a)? 😊"],
-  ["somar_renda_familiar",    "Com quem quer somar renda? Pode ser pai, mãe, irmão(ã) ou tio(a)."],
-  ["quem_pode_somar",         "Quem mais compõe renda com você?"],
-  ["interpretar_composicao",  "Me conta mais sobre a composição de renda. 😊"],
+  ["estado_civil",            "Agora me fala seu estado civil."],
+  ["confirmar_casamento",     "É casamento civil no papel ou união estável?"],
+  ["financiamento_conjunto",  "Vocês pretendem comprar juntos, só você, ou apenas se precisar?"],
+  ["somar_renda_solteiro",    "Pretende usar só sua renda, somar com parceiro(a), ou com familiar?"],
+  ["somar_renda_familiar",    "Qual familiar quer considerar? Pai, mãe, irmão(ã), tio(a), avô/avó…"],
+  ["quem_pode_somar",         "De quem pretende usar renda pra somar? Parceiro(a)? Familiar? Ou só você?"],
+  ["interpretar_composicao",  "Pretende usar renda de parceiro(a), familiar, ou seguir sozinho(a)?"],
   ["verificar_averbacao",     "Você tem averbação de separação judicial?"],
   ["verificar_inventario",    "O inventário já foi concluído?"],
   // ── gates_finais — mesma exigência técnica, fala cognitiva ──
@@ -30842,17 +30842,16 @@ case "interpretar_composicao": {
       details: { userText }
     });
 
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
+    // ── COGNITIVE SURFACE: interpretar_composicao:dependente_guard ──
+    const _icDependenteSpeech = await getHappyPathSpeech(env, "interpretar_composicao:dependente_guard", st);
+    setHappyPathFlags(st, _icDependenteSpeech);
 
     return step(
       env,
       st,
       [
-        "Entendi 👍",
-        "Filhos/dependentes ajudam no perfil, mas **não entram para somar renda** no financiamento.",
-        "Você pretende usar renda de *parceiro(a)*, *familiar* (pai/mãe/irmão), ou seguir *sozinho(a)*?"
+        "Filhos e dependentes ajudam no perfil, mas não entram pra somar renda.",
+        "Pretende usar renda de parceiro(a), familiar, ou seguir sozinho(a)?"
       ],
       "interpretar_composicao"
     );
@@ -30878,18 +30877,16 @@ case "interpretar_composicao": {
       details: { userText }
     });
 
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
+    // ── COGNITIVE SURFACE: interpretar_composicao:parceiro ──
+    const _icParceiroSpeech = await getHappyPathSpeech(env, "interpretar_composicao:parceiro", st);
+    setHappyPathFlags(st, _icParceiroSpeech);
 
     return step(
       env,
       st,
       [
-        "Perfeito! 👏",
-        "Vamos considerar renda com parceiro(a).",
-        "Ele(a) trabalha com **CLT, autônomo(a) ou servidor(a)?**"
+        "Beleza, vamos considerar renda com parceiro(a).",
+        "Ele(a) é CLT, autônomo(a) ou servidor(a)?"
       ],
       "regime_trabalho_parceiro"
     );
@@ -30911,18 +30908,16 @@ case "interpretar_composicao": {
       details: { userText }
     });
 
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
+    // ── COGNITIVE SURFACE: interpretar_composicao:familiar ──
+    const _icFamiliarSpeech = await getHappyPathSpeech(env, "interpretar_composicao:familiar", st);
+    setHappyPathFlags(st, _icFamiliarSpeech);
 
     return step(
       env,
       st,
       [
-        "Show! 👏",
-        "Vamos compor renda com familiar.",
-        "Qual familiar você quer usar? (pai, mãe, irmão, irmã, tio, tia, avô, avó...)"
+        "Beleza, vamos compor com familiar.",
+        "Qual familiar? Pai, mãe, irmão(ã), tio(a), avô/avó…"
       ],
       "somar_renda_familiar"
     );
@@ -30949,18 +30944,16 @@ case "interpretar_composicao": {
       details: { userText }
     });
 
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
+    // ── COGNITIVE SURFACE: interpretar_composicao:sozinho ──
+    const _icSozinhoSpeech = await getHappyPathSpeech(env, "interpretar_composicao:sozinho", st);
+    setHappyPathFlags(st, _icSozinhoSpeech);
 
     return step(
       env,
       st,
       [
-        "Entendi! 👍",
-        "Então seguimos só com a sua renda.",
-        "Você declara **Imposto de Renda**?"
+        "Certo, seguimos só com a sua renda.",
+        "Você declara Imposto de Renda?"
       ],
       "ir_declarado"
     );
@@ -30979,12 +30972,17 @@ case "interpretar_composicao": {
     details: { userText }
   });
 
+  // ── COGNITIVE SURFACE: interpretar_composicao:fallback ──
+  const _icFallbackSpeech = await getHappyPathSpeech(env, "interpretar_composicao:fallback", st, {
+    cognitiveMessage: t || "hmm"
+  });
+  setHappyPathFlags(st, _icFallbackSpeech);
+
   return step(
     env,
     st,
     [
-      "Pra gente seguir certinho 😊",
-      "Você pretende usar renda de *parceiro(a)*, *familiar*, ou seguir *sozinho(a)*?"
+      "Pretende usar renda de parceiro(a), familiar, ou seguir sozinho(a)?"
     ],
     "interpretar_composicao"
   );
@@ -31071,18 +31069,16 @@ case "quem_pode_somar": {
       details: { userText }
     });
 
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (guard path) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
+    // ── COGNITIVE SURFACE: quem_pode_somar:dependente_guard ──
+    const _qpsDependenteSpeech = await getHappyPathSpeech(env, "quem_pode_somar:dependente_guard", st);
+    setHappyPathFlags(st, _qpsDependenteSpeech);
 
     return step(
       env,
       st,
       [
-        "Perfeito, entendi 👍",
-        "Filhos/dependentes ajudam no perfil, mas **não entram para somar renda** no financiamento.",
-        "Pra seguir aqui, me diga: você vai somar com **parceiro(a)**, com **familiar** (pai/mãe/irmão), ou vai seguir **só com sua renda**?"
+        "Filhos e dependentes ajudam no perfil, mas não entram pra somar renda.",
+        "Vai somar com parceiro(a), com familiar, ou vai seguir só com sua renda?"
       ],
       "quem_pode_somar"
     );
@@ -31111,18 +31107,17 @@ case "quem_pode_somar": {
       funil_status: "ineligivel"
     });
 
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
+    // ── COGNITIVE SURFACE: quem_pode_somar:sozinho ──
+    const _qpsSozinhoSpeech = await getHappyPathSpeech(env, "quem_pode_somar:sozinho", st);
+    setHappyPathFlags(st, _qpsSozinhoSpeech);
 
     return step(
       env,
       st,
       [
-        "Entendi! 👍",
-        "Sem alguém para compor renda, com esse valor não consigo seguir no fluxo de aprovação agora.",
-        "Vou te explicar certinho o que isso significa e como você pode resolver, se quiser."
+        "Entendi.",
+        "Sem alguém pra compor renda, com esse valor não consigo seguir no fluxo de aprovação agora.",
+        "Vou te explicar o que isso significa."
       ],
       "fim_ineligivel"
     );
@@ -31144,18 +31139,16 @@ case "quem_pode_somar": {
       details: { userText }
     });
 
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
+    // ── COGNITIVE SURFACE: quem_pode_somar:parceiro ──
+    const _qpsParceiroSpeech = await getHappyPathSpeech(env, "quem_pode_somar:parceiro", st);
+    setHappyPathFlags(st, _qpsParceiroSpeech);
 
     return step(
       env,
       st,
       [
-        "Perfeito! 👏",
-        "Vamos considerar renda com parceiro(a).",
-        "Ele(a) trabalha com **CLT, autônomo(a) ou servidor(a)?**"
+        "Beleza, vamos considerar renda com parceiro(a).",
+        "Ele(a) é CLT, autônomo(a) ou servidor(a)?"
       ],
       "regime_trabalho_parceiro"
     );
@@ -31216,18 +31209,18 @@ case "quem_pode_somar": {
           p3_tipo: null
         });
 
-        // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-        st.__cognitive_reply_prefix = null;
-        st.__cognitive_v2_takes_final = false;
-        st.__speech_arbiter_source = null;
+        // ── COGNITIVE SURFACE: quem_pode_somar:familiar_mae_pai ──
+        const _qpsFamMaePaiSpeech = await getHappyPathSpeech(env, "quem_pode_somar:familiar_mae_pai", st, {
+          cognitiveMessage: `quero somar com ${famLabel}`
+        });
+        setHappyPathFlags(st, _qpsFamMaePaiSpeech);
 
         return step(
           env,
           st,
           [
-            "Show! 👌",
-            `Beleza, vamos considerar ${famLabel}.`,
-            "Seus pais são casados no civil atualmente? (sim/não)"
+            `Certo, vamos considerar ${famLabel}.`,
+            "Seus pais são casados no civil atualmente?"
           ],
           "pais_casados_civil_pergunta"
         );
@@ -31235,18 +31228,18 @@ case "quem_pode_somar": {
 
       await upsertState(env, st.wa_id, { familiar_tipo: fam, p2_tipo: "familiar" });
 
-      // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path) ──
-      st.__cognitive_reply_prefix = null;
-      st.__cognitive_v2_takes_final = false;
-      st.__speech_arbiter_source = null;
+      // ── COGNITIVE SURFACE: quem_pode_somar:familiar_outros ──
+      const _qpsFamOutrosSpeech = await getHappyPathSpeech(env, "quem_pode_somar:familiar_outros", st, {
+        cognitiveMessage: `quero somar com ${famLabel}`
+      });
+      setHappyPathFlags(st, _qpsFamOutrosSpeech);
 
       return step(
         env,
         st,
         [
-          "Show! 👌",
-          `Beleza, vamos considerar ${famLabel}.`,
-          `${famLabel.charAt(0).toUpperCase() + famLabel.slice(1)} trabalha com **carteira assinada**, é **autônomo(a)** ou **servidor(a)**?`
+          `Certo, vamos considerar ${famLabel}.`,
+          `${famLabel.charAt(0).toUpperCase() + famLabel.slice(1)} é CLT, autônomo(a) ou servidor(a)?`
         ],
         "regime_trabalho_parceiro_familiar"
       );
@@ -31263,18 +31256,16 @@ case "quem_pode_somar": {
       details: { userText }
     });
 
-    // ── COMPOSICAO_SEALED: limpa flags transitórias antes do render (happy path familiar genérico) ──
-    st.__cognitive_reply_prefix = null;
-    st.__cognitive_v2_takes_final = false;
-    st.__speech_arbiter_source = null;
+    // ── COGNITIVE SURFACE: quem_pode_somar:familiar_generico ──
+    const _qpsFamGenSpeech = await getHappyPathSpeech(env, "quem_pode_somar:familiar_generico", st);
+    setHappyPathFlags(st, _qpsFamGenSpeech);
 
     return step(
       env,
       st,
       [
-        "Show! 👌",
-        "Vamos compor renda com familiar.",
-        "Qual familiar você quer usar? (pai, mãe, irmão, irmã, tio, tia, avô, avó...)"
+        "Beleza, vamos compor com familiar.",
+        "Qual familiar? Pai, mãe, irmão(ã), tio(a), avô/avó…"
       ],
       "somar_renda_familiar"
     );
@@ -31293,17 +31284,18 @@ case "quem_pode_somar": {
     details: { userText }
   });
 
-  // ── COMPOSICAO_SEALED: fallback determinístico — sem casca cognitiva inline ──
-  // A fala do fallback é determinada exclusivamente pelo mecânico ou pelo
-  // cognitive assist geral (se tiver disparado com boa resposta).
-  // Não setar flags parciais que criam competição implícita.
+  // ── COGNITIVE SURFACE: quem_pode_somar:fallback ──
+  const _qpsFallbackSpeech = await getHappyPathSpeech(env, "quem_pode_somar:fallback", st, {
+    cognitiveMessage: tRaw || "hmm"
+  });
+  setHappyPathFlags(st, _qpsFallbackSpeech);
 
   return step(
     env,
     st,
     [
-      "De quem você pretende usar renda para somar? 😊",
-      "Parceiro(a)? Familiar? Ou só você mesmo?"
+      "De quem você pretende usar renda pra somar?",
+      "Parceiro(a)? Familiar? Ou só você?"
     ],
     "quem_pode_somar"
   );

@@ -27355,28 +27355,33 @@ case "parceiro_tem_renda": {
     }
   });
 
-  // Exemplos cobertos: "ele trabalha", "não tem renda", "só eu trabalho"
-  const tParceiroBase = String(t || "")
-  .normalize("NFD")
-  .replace(/[\u0300-\u036f]/g, "")
-  .toLowerCase()
-  .replace(/[^a-z0-9\s]/g, " ")
-  .replace(/\s+/g, " ")
-  .trim();
+    // Exemplos cobertos: "ele trabalha", "não tem renda", "só eu trabalho"
+const rawParceiro = String(userText || "").trim();
 
-const nao =
-  isNo(t) ||
-  /\b(nao|nao tem|sem renda|desempregad[oa]|do lar|nao trabalha|s[oó]\s+eu\s+trabalho|apenas eu trabalho|so eu trabalho)\b/i.test(tParceiroBase) ||
-  /\b(ele|ela)\s+(nao\s+trabalha|nao\s+tem\s+renda|esta\s+desempregad[oa])\b/i.test(tParceiroBase);
+  // Versão simplificada (sem acento/ruído) para regex mais robusto
+  const tParceiroBase = rawParceiro
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
-const sim =
-  !nao && (
-    isYes(t) ||
-    /\b(sim|tem sim|possui|possui renda|ganha|trabalha|tem renda)\b/i.test(tParceiroBase) ||
-    /\b(ele|ela)\s+(trabalha|tem renda|ganha)\b/i.test(tParceiroBase) ||
-    /\b(ele|ela)\s+e\s+(clt|autonom[oa]|servidor[oa]?|mei|registrad[oa])\b/i.test(tParceiroBase) ||
-    /\b(clt|autonom[oa]|servidor[oa]?|mei)\b/i.test(tParceiroBase)
-  );
+  const nao =
+    isNo(rawParceiro) ||
+    /\b(nao|nao tem|sem renda|desempregad[oa]|do lar|nao trabalha|s[oó]\s+eu\s+trabalho|apenas eu trabalho|so eu trabalho)\b/i.test(tParceiroBase) ||
+    /\b(ele|ela)\s+(nao\s+trabalha|nao\s+tem\s+renda|esta\s+desempregad[oa])\b/i.test(tParceiroBase);
+
+  const sim =
+    !nao && (
+      // pega "sim" mesmo com vírgula/ponto e frases tipo "sim, ele trabalha"
+      /\b(sim)\b/i.test(tParceiroBase) ||
+      isYes(rawParceiro) ||
+      /\b(tem|tem sim|possui|possui renda|ganha|trabalha|tem renda)\b/i.test(tParceiroBase) ||
+      /\b(ele|ela)\s+(trabalha|tem renda|ganha)\b/i.test(tParceiroBase) ||
+      /\b(ele|ela)\s+e\s+(clt|autonom[oa]|servidor[oa]?|mei|registrad[oa])\b/i.test(tParceiroBase) ||
+      /\b(clt|autonom[oa]|servidor[oa]?|mei)\b/i.test(tParceiroBase)
+    );
 
   // -----------------------------
   // PARCEIRO TEM RENDA

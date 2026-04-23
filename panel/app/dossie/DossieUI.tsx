@@ -1,10 +1,10 @@
 "use client";
 
 import Image from "next/image";
-import { useCallback, useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import styles from "./dossie.module.css";
-import { fetchDossieDataAction } from "./actions";
+import { fetchDossieDataAction, lookupWaIdByCorrespondenteAction } from "./actions";
 import type { DossieData, DocItem } from "./actions";
 
 // ── Links operacionais fixos (config, não é dado de negócio) ──
@@ -17,15 +17,19 @@ const LINKS_OPERACIONAIS = [
   { titulo: "Consulta Matrícula", desc: "Cartório de Registro", url: "#" },
 ];
 
+// ── Abas do dossiê ──
+type ActiveTab = "visao_geral" | "financeiro" | "documentos" | "retorno";
+
 // ── Helpers de apresentação ──
 
 function formatBRL(value: number | null): string {
-  if (value === null || value === undefined) return "Não informado";
+  if (value === null || value === undefined) return "—";
+  if (!Number.isFinite(value)) return "—";
   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 }
 
 function formatDate(dateStr: string | null): string {
-  if (!dateStr) return "Não informado";
+  if (!dateStr) return "—";
   try {
     return new Intl.DateTimeFormat("pt-BR", {
       day: "2-digit",
@@ -33,12 +37,12 @@ function formatDate(dateStr: string | null): string {
       year: "numeric",
     }).format(new Date(dateStr));
   } catch {
-    return "Não informado";
+    return "—";
   }
 }
 
 function formatFaseConversa(fase: string | null): string {
-  if (!fase) return "Não informado";
+  if (!fase) return "—";
   const labels: Record<string, string> = {
     envio_docs: "Envio de Documentos",
     aguardando_retorno_correspondente: "Aguardando Retorno",
@@ -67,11 +71,7 @@ function formatStatusAnalise(status: string | null): string {
 
 function formatStatusAtencao(status: string | null): string {
   if (!status) return "Normal";
-  const labels: Record<string, string> = {
-    ON_TIME: "Normal",
-    DUE_SOON: "Atenção",
-    OVERDUE: "Alta",
-  };
+  const labels: Record<string, string> = { ON_TIME: "Normal", DUE_SOON: "Atenção", OVERDUE: "Urgente" };
   return labels[status] ?? status;
 }
 
@@ -100,499 +100,614 @@ function docTipoLabel(tipo: string | null): string {
   return labels[tipo.toLowerCase()] ?? tipo.replace(/_/g, " ");
 }
 
+function participantLabel(participante: string | null): string {
+  if (!participante) return "—";
+  const labels: Record<string, string> = { p1: "Titular", p2: "Cônjuge / Parceiro", p3: "Familiar" };
+  return labels[participante] ?? participante;
+}
+
 function buildDocLabel(item: DocItem): string {
   const tipo = docTipoLabel(item.tipo);
   if (!item.participante || item.participante === "p1") return tipo;
-  const partLabels: Record<string, string> = {
-    p1: "Titular",
-    p2: "Cônjuge / Parceiro",
-    p3: "Familiar",
-  };
+  const partLabels: Record<string, string> = { p1: "Titular", p2: "Cônjuge / Parceiro", p3: "Familiar" };
   const part = partLabels[item.participante] ?? item.participante;
   return `${tipo} — ${part}`;
 }
 
-function participantLabel(participante: string | null): string {
-  if (!participante) return "—";
-  const labels: Record<string, string> = {
-    p1: "Titular",
-    p2: "Cônjuge / Parceiro",
-    p3: "Familiar",
-  };
-  return labels[participante] ?? participante;
-}
-
-function buildTitulo(data: DossieData): string {
-  const programa = data.faixa_renda_programa ?? data.parceiro_analise;
-  if (programa) return `Financiamento Habitacional — ${programa}`;
-  return "Financiamento Habitacional";
-}
-
 function buildInstrucoes(data: DossieData): string[] {
-  // Usa retorno_correspondente_bruto/motivo se disponível
-  if (data.retorno_correspondente_bruto) {
-    return [data.retorno_correspondente_bruto];
-  }
-  if (data.motivo_retorno_analise) {
-    return [data.motivo_retorno_analise];
-  }
-  // Gera instruções a partir dos documentos pendentes reais
+  if (data.retorno_correspondente_bruto) return [data.retorno_correspondente_bruto];
+  if (data.motivo_retorno_analise) return [data.motivo_retorno_analise];
   const pendentes = data.docs_itens_pendentes ?? data.docs_faltantes ?? [];
   const instrucoes: string[] = [];
   if (pendentes.length > 0) {
-    instrucoes.push(
-      `Solicitar ao cliente os seguintes documentos pendentes: ${pendentes.map((d) => buildDocLabel(d)).join(", ")}.`,
-    );
-    instrucoes.push(
-      "Após recebimento dos documentos pendentes, submeter dossiê completo para análise de crédito na instituição.",
-    );
-    instrucoes.push(
-      "Acompanhar prazo de validade dos documentos já enviados — alguns podem expirar antes da conclusão.",
-    );
+    instrucoes.push(`Solicitar ao cliente: ${pendentes.map((d) => buildDocLabel(d)).join(", ")}.`);
+    instrucoes.push("Submeter dossiê completo após recebimento de todos os documentos pendentes.");
+    instrucoes.push("Verificar validade dos documentos já enviados antes da submissão.");
   }
-  if (instrucoes.length === 0) {
-    instrucoes.push("Aguardando atualização das instruções pelo correspondente.");
-  }
+  if (instrucoes.length === 0) instrucoes.push("Aguardando instruções do correspondente.");
   return instrucoes;
 }
 
-function buildTags(data: DossieData): string[] {
-  const tags: string[] = [];
-  if (data.faixa_renda_programa) tags.push(data.faixa_renda_programa);
-  if (data.composicao_pessoa === "casal" || data.composicao_pessoa?.includes("parceiro")) {
-    tags.push("Composição de Renda");
-  }
-  const rendaRef = data.renda_total_para_fluxo ?? data.renda_total_analise ?? data.renda_familiar_analise;
-  if (rendaRef && rendaRef > 0) tags.push("Renda Comprovada");
-  if (data.retorno_correspondente_status === "aprovado") tags.push("Aprovado");
-  if (data.aguardando_retorno_correspondente) tags.push("Aguardando Retorno");
-  if (data.processo_enviado_correspondente) tags.push("Enviado ao Correspondente");
-  if (tags.length === 0) tags.push("Financiamento Habitacional");
-  return tags;
+function deriveRendaTotal(data: DossieData): number | null {
+  return data.renda_total_analise ?? data.renda_familiar_analise ?? data.renda_total_para_fluxo;
 }
 
-function buildResumo(data: DossieData): string {
-  if (data.dossie_resumo) return data.dossie_resumo;
-  if (data.resumo_perfil_analise) return data.resumo_perfil_analise;
-  if (data.resumo_retorno_analise) return data.resumo_retorno_analise;
-  return "Aguardando atualização do resumo do caso.";
+function derivePendenciasCount(data: DossieData): number {
+  return (data.docs_itens_pendentes ?? data.docs_faltantes ?? []).length;
 }
 
-// Icons como componentes inline
-const CheckCircleIcon = () => (
-  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+function statusAnaliseClass(status: string | null): string {
+  if (!status) return styles.badgeInfo;
+  if (status.startsWith("APPROVED")) return styles.badgeSuccess;
+  if (status.startsWith("REJECTED")) return styles.badgeDanger;
+  if (status === "ADJUSTMENT_REQUIRED") return styles.badgeWarning;
+  return styles.badgeInfo;
+}
+
+function atencaoClass(status: string | null): string {
+  if (status === "OVERDUE") return styles.badgeDanger;
+  if (status === "DUE_SOON") return styles.badgeWarning;
+  return styles.badgeSuccess;
+}
+
+// ── SVG Icons ──
+const IconCheck = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
   </svg>
 );
-
-const FileTextIcon = () => (
-  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+const IconUser = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+  </svg>
+);
+const IconBriefcase = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+  </svg>
+);
+const IconDoc = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
   </svg>
 );
-
-const ClipboardIcon = () => (
-  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+const IconRefresh = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
   </svg>
 );
-
-const ChartIcon = () => (
-  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-  </svg>
-);
-
-const DocumentIcon = () => (
-  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-  </svg>
-);
-
-const ClockIcon = () => (
-  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+const IconClock = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
   </svg>
 );
-
-const LinkIcon = () => (
-  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+const IconWarning = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+  </svg>
+);
+const IconLink = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
   </svg>
 );
 
-const ListIcon = () => (
-  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-  </svg>
-);
+// ── Sub-components ──
 
-const TagIcon = () => (
-  <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-    <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-  </svg>
-);
-
-// ── Estado de loading / erro ──
-
-function LoadingState() {
+function MetricCard({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div className={styles.container}>
-      <header className={styles.header}>
-        <div className={styles.headerLeft}>
-          <Image src="/images/enova-logo.png" alt="Enova" width={120} height={48} className={styles.logo} priority />
-          <div className={styles.headerTitle}>
-            <h1>Dossiê do Correspondente</h1>
-            <span>Carregando...</span>
+    <div className={`${styles.metricCard} ${accent ? styles.metricCardAccent : ""}`}>
+      <span className={styles.metricLabel}>{label}</span>
+      <span className={styles.metricValue}>{value}</span>
+    </div>
+  );
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className={styles.infoRow}>
+      <span className={styles.infoLabel}>{label}</span>
+      <span className={styles.infoValue}>{value}</span>
+    </div>
+  );
+}
+
+function SectionCard({ title, icon, children, noPad }: { title: string; icon: ReactNode; children: ReactNode; noPad?: boolean }) {
+  return (
+    <div className={styles.sectionCard}>
+      <div className={styles.sectionHeader}>
+        <span className={styles.sectionIcon}>{icon}</span>
+        <h3 className={styles.sectionTitle}>{title}</h3>
+      </div>
+      <div className={noPad ? styles.sectionBodyNoPad : styles.sectionBody}>{children}</div>
+    </div>
+  );
+}
+
+// ── Loading / Error / NoWaId States ──
+
+function AppShell({ subtitle, children }: { subtitle?: string; children: ReactNode }) {
+  return (
+    <div className={styles.root}>
+      <header className={styles.topbar}>
+        <div className={styles.topbarBrand}>
+          <Image src="/images/enova-logo.png" alt="Enova" width={100} height={40} className={styles.logo} priority />
+          <div className={styles.topbarTitle}>
+            <span className={styles.topbarName}>Dossiê do Correspondente</span>
+            {subtitle && <span className={styles.topbarSub}>{subtitle}</span>}
           </div>
         </div>
       </header>
-      <main className={styles.main}>
-        <div style={{ textAlign: "center", padding: "80px 20px", color: "#6b7c93" }}>
-          Carregando dados do dossiê...
-        </div>
-      </main>
+      {children}
     </div>
+  );
+}
+
+function LoadingState() {
+  return (
+    <AppShell subtitle="Carregando...">
+      <div className={styles.centerState}>
+        <div className={styles.spinner} />
+        <p className={styles.centerText}>Carregando dados do dossiê...</p>
+      </div>
+    </AppShell>
   );
 }
 
 function ErrorState({ message }: { message: string }) {
   return (
-    <div className={styles.container}>
-      <header className={styles.header}>
-        <div className={styles.headerLeft}>
-          <Image src="/images/enova-logo.png" alt="Enova" width={120} height={48} className={styles.logo} priority />
-          <div className={styles.headerTitle}>
-            <h1>Dossiê do Correspondente</h1>
-            <span>Erro ao carregar</span>
-          </div>
-        </div>
-      </header>
-      <main className={styles.main}>
-        <div style={{ textAlign: "center", padding: "80px 20px", color: "#e86c6c" }}>
-          {message}
-        </div>
-      </main>
-    </div>
+    <AppShell subtitle="Erro ao carregar">
+      <div className={styles.centerState}>
+        <div className={styles.errorIcon}><IconWarning /></div>
+        <p className={styles.errorText}>{message}</p>
+      </div>
+    </AppShell>
   );
 }
 
 function NoWaIdState() {
+  const router = useRouter();
   const [inputVal, setInputVal] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [errMsg, setErrMsg] = useState<string | null>(null);
+
+  async function handleOpen() {
+    const phone = inputVal.trim();
+    if (!phone) return;
+    setLoading(true);
+    setErrMsg(null);
+    try {
+      const result = await lookupWaIdByCorrespondenteAction(phone);
+      if (result.ok && result.wa_id) {
+        router.push(`/dossie?wa_id=${encodeURIComponent(result.wa_id)}`);
+      } else {
+        setErrMsg(result.error ?? "Correspondente não encontrado.");
+      }
+    } catch {
+      setErrMsg("Erro ao buscar. Tente novamente.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <div className={styles.container}>
-      <header className={styles.header}>
-        <div className={styles.headerLeft}>
-          <Image src="/images/enova-logo.png" alt="Enova" width={120} height={48} className={styles.logo} priority />
-          <div className={styles.headerTitle}>
-            <h1>Dossiê do Correspondente</h1>
-            <span>Visão consolidada do caso para análise operacional</span>
-          </div>
-        </div>
-      </header>
-      <main className={styles.main}>
-        <div style={{ textAlign: "center", padding: "80px 20px", color: "#6b7c93" }}>
-          <p style={{ marginBottom: "24px", fontSize: "1rem" }}>Informe o wa_id do lead para abrir o dossiê.</p>
-          <div style={{ display: "flex", gap: "12px", justifyContent: "center", alignItems: "center" }}>
+    <AppShell subtitle="Visão consolidada do caso">
+      <div className={styles.centerState}>
+        <div className={styles.searchBox}>
+          <p className={styles.searchTitle}>Informe o telefone do correspondente para abrir o dossiê com o pré cadastro.</p>
+          <div className={styles.searchRow}>
             <input
               type="text"
-              placeholder="Ex: 5511999990000"
+              placeholder="Ex: 41997780518"
               value={inputVal}
-              onChange={(e) => setInputVal(e.target.value)}
-              style={{
-                background: "#1a2332",
-                border: "1px solid #2d4060",
-                borderRadius: "8px",
-                color: "#e6edf3",
-                padding: "10px 16px",
-                fontSize: "0.95rem",
-                minWidth: "240px",
-              }}
+              onChange={(e) => { setInputVal(e.target.value); setErrMsg(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") handleOpen(); }}
+              className={styles.searchInput}
+              disabled={loading}
             />
-            <a
-              href={inputVal ? `/dossie?wa_id=${encodeURIComponent(inputVal.trim())}` : "#"}
-              style={{
-                background: "#1a4080",
-                color: "#e6edf3",
-                borderRadius: "8px",
-                padding: "10px 20px",
-                textDecoration: "none",
-                fontSize: "0.95rem",
-              }}
+            <button
+              onClick={handleOpen}
+              className={styles.searchBtn}
+              disabled={loading || !inputVal.trim()}
             >
-              Abrir Dossiê
-            </a>
+              {loading ? "Buscando…" : "Abrir Dossiê"}
+            </button>
           </div>
+          {errMsg && <p className={styles.searchError}>{errMsg}</p>}
         </div>
-      </main>
+      </div>
+    </AppShell>
+  );
+}
+
+// ── Tab: Visão Geral ──
+function TabVisaoGeral({ data }: { data: DossieData }) {
+  const renda = deriveRendaTotal(data);
+  const resumo = data.dossie_resumo ?? data.resumo_perfil_analise ?? data.resumo_retorno_analise ?? "Aguardando atualização do resumo do caso.";
+  const correspondente = data.correspondente_retorno ?? data.corr_lock_correspondente_wa_id ?? "—";
+  const instrucoes = buildInstrucoes(data);
+
+  return (
+    <div className={styles.tabContent}>
+      {/* Metrics row */}
+      <div className={styles.metricsRow}>
+        <MetricCard label="Fase Atual" value={formatFaseConversa(data.fase_conversa)} accent />
+        <MetricCard label="Renda Total" value={formatBRL(renda)} />
+        <MetricCard label="Docs Pendentes" value={String(derivePendenciasCount(data))} />
+        <MetricCard label="Correspondente" value={correspondente} />
+        <MetricCard label="Base / Origem" value={data.current_base ?? "—"} />
+      </div>
+
+      {/* Resumo do caso */}
+      <SectionCard title="Resumo do Caso" icon={<IconDoc />}>
+        <p className={styles.resumoText}>{resumo}</p>
+      </SectionCard>
+
+      {/* Perfil do cliente */}
+      <SectionCard title="Perfil do Cliente" icon={<IconUser />}>
+        <div className={styles.infoGrid}>
+          <InfoRow label="Nome" value={data.nome ?? "—"} />
+          <InfoRow label="Estado Civil" value={data.estado_civil ?? "—"} />
+          <InfoRow label="Composição" value={data.composicao_pessoa ?? "—"} />
+          <InfoRow label="Regime de Trabalho" value={data.regime_trabalho ?? "—"} />
+          <InfoRow label="Nacionalidade" value={data.nacionalidade ?? "—"} />
+          <InfoRow label="Status Funil" value={data.funil_status ?? "—"} />
+        </div>
+      </SectionCard>
+
+      {/* Status operacional */}
+      <SectionCard title="Status Operacional" icon={<IconClock />}>
+        <div className={styles.infoGrid}>
+          <InfoRow label="Próxima Ação" value={data.proxima_acao ?? "—"} />
+          <InfoRow label="Prazo" value={formatDate(data.prazo_proxima_acao)} />
+          <InfoRow label="Atenção" value={formatStatusAtencao(data.status_atencao)} />
+          <InfoRow label="Envio Correspondente" value={data.processo_enviado_correspondente ? "Enviado" : "Não enviado"} />
+          <InfoRow label="Aguardando Retorno" value={data.aguardando_retorno_correspondente ? "Sim" : "Não"} />
+          <InfoRow label="Data Abertura" value={formatDate(data.created_at)} />
+        </div>
+      </SectionCard>
+
+      {/* Instruções de retorno */}
+      <SectionCard title="Instruções de Retorno ao Correspondente" icon={<IconWarning />}>
+        <ol className={styles.instrucoesList}>
+          {instrucoes.map((instrucao, index) => (
+            <li key={index} className={styles.instrucaoItem}>
+              <span className={styles.instrucaoNum}>{index + 1}</span>
+              <span className={styles.instrucaoText}>{instrucao}</span>
+            </li>
+          ))}
+        </ol>
+      </SectionCard>
+
+      {/* Links operacionais */}
+      <SectionCard title="Links Operacionais" icon={<IconLink />}>
+        <div className={styles.linksGrid}>
+          {LINKS_OPERACIONAIS.map((link, index) => (
+            <a key={index} href={link.url} className={styles.linkCard} target="_blank" rel="noopener noreferrer">
+              <span className={styles.linkTitle}>{link.titulo}</span>
+              <span className={styles.linkDesc}>{link.desc} <IconLink /></span>
+            </a>
+          ))}
+        </div>
+      </SectionCard>
     </div>
   );
 }
 
-// ── Componente principal com dados reais ──
-
-function DossieContent({ data }: { data: DossieData }) {
-  const titulo = buildTitulo(data);
-  const status = formatStatusAnalise(data.status_analise) || formatFaseConversa(data.fase_conversa);
-  const prioridade = formatStatusAtencao(data.status_atencao);
-  const protocolo = data.pre_cadastro_numero ?? data.wa_id;
-  const correspondente = data.correspondente_retorno ?? data.corr_lock_correspondente_wa_id ?? "Não informado";
-  const abertura = formatDate(data.created_at);
-  const prazo = data.prazo_proxima_acao ? formatDate(data.prazo_proxima_acao) : (data.data_retorno_analise ? formatDate(data.data_retorno_analise) : "Aguardando atualização");
-  const resumo = buildResumo(data);
-  const tags = buildTags(data);
-  const instrucoes = buildInstrucoes(data);
-
-  const rendaRef = data.renda_total_analise ?? data.renda_familiar_analise ?? data.renda_total_para_fluxo;
-  const nivelRisco = data.faixa_perfil_analise ?? data.nivel_risco_reserva ?? "Não informado";
-
-  const docsRecebidos: DocItem[] = data.docs_itens_recebidos ?? [];
-  const docsPendentes: DocItem[] = data.docs_itens_pendentes ?? data.docs_faltantes ?? [];
-
-  const badgeStatusClass = (() => {
-    if (!data.status_analise) return styles.badgeAnalise;
-    if (data.status_analise.startsWith("APPROVED")) return styles.badgeAprovado;
-    if (data.status_analise.startsWith("REJECTED")) return styles.badgeReprovado;
-    return styles.badgeAnalise;
-  })();
-
-  const badgePrioClass =
-    data.status_atencao === "OVERDUE" ? styles.badgePrioridade
-    : data.status_atencao === "DUE_SOON" ? styles.badgeMedia
-    : styles.badgeAprovado;
+// ── Tab: Financeiro ──
+function TabFinanceiro({ data }: { data: DossieData }) {
+  const renda = deriveRendaTotal(data);
+  const envioAnalise = data.data_envio_analise ? formatDate(data.data_envio_analise) : "—";
+  const retornoAnalise = data.data_retorno_analise ? formatDate(data.data_retorno_analise) : "—";
 
   return (
-    <div className={styles.container}>
-      {/* Header */}
-      <header className={styles.header}>
-        <div className={styles.headerLeft}>
-          <Image
-            src="/images/enova-logo.png"
-            alt="Enova"
-            width={120}
-            height={48}
-            className={styles.logo}
-            priority
-          />
-          <div className={styles.headerTitle}>
-            <h1>Dossiê do Correspondente</h1>
-            <span>Visão consolidada do caso para análise operacional</span>
+    <div className={styles.tabContent}>
+      {/* Valores do financiamento */}
+      <SectionCard title="Valores do Financiamento" icon={<IconBriefcase />}>
+        <div className={styles.financGrid}>
+          <div className={styles.financItem}>
+            <span className={styles.financLabel}>Programa</span>
+            <span className={styles.financValue}>{data.faixa_renda_programa ?? data.parceiro_analise ?? "—"}</span>
+          </div>
+          <div className={styles.financItem}>
+            <span className={styles.financLabel}>Ticket / Valor do Imóvel</span>
+            <span className={`${styles.financValue} ${styles.financValueHighlight}`}>{formatBRL(data.ticket_desejado_analise)}</span>
+          </div>
+          <div className={styles.financItem}>
+            <span className={styles.financLabel}>Valor do Financiamento</span>
+            <span className={`${styles.financValue} ${styles.financValueHighlight}`}>{formatBRL(data.valor_financiamento_aprovado)}</span>
+          </div>
+          <div className={styles.financItem}>
+            <span className={styles.financLabel}>Subsídio Estimado</span>
+            <span className={`${styles.financValue} ${styles.financValueAccent}`}>{formatBRL(data.valor_subsidio_aprovado)}</span>
+          </div>
+          <div className={styles.financItem}>
+            <span className={styles.financLabel}>Entrada Informada</span>
+            <span className={styles.financValue}>{formatBRL(data.valor_entrada_informada)}</span>
+          </div>
+          <div className={styles.financItem}>
+            <span className={styles.financLabel}>Parcela Estimada</span>
+            <span className={styles.financValue}>{formatBRL(data.valor_parcela_informada)}</span>
+          </div>
+          <div className={styles.financItem}>
+            <span className={styles.financLabel}>Renda Familiar (Total)</span>
+            <span className={styles.financValue}>{formatBRL(renda)}</span>
+          </div>
+          <div className={styles.financItem}>
+            <span className={styles.financLabel}>Renda para Fluxo</span>
+            <span className={styles.financValue}>{formatBRL(data.renda_total_para_fluxo)}</span>
+          </div>
+          <div className={styles.financItem}>
+            <span className={styles.financLabel}>Taxa de Juros</span>
+            <span className={styles.financValue}>Aguardando atualização</span>
+          </div>
+          <div className={styles.financItem}>
+            <span className={styles.financLabel}>Prazo</span>
+            <span className={styles.financValue}>Aguardando atualização</span>
           </div>
         </div>
-        <div className={styles.headerRight}>
-          <div className={styles.headerBadge}>
-            <CheckCircleIcon />
-            wa_id: {data.wa_id}
+      </SectionCard>
+
+      {/* Análise de crédito */}
+      <SectionCard title="Análise de Crédito" icon={<IconDoc />}>
+        <div className={styles.infoGrid}>
+          <InfoRow label="Status da Análise" value={formatStatusAnalise(data.status_analise)} />
+          <InfoRow label="Parceiro / Instituição" value={data.parceiro_analise ?? "—"} />
+          <InfoRow label="Score de Perfil" value={data.score_perfil_analise !== null ? String(data.score_perfil_analise) : "—"} />
+          <InfoRow label="Faixa de Perfil" value={data.faixa_perfil_analise ?? "—"} />
+          <InfoRow label="Nível de Risco" value={data.nivel_risco_reserva ?? "—"} />
+          <InfoRow label="Resumo Análise" value={data.resumo_retorno_analise ?? "—"} />
+          <InfoRow label="Data Envio" value={envioAnalise} />
+          <InfoRow label="Data Retorno" value={retornoAnalise} />
+        </div>
+      </SectionCard>
+    </div>
+  );
+}
+
+// ── Tab: Documentos ──
+function TabDocumentos({ data }: { data: DossieData }) {
+  const docsRecebidos: DocItem[] = data.docs_itens_recebidos ?? [];
+  const docsPendentes: DocItem[] = data.docs_itens_pendentes ?? data.docs_faltantes ?? [];
+  const prazoText = data.prazo_proxima_acao ? formatDate(data.prazo_proxima_acao) : (data.data_retorno_analise ? formatDate(data.data_retorno_analise) : "—");
+
+  return (
+    <div className={styles.tabContent}>
+      {/* Status geral de documentos */}
+      <div className={styles.docsStatusBar}>
+        <span className={styles.docsStatusItem}>
+          <span className={styles.docsStatusDot} data-status="recebido" />
+          {docsRecebidos.length} recebido{docsRecebidos.length !== 1 ? "s" : ""}
+        </span>
+        <span className={styles.docsStatusItem}>
+          <span className={styles.docsStatusDot} data-status="pendente" />
+          {docsPendentes.length} pendente{docsPendentes.length !== 1 ? "s" : ""}
+        </span>
+        {data.docs_status && (
+          <span className={styles.docsStatusItem}>
+            <span className={styles.docsStatusLabel}>Status:</span>
+            {data.docs_status}
+          </span>
+        )}
+      </div>
+
+      {/* Documentos Recebidos */}
+      <SectionCard title={`Documentos Recebidos (${docsRecebidos.length})`} icon={<IconCheck />} noPad>
+        {docsRecebidos.length === 0 ? (
+          <p className={styles.emptyMsg}>Nenhum documento recebido registrado.</p>
+        ) : (
+          <table className={styles.docTable}>
+            <thead>
+              <tr>
+                <th>Documento</th>
+                <th>Participante</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {docsRecebidos.map((doc, index) => (
+                <tr key={index}>
+                  <td className={styles.docNameCell}>
+                    <span className={styles.docIcon}><IconDoc /></span>
+                    {docTipoLabel(doc.tipo)}
+                  </td>
+                  <td>{participantLabel(doc.participante)}</td>
+                  <td><span className={`${styles.chipSmall} ${styles.badgeSuccess}`}>Recebido</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </SectionCard>
+
+      {/* Documentos Pendentes */}
+      <SectionCard title={`Documentos Pendentes (${docsPendentes.length})`} icon={<IconWarning />} noPad>
+        {docsPendentes.length === 0 ? (
+          <p className={styles.emptyMsg}>Nenhum documento pendente. Pasta completa ✓</p>
+        ) : (
+          <table className={styles.docTable}>
+            <thead>
+              <tr>
+                <th>Documento</th>
+                <th>Participante</th>
+                <th>Prazo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {docsPendentes.map((doc, index) => (
+                <tr key={index}>
+                  <td className={styles.docNameCell}>
+                    <span className={`${styles.docIcon} ${styles.docIconWarning}`}><IconWarning /></span>
+                    {docTipoLabel(doc.tipo)}
+                  </td>
+                  <td>{participantLabel(doc.participante)}</td>
+                  <td><span className={`${styles.chipSmall} ${styles.badgeDanger}`}>{prazoText}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </SectionCard>
+    </div>
+  );
+}
+
+// ── Tab: Retorno Correspondente ──
+function TabRetorno({ data }: { data: DossieData }) {
+  const statusRetorno = data.retorno_correspondente_status ?? data.correspondente_retorno ?? "—";
+  return (
+    <div className={styles.tabContent}>
+      {/* Status do retorno */}
+      <SectionCard title="Status do Retorno" icon={<IconRefresh />}>
+        <div className={styles.retornoHero}>
+          <div className={styles.retornoStatusRow}>
+            <span className={styles.retornoLabel}>Status:</span>
+            <span className={`${styles.chipMedium} ${data.retorno_correspondente_status ? styles.badgeInfo : styles.badgeNeutral}`}>
+              {statusRetorno}
+            </span>
           </div>
+          {data.aguardando_retorno_correspondente && (
+            <div className={`${styles.alertBox} ${styles.alertInfo}`}>
+              <IconClock />
+              Aguardando retorno do correspondente
+            </div>
+          )}
+          {data.processo_enviado_correspondente && !data.aguardando_retorno_correspondente && (
+            <div className={`${styles.alertBox} ${styles.alertSuccess}`}>
+              <IconCheck />
+              Processo enviado ao correspondente
+            </div>
+          )}
+        </div>
+      </SectionCard>
+
+      {/* Detalhes do retorno */}
+      <SectionCard title="Detalhes do Retorno" icon={<IconDoc />}>
+        <div className={styles.infoGrid}>
+          <InfoRow label="Correspondente (wa_id)" value={data.corr_lock_correspondente_wa_id ?? "—"} />
+          <InfoRow label="Retorno (CRM)" value={data.correspondente_retorno ?? "—"} />
+          <InfoRow label="Status Retorno" value={data.retorno_correspondente_status ?? "—"} />
+          <InfoRow label="Motivo" value={data.retorno_correspondente_motivo ?? "—"} />
+        </div>
+        {data.retorno_correspondente_bruto && (
+          <div className={styles.retornoBruto}>
+            <span className={styles.retornoBrutoLabel}>Retorno Bruto (Correspondente):</span>
+            <p className={styles.retornoBrutoText}>{data.retorno_correspondente_bruto}</p>
+          </div>
+        )}
+        {data.motivo_retorno_analise && (
+          <div className={styles.retornoBruto}>
+            <span className={styles.retornoBrutoLabel}>Motivo Retorno (Análise):</span>
+            <p className={styles.retornoBrutoText}>{data.motivo_retorno_analise}</p>
+          </div>
+        )}
+        {data.resumo_retorno_analise && (
+          <div className={styles.retornoBruto}>
+            <span className={styles.retornoBrutoLabel}>Resumo do Retorno:</span>
+            <p className={styles.retornoBrutoText}>{data.resumo_retorno_analise}</p>
+          </div>
+        )}
+      </SectionCard>
+    </div>
+  );
+}
+
+// ── Componente principal com dados ──
+
+function DossieContent({ data }: { data: DossieData }) {
+  const [activeTab, setActiveTab] = useState<ActiveTab>("visao_geral");
+
+  const protocolo = data.pre_cadastro_numero ?? data.wa_id;
+  const programa = data.faixa_renda_programa ?? data.parceiro_analise;
+  const statusLabel = formatStatusAnalise(data.status_analise);
+  const atencaoLabel = formatStatusAtencao(data.status_atencao);
+  const pendencias = derivePendenciasCount(data);
+
+  const tabs: { id: ActiveTab; label: string; badge?: number }[] = [
+    { id: "visao_geral", label: "Visão Geral" },
+    { id: "financeiro", label: "Financeiro" },
+    { id: "documentos", label: "Documentos", badge: pendencias > 0 ? pendencias : undefined },
+    { id: "retorno", label: "Retorno" },
+  ];
+
+  return (
+    <div className={styles.root}>
+      {/* Topbar */}
+      <header className={styles.topbar}>
+        <div className={styles.topbarBrand}>
+          <Image src="/images/enova-logo.png" alt="Enova" width={100} height={40} className={styles.logo} priority />
+          <div className={styles.topbarTitle}>
+            <span className={styles.topbarName}>Dossiê do Correspondente</span>
+            <span className={styles.topbarSub}>Visão consolidada para análise operacional</span>
+          </div>
+        </div>
+        <div className={styles.topbarMeta}>
+          <span className={`${styles.chipSmall} ${statusAnaliseClass(data.status_analise)}`}>{statusLabel}</span>
+          <span className={`${styles.chipSmall} ${atencaoClass(data.status_atencao)}`}>{atencaoLabel}</span>
+          <span className={styles.topbarWaId}>wa_id: {data.wa_id}</span>
         </div>
       </header>
 
-      {/* Main Content */}
+      {/* Hero / Capa */}
+      <div className={styles.heroSection}>
+        <div className={styles.heroInner}>
+          <div className={styles.heroLeft}>
+            <p className={styles.heroProtocolo}>Protocolo {protocolo}</p>
+            <h1 className={styles.heroNome}>{data.nome ?? "Cliente não identificado"}</h1>
+            <p className={styles.heroPrograma}>{programa ? `Financiamento Habitacional — ${programa}` : "Financiamento Habitacional"}</p>
+          </div>
+          <div className={styles.heroRight}>
+            <div className={styles.heroBadgeGroup}>
+              {data.aguardando_retorno_correspondente && (
+                <span className={`${styles.chipMedium} ${styles.badgeWarning}`}>
+                  <IconClock /> Aguardando
+                </span>
+              )}
+              {data.processo_enviado_correspondente && (
+                <span className={`${styles.chipMedium} ${styles.badgeInfo}`}>
+                  <IconCheck /> Enviado
+                </span>
+              )}
+              {pendencias > 0 && (
+                <span className={`${styles.chipMedium} ${styles.badgeDanger}`}>
+                  <IconWarning /> {pendencias} pendência{pendencias !== 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className={styles.tabsBar}>
+        <div className={styles.tabsInner}>
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              className={`${styles.tabBtn} ${activeTab === tab.id ? styles.tabBtnActive : ""}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+              {tab.badge !== undefined && (
+                <span className={styles.tabBadge}>{tab.badge}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Tab content */}
       <main className={styles.main}>
-        {/* Hero Card */}
-        <section className={styles.heroCard}>
-          <div className={styles.heroHeader}>
-            <div className={styles.heroTitleGroup}>
-              <span className={styles.heroProtocol}>Protocolo {protocolo}</span>
-              <h2 className={styles.heroTitle}>{titulo}</h2>
-              <p className={styles.heroSubtitle}>{data.fase_conversa ? formatFaseConversa(data.fase_conversa) : "Aguardando atualização"}</p>
-            </div>
-            <div className={styles.heroBadges}>
-              <span className={`${styles.badge} ${badgeStatusClass}`}>{status}</span>
-              <span className={`${styles.badge} ${badgePrioClass}`}>Prioridade {prioridade}</span>
-            </div>
-          </div>
-
-          <div className={styles.heroGrid}>
-            <div className={styles.heroGridItem}>
-              <span className={styles.heroGridLabel}>Cliente</span>
-              <span className={styles.heroGridValue}>{data.nome ?? "Não informado"}</span>
-            </div>
-            <div className={styles.heroGridItem}>
-              <span className={styles.heroGridLabel}>Correspondente</span>
-              <span className={styles.heroGridValue}>{correspondente}</span>
-            </div>
-            <div className={styles.heroGridItem}>
-              <span className={styles.heroGridLabel}>Base / Origem</span>
-              <span className={styles.heroGridValue}>{data.current_base ?? "Não informado"}</span>
-            </div>
-            <div className={styles.heroGridItem}>
-              <span className={styles.heroGridLabel}>Abertura / Prazo</span>
-              <span className={styles.heroGridValue}>{abertura} — {prazo}</span>
-            </div>
-          </div>
-        </section>
-
-        {/* Resumo do Caso */}
-        <section className={styles.sectionCard}>
-          <div className={styles.sectionHeader}>
-            <div className={styles.sectionIcon}><FileTextIcon /></div>
-            <h3 className={styles.sectionTitle}>Resumo do Caso</h3>
-          </div>
-          <p className={styles.resumoText}>{resumo}</p>
-        </section>
-
-        {/* Perfil Técnico Consolidado */}
-        <section className={styles.sectionCard}>
-          <div className={styles.sectionHeader}>
-            <div className={styles.sectionIcon}><ChartIcon /></div>
-            <h3 className={styles.sectionTitle}>Perfil Técnico Consolidado</h3>
-          </div>
-          <div className={styles.perfilGrid}>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Nº do Processo / wa_id</span>
-              <span className={styles.perfilValue}>{data.pre_cadastro_numero ?? data.wa_id}</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Instituição</span>
-              <span className={styles.perfilValue}>Aguardando atualização</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Programa</span>
-              <span className={styles.perfilValue}>{data.faixa_renda_programa ?? data.parceiro_analise ?? "Não informado"}</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Valor do Imóvel (Ticket)</span>
-              <span className={styles.perfilValue}>{formatBRL(data.ticket_desejado_analise)}</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Valor do Financiamento</span>
-              <span className={styles.perfilValue}>{formatBRL(data.valor_financiamento_aprovado)}</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Subsídio Estimado</span>
-              <span className={styles.perfilValue}>{formatBRL(data.valor_subsidio_aprovado)}</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Renda Mensal Familiar</span>
-              <span className={styles.perfilValue}>{formatBRL(rendaRef)}</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Parcela Estimada</span>
-              <span className={styles.perfilValue}>{formatBRL(data.valor_parcela_informada)}</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Taxa de Juros</span>
-              <span className={styles.perfilValue}>Aguardando atualização</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Prazo</span>
-              <span className={styles.perfilValue}>Aguardando atualização</span>
-            </div>
-            <div className={styles.perfilItem}>
-              <span className={styles.perfilLabel}>Nível de Risco / Faixa</span>
-              <span className={styles.perfilValue}>{nivelRisco}</span>
-            </div>
-          </div>
-          <div className={styles.perfilTags}>
-            {tags.map((tag, index) => (
-              <span key={index} className={styles.perfilTag}>
-                <TagIcon />
-                {tag}
-              </span>
-            ))}
-          </div>
-        </section>
-
-        {/* Documentos Recebidos */}
-        <section className={styles.sectionCard}>
-          <div className={styles.sectionHeader}>
-            <div className={styles.sectionIcon}><DocumentIcon /></div>
-            <h3 className={styles.sectionTitle}>Documentos Recebidos</h3>
-          </div>
-          {docsRecebidos.length === 0 ? (
-            <p style={{ color: "#6b7c93", padding: "12px 0" }}>Nenhum documento recebido registrado.</p>
-          ) : (
-            <table className={styles.docTable}>
-              <thead>
-                <tr>
-                  <th>Documento</th>
-                  <th>Participante</th>
-                </tr>
-              </thead>
-              <tbody>
-                {docsRecebidos.map((doc, index) => (
-                  <tr key={index}>
-                    <td>
-                      <div className={styles.docName}>
-                        <div className={`${styles.docIcon} ${styles.docIconPdf}`}>
-                          <DocumentIcon />
-                        </div>
-                        {docTipoLabel(doc.tipo)}
-                      </div>
-                    </td>
-                    <td>{participantLabel(doc.participante)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </section>
-
-        {/* Documentos Pendentes */}
-        <section className={styles.sectionCard}>
-          <div className={styles.sectionHeader}>
-            <div className={styles.sectionIcon}><ClockIcon /></div>
-            <h3 className={styles.sectionTitle}>Documentos Pendentes</h3>
-          </div>
-          {docsPendentes.length === 0 ? (
-            <p style={{ color: "#6b7c93", padding: "12px 0" }}>Nenhum documento pendente. Pasta completa.</p>
-          ) : (
-            <div className={styles.pendentesList}>
-              {docsPendentes.map((doc, index) => (
-                <div key={index} className={styles.pendenteItem}>
-                  <div className={styles.pendenteInfo}>
-                    <div className={styles.pendenteIcon}><ClipboardIcon /></div>
-                    <div className={styles.pendenteTexts}>
-                      <span className={styles.pendenteName}>{buildDocLabel(doc)}</span>
-                      <span className={styles.pendentePrazo}>Prazo: {prazo}</span>
-                    </div>
-                  </div>
-                  <span className={`${styles.badge} ${styles.badgePrioridade}`}>Pendente</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Links Operacionais */}
-        <section className={styles.sectionCard}>
-          <div className={styles.sectionHeader}>
-            <div className={styles.sectionIcon}><LinkIcon /></div>
-            <h3 className={styles.sectionTitle}>Links Operacionais</h3>
-          </div>
-          <div className={styles.linksGrid}>
-            {LINKS_OPERACIONAIS.map((link, index) => (
-              <a key={index} href={link.url} className={styles.linkCard} target="_blank" rel="noopener noreferrer">
-                <div className={styles.linkIcon}><LinkIcon /></div>
-                <div className={styles.linkTexts}>
-                  <span className={styles.linkTitle}>{link.titulo}</span>
-                  <span className={styles.linkDesc}>{link.desc}</span>
-                </div>
-              </a>
-            ))}
-          </div>
-        </section>
-
-        {/* Instruções de Retorno */}
-        <section className={styles.sectionCard}>
-          <div className={styles.sectionHeader}>
-            <div className={styles.sectionIcon}><ListIcon /></div>
-            <h3 className={styles.sectionTitle}>Instruções de Retorno ao Correspondente</h3>
-          </div>
-          <div className={styles.instrucoesList}>
-            {instrucoes.map((instrucao, index) => (
-              <div key={index} className={styles.instrucaoItem}>
-                <span className={styles.instrucaoNum}>{index + 1}</span>
-                <span className={styles.instrucaoText}>{instrucao}</span>
-              </div>
-            ))}
-          </div>
-        </section>
+        {activeTab === "visao_geral" && <TabVisaoGeral data={data} />}
+        {activeTab === "financeiro" && <TabFinanceiro data={data} />}
+        {activeTab === "documentos" && <TabDocumentos data={data} />}
+        {activeTab === "retorno" && <TabRetorno data={data} />}
       </main>
     </div>
   );
 }
+
+// ── Export principal ──
 
 export default function DossieUI() {
   const searchParams = useSearchParams();
